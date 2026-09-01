@@ -1,0 +1,14 @@
+# Read-only inspection needs no host-execution allowlist: it runs inside the
+# workspace sandbox. Publishing remains an explicit user decision.
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Publishing commits requires explicit confirmation",
+)
+
+# Repository deletion is never delegated to Codex.
+prefix_rule(
+    pattern = ["gh", "repo", "delete"],
+    decision = "forbidden",
+    justification = "Delete repositories manually outside Codex",
+)
