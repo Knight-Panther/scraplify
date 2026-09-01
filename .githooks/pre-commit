@@ -1,0 +1,49 @@
+#!/usr/bin/env sh
+
+# Review the working tree before a commit. Codex has no staged-only review
+# target, so this includes staged, unstaged, and untracked changes.
+set -u
+
+if git diff --cached --quiet; then
+  exit 0
+fi
+
+if ! command -v codex >/dev/null 2>&1; then
+  echo "pre-commit: Codex CLI was not found on PATH; blocking commit." >&2
+  echo "Install/configure Codex, then try the commit again." >&2
+  exit 1
+fi
+
+review_log=$(mktemp "${TMPDIR:-/tmp}/scraplify-codex-log.XXXXXX") || {
+  echo "pre-commit: could not create a temporary log file; blocking commit." >&2
+  exit 1
+}
+review_result=$(mktemp "${TMPDIR:-/tmp}/scraplify-codex-result.XXXXXX") || {
+  rm -f "$review_log"
+  echo "pre-commit: could not create a temporary result file; blocking commit." >&2
+  exit 1
+}
+trap 'rm -f "$review_log" "$review_result"' EXIT HUP INT TERM
+
+echo "pre-commit: running Codex review of all uncommitted changes..."
+if codex exec review --uncommitted --output-last-message "$review_result" >"$review_log" 2>&1; then
+  review_status=0
+else
+  review_status=$?
+fi
+
+if [ "$review_status" -ne 0 ]; then
+  cat "$review_log"
+  echo "pre-commit: Codex review failed (exit $review_status); blocking commit." >&2
+  exit 1
+fi
+
+cat "$review_result"
+
+if grep -qE '\[P[01]\]' "$review_result"; then
+  echo "pre-commit: Codex found P0/P1 blockers; fix them and try again." >&2
+  exit 1
+fi
+
+echo "pre-commit: no P0/P1 blockers found."
+exit 0
