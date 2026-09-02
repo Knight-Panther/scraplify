@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CrawlRunSchema,
   DuplicateCandidateSchema,
+  isPathAllowed,
+  matchesPathRule,
   OpportunityRevisionSchema,
   OpportunitySchema,
   OpportunitySourceMembershipSchema,
@@ -443,7 +445,7 @@ describe('SourcePolicySchema', () => {
     sourceId: uuid(),
     policyVersion: 'v1',
     allowedAcquisitionModes: ['http'] as const,
-    allowedPathPatterns: ['/announcement/'],
+    allowedPathPatterns: [{ pattern: '/announcement/', match: 'prefix' as const }],
     disallowedPathPatterns: [],
     disallowedHosts: [],
     authenticationScope: 'none' as const,
@@ -474,5 +476,103 @@ describe('SourcePolicySchema', () => {
   it('rejects an empty allowedPathPatterns — default-deny, not default-allow (§5.3)', () => {
     const result = SourcePolicySchema.safeParse({ ...validPolicy, allowedPathPatterns: [] });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('matchesPathRule / isPathAllowed', () => {
+  it('exact match only matches the literal path, not descendants', () => {
+    const rule = { pattern: '/', match: 'exact' as const };
+    expect(matchesPathRule('/', rule)).toBe(true);
+    expect(matchesPathRule('/jobseeker/sign-in', rule)).toBe(false);
+  });
+
+  it('prefix match covers the pattern and everything beneath it', () => {
+    const rule = { pattern: '/announcement/', match: 'prefix' as const };
+    expect(matchesPathRule('/announcement/491744/slug', rule)).toBe(true);
+    expect(matchesPathRule('/announcement/favorites', rule)).toBe(true);
+    expect(matchesPathRule('/customer/59550/avto-reg', rule)).toBe(false);
+  });
+
+  it('decodes percent-encoding before matching, including double-encoding', () => {
+    const rule = { pattern: '/announcement/favorites', match: 'prefix' as const };
+    // %66 -> 'f'; WHATWG URL.pathname preserves this encoding rather than
+    // decoding it, so a naive string comparison would miss it (verified
+    // empirically against Node's URL implementation before this fix).
+    expect(matchesPathRule('/announcement/%66avorites', rule)).toBe(true);
+    // %2F -> '/': a differently-shaped encoding of the same real path.
+    expect(matchesPathRule('/announcement%2Ffavorites', rule)).toBe(true);
+    // %2566 -> %66 -> 'f': double-encoded, one layer deeper than reported.
+    expect(matchesPathRule('/announcement/%2566avorites', rule)).toBe(true);
+  });
+
+  it('fails closed (does not match, does not throw) on undecodable input', () => {
+    const rule = { pattern: '/announcement/favorites', match: 'prefix' as const };
+    // A lone '%' is not a valid percent-encoding and makes
+    // decodeURIComponent throw; matchesPathRule must swallow that and
+    // report no match, not propagate the exception or default to allow.
+    expect(() => matchesPathRule('/announcement/%zzfavorites', rule)).not.toThrow();
+    expect(matchesPathRule('/announcement/%zzfavorites', rule)).toBe(false);
+  });
+
+  it('fails closed on a dot-segment that only appears after decoding', () => {
+    // %252e%252e decodes in two rounds to '..' — it never looks like a
+    // dot-segment to WHATWG URL parsing (which only normalizes at most one
+    // decode layer), so this must be checked after this module's own
+    // repeated decoding, not assumed already handled upstream.
+    const rule = { pattern: '/announcement/', match: 'prefix' as const };
+    expect(matchesPathRule('/announcement/%252e%252e/jobseeker/sign-in', rule)).toBe(false);
+    // A literal, single-encoded '..' must also be rejected, not just the
+    // double-encoded form the review specifically reported.
+    expect(matchesPathRule('/announcement/../jobseeker/sign-in', rule)).toBe(false);
+  });
+
+  it('does not false-positive on a legitimate segment that merely contains a dot', () => {
+    // '..' as a whole segment is a traversal marker; 'file.pdf' is not —
+    // containsDotSegment must distinguish "is exactly . or .." from
+    // "contains a . character somewhere".
+    const rule = { pattern: '/announcement/', match: 'prefix' as const };
+    expect(matchesPathRule('/announcement/attachment/file.pdf', rule)).toBe(true);
+  });
+
+  it('isPathAllowed: disallow always wins over allow', () => {
+    const policy = {
+      allowedPathPatterns: [{ pattern: '/', match: 'exact' as const }],
+      disallowedPathPatterns: [{ pattern: '/data/clients/', match: 'prefix' as const }],
+    };
+    // '/' itself matches the exact allow rule and no disallow rule.
+    expect(isPathAllowed(policy, '/')).toBe(true);
+    // A path could only reach the disallow branch if it also matched an
+    // allow rule elsewhere; this confirms disallow still wins when it does.
+    const overlapping = {
+      allowedPathPatterns: [{ pattern: '/data/clients/', match: 'prefix' as const }],
+      disallowedPathPatterns: [{ pattern: '/data/clients/', match: 'prefix' as const }],
+    };
+    expect(isPathAllowed(overlapping, '/data/clients/report.csv')).toBe(false);
+  });
+
+  it("isPathAllowed reflects hr.ge's real policy: detail pages allowed, auth pages not", () => {
+    const policy = {
+      allowedPathPatterns: [
+        { pattern: '/', match: 'exact' as const },
+        { pattern: '/search-posting', match: 'exact' as const },
+        { pattern: '/announcement/', match: 'prefix' as const },
+        { pattern: '/customer/', match: 'prefix' as const },
+      ],
+      disallowedPathPatterns: [],
+    };
+    expect(isPathAllowed(policy, '/announcement/491744/slug')).toBe(true);
+    expect(isPathAllowed(policy, '/customer/59550/avto-reg')).toBe(true);
+    expect(isPathAllowed(policy, '/search-posting')).toBe(true);
+    expect(isPathAllowed(policy, '/jobseeker/sign-in')).toBe(false);
+    expect(isPathAllowed(policy, '/subscriber/subscription')).toBe(false);
+  });
+
+  it("isPathAllowed reflects jobs.ge's real policy: root allowed, data/clients disallowed", () => {
+    const policy = {
+      allowedPathPatterns: [{ pattern: '/', match: 'exact' as const }],
+      disallowedPathPatterns: [{ pattern: '/data/clients/', match: 'prefix' as const }],
+    };
+    expect(isPathAllowed(policy, '/')).toBe(true);
+    expect(isPathAllowed(policy, '/data/clients/x.csv')).toBe(false);
   });
 });

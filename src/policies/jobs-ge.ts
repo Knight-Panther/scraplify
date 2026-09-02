@@ -20,9 +20,10 @@ export const jobsGePolicy = SourcePolicySchema.parse({
   // boundary beyond this is role-scoped fetching (INDEX/OPPORTUNITY
   // resource roles only, no APPLICATION/form-submission roles enabled) and
   // linkedResources being fully disabled below, not path granularity alone.
-  allowedPathPatterns: ['/'],
-  // robots.txt: "Disallow: /data/clients/" (confirmed 2026-09-02).
-  disallowedPathPatterns: ['/data/clients/'],
+  allowedPathPatterns: [{ pattern: '/', match: 'exact' }],
+  // robots.txt: "Disallow: /data/clients/" (confirmed 2026-09-02). Prefix
+  // match, per the Robots Exclusion Protocol's own semantics for Disallow.
+  disallowedPathPatterns: [{ pattern: '/data/clients/', match: 'prefix' }],
   disallowedHosts: [],
   authenticationScope: 'none',
   rateLimit: {

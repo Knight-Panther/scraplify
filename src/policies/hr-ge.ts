@@ -24,9 +24,20 @@ export const hrGePolicy = SourcePolicySchema.parse({
   // /jobseeker/sign-in, /subscriber/subscription, /cvbox,
   // /announcement/favorites) — those require a session and are out of
   // §4.1's public-unauthenticated-listings scope regardless.
-  allowedPathPatterns: ['/', '/search-posting', '/announcement/', '/customer/'],
-  // robots.txt: "Allow: /" — no disallowed paths (confirmed 2026-09-02).
-  disallowedPathPatterns: [],
+  allowedPathPatterns: [
+    { pattern: '/', match: 'exact' },
+    { pattern: '/search-posting', match: 'exact' },
+    { pattern: '/announcement/', match: 'prefix' },
+    { pattern: '/customer/', match: 'prefix' },
+  ],
+  // robots.txt itself declares no disallowed paths ("Allow: /"), but
+  // '/announcement/favorites' textually starts with the '/announcement/'
+  // prefix allowed above despite being a signed-in user's saved-listings
+  // page, not a detail page — disallow always wins over allow (see
+  // isPathAllowed), so this carves it back out. Prefix match, not exact:
+  // an exact match would leave descendants like '/announcement/favorites/x'
+  // still authorized by the '/announcement/' allow rule above.
+  disallowedPathPatterns: [{ pattern: '/announcement/favorites', match: 'prefix' }],
   disallowedHosts: [],
   authenticationScope: 'none',
   rateLimit: {

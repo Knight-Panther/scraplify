@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isPathAllowed } from '../domain/index.js';
 import { hrGePolicy, hrGeSource, jobsGePolicy, jobsGeSource, sourcePolicies } from './index.js';
 
 describe('source policy records', () => {
@@ -16,7 +17,8 @@ describe('source policy records', () => {
 
   it('jobs.ge policy reflects its confirmed crawl-delay and disallowed path', () => {
     expect(jobsGePolicy.rateLimit.crawlDelaySeconds).toBe(5);
-    expect(jobsGePolicy.disallowedPathPatterns).toContain('/data/clients/');
+    expect(isPathAllowed(jobsGePolicy, '/data/clients/report.csv')).toBe(false);
+    expect(isPathAllowed(jobsGePolicy, '/')).toBe(true);
   });
 
   it("hr.ge policy does not yet allow 'api' pending the acquisition-decision spike", () => {
@@ -36,11 +38,18 @@ describe('source policy records', () => {
   });
 
   it("hr.ge's allow-list covers detail/search/employer pages but excludes auth/account paths", () => {
-    expect(hrGePolicy.allowedPathPatterns).toEqual(
-      expect.arrayContaining(['/search-posting', '/announcement/', '/customer/']),
-    );
-    expect(hrGePolicy.allowedPathPatterns).not.toContain('/jobseeker/sign-in');
-    expect(hrGePolicy.allowedPathPatterns).not.toContain('/subscriber/subscription');
+    expect(
+      isPathAllowed(hrGePolicy, '/announcement/491744/inglisurenovani-gayidvebis-agenti'),
+    ).toBe(true);
+    expect(isPathAllowed(hrGePolicy, '/customer/59550/avto-reg')).toBe(true);
+    expect(isPathAllowed(hrGePolicy, '/search-posting')).toBe(true);
+    expect(isPathAllowed(hrGePolicy, '/jobseeker/sign-in')).toBe(false);
+    expect(isPathAllowed(hrGePolicy, '/subscriber/subscription')).toBe(false);
+    expect(isPathAllowed(hrGePolicy, '/announcement/favorites')).toBe(false);
+    // Descendants of the favorites route must be blocked too, not just the
+    // exact path — a prior fix used an exact-match disallow that left
+    // these still authorized by the '/announcement/' allow prefix.
+    expect(isPathAllowed(hrGePolicy, '/announcement/favorites/491744')).toBe(false);
   });
 
   it('both policies default linked-resource fetching to fully disabled (§16)', () => {
