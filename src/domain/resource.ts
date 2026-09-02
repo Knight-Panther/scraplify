@@ -41,11 +41,20 @@ export const ResourceSchema = z.object({
 });
 export type Resource = z.infer<typeof ResourceSchema>;
 
+/** Relationship types between two resources (§12.6, §16). */
+export const ResourceRelationship = z.enum([
+  'attachment',
+  'application_link',
+  'organization_link',
+  'pagination',
+]);
+export type ResourceRelationship = z.infer<typeof ResourceRelationship>;
+
 /** A relationship between two resources (e.g. a detail page linking an attachment), §12.6. */
 export const ResourceLinkSchema = z.object({
   id: z.string().uuid(),
   parentResourceId: ResourceId,
   childResourceId: ResourceId,
-  relationship: z.enum(['attachment', 'application_link', 'organization_link', 'pagination']),
+  relationship: ResourceRelationship,
 });
 export type ResourceLink = z.infer<typeof ResourceLinkSchema>;

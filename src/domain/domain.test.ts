@@ -11,6 +11,7 @@ import {
   ResourceSchema,
   SourceListingRevisionSchema,
   SourceListingSchema,
+  SourcePolicySchema,
   TaxonomyTermSchema,
 } from './index.js';
 
@@ -433,5 +434,45 @@ describe('remaining domain schemas accept a minimal valid example', () => {
         resolvedAt: null,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('SourcePolicySchema', () => {
+  const validPolicy = {
+    id: uuid(),
+    sourceId: uuid(),
+    policyVersion: 'v1',
+    allowedAcquisitionModes: ['http'] as const,
+    allowedPathPatterns: ['/announcement/'],
+    disallowedPathPatterns: [],
+    disallowedHosts: [],
+    authenticationScope: 'none' as const,
+    rateLimit: { crawlDelaySeconds: 5, maxConcurrency: 1, notes: null },
+    termsUrl: null,
+    robotsUrl: 'https://example.ge/robots.txt',
+    retention: { rawHtmlRetentionDays: null, notes: 'not yet set' },
+    display: { mayRepublishFullContent: false, notes: 'not yet reviewed' },
+    linkedResources: {
+      allowedDestinationHosts: [],
+      allowedRelationshipTypes: [],
+      maxTraversalDepth: 0,
+      maxResourcesPerOpportunity: 0,
+      mayFetchExternalApplicationPages: false,
+      retention: 'none' as const,
+      notes: 'disabled',
+    },
+    reviewDate: now,
+    evidence: ['robots.txt fetched'],
+    notes: '',
+    decisionOwner: 'project owner',
+  };
+
+  it('accepts a policy with at least one allowed path pattern', () => {
+    expect(SourcePolicySchema.safeParse(validPolicy).success).toBe(true);
+  });
+
+  it('rejects an empty allowedPathPatterns — default-deny, not default-allow (§5.3)', () => {
+    const result = SourcePolicySchema.safeParse({ ...validPolicy, allowedPathPatterns: [] });
+    expect(result.success).toBe(false);
   });
 });

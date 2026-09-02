@@ -6,4 +6,5 @@ export * from './organization.js';
 export * from './resource.js';
 export * from './run.js';
 export * from './source-listing.js';
+export * from './source.js';
 export * from './taxonomy.js';
