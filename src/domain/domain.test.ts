@@ -219,22 +219,52 @@ describe('OpportunityRevisionSchema', () => {
   });
 });
 
-describe('remaining domain schemas accept a minimal valid example', () => {
-  it('DuplicateCandidateSchema', () => {
+describe('DuplicateCandidateSchema status/resultingDecision invariant', () => {
+  const base = {
+    id: uuid(),
+    sourceListingIdA: uuid(),
+    sourceListingIdB: uuid(),
+    generatedAt: now,
+    generationMethod: 'pg_trgm' as const,
+    similarityScore: 0.62,
+  };
+
+  it('accepts pending with no decision', () => {
+    expect(
+      DuplicateCandidateSchema.safeParse({ ...base, status: 'pending', resultingDecision: null })
+        .success,
+    ).toBe(true);
+  });
+
+  it('accepts evaluated with a decision', () => {
     expect(
       DuplicateCandidateSchema.safeParse({
-        id: uuid(),
-        sourceListingIdA: uuid(),
-        sourceListingIdB: uuid(),
-        generatedAt: now,
-        generationMethod: 'pg_trgm',
-        similarityScore: 0.62,
-        status: 'pending',
-        resultingDecision: null,
+        ...base,
+        status: 'evaluated',
+        resultingDecision: 'confirmed_same',
       }).success,
     ).toBe(true);
   });
 
+  it('rejects pending with a decision already set', () => {
+    expect(
+      DuplicateCandidateSchema.safeParse({
+        ...base,
+        status: 'pending',
+        resultingDecision: 'confirmed_same',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects evaluated with no decision', () => {
+    expect(
+      DuplicateCandidateSchema.safeParse({ ...base, status: 'evaluated', resultingDecision: null })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('remaining domain schemas accept a minimal valid example', () => {
   it('OrganizationSchema', () => {
     expect(
       OrganizationSchema.safeParse({

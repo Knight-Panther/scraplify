@@ -13,7 +13,8 @@ In progress, on branch `phase-0-policy-and-domain-foundation`.
 ### Exit gate
 
 - [ ] Confirm Node/npm in a fresh non-interactive PowerShell — confirmed via Bash (`node v24.20.0`, `npm 11.19.0`), not yet specifically re-verified in a fresh non-interactive PowerShell as this item's own wording requires
-- [x] Initialize strict TypeScript, validation, formatting, tests, CI — TypeScript/Biome/Vitest done and clean-install-verified; CI (GitHub Actions) not started yet
+- [x] Initialize strict TypeScript, validation, formatting, tests — TypeScript/Biome/Vitest done and clean-install-verified
+- [ ] Initialize CI (GitHub Actions) — not started
 - [ ] Source-policy records for jobs.ge and hr.ge
 - [x] Domain contracts defined: `Opportunity`, `SourceListing`, revision, organization, resource, taxonomy, duplicate, run, incident — `src/domain/`, Zod schemas, runtime-tested
 - [ ] Threat model and approval boundaries documented

@@ -29,9 +29,13 @@ export type SourceListingStatus = z.infer<typeof SourceListingStatus>;
 export const SourceListingSchema = z.object({
   id: SourceListingId,
   sourceId: SourceId,
-  /** Stable external ID from the source, when one exists. Uniqueness key with sourceId. */
-  sourceRecordId: z.string().min(1),
-  canonicalSourceUrl: z.url(),
+  /**
+   * Stable external ID from the source, when one exists — uniqueness key
+   * with sourceId per §12.1. Null for a source with no such ID; adapters
+   * for those sources must derive identity from canonicalSourceUrl instead.
+   */
+  sourceRecordId: z.string().min(1).nullable(),
+  canonicalSourceUrl: z.httpUrl(),
   /** Null until the first revision has been fetched and parsed. */
   currentRevisionId: SourceListingRevisionId.nullable(),
   firstSeenAt: IsoDateTime,
