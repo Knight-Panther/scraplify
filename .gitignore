@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.mcp.json
 
 # JavaScript / TypeScript
 node_modules/
@@ -22,6 +23,9 @@ __pycache__/
 *.log
 tmp/
 temp/
+
+# Generated Playwright MCP state captures (can contain page content/PII)
+.playwright-mcp/
 
 # Editors and operating systems
 .idea/

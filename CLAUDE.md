@@ -1,5 +1,7 @@
 # scraplify
 
+Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a schedule, normalizes and dedupes listings across sources, categorizes them, and later ranks them against an uploaded CV. See [`docs/scraplify-concept.md`](docs/scraplify-concept.md) for the confirmed-final product and architecture concept — read it before making any architectural or scope decision; it takes precedence over `docs/PROJECT_PLAN.md` and `docs/CRAWLING_ARCHITECTURE_2026.md`, which are earlier research kept for reference only. Check [`docs/STATUS.md`](docs/STATUS.md) for what's actually done versus outstanding, and update it in the same commit as any work that changes phase/exit-gate status.
+
 ## Roles
 
 - **Claude (Claude Code): implementer.** Writes and edits all code in this repo.

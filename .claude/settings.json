@@ -12,6 +12,9 @@
   "enabledPlugins": {
     "codex@openai-codex": true
   },
+  "enabledMcpjsonServers": [
+    "context7"
+  ],
   "extraKnownMarketplaces": {
     "openai-codex": {
       "source": {

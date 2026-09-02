@@ -2,8 +2,15 @@
 
 # Allow routine project edits inside Codex's sandbox. Commands that need
 # network access or escape the workspace still require explicit approval.
+# MCP tool calls (e.g. Context7 below) are not gated by this setting.
 sandbox_mode = "workspace-write"
 approval_policy = "on-request"
 
 [sandbox_workspace_write]
 network_access = false
+
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+bearer_token_env_var = "CONTEXT7_API_KEY"
+enabled_tools = ["resolve-library-id", "query-docs"]
+default_tools_approval_mode = "auto"

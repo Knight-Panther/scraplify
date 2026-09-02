@@ -8,6 +8,16 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
+# Non-blocking reminder: nudge toward keeping docs/STATUS.md in sync with
+# work that changes phase/exit-gate progress. This is a deterministic file
+# check only — it cannot judge whether a status update was actually needed,
+# so it never blocks the commit.
+if ! git diff --cached --name-only | grep -qx 'docs/STATUS.md'; then
+  echo "pre-commit: reminder — docs/STATUS.md was not updated in this commit." >&2
+  echo "  If this work changes phase/exit-gate progress, update it (stage it too) before committing." >&2
+  echo "  Not every commit needs this — ignore if this one genuinely doesn't affect tracked status." >&2
+fi
+
 if ! command -v codex >/dev/null 2>&1; then
   echo "pre-commit: Codex CLI was not found on PATH; blocking commit." >&2
   echo "Install/configure Codex, then try the commit again." >&2
