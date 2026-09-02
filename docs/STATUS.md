@@ -17,7 +17,7 @@ In progress, on branch `phase-0-policy-and-domain-foundation`.
 - [ ] Initialize CI (GitHub Actions) — not started
 - [x] Source-policy records for jobs.ge and hr.ge — `src/policies/`, validated against a `SourcePolicy` Zod schema; genuinely unknown fields (terms URL, retention period) left explicitly null, not guessed
 - [x] Domain contracts defined: `Opportunity`, `SourceListing`, revision, organization, resource, taxonomy, duplicate, run, incident — `src/domain/`, Zod schemas, runtime-tested
-- [ ] Threat model and approval boundaries documented
+- [x] Threat model and approval boundaries documented — [`docs/THREAT_MODEL.md`](./THREAT_MODEL.md); grounded in the actual path-matching bypasses found and fixed while building the source-policy records, not written in the abstract
 - [ ] Database migrations and local PostgreSQL configuration
 - [ ] Clean install, format, lint, typecheck, tests, build all pass (no live crawler required for this gate) — passes now for what exists; final check happens once the exit gate's other items land
 
@@ -39,4 +39,4 @@ Not started, listed in order:
 
 Nothing merged to `main` yet — the items below are on the unmerged `phase-0-policy-and-domain-foundation` branch. Current `main` state: concept and research docs (`docs/`), vendored Claude Code skills (`.claude/skills/`), git hook scaffolding, git workflow enforcement.
 
-On the Phase 0 branch so far: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`).
+On the Phase 0 branch so far: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`), threat model and approval boundaries doc (`docs/THREAT_MODEL.md`).
