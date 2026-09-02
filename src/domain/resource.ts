@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IsoDateTime, ResourceId, Sha256Hex, SourceId } from './ids.js';
+import { HttpUrl, IsoDateTime, ResourceId, Sha256Hex, SourceId } from './ids.js';
 
 /** Request roles from §11 — every queued request/fetched artifact gets exactly one. */
 export const ResourceRole = z.enum([
@@ -31,8 +31,8 @@ export const ResourceSchema = z.object({
   sourceId: SourceId,
   role: ResourceRole,
   originalUrl: z.string().min(1),
-  canonicalUrl: z.httpUrl(),
-  finalUrl: z.httpUrl().nullable(),
+  canonicalUrl: HttpUrl,
+  finalUrl: HttpUrl.nullable(),
   status: ResourceStatus,
   fetchedAt: IsoDateTime.nullable(),
   contentHash: Sha256Hex.nullable(),

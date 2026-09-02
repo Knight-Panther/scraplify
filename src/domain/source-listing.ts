@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  HttpUrl,
   IsoDateTime,
   ResourceId,
   SourceId,
@@ -35,7 +36,7 @@ export const SourceListingSchema = z.object({
    * for those sources must derive identity from canonicalSourceUrl instead.
    */
   sourceRecordId: z.string().min(1).nullable(),
-  canonicalSourceUrl: z.httpUrl(),
+  canonicalSourceUrl: HttpUrl,
   /** Null until the first revision has been fetched and parsed. */
   currentRevisionId: SourceListingRevisionId.nullable(),
   firstSeenAt: IsoDateTime,

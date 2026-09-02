@@ -330,6 +330,38 @@ describe('remaining domain schemas accept a minimal valid example', () => {
     expect(relativeCanonical.success).toBe(false);
   });
 
+  it('ResourceSchema accepts localhost/IP canonicalUrl but rejects non-http(s) schemes', () => {
+    const withLocalhost = ResourceSchema.safeParse({
+      id: uuid(),
+      sourceId: uuid(),
+      role: 'INDEX',
+      originalUrl: 'http://localhost:8080/announcements',
+      canonicalUrl: 'http://localhost:8080/announcements',
+      finalUrl: 'http://127.0.0.1:8080/announcements',
+      status: 'pending',
+      fetchedAt: null,
+      contentHash: null,
+      byteSize: null,
+      mimeType: null,
+    });
+    expect(withLocalhost.success).toBe(true);
+
+    const withFileScheme = ResourceSchema.safeParse({
+      id: uuid(),
+      sourceId: uuid(),
+      role: 'ATTACHMENT',
+      originalUrl: 'file:///etc/passwd',
+      canonicalUrl: 'file:///etc/passwd',
+      finalUrl: null,
+      status: 'pending',
+      fetchedAt: null,
+      contentHash: null,
+      byteSize: null,
+      mimeType: null,
+    });
+    expect(withFileScheme.success).toBe(false);
+  });
+
   it('TaxonomyTermSchema', () => {
     expect(
       TaxonomyTermSchema.safeParse({

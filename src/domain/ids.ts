@@ -53,6 +53,16 @@ export type ParserIncidentId = z.infer<typeof ParserIncidentId>;
 export const IsoDateTime = z.iso.datetime({ offset: true });
 export type IsoDateTime = z.infer<typeof IsoDateTime>;
 
+/**
+ * An absolute http(s) URL — protocol-restricted only. Deliberately not
+ * `z.httpUrl()`, which also imposes an ASCII dotted-domain hostname regex
+ * and would reject `http://localhost:8080`, IP hosts, and IDN hosts.
+ * Destination restrictions (SSRF policy, allowed hosts) are a runtime
+ * concern per request role, not a domain-contract concern.
+ */
+export const HttpUrl = z.url({ protocol: /^https?$/ });
+export type HttpUrl = z.infer<typeof HttpUrl>;
+
 /** SHA-256 digest, lowercase hex. */
 export const Sha256Hex = z
   .string()
