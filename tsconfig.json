@@ -5,6 +5,7 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "moduleDetection": "force",
+    "types": ["node"],
     "rootDir": "./src",
     "outDir": "./dist",
     "strict": true,

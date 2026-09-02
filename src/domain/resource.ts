@@ -1,0 +1,48 @@
+import { z } from 'zod';
+import { IsoDateTime, ResourceId, Sha256Hex, SourceId } from './ids.js';
+
+/** Request roles from §11 — every queued request/fetched artifact gets exactly one. */
+export const ResourceRole = z.enum([
+  'INDEX',
+  'OPPORTUNITY',
+  'ORGANIZATION',
+  'APPLICATION',
+  'ATTACHMENT',
+]);
+export type ResourceRole = z.infer<typeof ResourceRole>;
+
+export const ResourceStatus = z.enum(['pending', 'fetched', 'quarantined', 'failed']);
+export type ResourceStatus = z.infer<typeof ResourceStatus>;
+
+/**
+ * Identity of one fetched (or to-be-fetched) resource (§11, §16). Three URL
+ * forms are kept deliberately distinct: what the parent page contained,
+ * what it normalizes to, and where it actually resolved after redirects.
+ * originalUrl is exactly what was found — often relative (e.g. jobs.ge's
+ * `?view=jobs&id=123` or hr.ge's `/announcement/123/slug`) — so it's not
+ * required to be an absolute URL; canonicalUrl and finalUrl are always
+ * resolved/absolute.
+ */
+export const ResourceSchema = z.object({
+  id: ResourceId,
+  sourceId: SourceId,
+  role: ResourceRole,
+  originalUrl: z.string().min(1),
+  canonicalUrl: z.url(),
+  finalUrl: z.url().nullable(),
+  status: ResourceStatus,
+  fetchedAt: IsoDateTime.nullable(),
+  contentHash: Sha256Hex.nullable(),
+  byteSize: z.int().nonnegative().nullable(),
+  mimeType: z.string().nullable(),
+});
+export type Resource = z.infer<typeof ResourceSchema>;
+
+/** A relationship between two resources (e.g. a detail page linking an attachment), §12.6. */
+export const ResourceLinkSchema = z.object({
+  id: z.string().uuid(),
+  parentResourceId: ResourceId,
+  childResourceId: ResourceId,
+  relationship: z.enum(['attachment', 'application_link', 'organization_link', 'pagination']),
+});
+export type ResourceLink = z.infer<typeof ResourceLinkSchema>;
