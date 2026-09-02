@@ -2,6 +2,10 @@
 
 Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a schedule, normalizes and dedupes listings across sources, categorizes them, and later ranks them against an uploaded CV. See [`docs/scraplify-concept.md`](docs/scraplify-concept.md) for the confirmed-final product and architecture concept — review changes against it; it takes precedence over `docs/PROJECT_PLAN.md` and `docs/CRAWLING_ARCHITECTURE_2026.md`, which are earlier research kept for reference only. [`docs/STATUS.md`](docs/STATUS.md) tracks what's actually done versus outstanding against the concept doc's phased plan — check that a commit's status-file update matches what it actually implements.
 
+## Git workflow
+
+Implementation work happens on one branch per phase/sub-phase (see [`docs/STATUS.md`](docs/STATUS.md)), not directly on `main`. You already review every commit on that branch via the pre-commit hook. Before a phase branch merges into `main`, you'll also be asked for a whole-branch review (`/codex:adversarial-review --base main`) against the PR — that's a different check than the per-commit one, since it can see cross-commit issues a single commit's diff can't. Don't treat the per-commit pre-commit pass as sufficient grounds to wave through the pre-merge review.
+
 ## Roles
 
 - **Codex (you): code reviewer.** Review changes for correctness, security, and maintainability. Do not implement features or write production code in this repo — leave that to Claude.
