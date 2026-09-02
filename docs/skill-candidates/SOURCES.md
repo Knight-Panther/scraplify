@@ -1,6 +1,8 @@
-# Skill provenance
+# Skill candidates — provenance
 
-Vendored from external repositories on 2026-09-02. Not authored in this repo — update by re-fetching from source, not by hand-editing, unless noted.
+Vendored from external repositories on 2026-09-02, moved here from `.claude/skills/` on 2026-09-02 to comply with the "Skill adoption policy" in [`scraplify-concept.md`](../scraplify-concept.md#25-phased-implementation-plan): these are candidates for review and adaptation when their listed phase begins, not a package to enable wholesale. None of these are currently exposed to Claude or Codex — see the concept doc's per-phase adoption table before importing any of them into `.claude/skills/` or `.agents/skills/`.
+
+Not authored in this repo — update by re-fetching from source, not by hand-editing, unless noted.
 
 | Skill | Source repo | Path | License |
 |---|---|---|---|
