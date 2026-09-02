@@ -18,6 +18,22 @@ if ! git diff --cached --name-only | grep -qx 'docs/STATUS.md'; then
   echo "  Not every commit needs this — ignore if this one genuinely doesn't affect tracked status." >&2
 fi
 
+# Non-blocking reminder: implementation work belongs on a phase branch, not
+# main (see the Git workflow section in CLAUDE.md). This only checks the
+# branch name and which files are staged — it can't know intent, so it
+# never blocks the commit.
+current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+if [ "$current_branch" = "main" ]; then
+  non_governance_files=$(git diff --cached --name-only | grep -vE \
+    '^(docs/|\.claude/|\.agents/|\.codex/|\.githooks/|README\.md$|CLAUDE\.md$|AGENTS\.md$|\.gitignore$|\.gitattributes$)')
+  if [ -n "$non_governance_files" ]; then
+    echo "pre-commit: reminder — committing directly on main, outside docs/config paths:" >&2
+    echo "$non_governance_files" | sed 's/^/    /' >&2
+    echo "  Implementation work is meant to happen on a phase branch (see CLAUDE.md's Git workflow section)." >&2
+    echo "  Ignore this if this really is a governance/doc change on main." >&2
+  fi
+fi
+
 if ! command -v codex >/dev/null 2>&1; then
   echo "pre-commit: Codex CLI was not found on PATH; blocking commit." >&2
   echo "Install/configure Codex, then try the commit again." >&2
