@@ -4,7 +4,7 @@ Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a 
 
 ## Git workflow
 
-- `main` stays always in a working, phase-complete state. Direct commits to `main` are for repo-governance/doc changes (like this one) — implementation work happens on branches.
+- `main` stays always in a working, phase-complete state. Direct commits to `main` are for repo-governance/doc changes only (`docs/`, `.claude/`, `.agents/`, `.codex/`, `.githooks/`, `scripts/`, and a few root config/readme files) — implementation work happens on branches. This is enforced, not just documented: the pre-commit hook hard-blocks (exit 1) any commit on `main` that stages a file outside that allow-list, and prints the exact `git checkout -b <name>` command to fix it, auto-derived from `docs/STATUS.md`'s current-phase heading.
 - One branch per phase/sub-phase from [`docs/STATUS.md`](docs/STATUS.md) (e.g. `phase-0-foundation`, `phase-1a-jobsge`). Commit normally on the branch — the pre-commit Codex gate still runs on every commit there, unchanged.
 - Before merging a phase branch into `main`: push it, open a PR (`gh pr create`), and run `/codex:adversarial-review --base main` for a whole-branch review — this catches cross-commit issues the per-commit gate can't see, since it only ever looks at one commit's diff at a time.
 - Merge only when that review is clean (no P0/P1) and the phase's exit-gate checklist in `docs/STATUS.md` is actually checked off, updated in the same PR. Delete the branch after merging.

@@ -18,19 +18,28 @@ if ! git diff --cached --name-only | grep -qx 'docs/STATUS.md'; then
   echo "  Not every commit needs this — ignore if this one genuinely doesn't affect tracked status." >&2
 fi
 
-# Non-blocking reminder: implementation work belongs on a phase branch, not
-# main (see the Git workflow section in CLAUDE.md). This only checks the
-# branch name and which files are staged — it can't know intent, so it
-# never blocks the commit.
+# Blocking: implementation work belongs on a phase branch, not main (see
+# the Git workflow section in CLAUDE.md). This only checks the branch name
+# and which files are staged, not intent — a genuine governance/doc change
+# on main is still allowed, since it's excluded from the path check below.
 current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 if [ "$current_branch" = "main" ]; then
   non_governance_files=$(git diff --cached --name-only | grep -vE \
-    '^(docs/|\.claude/|\.agents/|\.codex/|\.githooks/|README\.md$|CLAUDE\.md$|AGENTS\.md$|\.gitignore$|\.gitattributes$)')
+    '^(docs/|\.claude/|\.agents/|\.codex/|\.githooks/|scripts/|README\.md$|CLAUDE\.md$|AGENTS\.md$|\.gitignore$|\.gitattributes$)')
   if [ -n "$non_governance_files" ]; then
-    echo "pre-commit: reminder — committing directly on main, outside docs/config paths:" >&2
+    suggested_slug=$(grep -m1 '^## Current phase:' docs/STATUS.md 2>/dev/null \
+      | sed -E 's/^## Current phase: *//; s/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//' \
+      | tr '[:upper:]' '[:lower:]')
+    echo "pre-commit: blocked — committing implementation files directly on main:" >&2
     echo "$non_governance_files" | sed 's/^/    /' >&2
-    echo "  Implementation work is meant to happen on a phase branch (see CLAUDE.md's Git workflow section)." >&2
-    echo "  Ignore this if this really is a governance/doc change on main." >&2
+    echo "  Implementation work happens on a phase branch (CLAUDE.md's Git workflow section)." >&2
+    if [ -n "$suggested_slug" ]; then
+      echo "  Suggested: git checkout -b $suggested_slug" >&2
+    else
+      echo "  Create one: git checkout -b phase-<name>" >&2
+    fi
+    echo "  If this really is a governance/doc change, it should already be excluded above — check the path filter." >&2
+    exit 1
   fi
 fi
 

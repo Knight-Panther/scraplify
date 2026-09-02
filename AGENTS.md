@@ -4,7 +4,7 @@ Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a 
 
 ## Git workflow
 
-Implementation work happens on one branch per phase/sub-phase (see [`docs/STATUS.md`](docs/STATUS.md)), not directly on `main`. You already review every commit on that branch via the pre-commit hook. Before a phase branch merges into `main`, you'll also be asked for a whole-branch review (`/codex:adversarial-review --base main`) against the PR — that's a different check than the per-commit one, since it can see cross-commit issues a single commit's diff can't. Don't treat the per-commit pre-commit pass as sufficient grounds to wave through the pre-merge review.
+Implementation work happens on one branch per phase/sub-phase (see [`docs/STATUS.md`](docs/STATUS.md)), not directly on `main`. This is hard-enforced, not just conventional: the pre-commit hook blocks (exit 1) any commit on `main` that stages a file outside a governance-path allow-list (`docs/`, `.claude/`, `.agents/`, `.codex/`, `.githooks/`, `scripts/`, a few root config files) — so a review finding an implementation file committed directly to `main` should be treated as the hook having been bypassed (`--no-verify`), worth flagging. You already review every commit on the phase branch via the pre-commit hook. Before a phase branch merges into `main`, you'll also be asked for a whole-branch review (`/codex:adversarial-review --base main`) against the PR — that's a different check than the per-commit one, since it can see cross-commit issues a single commit's diff can't. Don't treat the per-commit pre-commit pass as sufficient grounds to wave through the pre-merge review.
 
 ## Roles
 
