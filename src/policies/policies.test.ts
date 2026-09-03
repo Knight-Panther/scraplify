@@ -77,6 +77,37 @@ describe('source policy records', () => {
     expect(isJobsGeUrlAllowed('/?view=jobs&id=491744')).toBe(true);
   });
 
+  it("isJobsGeUrlAllowed authorizes '/ge/' identically to bare '/' (confirmed 2026-09-03: same content, explicit locale)", () => {
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/')).toBe(true);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/?view=jobs&id=491744')).toBe(true);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/?view=admin')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/?view=jobs&id=abc')).toBe(false);
+  });
+
+  it("isJobsGeUrlAllowed authorizes '/ge/ads/' (the real discovery/browse page) and its pagination", () => {
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/')).toBe(true);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?page=2')).toBe(true);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?page=19')).toBe(true);
+    // Not the listing-identity shape — '/ge/ads/' only ever takes 'page'.
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?view=jobs&id=491744')).toBe(false);
+    // Rejects the discovery-scope-expansion params found during recon but
+    // deliberately not authorized: category/location filters are redundant
+    // (the unfiltered walk already covers everything), and the
+    // announcement-type filter is unused since all types are aggregated.
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?cid=6')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?jid=1')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?page=2&extra=1')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?page=0')).toBe(false); // not positive
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?page=01')).toBe(false); // leading zero
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?page=-1')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/ge/ads/?page=1&page=1')).toBe(false); // duplicate
+  });
+
+  it("isJobsGeUrlAllowed does not authorize '/en/' — nothing in this codebase requests it", () => {
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/en/')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/en/?view=jobs&id=491744')).toBe(false);
+  });
+
   it('isJobsGeUrlAllowed rejects what isPathAllowed alone cannot: query-based scope expansion', () => {
     // The exact gap the adversarial review found: isPathAllowed('/')
     // authorizes any query on root, since it never looks at the query
