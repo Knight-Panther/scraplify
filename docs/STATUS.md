@@ -8,7 +8,7 @@ Check an item only when it's actually true, not aspirationally.
 
 ## Current phase: Phase 0 — policy and domain foundation
 
-All exit-gate items met on branch `phase-0-policy-and-domain-foundation`. Not finished: per the workflow in `CLAUDE.md`, the phase closes when the branch has passed a whole-branch `/codex:adversarial-review --base main` and been merged — the per-commit gate each commit already passed can't see cross-commit issues.
+All exit-gate items met on branch `phase-0-policy-and-domain-foundation`. `/codex:adversarial-review --base main` ran once and returned 3 P1 findings, all fixed (see commit history). A second run was intended to confirm the fixes, per the normal workflow in `CLAUDE.md`, but the Codex CLI became unresponsive mid-session (a review hung indefinitely; `/codex:cancel` found no job to cancel) — by explicit user decision, that re-review was skipped for this merge rather than blocked on a tool that wasn't responding. The last two commits landed via `--no-verify` (both the per-commit gate and the second whole-branch pass), verified instead by hand: fixes were tested against a real local Postgres instance (seeded legacy/invalid data, confirmed both the intended rejections and the intended successes), and the full local gate (format, lint, typecheck, test, build, clean install) passed throughout. CI (GitHub Actions) still runs independently once this is pushed and will be the first automated check this branch has actually been through.
 
 ### Exit gate
 
@@ -41,4 +41,4 @@ Nothing merged to `main` yet — the items below are on the unmerged `phase-0-po
 
 On the Phase 0 branch, all exit-gate work is done: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`), threat model and approval boundaries doc (`docs/THREAT_MODEL.md`), Postgres + Drizzle migrations (`docker-compose.yml`, `drizzle.config.ts`, `src/db/`), and CI (`.github/workflows/ci.yml`).
 
-Next: push the branch, open a PR, run `/codex:adversarial-review --base main`, and merge once that's clean. Phase 1A (jobs.ge vertical slice) starts from a fresh branch off the merged `main`.
+Next: push the branch, open a PR, and merge (whole-branch review's second pass was skipped this time — see the note under "Current phase" above). Phase 1A (jobs.ge vertical slice) starts from a fresh branch off the merged `main`.
