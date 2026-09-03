@@ -8,18 +8,18 @@ Check an item only when it's actually true, not aspirationally.
 
 ## Current phase: Phase 0 — policy and domain foundation
 
-In progress, on branch `phase-0-policy-and-domain-foundation`.
+All exit-gate items met on branch `phase-0-policy-and-domain-foundation`. Not finished: per the workflow in `CLAUDE.md`, the phase closes when the branch has passed a whole-branch `/codex:adversarial-review --base main` and been merged — the per-commit gate each commit already passed can't see cross-commit issues.
 
 ### Exit gate
 
-- [ ] Confirm Node/npm in a fresh non-interactive PowerShell — confirmed via Bash (`node v24.20.0`, `npm 11.19.0`), not yet specifically re-verified in a fresh non-interactive PowerShell as this item's own wording requires
+- [x] Confirm Node/npm in a fresh non-interactive PowerShell — `pwsh -NoProfile -NonInteractive` resolves `node v24.20.0` and `npm 11.19.0`, so Node is on the machine-level PATH rather than only via fnm's PowerShell-profile hook. That's the specific risk this item was probing: a Windows Task Scheduler job runs with no profile loaded, so a profile-only Node would have broken scheduled crawls in a later phase
 - [x] Initialize strict TypeScript, validation, formatting, tests — TypeScript/Biome/Vitest done and clean-install-verified
-- [ ] Initialize CI (GitHub Actions) — not started
+- [x] Initialize CI (GitHub Actions) — [`.github/workflows/ci.yml`](../.github/workflows/ci.yml): install, format:check, lint, typecheck, test, build on push/PR to `main`, Node version read from `.node-version`. Caveat: the workflow has never actually executed, because this branch isn't pushed yet — its first real run is the Phase 0 PR. Written and complete, not yet proven green in GitHub's runner
 - [x] Source-policy records for jobs.ge and hr.ge — `src/policies/`, validated against a `SourcePolicy` Zod schema; genuinely unknown fields (terms URL, retention period) left explicitly null, not guessed
 - [x] Domain contracts defined: `Opportunity`, `SourceListing`, revision, organization, resource, taxonomy, duplicate, run, incident — `src/domain/`, Zod schemas, runtime-tested
 - [x] Threat model and approval boundaries documented — [`docs/THREAT_MODEL.md`](./THREAT_MODEL.md); grounded in the actual path-matching bypasses found and fixed while building the source-policy records, not written in the abstract
 - [x] Database migrations and local PostgreSQL configuration — `docker-compose.yml` (Postgres + pgvector), `drizzle.config.ts`, `src/db/schema/` (9 tables covering sources/policies/listings/revisions/resources/runs/attempts/incidents — organizations/taxonomy/dedupe/opportunity tables deliberately deferred to Phase 1C/2), migration generated and applied against a live local instance, round-trip verified through the actual Drizzle client (not just the migration tool)
-- [ ] Clean install, format, lint, typecheck, tests, build all pass (no live crawler required for this gate) — passes now for what exists; final check happens once the exit gate's other items land
+- [x] Clean install, format, lint, typecheck, tests, build all pass (no live crawler required for this gate) — verified locally after `rm -rf node_modules dist && npm ci`: format:check, lint, typecheck, 44 tests, and build all pass. Generated drizzle migration metadata is excluded from Biome (`biome.json`), since reformatting drizzle-kit's own output just starts a tug-of-war with the generator on the next `db:generate`
 
 ## Upcoming phases
 
@@ -39,6 +39,6 @@ Not started, listed in order:
 
 Nothing merged to `main` yet — the items below are on the unmerged `phase-0-policy-and-domain-foundation` branch. Current `main` state: concept and research docs (`docs/`), vendored Claude Code skills (`.claude/skills/`), git hook scaffolding, git workflow enforcement.
 
-On the Phase 0 branch so far: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`), threat model and approval boundaries doc (`docs/THREAT_MODEL.md`), Postgres + Drizzle migrations (`docker-compose.yml`, `drizzle.config.ts`, `src/db/`).
+On the Phase 0 branch, all exit-gate work is done: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`), threat model and approval boundaries doc (`docs/THREAT_MODEL.md`), Postgres + Drizzle migrations (`docker-compose.yml`, `drizzle.config.ts`, `src/db/`), and CI (`.github/workflows/ci.yml`).
 
-Only remaining exit-gate items: re-verify Node/npm in a fresh non-interactive PowerShell (currently only checked via Bash), initialize CI, and the final full clean-install/format/lint/typecheck/test/build pass once those land.
+Next: push the branch, open a PR, run `/codex:adversarial-review --base main`, and merge once that's clean. Phase 1A (jobs.ge vertical slice) starts from a fresh branch off the merged `main`.
