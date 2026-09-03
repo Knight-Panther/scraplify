@@ -25,3 +25,26 @@ npx ctx7 setup --claude --mcp -p -y
 ```
 
 This opens a one-time device-code OAuth approval in your browser, then writes `.mcp.json` (gitignored) and registers the `context7-mcp` skill. Re-run it on any fresh clone or if `.mcp.json` is ever deleted.
+
+## Database
+
+Start local PostgreSQL:
+
+```powershell
+docker compose up -d postgres
+```
+
+Create a `.env` file (gitignored) with:
+
+```
+DATABASE_URL=postgresql://scraplify:scraplify_dev@localhost:5432/scraplify
+```
+
+Then generate and apply migrations:
+
+```powershell
+npm run db:generate
+npm run db:migrate
+```
+
+`docker-compose.yml`'s credentials are local-dev-only defaults, not secrets — the container is only ever exposed on `localhost`.

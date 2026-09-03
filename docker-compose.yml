@@ -1,0 +1,29 @@
+services:
+  postgres:
+    # pgvector included now so Phase 5's CV-matching embeddings don't need a
+    # later image swap; unused until then (concept §20).
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      # Local-dev-only credentials, safe only because the port binding below
+      # actually restricts this to loopback — see README.md's Database
+      # section for the matching connection string.
+      POSTGRES_USER: scraplify
+      POSTGRES_PASSWORD: scraplify_dev
+      POSTGRES_DB: scraplify
+    ports:
+      # Explicit 127.0.0.1 binding, not just '5432:5432': a bare host-port
+      # mapping publishes on all interfaces, which would make these fixed,
+      # documented credentials reachable from any client the host's
+      # firewall permits — that's a real exposure, not a hypothetical one.
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - scraplify_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U scraplify -d scraplify']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  scraplify_postgres_data:

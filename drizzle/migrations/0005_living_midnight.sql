@@ -1,0 +1,1 @@
+DROP INDEX "source_listing_revisions_content_idx";

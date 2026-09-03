@@ -1,0 +1,3 @@
+CREATE UNIQUE INDEX "resources_canonical_url_role_idx" ON "resources" USING btree ("source_id","canonical_url","role");--> statement-breakpoint
+CREATE UNIQUE INDEX "source_listings_source_record_idx" ON "source_listings" USING btree ("source_id","source_record_id") WHERE "source_listings"."source_record_id" is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX "source_listings_canonical_url_idx" ON "source_listings" USING btree ("source_id","canonical_source_url") WHERE "source_listings"."source_record_id" is null;
