@@ -120,6 +120,31 @@ describe('SourceListingRevisionSchema', () => {
       sourceCategories: [],
       structuredAttributes: {},
       createdAt: now,
+      provenance: { fetchedAt: now, resourceId: uuid(), notes: null },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a null provenance.resourceId (§6.2: every revision must be traceable)', () => {
+    const result = SourceListingRevisionSchema.safeParse({
+      id: uuid(),
+      sourceListingId: uuid(),
+      parserVersion: 'jobs-ge@1',
+      extractionMethod: 'http',
+      rawResourceHash: sha256,
+      meaningfulContentHash: sha256,
+      titleRaw: 'x',
+      titleNormalized: 'x',
+      organizationRaw: null,
+      description: '',
+      locations: [],
+      salaryRaw: null,
+      publishedDate: { raw: null, parsed: null },
+      deadlineDate: { raw: null, parsed: null },
+      applicationMethod: null,
+      sourceCategories: [],
+      structuredAttributes: {},
+      createdAt: now,
       provenance: { fetchedAt: now, resourceId: null, notes: null },
     });
     expect(result.success).toBe(false);

@@ -15,6 +15,34 @@
       "when": 1788388675564,
       "tag": "0001_normal_rictor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788452781849,
+      "tag": "0002_third_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788452799268,
+      "tag": "0003_backfill_revision_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788452837067,
+      "tag": "0004_illegal_anthem",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788453373673,
+      "tag": "0005_living_midnight",
+      "breakpoints": true
     }
   ]
 }

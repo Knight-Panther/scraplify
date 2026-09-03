@@ -86,9 +86,16 @@ export const SourceListingRevisionSchema = z.object({
   /** Fields with no dedicated column yet; a deliberate escape hatch, not a dumping ground. */
   structuredAttributes: z.record(z.string(), z.unknown()),
   createdAt: IsoDateTime,
+  /**
+   * §6.2: every normalized claim must be traceable to a source resource and
+   * parser version. resourceId is deliberately non-nullable — a revision
+   * with no traceable fetch has no recoverable crawl evidence, which is
+   * exactly what that requirement rules out. There's no legitimate case in
+   * this codebase for an untraceable revision to exist.
+   */
   provenance: z.object({
     fetchedAt: IsoDateTime,
-    resourceId: ResourceId.nullable(),
+    resourceId: ResourceId,
     notes: z.string().nullable(),
   }),
 });

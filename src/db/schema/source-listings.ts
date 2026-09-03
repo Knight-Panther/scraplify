@@ -9,6 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { resources } from './resources.js';
 import { sources } from './sources.js';
 
 /** §13 lifecycle states. */
@@ -68,30 +69,59 @@ export const sourceListings = pgTable(
   ],
 );
 
-/** Mirrors SourceListingRevisionSchema. */
-export const sourceListingRevisions = pgTable('source_listing_revisions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  sourceListingId: uuid('source_listing_id')
-    .notNull()
-    .references(() => sourceListings.id),
-  parserVersion: text('parser_version').notNull(),
-  extractionMethod: extractionMethodEnum('extraction_method').notNull(),
-  rawResourceHash: text('raw_resource_hash').notNull(),
-  meaningfulContentHash: text('meaningful_content_hash').notNull(),
-  titleRaw: text('title_raw').notNull(),
-  titleNormalized: text('title_normalized').notNull(),
-  organizationRaw: text('organization_raw'),
-  description: text('description').notNull(),
-  locations: jsonb('locations').notNull(),
-  salaryRaw: text('salary_raw'),
-  publishedDate: jsonb('published_date').notNull(),
-  deadlineDate: jsonb('deadline_date').notNull(),
-  applicationMethod: jsonb('application_method'),
-  sourceCategories: jsonb('source_categories').notNull(),
-  structuredAttributes: jsonb('structured_attributes').notNull(),
-  createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).notNull(),
-  provenance: jsonb('provenance').notNull(),
-});
+/**
+ * Mirrors SourceListingRevisionSchema. provenance is split into real
+ * columns rather than kept as one jsonb blob — specifically so
+ * provenanceResourceId can be a genuine, enforced foreign key (§6.2:
+ * every normalized claim must be traceable to a source resource), not a
+ * value inside JSON that the database never checks actually points
+ * anywhere.
+ */
+export const sourceListingRevisions = pgTable(
+  'source_listing_revisions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceListingId: uuid('source_listing_id')
+      .notNull()
+      .references(() => sourceListings.id),
+    parserVersion: text('parser_version').notNull(),
+    extractionMethod: extractionMethodEnum('extraction_method').notNull(),
+    rawResourceHash: text('raw_resource_hash').notNull(),
+    meaningfulContentHash: text('meaningful_content_hash').notNull(),
+    titleRaw: text('title_raw').notNull(),
+    titleNormalized: text('title_normalized').notNull(),
+    organizationRaw: text('organization_raw'),
+    description: text('description').notNull(),
+    locations: jsonb('locations').notNull(),
+    salaryRaw: text('salary_raw'),
+    publishedDate: jsonb('published_date').notNull(),
+    deadlineDate: jsonb('deadline_date').notNull(),
+    applicationMethod: jsonb('application_method'),
+    sourceCategories: jsonb('source_categories').notNull(),
+    structuredAttributes: jsonb('structured_attributes').notNull(),
+    createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).notNull(),
+    provenanceResourceId: uuid('provenance_resource_id')
+      .notNull()
+      .references(() => resources.id),
+    provenanceFetchedAt: timestamp('provenance_fetched_at', {
+      mode: 'string',
+      withTimezone: true,
+    }).notNull(),
+    provenanceNotes: text('provenance_notes'),
+  },
+  // Deliberately no lifetime-unique index on (sourceListingId,
+  // meaningfulContentHash) here. A revision's content can legitimately
+  // revert to a hash it already had (listing edited A -> B -> A), and that
+  // third observation is a real, distinct revision, not a duplicate — a
+  // blanket DB-level constraint can't tell "same content as an old
+  // revision" apart from "same content as a concurrent retry of the
+  // current fetch." Retry idempotency (§6.2) is instead enforced by the
+  // Phase 1A ingestion logic, which only compares a freshly fetched
+  // meaningfulContentHash against sourceListings.currentRevisionId's hash
+  // (the one value a DB constraint can't see) before deciding whether to
+  // insert a new revision.
+  () => [],
+);
 
 export type SourceListingRow = typeof sourceListings.$inferSelect;
 export type NewSourceListingRow = typeof sourceListings.$inferInsert;

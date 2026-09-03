@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { isPathAllowed } from '../domain/index.js';
-import { hrGePolicy, hrGeSource, jobsGePolicy, jobsGeSource, sourcePolicies } from './index.js';
+import {
+  hrGePolicy,
+  hrGeSource,
+  isJobsGeUrlAllowed,
+  jobsGePolicy,
+  jobsGeSource,
+  sourcePolicies,
+} from './index.js';
 
 describe('source policy records', () => {
   it('jobs.ge policy references the jobs.ge source', () => {
@@ -61,6 +68,48 @@ describe('source policy records', () => {
       expect(policy.linkedResources.mayFetchExternalApplicationPages).toBe(false);
       expect(policy.linkedResources.retention).toBe('none');
     }
+  });
+
+  it('isJobsGeUrlAllowed authorizes the homepage and the confirmed listing shape', () => {
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/')).toBe(true);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/?view=jobs&id=491744')).toBe(true);
+    // Relative form, resolved against the source's own baseUrl.
+    expect(isJobsGeUrlAllowed('/?view=jobs&id=491744')).toBe(true);
+  });
+
+  it('isJobsGeUrlAllowed rejects what isPathAllowed alone cannot: query-based scope expansion', () => {
+    // The exact gap the adversarial review found: isPathAllowed('/')
+    // authorizes any query on root, since it never looks at the query
+    // string at all.
+    expect(isPathAllowed(jobsGePolicy, '/')).toBe(true);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/?view=admin')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/?view=jobs&id=491744&extra=1')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/?view=jobs')).toBe(false); // missing id
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/?id=491744')).toBe(false); // missing view
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/?view=jobs&id=abc')).toBe(false); // non-numeric id
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge/?view=jobs&view=jobs&id=1')).toBe(false); // duplicate param
+  });
+
+  it('isJobsGeUrlAllowed rejects a same-path URL on a different origin: host, scheme, or port', () => {
+    // isPathAllowed never looks at the origin at all — an absolute URL to a
+    // different origin would sail through it unchecked if this were the
+    // only gate.
+    expect(isJobsGeUrlAllowed('https://evil.example/?view=jobs&id=1')).toBe(false);
+    // Same hostname, different scheme/port — a .hostname-only check (an
+    // earlier version of this function) would have missed both of these.
+    expect(isJobsGeUrlAllowed('file://www.jobs.ge/?view=jobs&id=1')).toBe(false);
+    expect(isJobsGeUrlAllowed('https://www.jobs.ge:4444/?view=jobs&id=1')).toBe(false);
+    expect(isJobsGeUrlAllowed('http://www.jobs.ge/?view=jobs&id=1')).toBe(false);
+  });
+
+  it('isJobsGeUrlAllowed fails closed on an unparseable URL', () => {
+    // A relative-looking garbage string doesn't actually throw — new URL()
+    // resolves it against baseUrl as a path, which correctly fails the
+    // isPathAllowed check instead (covered by the previous test). This one
+    // targets a string that genuinely throws: an explicit scheme with an
+    // empty authority, confirmed empirically before writing the assertion.
+    expect(() => isJobsGeUrlAllowed('http://')).not.toThrow();
+    expect(isJobsGeUrlAllowed('http://')).toBe(false);
   });
 
   it('exposes both records by slug, matching each source’s own slug field', () => {
