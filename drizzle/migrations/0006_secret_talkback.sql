@@ -1,0 +1,2 @@
+ALTER TABLE "source_listing_revisions" ADD CONSTRAINT "source_listing_revisions_listing_id_id_unique" UNIQUE("source_listing_id","id");--> statement-breakpoint
+ALTER TABLE "source_listings" ADD CONSTRAINT "source_listings_current_revision_ownership_fk" FOREIGN KEY ("id","current_revision_id") REFERENCES "public"."source_listing_revisions"("source_listing_id","id") ON DELETE no action ON UPDATE no action;
