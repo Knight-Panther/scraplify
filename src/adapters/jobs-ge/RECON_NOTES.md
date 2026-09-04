@@ -4,6 +4,8 @@ Read-only reconnaissance against the live site via Playwright, 2026-09-03. No si
 
 Open items from this file still need to land in `src/policies/jobs-ge.ts` (URL authorization) and `docs/STATUS.md` (exit-gate checkboxes) — not done yet as of this writing.
 
+**Correction (2026-09-04):** the 5 fixture files saved under `fixtures/` at capture time were accidentally written as JSON-escaped strings (literal `\"`, `\n`, `\t`, wrapped in an outer pair of `"` — consistent with `JSON.stringify(pageContent)`'s output being saved directly instead of the decoded page text) rather than raw HTML. This went undetected because nothing had actually run an HTML parser against them yet — string-search-based validation (e.g. counting `id=` occurrences) still worked by coincidence, since it doesn't care about real vs. escaped quote/whitespace characters. Caught when `src/adapters/jobs-ge/discovery.ts`'s cheerio selectors matched zero rows against the real files despite passing on equivalent synthetic HTML. All 5 files were re-decoded with `JSON.parse` and rewritten in place; the counts and structural findings recorded elsewhere in this document were unaffected (they were observed live, not derived from the corrupted files).
+
 ## URL space
 
 - **Three locale-prefixed paths serve identical listing content for the same `id`**: bare `/`, `/ge/` (explicit Georgian), `/en/` (English translation of UI chrome + same listing, at least for the one sample checked — title translated, e.g. "მიმტანი" -> "Waiter"). No redirect occurs between them; each renders directly.
