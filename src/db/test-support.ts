@@ -7,10 +7,12 @@ import {
   fetchAttempts,
   type NewCrawlRunRow,
   type NewSourceListingRow,
+  parserIncidents,
   resources,
   sourceListingRevisions,
   type SourceListingRow,
   sourceListings,
+  sourcePolicies,
   sources,
 } from './schema/index.js';
 
@@ -94,6 +96,12 @@ export async function createTestCrawlRun(
       sourceId,
       startedAt: '2026-01-05T00:00:00Z',
       finishedAt: '2026-01-05T01:00:00Z',
+      // Settled by default (not the DB's own null default) — the partial
+      // unique index allows only one row per source with reconciledAt
+      // still null, so a test creating several runs for the same source
+      // (e.g. to compare across them) would collide on the second insert
+      // otherwise.
+      reconciledAt: '2026-01-05T01:00:00Z',
       status: 'completed',
       fullCoverage: true,
       ...overrides,
@@ -122,6 +130,11 @@ export async function cleanupTestSource(sourceId: string): Promise<void> {
     .where(eq(crawlRuns.sourceId, sourceId));
   const runIds = runRows.map((row) => row.id);
 
+  // parser_incidents references both sources and crawl_runs — must go
+  // before either is deleted below, regardless of whether this source ever
+  // had any runs (its own FK to sources.id is independent of crawlRunId).
+  await db.delete(parserIncidents).where(eq(parserIncidents.sourceId, sourceId));
+
   if (runIds.length > 0) {
     await db.delete(fetchAttempts).where(inArray(fetchAttempts.crawlRunId, runIds));
   }
@@ -141,5 +154,9 @@ export async function cleanupTestSource(sourceId: string): Promise<void> {
   await db.delete(crawlRuns).where(eq(crawlRuns.sourceId, sourceId));
   await db.delete(sourceListings).where(eq(sourceListings.sourceId, sourceId));
   await db.delete(resources).where(eq(resources.sourceId, sourceId));
+  // Only ever populated for a fixed, real source id (e.g. jobsGeSource.id in
+  // crawl.test.ts) — a throwaway createTestSource() id never has one, so
+  // this delete is a routine no-op for every other test using this helper.
+  await db.delete(sourcePolicies).where(eq(sourcePolicies.sourceId, sourceId));
   await db.delete(sources).where(eq(sources.id, sourceId));
 }

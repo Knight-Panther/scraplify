@@ -5,7 +5,9 @@ import { db } from './client.js';
 import { sourceListingRevisions, sourceListings } from './schema/index.js';
 import { cleanupTestSource, createTestResource, createTestSource } from './test-support.js';
 import {
+  quarantineSourceListing,
   type SourceListingRevisionContent,
+  touchSourceListingSeen,
   writeSourceListingRevision,
 } from './write-source-listing-revision.js';
 
@@ -255,8 +257,73 @@ describe('writeSourceListingRevision', () => {
       );
 
       expect(second.sourceListing.status).toBe(status);
+      expect(second.reopened).toBe(false);
     },
   );
+
+  it.each(['closed', 'expired'] as const)(
+    'reactivates a %s listing when options.allowReopen is true',
+    async (status) => {
+      sourceId = await createTestSource();
+      const resourceId = await createTestResource(sourceId);
+      const identity = {
+        sourceId,
+        sourceRecordId: '12345',
+        canonicalSourceUrl: 'https://example.invalid/?id=12345',
+      };
+
+      const first = await writeSourceListingRevision(
+        db,
+        identity,
+        makeContent(resourceId),
+        '2026-09-04T12:00:00Z',
+      );
+      await db
+        .update(sourceListings)
+        .set({ status })
+        .where(eq(sourceListings.id, first.sourceListing.id));
+
+      const second = await writeSourceListingRevision(
+        db,
+        identity,
+        makeContent(resourceId, { meaningfulContentHash: 'c'.repeat(64) }),
+        '2026-09-05T12:00:00Z',
+        { allowReopen: true },
+      );
+
+      expect(second.sourceListing.status).toBe('active');
+      expect(second.reopened).toBe(true);
+    },
+  );
+
+  it('does not report reopened for a listing that was already active, even with allowReopen true', async () => {
+    sourceId = await createTestSource();
+    const resourceId = await createTestResource(sourceId);
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    const first = await writeSourceListingRevision(
+      db,
+      identity,
+      makeContent(resourceId),
+      '2026-09-04T12:00:00Z',
+      { allowReopen: true },
+    );
+    expect(first.reopened).toBe(false);
+
+    const second = await writeSourceListingRevision(
+      db,
+      identity,
+      makeContent(resourceId, { meaningfulContentHash: 'c'.repeat(64) }),
+      '2026-09-05T12:00:00Z',
+      { allowReopen: true },
+    );
+    expect(second.sourceListing.status).toBe('active');
+    expect(second.reopened).toBe(false);
+  });
 
   it.each(['discovered', 'missing_suspected'] as const)(
     'does reactivate a %s listing to active on a positive observation',
@@ -460,5 +527,208 @@ describe('writeSourceListingRevision', () => {
       .from(sourceListingRevisions)
       .where(eq(sourceListingRevisions.sourceListingId, first.sourceListing.id));
     expect(revisions).toHaveLength(1);
+  });
+});
+
+describe('touchSourceListingSeen', () => {
+  let sourceId: string;
+
+  afterEach(async () => {
+    if (sourceId) await cleanupTestSource(sourceId);
+  });
+
+  it('creates a discovered listing with no revision on a first-ever touch', async () => {
+    sourceId = await createTestSource();
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    const result = await touchSourceListingSeen(db, identity, '2026-09-05T12:00:00Z');
+
+    expect(result.stale).toBe(false);
+    expect(result.sourceListing.status).toBe('discovered');
+    expect(result.sourceListing.currentRevisionId).toBeNull();
+    expect(result.sourceListing.lastSeenAt).toContain('2026-09-05');
+  });
+
+  it('reactivates a missing_suspected listing around its last-known-good content', async () => {
+    sourceId = await createTestSource();
+    const resourceId = await createTestResource(sourceId);
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    const first = await writeSourceListingRevision(
+      db,
+      identity,
+      makeContent(resourceId),
+      '2026-09-01T00:00:00Z',
+    );
+    await db
+      .update(sourceListings)
+      .set({ status: 'missing_suspected', missingStreak: 2 })
+      .where(eq(sourceListings.id, first.sourceListing.id));
+
+    const result = await touchSourceListingSeen(db, identity, '2026-09-05T12:00:00Z');
+
+    expect(result.sourceListing.status).toBe('active');
+    expect(result.sourceListing.missingStreak).toBe(0);
+    expect(result.sourceListing.currentRevisionId).toBe(first.revision.id); // untouched — same last-known-good content
+  });
+
+  it('bumps lastSeenAt for an active listing without changing its status', async () => {
+    sourceId = await createTestSource();
+    const resourceId = await createTestResource(sourceId);
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    await writeSourceListingRevision(db, identity, makeContent(resourceId), '2026-09-01T00:00:00Z');
+
+    const result = await touchSourceListingSeen(db, identity, '2026-09-05T12:00:00Z');
+
+    expect(result.sourceListing.status).toBe('active');
+    expect(result.sourceListing.lastSeenAt).toContain('2026-09-05');
+  });
+
+  it.each(['closed', 'expired', 'quarantined'] as const)(
+    'does not reactivate a %s listing — a mere index sighting is not confirmed reappearance',
+    async (status) => {
+      sourceId = await createTestSource();
+      const resourceId = await createTestResource(sourceId);
+      const identity = {
+        sourceId,
+        sourceRecordId: '12345',
+        canonicalSourceUrl: 'https://example.invalid/?id=12345',
+      };
+
+      const first = await writeSourceListingRevision(
+        db,
+        identity,
+        makeContent(resourceId),
+        '2026-09-01T00:00:00Z',
+      );
+      await db
+        .update(sourceListings)
+        .set({ status })
+        .where(eq(sourceListings.id, first.sourceListing.id));
+
+      const result = await touchSourceListingSeen(db, identity, '2026-09-05T12:00:00Z');
+
+      expect(result.sourceListing.status).toBe(status);
+    },
+  );
+
+  it('rejects an out-of-order touch as stale, matching writeSourceListingRevision', async () => {
+    sourceId = await createTestSource();
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    const newer = await touchSourceListingSeen(db, identity, '2026-09-05T00:00:00Z');
+    const stale = await touchSourceListingSeen(db, identity, '2026-09-04T00:00:00Z');
+
+    expect(stale.stale).toBe(true);
+    expect(stale.sourceListing.lastSeenAt).toBe(newer.sourceListing.lastSeenAt);
+  });
+});
+
+describe('quarantineSourceListing', () => {
+  let sourceId: string;
+
+  afterEach(async () => {
+    if (sourceId) await cleanupTestSource(sourceId);
+  });
+
+  it('creates a quarantined listing with no revision on a first-ever quarantine', async () => {
+    sourceId = await createTestSource();
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    const result = await quarantineSourceListing(db, identity, '2026-09-05T12:00:00Z');
+
+    expect(result.stale).toBe(false);
+    expect(result.sourceListing.status).toBe('quarantined');
+    expect(result.sourceListing.currentRevisionId).toBeNull();
+  });
+
+  it.each(['active', 'missing_suspected', 'closed', 'expired'] as const)(
+    'overrides a %s listing to quarantined unconditionally',
+    async (status) => {
+      sourceId = await createTestSource();
+      const resourceId = await createTestResource(sourceId);
+      const identity = {
+        sourceId,
+        sourceRecordId: '12345',
+        canonicalSourceUrl: 'https://example.invalid/?id=12345',
+      };
+
+      const first = await writeSourceListingRevision(
+        db,
+        identity,
+        makeContent(resourceId),
+        '2026-09-01T00:00:00Z',
+      );
+      await db
+        .update(sourceListings)
+        .set({ status })
+        .where(eq(sourceListings.id, first.sourceListing.id));
+
+      const result = await quarantineSourceListing(db, identity, '2026-09-05T12:00:00Z');
+
+      expect(result.sourceListing.status).toBe('quarantined');
+    },
+  );
+
+  it('does not reset missingStreak', async () => {
+    sourceId = await createTestSource();
+    const resourceId = await createTestResource(sourceId);
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    const first = await writeSourceListingRevision(
+      db,
+      identity,
+      makeContent(resourceId),
+      '2026-09-01T00:00:00Z',
+    );
+    await db
+      .update(sourceListings)
+      .set({ status: 'missing_suspected', missingStreak: 2 })
+      .where(eq(sourceListings.id, first.sourceListing.id));
+
+    const result = await quarantineSourceListing(db, identity, '2026-09-05T12:00:00Z');
+
+    expect(result.sourceListing.status).toBe('quarantined');
+    expect(result.sourceListing.missingStreak).toBe(2);
+  });
+
+  it('rejects an out-of-order quarantine as stale', async () => {
+    sourceId = await createTestSource();
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    const newer = await quarantineSourceListing(db, identity, '2026-09-05T00:00:00Z');
+    const stale = await quarantineSourceListing(db, identity, '2026-09-04T00:00:00Z');
+
+    expect(stale.stale).toBe(true);
+    expect(stale.sourceListing.lastSeenAt).toBe(newer.sourceListing.lastSeenAt);
   });
 });

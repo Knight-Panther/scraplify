@@ -1,0 +1,637 @@
+import { createHash } from 'node:crypto';
+import type { ResourceId } from '../../domain/ids.js';
+import type { ResourceRole } from '../../domain/resource.js';
+import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
+import {
+  type CrawlRunCounts,
+  finishCrawlRun,
+  getLastCompletedCrawlRun,
+  recordFetchAttempt,
+  recordParserIncident,
+  startCrawlRun,
+  upsertResource,
+} from '../../db/ingest.js';
+import { closeMissingListings, expireOverdueListings } from '../../db/reconcile-source-listings.js';
+import {
+  type CrawlRunRow,
+  sourcePolicies as sourcePoliciesTable,
+  sources,
+} from '../../db/schema/index.js';
+import type { Database } from '../../db/types.js';
+import {
+  quarantineSourceListing,
+  touchSourceListingSeen,
+  writeSourceListingRevision,
+} from '../../db/write-source-listing-revision.js';
+import {
+  type HttpFetcher,
+  type HttpFetchResult,
+  SsrfBlockedError,
+  UrlNotAllowedError,
+} from '../../net/http-fetcher.js';
+import { jobsGePolicy, jobsGeSource } from '../../policies/jobs-ge.js';
+import { JOBS_GE_DETAIL_PARSER_VERSION, parseJobsGeDetailPage } from './detail.js';
+import { type DiscoveredListing, parseAdsPage } from './discovery.js';
+
+const ADS_PATH = '/ge/ads/';
+
+/**
+ * Safety cap on the discovery walk, not a real expectation — jobs.ge's
+ * current corpus is ~19 pages (RECON_NOTES.md: 5,647 listings / ~300 per
+ * page). Hitting this without the walk's own natural stop condition firing
+ * first (see discoverAllListings) means discovery did not complete, so the
+ * run is marked 'partial' rather than 'completed'.
+ */
+const MAX_DISCOVERY_PAGES = 200;
+
+/**
+ * A coarse guard against §21.3's "sudden listing-count collapse" anomaly:
+ * jobs.ge's discovery walk can structurally look "complete" (a page
+ * contributing zero new IDs) while actually reflecting a broken or empty
+ * response rather than genuine end-of-results — an empty page 1 followed by
+ * an equally-empty page 2 would otherwise satisfy discoverAllListings' stop
+ * condition immediately. This is not the full semantic-failure-detection
+ * system §21.3 describes (deferred, like incremental overlap), just a cheap
+ * floor that keeps an obviously-broken run from being treated as full
+ * coverage and driving mass closure — current real count is 5,647, more
+ * than 50x this default.
+ */
+const DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS = 100;
+
+/**
+ * A coarse guard against a source-wide DETAIL-parsing regression (distinct
+ * from DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS, which only covers
+ * discovery-page health): discovery succeeding while a large share of
+ * discovered listings quarantine on parse is itself evidence this run's
+ * results aren't trustworthy enough to drive closure, even though
+ * individual listings quarantining is routine and expected (concept
+ * §21.3/§26: "anomalous crawls must not advance missing streaks";
+ * adversarial review, 2026-09-05, round 3). 10% tolerates ordinary
+ * per-listing noise across a real ~5,647-listing corpus while catching a
+ * genuine site-wide template break, which would push this far higher.
+ */
+const DEFAULT_MAX_QUARANTINE_RATE = 0.1;
+
+/**
+ * A guard against a RELATIVE count collapse, compared against this
+ * source's own history rather than a fixed floor: DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS
+ * and the confirmation probe (see discoverAllListings) still can't rule out
+ * a systemic pagination/caching regression that serves identical content
+ * at every page number queried, including the distant probe — e.g. the
+ * same 100-300 listings on every request, which would clear the fixed
+ * floor easily while the real ~5,647-listing corpus has effectively
+ * collapsed (adversarial review, 2026-09-05, round 4). 50% tolerates
+ * ordinary day-to-day churn while catching a genuine collapse. Skipped
+ * entirely (never blocks) when this source has no prior 'completed' run to
+ * compare against — a source's first-ever run has no baseline to judge by.
+ */
+const DEFAULT_MIN_RELATIVE_COVERAGE_RATIO = 0.5;
+
+export interface RunJobsGeCrawlDeps {
+  db: Database;
+  httpFetcher: HttpFetcher;
+  /** Injectable clock, defaults to the real wall clock. Tests supply a fixed/advancing one for determinism. */
+  now?: () => string;
+}
+
+export interface RunJobsGeCrawlOptions {
+  /** concept §13: "missing across the configured number of complete successful reconciliations." Must be >= 2 — see reconcile-source-listings.ts. */
+  missingStreakThreshold: number;
+  /** See DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS. Overridable for testing; production callers should rarely need to. */
+  minExpectedDiscoveredListings?: number;
+  /** See DEFAULT_MAX_QUARANTINE_RATE. Overridable for testing; production callers should rarely need to. */
+  maxQuarantineRate?: number;
+  /** See DEFAULT_MIN_RELATIVE_COVERAGE_RATIO. Overridable for testing; production callers should rarely need to. */
+  minRelativeCoverageRatio?: number;
+}
+
+export interface RunJobsGeCrawlResult {
+  crawlRun: CrawlRunRow;
+}
+
+/**
+ * Idempotently ensures jobs.ge's `sources`/`source_policies` rows exist —
+ * nothing in this codebase has ever inserted them before now (every prior
+ * DB test used a throwaway random-UUID source instead), but every write
+ * this crawl makes (resources, source_listings, crawl_runs) has a NOT NULL
+ * FK to `sources.id`, so the real jobsGeSource.id row must exist first.
+ * Safe to call on every run: onConflictDoNothing makes this a no-op after
+ * the first time.
+ */
+export async function ensureJobsGeSourceSeeded(db: Database): Promise<void> {
+  await db
+    .insert(sources)
+    .values({
+      id: jobsGeSource.id,
+      slug: jobsGeSource.slug,
+      displayName: jobsGeSource.displayName,
+      baseUrl: jobsGeSource.baseUrl,
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(sourcePoliciesTable)
+    .values({
+      id: jobsGePolicy.id,
+      sourceId: jobsGePolicy.sourceId,
+      policyVersion: jobsGePolicy.policyVersion,
+      allowedAcquisitionModes: jobsGePolicy.allowedAcquisitionModes,
+      allowedPathPatterns: jobsGePolicy.allowedPathPatterns,
+      disallowedPathPatterns: jobsGePolicy.disallowedPathPatterns,
+      disallowedHosts: jobsGePolicy.disallowedHosts,
+      authenticationScope: jobsGePolicy.authenticationScope,
+      rateLimit: jobsGePolicy.rateLimit,
+      termsUrl: jobsGePolicy.termsUrl,
+      robotsUrl: jobsGePolicy.robotsUrl,
+      retention: jobsGePolicy.retention,
+      display: jobsGePolicy.display,
+      linkedResources: jobsGePolicy.linkedResources,
+      reviewDate: jobsGePolicy.reviewDate,
+      evidence: jobsGePolicy.evidence,
+      notes: jobsGePolicy.notes,
+      decisionOwner: jobsGePolicy.decisionOwner,
+    })
+    .onConflictDoNothing();
+}
+
+function buildAdsPageUrl(page: number): string {
+  const url = new URL(ADS_PATH, jobsGeSource.baseUrl);
+  url.searchParams.set('page', String(page));
+  return url.toString();
+}
+
+function classifyOutcome(error: unknown, result: HttpFetchResult | null): FetchOutcome {
+  if (error instanceof UrlNotAllowedError || error instanceof SsrfBlockedError) return 'blocked';
+  if (error !== null) return 'failure';
+  if (result === null) return 'failure';
+  return result.status === 200 ? 'success' : 'failure';
+}
+
+function describeError(error: unknown, result: HttpFetchResult | null): string | null {
+  if (error instanceof Error) return error.name;
+  if (error !== null) return 'unknown_error';
+  if (result !== null && result.status !== 200) return `http_${result.status}`;
+  return null;
+}
+
+function extractMimeType(headers: Record<string, string | string[] | undefined>): string | null {
+  const raw = headers['content-type'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (!value) return null;
+  return value.split(';')[0]?.trim() || null;
+}
+
+function sha256(input: string): string {
+  return createHash('sha256').update(input).digest('hex');
+}
+
+interface FetchAndRecordResult {
+  outcome: FetchOutcome;
+  resource: { id: string };
+  fetchResult: HttpFetchResult | null;
+}
+
+/**
+ * Fetches one URL and unconditionally records the attempt — a resource row
+ * (upsertResource) plus a fetch_attempts row — regardless of outcome, so
+ * every fetch this crawl makes is accounted for per concept §21.1, not just
+ * the successful ones.
+ */
+async function fetchAndRecord(
+  db: Database,
+  httpFetcher: HttpFetcher,
+  crawlRunId: string,
+  role: ResourceRole,
+  url: string,
+  attemptedAt: string,
+): Promise<FetchAndRecordResult> {
+  const startedAtMs = Date.now();
+  let fetchResult: HttpFetchResult | null = null;
+  let caughtError: unknown = null;
+  try {
+    fetchResult = await httpFetcher.fetch(url);
+  } catch (err) {
+    caughtError = err;
+  }
+  const durationMs = Date.now() - startedAtMs;
+  const outcome = classifyOutcome(caughtError, fetchResult);
+  const succeeded = outcome === 'success' && fetchResult !== null;
+
+  const resource = await upsertResource(db, {
+    sourceId: jobsGeSource.id,
+    role,
+    originalUrl: url,
+    canonicalUrl: url,
+    finalUrl: fetchResult?.finalUrl ?? null,
+    status: succeeded ? 'fetched' : 'failed',
+    fetchedAt: attemptedAt,
+    contentHash: succeeded && fetchResult ? sha256(fetchResult.body) : null,
+    byteSize: succeeded && fetchResult ? Buffer.byteLength(fetchResult.body, 'utf-8') : null,
+    mimeType: fetchResult ? extractMimeType(fetchResult.headers) : null,
+  });
+
+  await recordFetchAttempt(db, {
+    crawlRunId,
+    resourceId: resource.id,
+    attemptedAt,
+    statusCode: fetchResult?.status ?? null,
+    durationMs,
+    outcome,
+    errorKind: describeError(caughtError, fetchResult),
+  });
+
+  return { outcome, resource, fetchResult };
+}
+
+interface DiscoverAllListingsResult {
+  listings: Map<string, DiscoveredListing>;
+  /** True only if the walk reached its own natural stop (see below) rather than a fetch failure or the MAX_DISCOVERY_PAGES safety cap. */
+  complete: boolean;
+}
+
+function idSet(listing: readonly DiscoveredListing[]): Set<string> {
+  return new Set(listing.map((l) => l.sourceRecordId));
+}
+
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+}
+
+/**
+ * How far past a candidate clamp page to probe for confirmation — see
+ * discoverAllListings. RECON_NOTES.md confirmed jobs.ge returns identical
+ * content not just at the immediate next page but at several far-apart
+ * out-of-range page numbers (19's content repeated at 20, 21, AND 50), so a
+ * fixed jump well within that confirmed range is real, evidenced behavior,
+ * not an arbitrary guess.
+ */
+export const CLAMP_CONFIRMATION_PROBE_OFFSET = 20;
+
+/**
+ * Fetches `page` and returns its parsed listing ID set, or null if the
+ * fetch itself failed — used both by the main walk and by the clamp
+ * confirmation probe below, which needs the exact same fetch-and-parse
+ * step but must never let its own failure be mistaken for "walk failed."
+ */
+async function fetchPageIds(
+  db: Database,
+  httpFetcher: HttpFetcher,
+  crawlRun: CrawlRunRow,
+  now: () => string,
+  page: number,
+): Promise<{ ids: Set<string>; listings: DiscoveredListing[] } | null> {
+  const url = buildAdsPageUrl(page);
+  const attemptedAt = now();
+  const { outcome, fetchResult } = await fetchAndRecord(
+    db,
+    httpFetcher,
+    crawlRun.id,
+    'INDEX',
+    url,
+    attemptedAt,
+  );
+  if (outcome !== 'success' || fetchResult === null) return null;
+
+  const parsed = parseAdsPage(fetchResult.body);
+  const pageListings = [...parsed.vip, ...parsed.standard];
+  return { ids: idSet(pageListings), listings: pageListings };
+}
+
+/**
+ * Walks `/ge/ads/?page=N` from page 1, merging VIP and standard partitions
+ * into one map keyed by sourceRecordId (VIP recurs identically across
+ * pages per RECON_NOTES.md — the map absorbs that naturally). A candidate
+ * stop fires when a page's own ID set is non-empty AND exactly equal to the
+ * immediately preceding page's — jobs.ge clamps out-of-range page numbers
+ * to the last real page rather than erroring, so a genuine last page is
+ * followed by byte-for-byte identical repeats (RECON_NOTES.md), which this
+ * detects directly rather than inferring from "zero new IDs against
+ * everything accumulated so far" (an earlier version of this function;
+ * comparing against the cumulative map would treat a single broken or
+ * empty response mid-corpus as a legitimate stop too).
+ *
+ * That candidate is NOT trusted on its own: a single repeated response
+ * could also be a transient cache/proxy glitch serving the previous page's
+ * content again, rather than genuine terminal pagination (adversarial
+ * review, 2026-09-05, round 3) — with a 100-listing floor, a coincidence on
+ * page 1 vs. a duplicate page 2 would already clear it, yet only reflect a
+ * tiny fraction of the real corpus. So a candidate stop is CONFIRMED by an
+ * independent probe at `page + CLAMP_CONFIRMATION_PROBE_OFFSET`: only if
+ * that far-apart page's content ALSO matches does this declare `complete`.
+ * If the probe fails or disagrees, the candidate is treated as a fluke and
+ * the walk resumes normally from the next page — false negatives (walking
+ * further than strictly needed) are the safe direction to err in here, not
+ * false positives.
+ */
+async function discoverAllListings(
+  db: Database,
+  httpFetcher: HttpFetcher,
+  crawlRun: CrawlRunRow,
+  now: () => string,
+): Promise<DiscoverAllListingsResult> {
+  const listings = new Map<string, DiscoveredListing>();
+  let complete = false;
+  let previousPageIds: Set<string> | null = null;
+
+  for (let page = 1; page <= MAX_DISCOVERY_PAGES; page++) {
+    const fetched = await fetchPageIds(db, httpFetcher, crawlRun, now, page);
+    if (fetched === null) break;
+    const { ids: pageIds, listings: pageListings } = fetched;
+
+    if (pageIds.size > 0 && previousPageIds !== null && setsEqual(pageIds, previousPageIds)) {
+      const probe = await fetchPageIds(
+        db,
+        httpFetcher,
+        crawlRun,
+        now,
+        page + CLAMP_CONFIRMATION_PROBE_OFFSET,
+      );
+      if (probe !== null && setsEqual(probe.ids, pageIds)) {
+        complete = true;
+        break;
+      }
+      // Unconfirmed — a fluke, not the real clamp. Fall through and keep walking.
+    }
+
+    for (const listing of pageListings) {
+      listings.set(listing.sourceRecordId, listing);
+    }
+    previousPageIds = pageIds;
+  }
+
+  return { listings, complete };
+}
+
+/**
+ * Runs one full jobs.ge crawl: discovers the entire listing space, fetches
+ * and parses every listing's detail page, writes revisions, then reconciles
+ * missing/expired listings. Every fetch (discovery pages and detail pages
+ * alike) is recorded as a resource + fetch attempt regardless of outcome.
+ *
+ * `fullCoverage` is asserted true at crawl-run start — every jobs.ge run
+ * today is scoped as a full-corpus walk, never a deliberately-partial
+ * incremental poll (concept §10.1's rolling-overlap-window optimization is
+ * deferred, see docs/STATUS.md). Whether that attempt actually succeeded is
+ * a separate question, decided by `status` after the walk completes (or
+ * doesn't) — reconcile-source-listings.ts's closeMissingListings requires
+ * both to proceed, so an incomplete discovery walk (a failed page fetch,
+ * the MAX_DISCOVERY_PAGES safety cap, or too few listings found — see
+ * DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS) naturally leaves the run
+ * ineligible for closure without needing its own separate check here.
+ *
+ * A per-listing fetch or parse failure never aborts the whole run — one bad
+ * detail page is routine, not catastrophic (concept §21.3 distinguishes
+ * this from a run-level anomaly) — but the two are tracked distinctly, per
+ * concept §26's "parse failures are typed and quarantined" acceptance
+ * criterion: a FETCH failure (network/HTTP-level, transient) increments
+ * failedCount and calls touchSourceListingSeen (still present in
+ * discovery, just couldn't be refetched this time); a PARSE failure (the
+ * fetch succeeded, but our parser couldn't extract the content — a
+ * markup/template mismatch, a real parser-health signal) increments
+ * quarantinedCount, quarantines both the listing and its resource, and
+ * records a typed parser_incidents row instead. An unexpected error from
+ * the DB write path itself (writeSourceListingRevision, or
+ * fetchAndRecord's own bookkeeping calls) is NOT swallowed the same way —
+ * it aborts the run (marked 'failed') and rethrows, since continuing after
+ * a bookkeeping failure would likely just produce more inconsistent state.
+ *
+ * finishCrawlRun is called twice: once to persist 'completed'/'partial'
+ * status (with missing/expired still 0) so closeMissingListings can read an
+ * authoritative, already-committed crawl_runs row rather than a
+ * caller-supplied claim about this run's own completeness (adversarial
+ * review, 2026-09-04 — see reconcile-source-listings.ts), then again with
+ * the real reconciliation counts patched in.
+ */
+export async function runJobsGeCrawl(
+  deps: RunJobsGeCrawlDeps,
+  options: RunJobsGeCrawlOptions,
+): Promise<RunJobsGeCrawlResult> {
+  const { db, httpFetcher } = deps;
+  const now = deps.now ?? (() => new Date().toISOString());
+  const minExpectedDiscoveredListings =
+    options.minExpectedDiscoveredListings ?? DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS;
+  const maxQuarantineRate = options.maxQuarantineRate ?? DEFAULT_MAX_QUARANTINE_RATE;
+  const minRelativeCoverageRatio =
+    options.minRelativeCoverageRatio ?? DEFAULT_MIN_RELATIVE_COVERAGE_RATIO;
+
+  await ensureJobsGeSourceSeeded(db);
+
+  const startedAt = now();
+  const crawlRun = await startCrawlRun(db, {
+    sourceId: jobsGeSource.id,
+    startedAt,
+    fullCoverage: true,
+  });
+
+  const counts: CrawlRunCounts = {
+    discoveredCount: 0,
+    vipCount: 0,
+    standardCount: 0,
+    newCount: 0,
+    changedCount: 0,
+    unchangedCount: 0,
+    missingCount: 0,
+    expiredCount: 0,
+    reopenedCount: 0,
+    quarantinedCount: 0,
+    failedCount: 0,
+  };
+
+  try {
+    const { listings, complete } = await discoverAllListings(db, httpFetcher, crawlRun, now);
+    counts.discoveredCount = listings.size;
+    // Tracked separately per concept §26 ("VIP and standard sections are
+    // measured separately") — also what the VIP/standard health guards
+    // below need, since a combined-total collapse check alone can't see a
+    // ~10-row VIP wipeout inside a ~5,647-row total (adversarial review,
+    // 2026-09-05, round 5).
+    for (const listing of listings.values()) {
+      if (listing.partition === 'vip') counts.vipCount++;
+      else counts.standardCount++;
+    }
+
+    for (const listing of listings.values()) {
+      const identity = {
+        sourceId: jobsGeSource.id,
+        sourceRecordId: listing.sourceRecordId,
+        canonicalSourceUrl: listing.url,
+      };
+      const attemptedAt = now();
+      const { outcome, resource, fetchResult } = await fetchAndRecord(
+        db,
+        httpFetcher,
+        crawlRun.id,
+        'OPPORTUNITY',
+        listing.url,
+        attemptedAt,
+      );
+      if (outcome !== 'success' || fetchResult === null) {
+        counts.failedCount++;
+        // Still present in discovery even though the detail fetch failed —
+        // must not look "missing" to closeMissingListings, which only has
+        // lastSeenAt to go on (adversarial review, 2026-09-05).
+        await touchSourceListingSeen(db, identity, attemptedAt);
+        continue;
+      }
+
+      let content: ReturnType<typeof parseJobsGeDetailPage>;
+      try {
+        content = parseJobsGeDetailPage({
+          html: fetchResult.body,
+          extractionMethod: 'http',
+          provenance: {
+            resourceId: resource.id as ResourceId,
+            fetchedAt: attemptedAt,
+            notes: null,
+          },
+        });
+      } catch (parseError) {
+        counts.quarantinedCount++;
+        // Fetch succeeded (real bytes were retrieved) but parsing failed —
+        // a markup/template mismatch, not a network blip. concept §26's
+        // acceptance criteria require parse failures to be "typed and
+        // quarantined," not folded into an ordinary failedCount
+        // (adversarial review, 2026-09-05): quarantine the listing itself
+        // (excluding it from touchSourceListingSeen/closeMissingListings'
+        // status transitions until a human resolves this), the resource
+        // (bytes were fetched fine, only extraction failed), and record a
+        // typed incident a human or future supervised-repair process can
+        // act on.
+        await quarantineSourceListing(db, identity, attemptedAt);
+        await upsertResource(db, {
+          sourceId: jobsGeSource.id,
+          role: 'OPPORTUNITY',
+          originalUrl: listing.url,
+          canonicalUrl: listing.url,
+          finalUrl: fetchResult.finalUrl,
+          status: 'quarantined',
+          fetchedAt: attemptedAt,
+          contentHash: sha256(fetchResult.body),
+          byteSize: Buffer.byteLength(fetchResult.body, 'utf-8'),
+          mimeType: extractMimeType(fetchResult.headers),
+        });
+        await recordParserIncident(db, {
+          sourceId: jobsGeSource.id,
+          crawlRunId: crawlRun.id,
+          detectedAt: attemptedAt,
+          kind: 'field_missing',
+          severity: 'warning',
+          evidence: {
+            sourceRecordId: listing.sourceRecordId,
+            url: listing.url,
+            resourceId: resource.id,
+            parserVersion: JOBS_GE_DETAIL_PARSER_VERSION,
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+          },
+        });
+        continue;
+      }
+
+      // allowReopen: a successful, non-stale re-fetch and re-parse within a
+      // full discovery walk IS the confirmed-reappearance evidence
+      // write-source-listing-revision.ts requires before reactivating a
+      // closed/expired listing (concept §13; adversarial review, 2026-09-05).
+      const writeResult = await writeSourceListingRevision(db, identity, content, attemptedAt, {
+        allowReopen: true,
+      });
+      if (writeResult.outcome === 'new') counts.newCount++;
+      else if (writeResult.outcome === 'changed') counts.changedCount++;
+      else if (writeResult.outcome === 'unchanged') counts.unchangedCount++;
+      // 'stale' isn't bucketed here — see write-source-listing-revision.ts;
+      // it shouldn't occur within one sequential, single-writer run.
+      if (writeResult.reopened) counts.reopenedCount++;
+    }
+
+    // Computed only after every listing has been processed — quarantineRate
+    // needs the final quarantinedCount, so this can't be decided right
+    // after discovery the way discoveredCount/complete alone could be
+    // (adversarial review, 2026-09-05, round 3).
+    const quarantineRate = listings.size > 0 ? counts.quarantinedCount / listings.size : 0;
+
+    // A systemic pagination/caching regression that serves identical
+    // content at every page number queried (including the distant
+    // confirmation probe) can still clear `complete`, the fixed floor, and
+    // the quarantine-rate check — none of them know what this source's
+    // corpus is actually supposed to look like. Comparing against its own
+    // last completed run's discoveredCount does (adversarial review,
+    // 2026-09-05, round 4). No baseline yet (this source's first-ever run)
+    // means nothing to compare against, so it never blocks in that case.
+    const lastCompletedRun = await getLastCompletedCrawlRun(db, jobsGeSource.id);
+    const baselineOk =
+      lastCompletedRun === null ||
+      lastCompletedRun.discoveredCount === 0 ||
+      listings.size >= lastCompletedRun.discoveredCount * minRelativeCoverageRatio;
+
+    // The combined-total baseline above can't see a single partition going
+    // to zero — VIP is only ~10 of a ~5,647-listing corpus, so losing it
+    // entirely (e.g. the `.vipEntries` selector silently stops matching)
+    // barely moves the total and would sail past both the fixed floor and
+    // the relative-collapse ratio. A plain floor on VIP isn't right either:
+    // a legitimately VIP-less run (no one currently has a promoted slot) is
+    // a real, non-anomalous state, not distinguishable from "the parser
+    // broke" without something to compare against. So this only fires when
+    // the LAST completed run itself had a non-zero count for that
+    // partition and this run doesn't — "went from something to nothing,"
+    // not "is currently small or zero" (adversarial review, 2026-09-05,
+    // round 5).
+    const vipOk =
+      lastCompletedRun === null || lastCompletedRun.vipCount === 0 || counts.vipCount > 0;
+    const standardOk =
+      lastCompletedRun === null || lastCompletedRun.standardCount === 0 || counts.standardCount > 0;
+
+    const discoveryOk =
+      complete &&
+      listings.size >= minExpectedDiscoveredListings &&
+      quarantineRate <= maxQuarantineRate &&
+      baselineOk &&
+      vipOk &&
+      standardOk;
+
+    const finishedAt = now();
+    const runStatus: CrawlRunStatus = discoveryOk ? 'completed' : 'partial';
+
+    // reconciledAt deliberately omitted here — the row's exclusivity lock
+    // (src/db/schema/runs.ts's partial unique index keys on reconciledAt,
+    // not status) must stay held through reconciliation below, or another
+    // invocation could start in this exact window and race it (adversarial
+    // review, 2026-09-05, round 6). status is set now so closeMissingListings
+    // can read this persisted terminal value.
+    await finishCrawlRun(db, crawlRun.id, { finishedAt, status: runStatus, counts });
+
+    const expireResult = await expireOverdueListings(db, {
+      sourceId: jobsGeSource.id,
+      asOf: finishedAt,
+    });
+    const closeResult = await closeMissingListings(db, {
+      crawlRunId: crawlRun.id,
+      missingStreakThreshold: options.missingStreakThreshold,
+    });
+    counts.expiredCount = expireResult.expiredCount;
+    counts.missingCount = closeResult.missingSuspectedCount + closeResult.closedCount;
+
+    // reconciledAt set here, once reconciliation has actually committed —
+    // this is what finally releases the exclusivity lock.
+    const finalRun = await finishCrawlRun(db, crawlRun.id, {
+      finishedAt,
+      status: runStatus,
+      counts,
+      reconciledAt: finishedAt,
+    });
+    return { crawlRun: finalRun };
+  } catch (err) {
+    // A 'failed' run never reaches reconciliation and never will — nothing
+    // to hold the lock for, so it's released immediately rather than left
+    // stuck (matching the existing documented stance on stale locks: a
+    // clean 'failed' marking is exactly what's supposed to let a future
+    // run proceed).
+    await finishCrawlRun(db, crawlRun.id, {
+      finishedAt: now(),
+      status: 'failed',
+      counts,
+      reconciledAt: now(),
+    });
+    throw err;
+  }
+}

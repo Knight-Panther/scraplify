@@ -18,6 +18,16 @@ export const CrawlRunSchema = z.object({
   sourceId: SourceId,
   startedAt: IsoDateTime,
   finishedAt: IsoDateTime.nullable(),
+  /**
+   * Set only once this run is fully settled — reconciliation genuinely ran
+   * (or, for a 'failed' run, definitely never will) — separately from
+   * `status`, which reaches its terminal value earlier, before
+   * reconciliation runs. Exclusivity (src/db/schema/runs.ts's partial
+   * unique index) is keyed on this being null, not on `status`, so the
+   * lock survives the gap between "status set" and "reconciliation
+   * committed" (adversarial review, 2026-09-05, round 6).
+   */
+  reconciledAt: IsoDateTime.nullable(),
   status: CrawlRunStatus,
   /**
    * True only if this run's discovery walked the entire listing space for
@@ -31,6 +41,9 @@ export const CrawlRunSchema = z.object({
    */
   fullCoverage: z.boolean(),
   discoveredCount: z.int().nonnegative(),
+  /** Per-partition breakdown of discoveredCount (§26: "VIP and standard sections are measured separately"). vipCount + standardCount should equal discoveredCount for a source with that partition structure. */
+  vipCount: z.int().nonnegative(),
+  standardCount: z.int().nonnegative(),
   newCount: z.int().nonnegative(),
   changedCount: z.int().nonnegative(),
   unchangedCount: z.int().nonnegative(),

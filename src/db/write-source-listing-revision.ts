@@ -24,10 +24,27 @@ export type SourceListingRevisionContent = Omit<
 
 export type WriteOutcome = 'new' | 'changed' | 'unchanged' | 'stale';
 
+export interface WriteSourceListingRevisionOptions {
+  /**
+   * Allows a fresh, non-stale positive observation to reopen a 'closed' or
+   * 'expired' listing (concept §13: "closed/expired -> active, reopened or
+   * republished"). Defaults to false — reactivating a completed lifecycle
+   * decision needs a genuine confirmed-reappearance context (e.g. a full
+   * discovery walk that re-found and successfully re-fetched this exact
+   * listing), not just "this URL was fetched again from somewhere," which
+   * is why this is an explicit per-call opt-in rather than always-on
+   * default behavior (adversarial review, 2026-09-05 — the crawl
+   * orchestrator is the caller expected to set this true).
+   */
+  allowReopen?: boolean;
+}
+
 export interface WriteSourceListingRevisionResult {
   outcome: WriteOutcome;
   sourceListing: SourceListingRow;
   revision: SourceListingRevisionRow;
+  /** True only when this call actually reopened a 'closed'/'expired' listing (options.allowReopen and that transition both applied). */
+  reopened: boolean;
 }
 
 /**
@@ -81,6 +98,7 @@ export async function writeSourceListingRevision(
   identity: SourceListingIdentity,
   content: SourceListingRevisionContent,
   observedAt: string,
+  options: WriteSourceListingRevisionOptions = {},
 ): Promise<WriteSourceListingRevisionResult> {
   return db.transaction(async (tx) => {
     const values = {
@@ -171,22 +189,35 @@ export async function writeSourceListingRevision(
         if (!corrected) {
           throw new Error('writeSourceListingRevision: firstSeenAt correction returned no row');
         }
-        return { outcome: 'stale', sourceListing: corrected, revision: currentRevision };
+        return {
+          outcome: 'stale',
+          sourceListing: corrected,
+          revision: currentRevision,
+          reopened: false,
+        };
       }
-      return { outcome: 'stale', sourceListing: locked, revision: currentRevision };
+      return {
+        outcome: 'stale',
+        sourceListing: locked,
+        revision: currentRevision,
+        reopened: false,
+      };
     }
 
     // Only 'discovered' and 'missing_suspected' are advanced to 'active' by
     // a mere positive observation (docs/scraplify-concept.md §13). 'closed'
-    // and 'expired' represent a completed lifecycle decision that only a
-    // reconciliation pass may reverse with a confirmed reappearance signal
-    // — not just this listing having been fetched again, which for
-    // 'expired' in particular could just mean the source still serves the
-    // same past-deadline page. 'quarantined' needs its incident resolved
-    // first. An allowlist, not a denylist, so a status added to the enum
-    // later defaults to "don't touch" here unless deliberately included.
+    // and 'expired' represent a completed lifecycle decision that only
+    // reopens with options.allowReopen explicitly set — a confirmed
+    // reappearance signal, not just this listing having been fetched again,
+    // which for 'expired' in particular could just mean the source still
+    // serves the same past-deadline page. 'quarantined' needs its incident
+    // resolved first. An allowlist, not a denylist, so a status added to
+    // the enum later defaults to "don't touch" here unless deliberately
+    // included.
+    const reopening =
+      (options.allowReopen ?? false) && (locked.status === 'closed' || locked.status === 'expired');
     const nextStatus =
-      locked.status === 'discovered' || locked.status === 'missing_suspected'
+      locked.status === 'discovered' || locked.status === 'missing_suspected' || reopening
         ? 'active'
         : locked.status;
 
@@ -206,7 +237,12 @@ export async function writeSourceListingRevision(
         .returning();
       if (!touched) throw new Error('writeSourceListingRevision: listing update returned no row');
 
-      return { outcome: 'unchanged', sourceListing: touched, revision: currentRevision };
+      return {
+        outcome: 'unchanged',
+        sourceListing: touched,
+        revision: currentRevision,
+        reopened: reopening,
+      };
     }
 
     const newRevisionId = randomUUID();
@@ -260,6 +296,220 @@ export async function writeSourceListingRevision(
       outcome: currentRevision === null ? 'new' : 'changed',
       sourceListing: updated,
       revision,
+      reopened: reopening,
     };
+  });
+}
+
+export interface TouchSourceListingSeenResult {
+  sourceListing: SourceListingRow;
+  /** True if this observation was rejected as older than what's already on record — see writeSourceListingRevision's own staleness comment; the same reasoning applies here. */
+  stale: boolean;
+}
+
+/**
+ * Records that a listing was seen in DISCOVERY this run even though its
+ * detail fetch or parse failed — used specifically so a still-discovered
+ * listing's lastSeenAt still advances, protecting it from
+ * reconcile-source-listings.ts's closeMissingListings, which has only
+ * lastSeenAt to judge "was this observed this run" by (adversarial review,
+ * 2026-09-05: without this, a listing that's still plainly listed on the
+ * source but whose detail fetch keeps failing transiently would gradually
+ * accumulate missingStreak and eventually close, even though it was never
+ * actually missing from the index).
+ *
+ * Deliberately narrower than writeSourceListingRevision's own reactivation
+ * rule: only 'missing_suspected' advances to 'active' here, not
+ * 'discovered'. A 'missing_suspected' listing already has a prior
+ * successful revision (that's how it reached that status), so confirming
+ * it's still indexed is enough to reactivate it around that last-known-good
+ * content. A 'discovered' listing has never had a successful fetch at all —
+ * advancing it to 'active' on a mere index sighting, with no content behind
+ * it, would misrepresent what "active" means elsewhere in the schema. Never
+ * reopens 'closed'/'expired' — that needs the stronger confirmed-reappearance
+ * evidence of an actual successful re-fetch (writeSourceListingRevision's
+ * own allowReopen path), not just an index-page sighting.
+ */
+export async function touchSourceListingSeen(
+  db: Database,
+  identity: SourceListingIdentity,
+  observedAt: string,
+): Promise<TouchSourceListingSeenResult> {
+  return db.transaction(async (tx) => {
+    const values = {
+      id: randomUUID(),
+      sourceId: identity.sourceId,
+      sourceRecordId: identity.sourceRecordId,
+      canonicalSourceUrl: identity.canonicalSourceUrl,
+      currentRevisionId: null,
+      firstSeenAt: observedAt,
+      lastSeenAt: observedAt,
+      status: 'discovered' as const,
+      missingStreak: 0,
+      sourcePublishedAt: null,
+      sourceDeadlineAt: null,
+    };
+
+    if (identity.sourceRecordId !== null) {
+      await tx
+        .insert(sourceListings)
+        .values(values)
+        .onConflictDoNothing({
+          target: [sourceListings.sourceId, sourceListings.sourceRecordId],
+          where: sql`${sourceListings.sourceRecordId} is not null`,
+        });
+    } else {
+      await tx
+        .insert(sourceListings)
+        .values(values)
+        .onConflictDoNothing({
+          target: [sourceListings.sourceId, sourceListings.canonicalSourceUrl],
+          where: sql`${sourceListings.sourceRecordId} is null`,
+        });
+    }
+
+    const identityWhere =
+      identity.sourceRecordId !== null
+        ? and(
+            eq(sourceListings.sourceId, identity.sourceId),
+            eq(sourceListings.sourceRecordId, identity.sourceRecordId),
+          )
+        : and(
+            eq(sourceListings.sourceId, identity.sourceId),
+            eq(sourceListings.canonicalSourceUrl, identity.canonicalSourceUrl),
+          );
+
+    const [locked] = await tx.select().from(sourceListings).where(identityWhere).for('update');
+    if (!locked) {
+      throw new Error(
+        'touchSourceListingSeen: listing row missing immediately after insert-or-ignore',
+      );
+    }
+
+    if (toEpochMs(observedAt) < toEpochMs(locked.lastSeenAt)) {
+      return { sourceListing: locked, stale: true };
+    }
+
+    const nextStatus = locked.status === 'missing_suspected' ? 'active' : locked.status;
+
+    const [updated] = await tx
+      .update(sourceListings)
+      .set({
+        canonicalSourceUrl: identity.canonicalSourceUrl,
+        lastSeenAt: observedAt,
+        missingStreak: 0,
+        status: nextStatus,
+      })
+      .where(eq(sourceListings.id, locked.id))
+      .returning();
+    if (!updated) throw new Error('touchSourceListingSeen: listing update returned no row');
+
+    return { sourceListing: updated, stale: false };
+  });
+}
+
+export interface QuarantineSourceListingResult {
+  sourceListing: SourceListingRow;
+  /** True if this observation was rejected as older than what's already on record — see writeSourceListingRevision's own staleness comment; the same reasoning applies here. */
+  stale: boolean;
+}
+
+/**
+ * Marks a listing quarantined — concept §13: "any state -> quarantined
+ * when evidence is unreliable." Used when a listing's detail content was
+ * successfully FETCHED but failed to PARSE (a markup/template mismatch,
+ * not a network failure): concept §26's acceptance criteria explicitly
+ * require parse failures to be "typed and quarantined," not silently
+ * folded into an ordinary missing/failed count (adversarial review,
+ * 2026-09-05).
+ *
+ * Unlike touchSourceListingSeen's allowlist-based reactivation, this
+ * unconditionally overrides status to 'quarantined' regardless of the
+ * listing's prior state — unreliable evidence takes precedence over
+ * whatever lifecycle state was previously recorded. missingStreak is left
+ * untouched (neither reset nor advanced): quarantine isn't a "confirmed
+ * present" signal the way a successful fetch is, so resetting the streak
+ * would overstate what's actually known.
+ *
+ * Once quarantined, a listing is excluded from every other status
+ * transition here: touchSourceListingSeen's reactivation allowlist and
+ * writeSourceListingRevision's own (even with allowReopen) both
+ * deliberately exclude 'quarantined' — see their own allowlist comments —
+ * until a human or a future supervised-repair process (concept §22)
+ * resolves the underlying parser_incidents row and explicitly reactivates
+ * it. No such reactivation path exists yet; this only ever quarantines.
+ */
+export async function quarantineSourceListing(
+  db: Database,
+  identity: SourceListingIdentity,
+  observedAt: string,
+): Promise<QuarantineSourceListingResult> {
+  return db.transaction(async (tx) => {
+    const values = {
+      id: randomUUID(),
+      sourceId: identity.sourceId,
+      sourceRecordId: identity.sourceRecordId,
+      canonicalSourceUrl: identity.canonicalSourceUrl,
+      currentRevisionId: null,
+      firstSeenAt: observedAt,
+      lastSeenAt: observedAt,
+      status: 'discovered' as const,
+      missingStreak: 0,
+      sourcePublishedAt: null,
+      sourceDeadlineAt: null,
+    };
+
+    if (identity.sourceRecordId !== null) {
+      await tx
+        .insert(sourceListings)
+        .values(values)
+        .onConflictDoNothing({
+          target: [sourceListings.sourceId, sourceListings.sourceRecordId],
+          where: sql`${sourceListings.sourceRecordId} is not null`,
+        });
+    } else {
+      await tx
+        .insert(sourceListings)
+        .values(values)
+        .onConflictDoNothing({
+          target: [sourceListings.sourceId, sourceListings.canonicalSourceUrl],
+          where: sql`${sourceListings.sourceRecordId} is null`,
+        });
+    }
+
+    const identityWhere =
+      identity.sourceRecordId !== null
+        ? and(
+            eq(sourceListings.sourceId, identity.sourceId),
+            eq(sourceListings.sourceRecordId, identity.sourceRecordId),
+          )
+        : and(
+            eq(sourceListings.sourceId, identity.sourceId),
+            eq(sourceListings.canonicalSourceUrl, identity.canonicalSourceUrl),
+          );
+
+    const [locked] = await tx.select().from(sourceListings).where(identityWhere).for('update');
+    if (!locked) {
+      throw new Error(
+        'quarantineSourceListing: listing row missing immediately after insert-or-ignore',
+      );
+    }
+
+    if (toEpochMs(observedAt) < toEpochMs(locked.lastSeenAt)) {
+      return { sourceListing: locked, stale: true };
+    }
+
+    const [updated] = await tx
+      .update(sourceListings)
+      .set({
+        canonicalSourceUrl: identity.canonicalSourceUrl,
+        lastSeenAt: observedAt,
+        status: 'quarantined',
+      })
+      .where(eq(sourceListings.id, locked.id))
+      .returning();
+    if (!updated) throw new Error('quarantineSourceListing: listing update returned no row');
+
+    return { sourceListing: updated, stale: false };
   });
 }

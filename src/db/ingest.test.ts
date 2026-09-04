@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from './client.js';
-import { finishCrawlRun, recordFetchAttempt, startCrawlRun, upsertResource } from './ingest.js';
+import {
+  CrawlAlreadyRunningError,
+  finishCrawlRun,
+  recordFetchAttempt,
+  startCrawlRun,
+  upsertResource,
+} from './ingest.js';
 import { cleanupTestSource, createTestSource } from './test-support.js';
 
 describe('upsertResource', () => {
@@ -136,6 +142,8 @@ describe('crawl runs and fetch attempts', () => {
       status: 'completed',
       counts: {
         discoveredCount: 1,
+        vipCount: 0,
+        standardCount: 1,
         newCount: 1,
         changedCount: 0,
         unchangedCount: 0,
@@ -150,5 +158,111 @@ describe('crawl runs and fetch attempts', () => {
     expect(finished.status).toBe('completed');
     expect(finished.newCount).toBe(1);
     expect(finished.finishedAt).not.toBeNull();
+  });
+
+  it('rejects starting a second crawl run while one is already running for the same source', async () => {
+    sourceId = await createTestSource();
+    await startCrawlRun(db, { sourceId, startedAt: '2026-09-04T12:00:00Z', fullCoverage: true });
+
+    await expect(
+      startCrawlRun(db, { sourceId, startedAt: '2026-09-04T12:05:00Z', fullCoverage: true }),
+    ).rejects.toThrow(CrawlAlreadyRunningError);
+  });
+
+  it('still rejects a new crawl run after status is set to completed but before reconciliation has committed', async () => {
+    // The exact overlap window round 6's adversarial review flagged: an
+    // earlier design released the exclusivity lock the moment status left
+    // 'running', which happens BEFORE reconciliation runs (see crawl.ts's
+    // own comment on this). Proving the lock survives that gap here,
+    // independent of the orchestrator itself.
+    sourceId = await createTestSource();
+    const first = await startCrawlRun(db, {
+      sourceId,
+      startedAt: '2026-09-04T12:00:00Z',
+      fullCoverage: true,
+    });
+    await finishCrawlRun(db, first.id, {
+      finishedAt: '2026-09-04T12:05:00Z',
+      status: 'completed', // terminal status set...
+      // ...but reconciledAt deliberately omitted, simulating "reconciliation hasn't committed yet."
+      counts: {
+        discoveredCount: 0,
+        vipCount: 0,
+        standardCount: 0,
+        newCount: 0,
+        changedCount: 0,
+        unchangedCount: 0,
+        missingCount: 0,
+        expiredCount: 0,
+        reopenedCount: 0,
+        quarantinedCount: 0,
+        failedCount: 0,
+      },
+    });
+
+    await expect(
+      startCrawlRun(db, { sourceId, startedAt: '2026-09-04T12:05:01Z', fullCoverage: true }),
+    ).rejects.toThrow(CrawlAlreadyRunningError);
+  });
+
+  it('allows a new crawl run once the previous one has finished', async () => {
+    sourceId = await createTestSource();
+    const first = await startCrawlRun(db, {
+      sourceId,
+      startedAt: '2026-09-04T12:00:00Z',
+      fullCoverage: true,
+    });
+    await finishCrawlRun(db, first.id, {
+      finishedAt: '2026-09-04T12:05:00Z',
+      status: 'completed',
+      // reconciledAt: this run is fully settled (no reconciliation to run
+      // in this test) — without it, the row stays "unsettled" and the
+      // second startCrawlRun below would be rejected by the same-source
+      // exclusivity index this test is otherwise trying to prove opens
+      // back up once a run finishes.
+      reconciledAt: '2026-09-04T12:05:00Z',
+      counts: {
+        discoveredCount: 0,
+        vipCount: 0,
+        standardCount: 0,
+        newCount: 0,
+        changedCount: 0,
+        unchangedCount: 0,
+        missingCount: 0,
+        expiredCount: 0,
+        reopenedCount: 0,
+        quarantinedCount: 0,
+        failedCount: 0,
+      },
+    });
+
+    const second = await startCrawlRun(db, {
+      sourceId,
+      startedAt: '2026-09-04T13:00:00Z',
+      fullCoverage: true,
+    });
+    expect(second.status).toBe('running');
+  });
+
+  it('allows concurrently running crawls for two different sources', async () => {
+    const sourceA = await createTestSource();
+    const sourceB = await createTestSource();
+    try {
+      const runA = await startCrawlRun(db, {
+        sourceId: sourceA,
+        startedAt: '2026-09-04T12:00:00Z',
+        fullCoverage: true,
+      });
+      const runB = await startCrawlRun(db, {
+        sourceId: sourceB,
+        startedAt: '2026-09-04T12:00:00Z',
+        fullCoverage: true,
+      });
+      expect(runA.status).toBe('running');
+      expect(runB.status).toBe('running');
+    } finally {
+      await cleanupTestSource(sourceA);
+      await cleanupTestSource(sourceB);
+    }
   });
 });
