@@ -5,8 +5,6 @@
 # MCP tool calls (e.g. Context7 below) are not gated by this setting.
 sandbox_mode = "workspace-write"
 approval_policy = "on-request"
-model = "gpt-6-astra"
-model_reasoning_effort = "high"
 
 [sandbox_workspace_write]
 network_access = false
