@@ -54,6 +54,18 @@ describe('parseYearlessGeorgianDate', () => {
     expect(result).toEqual({ raw: '32 სექტემბერი', parsed: null });
   });
 
+  it('resolves the same yearless raw string to a different year as the reference instant moves', () => {
+    // Pins the drift adversarial review (2026-09-05, round 8) identified:
+    // meaningfulContentHash (detail.ts) covers this RAW string, not the
+    // parsed instant below — so write-source-listing-revision.ts cannot
+    // assume an unchanged hash means an unchanged parsed date.
+    const nearby = parseYearlessGeorgianDate('02 აპრილი', '2026-09-05T12:00:00Z');
+    expect(nearby.parsed).toBe('2026-04-02T00:00:00+04:00');
+
+    const farther = parseYearlessGeorgianDate('02 აპრილი', '2026-11-01T12:00:00Z');
+    expect(farther.parsed).toBe('2027-04-02T00:00:00+04:00');
+  });
+
   it('tolerates extra internal whitespace', () => {
     const result = parseYearlessGeorgianDate('  02   სექტემბერი  ', '2026-09-04T12:00:00Z');
     expect(result.parsed).toBe('2026-09-02T00:00:00+04:00');

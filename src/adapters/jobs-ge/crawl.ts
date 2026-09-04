@@ -503,10 +503,11 @@ export async function runJobsGeCrawl(
         // quarantined," not folded into an ordinary failedCount
         // (adversarial review, 2026-09-05): quarantine the listing itself
         // (excluding it from touchSourceListingSeen/closeMissingListings'
-        // status transitions until a human resolves this), the resource
-        // (bytes were fetched fine, only extraction failed), and record a
-        // typed incident a human or future supervised-repair process can
-        // act on.
+        // status transitions, though NOT from writeSourceListingRevision's
+        // allowReopen path below — a later successful re-parse is exactly
+        // the evidence this was transient, round 8), the resource (bytes
+        // were fetched fine, only extraction failed), and record a typed
+        // incident a human or future supervised-repair process can act on.
         await quarantineSourceListing(db, identity, attemptedAt);
         await upsertResource(db, {
           sourceId: jobsGeSource.id,

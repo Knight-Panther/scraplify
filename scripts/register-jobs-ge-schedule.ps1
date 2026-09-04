@@ -1,8 +1,20 @@
 [CmdletBinding()]
 param(
-    # concept docs/scraplify-concept.md §19.2's starting cadence for jobs.ge
-    # discovery is 30-60 minutes; 60 is the conservative end of that range.
-    [int]$IntervalMinutes = 60
+    # NOT the 30-60 minute row in concept docs/scraplify-concept.md §19.2 —
+    # that row is for lightweight discovery-only polling, which this crawl
+    # does not do: runJobsGeCrawl refetches every discovered listing's detail
+    # page every run (fullCoverage: true), which is §19.2's "Complete source
+    # reconciliation" row instead ("Nightly or weekly"). Measured basis
+    # (adversarial review, 2026-09-05, round 8): ~5,647 listings + ~21
+    # discovery/probe fetches, at jobsGePolicy's 5s crawl-delay and
+    # maxConcurrency 1 (src/policies/jobs-ge.ts), is >= 7h50m of fetches
+    # alone per run — a 60-minute cadence would just run back-to-back
+    # continuously while claiming to be hourly. 1440 (24h) is the
+    # conservative end of "nightly." True hourly-ish discovery is what
+    # concept §10.1's incremental discovery would unlock — deliberately not
+    # implemented yet (docs/STATUS.md), since jobs.ge's corpus is small
+    # enough to fully re-walk on this slower cadence instead.
+    [int]$IntervalMinutes = 1440
 )
 
 # Registers (or re-registers) a Windows Task Scheduler job that runs the
@@ -55,6 +67,10 @@ $settings = New-ScheduledTaskSettingsSet `
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
 
 Write-Host "Scheduled task '$taskName' registered: fires every $IntervalMinutes minute(s), starting in about 1 minute."
+Write-Host 'Each run is a full jobs.ge crawl (discovery + every listing detail), measured at roughly 8-9 hours end to end — not a quick poll.'
+if ($IntervalMinutes -lt 480) {
+    Write-Warning "IntervalMinutes ($IntervalMinutes) is well under the ~8-9 hour measured runtime. -MultipleInstances IgnoreNew means overlapping triggers are silently dropped rather than queued, so most firings will simply no-op while the previous run is still going."
+}
 Write-Host 'Registered to run only when this user is logged on (no stored credentials) — the default for an interactive Register-ScheduledTask call.'
 Write-Host "Logs land in $(Join-Path $repositoryRoot 'logs')\jobs-ge-crawl-<date>.log."
 Write-Host "Inspect or manage it in Task Scheduler (taskschd.msc) under Task Scheduler Library, or remove it with:"

@@ -79,12 +79,26 @@ async function main(): Promise<void> {
     }
   } catch (err) {
     if (err instanceof CrawlAlreadyRunningError) {
-      // Not a failure — see its own doc comment in db/ingest.ts: no run was
-      // created, so there is nothing to mark failed or retry.
-      logger.warn(
+      // No new crawl_runs row was created here, so there is nothing THIS
+      // invocation could mark failed — but this must still exit non-zero
+      // (adversarial review, 2026-09-05, round 8): concept §19.1 requires a
+      // skipped run to never pass silently, and process.exitCode was
+      // previously left at 0 here, which would make Task Scheduler report
+      // indefinite silent "success" both for the routine case (a previous
+      // run for this source is still genuinely in flight) and for the
+      // stale-lock case (an earlier run crashed before ever reaching
+      // reconciledAt — see docs/STATUS.md's round-2 notes — and every
+      // future invocation will keep hitting this same branch until that
+      // row is cleared by hand: `update crawl_runs set status = 'failed',
+      // reconciled_at = now() where source_id = <id> and reconciled_at is
+      // null`). This process cannot tell those two cases apart on its own,
+      // so it surfaces both as a loud, actionable failure rather than
+      // guessing.
+      logger.error(
         { sourceId: err.sourceId },
-        'jobs.ge crawl: a run is already in progress for this source — skipping this invocation',
+        "jobs.ge crawl: a run is already in progress for this source, or an earlier run crashed before settling — skipping this invocation. If no crawl is actually running, clear the stale lock: update crawl_runs set status = 'failed', reconciled_at = now() where source_id = '<id>' and reconciled_at is null",
       );
+      process.exitCode = 1;
       return;
     }
     logger.error({ err }, 'jobs.ge crawl: run failed');

@@ -347,6 +347,69 @@ describe('runJobsGeCrawl', () => {
     expect(incidents[0]?.crawlRunId).toBe(result.crawlRun.id);
   });
 
+  it('reactivates a quarantined listing once a later run successfully re-parses it', async () => {
+    // Adversarial review, 2026-09-05, round 8: quarantine used to be a
+    // one-way trapdoor (no reactivation path existed at all), so a single
+    // transient bad response would permanently remove an otherwise-healthy
+    // listing even though every later run parsed it fine.
+    const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+    const options = {
+      missingStreakThreshold: 3,
+      minExpectedDiscoveredListings: 1,
+      maxQuarantineRate: 1,
+    };
+
+    const first = await runJobsGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(
+          new Map<string, HttpFetchResult | Error>([
+            ...discoveryPages([], ['1001']),
+            [
+              detailUrl('1001'),
+              htmlResponse(detailUrl('1001'), '<html><body>unexpected markup</body></html>'),
+            ],
+          ]),
+        ),
+        now: clock,
+      },
+      options,
+    );
+    expect(first.crawlRun.quarantinedCount).toBe(1);
+    const [quarantined] = await db
+      .select()
+      .from(sourceListings)
+      .where(eq(sourceListings.sourceRecordId, '1001'));
+    expect(quarantined?.status).toBe('quarantined');
+
+    // Run 2: the site serves the ordinary template again — the parser
+    // failure was transient, not a genuine template break.
+    const second = await runJobsGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(
+          new Map<string, HttpFetchResult | Error>([
+            ...discoveryPages([], ['1001']),
+            [detailUrl('1001'), htmlResponse(detailUrl('1001'), mailtoDetailHtml('1001'))],
+          ]),
+        ),
+        now: clock,
+      },
+      options,
+    );
+
+    expect(second.crawlRun.status).toBe('completed');
+    expect(second.crawlRun.reopenedCount).toBe(1);
+    expect(second.crawlRun.quarantinedCount).toBe(0);
+
+    const [recovered] = await db
+      .select()
+      .from(sourceListings)
+      .where(eq(sourceListings.sourceRecordId, '1001'));
+    expect(recovered?.status).toBe('active');
+    expect(recovered?.currentRevisionId).not.toBeNull();
+  });
+
   it('does not mark a listing missing when its detail fetch fails but it is still present in discovery', async () => {
     const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
     const options = { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 };

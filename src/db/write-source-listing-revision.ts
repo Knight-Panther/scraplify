@@ -26,15 +26,22 @@ export type WriteOutcome = 'new' | 'changed' | 'unchanged' | 'stale';
 
 export interface WriteSourceListingRevisionOptions {
   /**
-   * Allows a fresh, non-stale positive observation to reopen a 'closed' or
-   * 'expired' listing (concept §13: "closed/expired -> active, reopened or
-   * republished"). Defaults to false — reactivating a completed lifecycle
-   * decision needs a genuine confirmed-reappearance context (e.g. a full
-   * discovery walk that re-found and successfully re-fetched this exact
-   * listing), not just "this URL was fetched again from somewhere," which
-   * is why this is an explicit per-call opt-in rather than always-on
-   * default behavior (adversarial review, 2026-09-05 — the crawl
-   * orchestrator is the caller expected to set this true).
+   * Allows a fresh, non-stale positive observation to reopen a 'closed',
+   * 'expired', or 'quarantined' listing (concept §13: "closed/expired ->
+   * active, reopened or republished"). Defaults to false — reactivating a
+   * completed lifecycle decision needs a genuine confirmed-reappearance
+   * context (e.g. a full discovery walk that re-found and successfully
+   * re-fetched this exact listing), not just "this URL was fetched again
+   * from somewhere," which is why this is an explicit per-call opt-in
+   * rather than always-on default behavior (adversarial review, 2026-09-05
+   * — the crawl orchestrator is the caller expected to set this true).
+   * 'quarantined' belongs in this same opt-in bucket, not a separate
+   * always-on rule: a listing that was quarantined for an unreliable parse
+   * needs the same "genuinely re-observed" evidence to leave that state as
+   * a closed/expired one does (adversarial review, 2026-09-05, round 8 —
+   * without this a single transient parse failure permanently removed an
+   * otherwise-healthy listing, since no other reactivation path exists;
+   * see quarantineSourceListing's own comment).
    */
   allowReopen?: boolean;
 }
@@ -205,17 +212,21 @@ export async function writeSourceListingRevision(
     }
 
     // Only 'discovered' and 'missing_suspected' are advanced to 'active' by
-    // a mere positive observation (docs/scraplify-concept.md §13). 'closed'
-    // and 'expired' represent a completed lifecycle decision that only
-    // reopens with options.allowReopen explicitly set — a confirmed
-    // reappearance signal, not just this listing having been fetched again,
-    // which for 'expired' in particular could just mean the source still
-    // serves the same past-deadline page. 'quarantined' needs its incident
-    // resolved first. An allowlist, not a denylist, so a status added to
-    // the enum later defaults to "don't touch" here unless deliberately
-    // included.
+    // a mere positive observation (docs/scraplify-concept.md §13). 'closed',
+    // 'expired', and 'quarantined' represent a completed lifecycle decision
+    // that only reopens with options.allowReopen explicitly set — a
+    // confirmed reappearance signal, not just this listing having been
+    // fetched again, which for 'expired' in particular could just mean the
+    // source still serves the same past-deadline page, and for
+    // 'quarantined' means THIS observation is itself the evidence the prior
+    // parse failure was transient (adversarial review, 2026-09-05, round 8).
+    // An allowlist, not a denylist, so a status added to the enum later
+    // defaults to "don't touch" here unless deliberately included.
     const reopening =
-      (options.allowReopen ?? false) && (locked.status === 'closed' || locked.status === 'expired');
+      (options.allowReopen ?? false) &&
+      (locked.status === 'closed' ||
+        locked.status === 'expired' ||
+        locked.status === 'quarantined');
     const nextStatus =
       locked.status === 'discovered' || locked.status === 'missing_suspected' || reopening
         ? 'active'
@@ -232,6 +243,21 @@ export async function writeSourceListingRevision(
           lastSeenAt: observedAt,
           missingStreak: 0,
           status: nextStatus,
+          // Deliberately NOT refreshed from `content` here (adversarial
+          // review, 2026-09-05, round 8 raised this, then the per-commit
+          // gate caught the fix's own regression): meaningfulContentHash
+          // covers the RAW yearless date strings, but parseYearlessGeorgianDate
+          // (dates.ts) re-resolves the SAME raw string to a different year
+          // as the reference (fetch) instant moves. Refreshing on every
+          // unchanged touch would silently roll an already-established,
+          // genuinely past deadline into next year's occurrence purely
+          // because real-world time passed — no source change involved —
+          // which could keep a truly expired listing wrongly 'active'
+          // (allowReopen already reopens it below) for months. Left as-is,
+          // pinned to whatever the current, immutable revision established
+          // when it was created: a narrower, deliberate fix (e.g. gated on
+          // an actual parserVersion change, not just elapsed time) is
+          // needed here, not attempted yet — see docs/STATUS.md.
         })
         .where(eq(sourceListings.id, locked.id))
         .returning();
@@ -326,9 +352,10 @@ export interface TouchSourceListingSeenResult {
  * content. A 'discovered' listing has never had a successful fetch at all —
  * advancing it to 'active' on a mere index sighting, with no content behind
  * it, would misrepresent what "active" means elsewhere in the schema. Never
- * reopens 'closed'/'expired' — that needs the stronger confirmed-reappearance
- * evidence of an actual successful re-fetch (writeSourceListingRevision's
- * own allowReopen path), not just an index-page sighting.
+ * reopens 'closed'/'expired'/'quarantined' — each needs the stronger
+ * confirmed-reappearance evidence of an actual successful re-fetch and
+ * re-parse (writeSourceListingRevision's own allowReopen path), not just an
+ * index-page sighting.
  */
 export async function touchSourceListingSeen(
   db: Database,
@@ -431,13 +458,17 @@ export interface QuarantineSourceListingResult {
  * present" signal the way a successful fetch is, so resetting the streak
  * would overstate what's actually known.
  *
- * Once quarantined, a listing is excluded from every other status
- * transition here: touchSourceListingSeen's reactivation allowlist and
- * writeSourceListingRevision's own (even with allowReopen) both
- * deliberately exclude 'quarantined' — see their own allowlist comments —
- * until a human or a future supervised-repair process (concept §22)
- * resolves the underlying parser_incidents row and explicitly reactivates
- * it. No such reactivation path exists yet; this only ever quarantines.
+ * A quarantined listing stays excluded from touchSourceListingSeen's
+ * reactivation allowlist — a bare index sighting still isn't evidence the
+ * parser works — but writeSourceListingRevision's own allowReopen path DOES
+ * cover 'quarantined' (adversarial review, 2026-09-05, round 8): a
+ * successful, non-stale re-fetch and re-parse within a full discovery walk
+ * is itself the evidence that the prior parse failure was transient, not a
+ * genuine template break, so it reactivates the listing the same way it
+ * would a 'closed'/'expired' one. The underlying parser_incidents row this
+ * function also records is untouched either way — its own resolution
+ * (concept §22, a future supervised-repair process, Phase 7) is a separate
+ * concern from whether the LISTING itself is usable again.
  */
 export async function quarantineSourceListing(
   db: Database,

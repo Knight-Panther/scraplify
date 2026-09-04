@@ -194,7 +194,7 @@ describe('writeSourceListingRevision', () => {
     expect(second.outcome).toBe('unchanged');
   });
 
-  it('does not reactivate a quarantined listing on a positive observation', async () => {
+  it('does not reactivate a quarantined listing on a positive observation without allowReopen', async () => {
     sourceId = await createTestSource();
     const resourceId = await createTestResource(sourceId);
     const identity = {
@@ -261,7 +261,7 @@ describe('writeSourceListingRevision', () => {
     },
   );
 
-  it.each(['closed', 'expired'] as const)(
+  it.each(['closed', 'expired', 'quarantined'] as const)(
     'reactivates a %s listing when options.allowReopen is true',
     async (status) => {
       sourceId = await createTestSource();
@@ -295,6 +295,90 @@ describe('writeSourceListingRevision', () => {
       expect(second.reopened).toBe(true);
     },
   );
+
+  it('reactivates a quarantined listing via the unchanged (same-hash) path when allowReopen is true', async () => {
+    // The realistic production case: a transient parse failure doesn't
+    // change the source's actual content, so the recovering observation
+    // usually hashes identically to the pre-quarantine revision — 'changed'
+    // and 'unchanged' are separate code paths in writeSourceListingRevision,
+    // so reopening must be verified on both, not just 'changed' (see the
+    // it.each above).
+    sourceId = await createTestSource();
+    const resourceId = await createTestResource(sourceId);
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+    const content = makeContent(resourceId);
+
+    const first = await writeSourceListingRevision(db, identity, content, '2026-09-04T12:00:00Z');
+    await db
+      .update(sourceListings)
+      .set({ status: 'quarantined' })
+      .where(eq(sourceListings.id, first.sourceListing.id));
+
+    const second = await writeSourceListingRevision(db, identity, content, '2026-09-05T12:00:00Z', {
+      allowReopen: true,
+    });
+
+    expect(second.outcome).toBe('unchanged');
+    expect(second.sourceListing.status).toBe('active');
+    expect(second.reopened).toBe(true);
+    expect(second.revision.id).toBe(first.revision.id);
+
+    const revisions = await db
+      .select()
+      .from(sourceListingRevisions)
+      .where(eq(sourceListingRevisions.sourceListingId, first.sourceListing.id));
+    expect(revisions).toHaveLength(1);
+  });
+
+  it('does not refresh sourceDeadlineAt on the unchanged path, even if a fresh re-parse would compute a different instant', async () => {
+    // meaningfulContentHash covers the RAW yearless date strings, not the
+    // parsed instant (see parseYearlessGeorgianDate) — the SAME raw string
+    // can resolve to a different year purely because the reference (fetch)
+    // instant moved, with no actual source-content change. Deliberately
+    // pinning the CURRENT (unchanged) revision's own already-established
+    // value here, not the freshest re-parse: refreshing on every unchanged
+    // touch would silently roll an already-past deadline into next year's
+    // occurrence just from elapsed time (adversarial review, 2026-09-05,
+    // round 8 — the per-commit gate caught this as a real regression when
+    // this write path first tried it).
+    sourceId = await createTestSource();
+    const resourceId = await createTestResource(sourceId);
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+
+    const first = await writeSourceListingRevision(
+      db,
+      identity,
+      makeContent(resourceId),
+      '2026-09-04T12:00:00Z',
+    );
+    expect(first.sourceListing.sourceDeadlineAt).toContain('2026-10-01');
+
+    const second = await writeSourceListingRevision(
+      db,
+      identity,
+      makeContent(resourceId, {
+        deadlineDate: { raw: '2026-10-01', parsed: '2027-10-01T00:00:00Z' },
+      }),
+      '2026-09-05T12:00:00Z',
+    );
+
+    expect(second.outcome).toBe('unchanged');
+    expect(second.sourceListing.sourceDeadlineAt).toContain('2026-10-01');
+
+    const revisions = await db
+      .select()
+      .from(sourceListingRevisions)
+      .where(eq(sourceListingRevisions.sourceListingId, first.sourceListing.id));
+    expect(revisions).toHaveLength(1);
+  });
 
   it('does not report reopened for a listing that was already active, even with allowReopen true', async () => {
     sourceId = await createTestSource();

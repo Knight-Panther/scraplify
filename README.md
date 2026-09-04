@@ -58,19 +58,19 @@ npm run build
 npm run crawl:jobs-ge
 ```
 
-This runs one full jobs.ge crawl against the live site (discovery, detail fetch, DB writes, reconciliation) and exits — it does not loop or schedule itself. Requires `.env` (above) and the database migrated. Optional environment variables:
+This runs one full jobs.ge crawl against the live site (discovery, detail fetch, DB writes, reconciliation) and exits — it does not loop or schedule itself. A full run refetches every discovered listing's detail page (~5,647 at last count) at the site's declared 5s crawl delay, so it takes roughly 8-9 hours end to end — this is a complete-corpus reconciliation, not a quick poll. Requires `.env` (above) and the database migrated. Optional environment variables:
 
 - `SCRAPLIFY_USER_AGENT` — overrides the default `User-Agent` sent to source sites (`src/net/user-agent.ts`).
 - `LOG_LEVEL` — pino level, default `info`.
 
 ### Scheduling recurring runs (Windows Task Scheduler)
 
-Per `docs/scraplify-concept.md` §19.1, local runs are driven by Windows Task Scheduler rather than an in-process scheduler. To register a recurring job (every 60 minutes by default):
+Per `docs/scraplify-concept.md` §19.1, local runs are driven by Windows Task Scheduler rather than an in-process scheduler. To register a recurring job (every 24 hours by default, matching the ~8-9 hour runtime above):
 
 ```powershell
 npm run build
 ./scripts/register-jobs-ge-schedule.ps1
-# or: ./scripts/register-jobs-ge-schedule.ps1 -IntervalMinutes 30
+# or: ./scripts/register-jobs-ge-schedule.ps1 -IntervalMinutes 720   # every 12h, still >= the measured runtime
 ```
 
 This is a deliberate, separate step from building the CLI — registering it starts real, unsupervised, recurring requests against the live jobs.ge site. The script checks `dist/` and `.env` exist first and refuses to register otherwise. It wraps each run in `scripts/run-jobs-ge-crawl.ps1`, which appends output to `logs/jobs-ge-crawl-<date>.log` (gitignored) and preserves the crawl's real exit code so Task Scheduler reports failures accurately. Remove the task with `Unregister-ScheduledTask -TaskName 'Scraplify - jobs.ge crawl' -Confirm:$false`.
