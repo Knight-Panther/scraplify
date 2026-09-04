@@ -99,7 +99,11 @@ describe('crawl runs and fetch attempts', () => {
   it('starts and finishes a crawl run, and records a fetch attempt against it', async () => {
     sourceId = await createTestSource();
 
-    const run = await startCrawlRun(db, { sourceId, startedAt: '2026-09-04T12:00:00Z' });
+    const run = await startCrawlRun(db, {
+      sourceId,
+      startedAt: '2026-09-04T12:00:00Z',
+      fullCoverage: true,
+    });
     expect(run.status).toBe('running');
     expect(run.finishedAt).toBeNull();
 

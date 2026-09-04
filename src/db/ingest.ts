@@ -84,7 +84,7 @@ export async function upsertResource(
 
 export async function startCrawlRun(
   db: DatabaseOrTransaction,
-  input: { sourceId: string; startedAt: string },
+  input: { sourceId: string; startedAt: string; fullCoverage: boolean },
 ): Promise<CrawlRunRow> {
   const [row] = await db
     .insert(crawlRuns)
@@ -93,6 +93,7 @@ export async function startCrawlRun(
       sourceId: input.sourceId,
       startedAt: input.startedAt,
       status: 'running',
+      fullCoverage: input.fullCoverage,
     })
     .returning();
   if (!row) throw new Error('startCrawlRun: insert returned no row');

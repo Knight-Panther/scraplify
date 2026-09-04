@@ -19,6 +19,17 @@ export const CrawlRunSchema = z.object({
   startedAt: IsoDateTime,
   finishedAt: IsoDateTime.nullable(),
   status: CrawlRunStatus,
+  /**
+   * True only if this run's discovery walked the entire listing space for
+   * its source, not an incremental slice (§10.1 distinguishes incremental
+   * discovery, a rolling overlap window that may stop early, from periodic
+   * complete reconciliation). Set once at the run's start, when its own
+   * scope is decided — src/db/reconcile-source-listings.ts's
+   * closeMissingListings reads this persisted value rather than trusting a
+   * caller-supplied claim, so mass closure can never be triggered by
+   * mistaken caller state alone.
+   */
+  fullCoverage: z.boolean(),
   discoveredCount: z.int().nonnegative(),
   newCount: z.int().nonnegative(),
   changedCount: z.int().nonnegative(),

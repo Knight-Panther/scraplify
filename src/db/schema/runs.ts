@@ -1,4 +1,4 @@
-import { integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { resources } from './resources.js';
 import { sources } from './sources.js';
 
@@ -25,6 +25,8 @@ export const crawlRuns = pgTable('crawl_runs', {
   startedAt: timestamp('started_at', { mode: 'string', withTimezone: true }).notNull(),
   finishedAt: timestamp('finished_at', { mode: 'string', withTimezone: true }),
   status: crawlRunStatusEnum('status').notNull(),
+  /** Mirrors CrawlRunSchema.fullCoverage — see its comment there. */
+  fullCoverage: boolean('full_coverage').notNull().default(false),
   discoveredCount: integer('discovered_count').notNull().default(0),
   newCount: integer('new_count').notNull().default(0),
   changedCount: integer('changed_count').notNull().default(0),

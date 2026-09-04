@@ -2,10 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { db } from './client.js';
 import {
+  type CrawlRunRow,
   crawlRuns,
   fetchAttempts,
+  type NewCrawlRunRow,
+  type NewSourceListingRow,
   resources,
   sourceListingRevisions,
+  type SourceListingRow,
   sourceListings,
   sources,
 } from './schema/index.js';
@@ -39,6 +43,64 @@ export async function createTestResource(sourceId: string): Promise<string> {
     mimeType: 'text/html',
   });
   return id;
+}
+
+/**
+ * A throwaway `source_listings` row for one test, inserted directly (not via
+ * writeSourceListingRevision) so reconciliation tests can set up a listing's
+ * status/lastSeenAt/missingStreak/sourceDeadlineAt exactly, without coupling
+ * to that function's own behavior.
+ */
+export async function createTestSourceListing(
+  sourceId: string,
+  overrides: Partial<NewSourceListingRow> = {},
+): Promise<SourceListingRow> {
+  const id = randomUUID();
+  const [row] = await db
+    .insert(sourceListings)
+    .values({
+      id,
+      sourceId,
+      sourceRecordId: id,
+      canonicalSourceUrl: `https://example.invalid/listing/${id}`,
+      currentRevisionId: null,
+      firstSeenAt: '2026-01-01T00:00:00Z',
+      lastSeenAt: '2026-01-01T00:00:00Z',
+      status: 'active',
+      missingStreak: 0,
+      sourcePublishedAt: null,
+      sourceDeadlineAt: null,
+      ...overrides,
+    })
+    .returning();
+  if (!row) throw new Error('createTestSourceListing: insert returned no row');
+  return row;
+}
+
+/**
+ * A throwaway `crawl_runs` row for one test, inserted directly so
+ * reconciliation tests can set up a run's status/fullCoverage/startedAt
+ * exactly, without running an actual crawl.
+ */
+export async function createTestCrawlRun(
+  sourceId: string,
+  overrides: Partial<NewCrawlRunRow> = {},
+): Promise<CrawlRunRow> {
+  const id = randomUUID();
+  const [row] = await db
+    .insert(crawlRuns)
+    .values({
+      id,
+      sourceId,
+      startedAt: '2026-01-05T00:00:00Z',
+      finishedAt: '2026-01-05T01:00:00Z',
+      status: 'completed',
+      fullCoverage: true,
+      ...overrides,
+    })
+    .returning();
+  if (!row) throw new Error('createTestCrawlRun: insert returned no row');
+  return row;
 }
 
 /**

@@ -35,6 +35,7 @@ describe('SourceListingSchema', () => {
       missingStreak: 0,
       sourcePublishedAt: null,
       sourceDeadlineAt: null,
+      lastReconciledAt: null,
     });
     expect(result.success).toBe(true);
   });
@@ -411,6 +412,7 @@ describe('remaining domain schemas accept a minimal valid example', () => {
         startedAt: now,
         finishedAt: now,
         status: 'completed',
+        fullCoverage: true,
         discoveredCount: 120,
         newCount: 5,
         changedCount: 2,
@@ -434,6 +436,7 @@ describe('remaining domain schemas accept a minimal valid example', () => {
         startedAt: now,
         finishedAt: now,
         status: 'quarantined',
+        fullCoverage: true,
         discoveredCount: 4,
         newCount: 0,
         changedCount: 0,

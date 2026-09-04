@@ -1,0 +1,1 @@
+ALTER TABLE "crawl_runs" ADD COLUMN "full_coverage" boolean DEFAULT false NOT NULL;

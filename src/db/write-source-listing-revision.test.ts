@@ -404,8 +404,8 @@ describe('writeSourceListingRevision', () => {
       makeContent(resourceId),
       '2026-09-04T00:00:00Z',
     );
-    // Simulates a later reconciliation run (not yet implemented — the next
-    // exit-gate item) closing the listing after observing it missing.
+    // Simulates a later reconciliation run (src/db/reconcile-source-listings.ts)
+    // closing the listing after observing it missing.
     await db
       .update(sourceListings)
       .set({ status: 'closed', lastSeenAt: '2026-09-06T00:00:00Z' })
