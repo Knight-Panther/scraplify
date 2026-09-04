@@ -1,6 +1,7 @@
 export * from './duplicate.js';
 export * from './ids.js';
 export * from './incident.js';
+export * from './ip-policy.js';
 export * from './opportunity.js';
 export * from './organization.js';
 export * from './resource.js';
