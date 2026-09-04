@@ -87,6 +87,14 @@ const DEFAULT_MAX_QUARANTINE_RATE = 0.1;
  */
 const DEFAULT_MIN_RELATIVE_COVERAGE_RATIO = 0.5;
 
+/**
+ * Project decision (2026-09-04, docs/STATUS.md): 3 consecutive misses before
+ * closure. Concept §13 requires the first miss to become `missing_suspected`,
+ * never `closed`, which rules out the reconciliation module's own minimum of
+ * 2 — 3 gives one extra confirming run of margin before acting on an absence.
+ */
+export const DEFAULT_MISSING_STREAK_THRESHOLD = 3;
+
 export interface RunJobsGeCrawlDeps {
   db: Database;
   httpFetcher: HttpFetcher;
