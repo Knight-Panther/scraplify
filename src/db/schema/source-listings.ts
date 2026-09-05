@@ -125,6 +125,8 @@ export const sourceListings = pgTable(
     missingStreak: integer('missing_streak').notNull().default(0),
     sourcePublishedAt: timestamp('source_published_at', { mode: 'string', withTimezone: true }),
     sourceDeadlineAt: timestamp('source_deadline_at', { mode: 'string', withTimezone: true }),
+    /** Mirrors SourceListingSchema.lastReconciledAt — see its comment there. */
+    lastReconciledAt: timestamp('last_reconciled_at', { mode: 'string', withTimezone: true }),
   },
   (table) => [
     // §12.1's identity rule, enforced in the database rather than only in

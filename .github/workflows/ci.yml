@@ -15,6 +15,26 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      # Ephemeral, job-local container (not reachable outside the runner's
+      # network) — same fixed dev credentials as docker-compose.yml are fine
+      # here for that reason, unlike the loopback-binding concern that
+      # comment documents for the persistent local dev instance.
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: scraplify
+          POSTGRES_PASSWORD: scraplify_dev
+          POSTGRES_DB: scraplify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scraplify -d scraplify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://scraplify:scraplify_dev@localhost:5432/scraplify
     steps:
       - uses: actions/checkout@v7
 
@@ -38,6 +58,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Migrate
+        run: npm run db:migrate
 
       - name: Test
         run: npm test

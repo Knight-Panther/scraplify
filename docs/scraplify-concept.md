@@ -3,7 +3,8 @@
 **Status:** Confirmed final — approved 2026-09-02  
 **Date:** 2026-09-02  
 **Repository:** `scraplify`  
-**Product/agent name:** Xtelo
+**Product/agent name:** Xtelo  
+**Amended:** 2026-09-05 — Phase 1A's scope narrowed at merge (§25): incremental overlap deferred, and "schedule" reduced to the code-level capability rather than an actually-registered live schedule. See §25's Phase 1A entry for the reasoning.
 
 ## 1. Purpose of this document
 
@@ -1037,8 +1038,8 @@ Before committing symlinks on Windows, verify filesystem permissions and Git sym
 - Investigate filters/date ordering and define completeness.
 - Implement source-compliant HTTP fetching.
 - Store source listings, revisions, resources, attempts, and crawl runs.
-- Implement incremental overlap and conservative closure logic.
-- Schedule local read-only runs.
+- Implement conservative closure logic. Incremental overlap (a rolling discovery window that stops early once several consecutive pages contain only known, unchanged records) is deferred past this phase — see §28 — since jobs.ge's corpus is small and bounded enough (~19 pages, ~5,647 listings at time of writing) that a full discovery walk every run is fast and simpler than an overlap window, with no correctness cost: conservative closure alone already satisfies this phase's exit gate below.
+- Implement the code-level capability to run local read-only crawls on a schedule (a CLI entry point, real fetcher/rate-limiter wiring, and a Windows Task Scheduler registration script per §19.1). Actually registering a live recurring schedule is an operator action taken deliberately, separately, whenever ready — not a code deliverable this phase's exit gate depends on.
 
 **Exit gate:** jobs.ge reruns idempotently; new, changed, unchanged, missing, expired, and failed states are correct; incomplete runs cannot mass-close records.
 
@@ -1153,6 +1154,7 @@ Acceptance criteria:
 
 ## 28. Decisions to revisit with evidence
 
+- Implement §10.1's incremental discovery overlap window for jobs.ge once its corpus grows enough that a full discovery walk every run becomes slow — deferred from Phase 1A (2026-09-05); currently ~19 pages / ~5,647 listings, well within a fast full walk.
 - Add `pg-boss` when durable heterogeneous jobs appear.
 - Add Playwright to the application when a source or automated canary requires it.
 - Add `pgvector` when semantic retrieval is being implemented.

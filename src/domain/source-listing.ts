@@ -46,6 +46,15 @@ export const SourceListingSchema = z.object({
   missingStreak: z.int().nonnegative(),
   sourcePublishedAt: IsoDateTime.nullable(),
   sourceDeadlineAt: IsoDateTime.nullable(),
+  /**
+   * High-water mark for missing-streak reconciliation (src/db/reconcile-source-listings.ts),
+   * separate from lastSeenAt: this records when a reconciliation pass last
+   * considered this listing's missing-streak bookkeeping, whether or not it
+   * was actually seen. Null until the first reconciliation pass ever runs.
+   * Without it, retrying or double-invoking reconciliation for the same
+   * crawl run would advance missingStreak more than once for that one run.
+   */
+  lastReconciledAt: IsoDateTime.nullable(),
 });
 export type SourceListing = z.infer<typeof SourceListingSchema>;
 

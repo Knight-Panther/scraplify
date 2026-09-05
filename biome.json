@@ -9,7 +9,8 @@
       "!!.claude",
       "!!.agents",
       "!!.codex",
-      "!!drizzle/migrations"
+      "!!drizzle/migrations",
+      "!!src/adapters/**/fixtures"
     ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
