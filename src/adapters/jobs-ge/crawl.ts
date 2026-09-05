@@ -6,6 +6,7 @@ import {
   type CrawlRunCounts,
   finishCrawlRun,
   getLastCompletedCrawlRun,
+  getMaxDiscoveredCountForSource,
   recordFetchAttempt,
   recordParserIncident,
   startCrawlRun,
@@ -599,13 +600,26 @@ export async function runJobsGeCrawl(
     // the quarantine-rate check — none of them know what this source's
     // corpus is actually supposed to look like. Comparing against its own
     // last completed run's discoveredCount does (adversarial review,
-    // 2026-09-05, round 4). No baseline yet (this source's first-ever run)
-    // means nothing to compare against, so it never blocks in that case.
+    // 2026-09-05, round 4).
     const lastCompletedRun = await getLastCompletedCrawlRun(db, jobsGeSource.id);
+    // `lastCompletedRun === null` means "no run has ever earned 'completed'
+    // status," NOT "no history exists" — a prior `partial` run (e.g.
+    // discovery succeeded fully but a detail-fetch storm made that run
+    // partial) can still have persisted a real discoveredCount. Treating
+    // null as "never blocks" let a severely truncated crawl certify itself
+    // as this source's first 'completed' run and become the baseline for
+    // every later comparison (adversarial review, 2026-09-05, round 10).
+    // Falling back to the max full-coverage discoveredCount ever observed
+    // (any status) closes that gap while still never blocking a genuinely
+    // first-ever run, which has no prior full-coverage row at all and gets
+    // 0 back — same "never blocks" outcome round 4 originally decided on.
+    const baselineDiscoveredCount =
+      lastCompletedRun !== null
+        ? lastCompletedRun.discoveredCount
+        : await getMaxDiscoveredCountForSource(db, jobsGeSource.id, crawlRun.id);
     const baselineOk =
-      lastCompletedRun === null ||
-      lastCompletedRun.discoveredCount === 0 ||
-      listings.size >= lastCompletedRun.discoveredCount * minRelativeCoverageRatio;
+      baselineDiscoveredCount === 0 ||
+      listings.size >= baselineDiscoveredCount * minRelativeCoverageRatio;
 
     // The combined-total baseline above can't see a single partition going
     // to zero — VIP is only ~10 of a ~5,647-listing corpus, so losing it

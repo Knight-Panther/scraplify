@@ -3,11 +3,12 @@ import { db } from './client.js';
 import {
   CrawlAlreadyRunningError,
   finishCrawlRun,
+  getMaxDiscoveredCountForSource,
   recordFetchAttempt,
   startCrawlRun,
   upsertResource,
 } from './ingest.js';
-import { cleanupTestSource, createTestSource } from './test-support.js';
+import { cleanupTestSource, createTestCrawlRun, createTestSource } from './test-support.js';
 
 describe('upsertResource', () => {
   let sourceId: string;
@@ -264,5 +265,45 @@ describe('crawl runs and fetch attempts', () => {
       await cleanupTestSource(sourceA);
       await cleanupTestSource(sourceB);
     }
+  });
+});
+
+describe('getMaxDiscoveredCountForSource', () => {
+  let sourceId: string;
+
+  afterEach(async () => {
+    if (sourceId) await cleanupTestSource(sourceId);
+  });
+
+  it('returns 0 when no other full-coverage run exists for this source', async () => {
+    sourceId = await createTestSource();
+    const excluded = await createTestCrawlRun(sourceId, { discoveredCount: 500 });
+
+    const result = await getMaxDiscoveredCountForSource(db, sourceId, excluded.id);
+
+    expect(result).toBe(0);
+  });
+
+  it('returns the max discoveredCount across any status, not just completed', async () => {
+    sourceId = await createTestSource();
+    await createTestCrawlRun(sourceId, { status: 'completed', discoveredCount: 300 });
+    await createTestCrawlRun(sourceId, { status: 'partial', discoveredCount: 5000 });
+    await createTestCrawlRun(sourceId, { status: 'failed', discoveredCount: 100 });
+    const excluded = await createTestCrawlRun(sourceId, { discoveredCount: 0 });
+
+    const result = await getMaxDiscoveredCountForSource(db, sourceId, excluded.id);
+
+    expect(result).toBe(5000);
+  });
+
+  it('ignores a run with fullCoverage: false', async () => {
+    sourceId = await createTestSource();
+    await createTestCrawlRun(sourceId, { fullCoverage: false, discoveredCount: 9999 });
+    await createTestCrawlRun(sourceId, { fullCoverage: true, discoveredCount: 42 });
+    const excluded = await createTestCrawlRun(sourceId, { discoveredCount: 0 });
+
+    const result = await getMaxDiscoveredCountForSource(db, sourceId, excluded.id);
+
+    expect(result).toBe(42);
   });
 });

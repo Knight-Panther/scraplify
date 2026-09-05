@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import type { ParserIncidentKind, ParserIncidentSeverity } from '../domain/incident.js';
 import type { ResourceRole, ResourceStatus } from '../domain/resource.js';
 import type { CrawlRunStatus, FetchOutcome } from '../domain/run.js';
@@ -181,6 +181,53 @@ export async function getLastCompletedCrawlRun(
     .orderBy(desc(crawlRuns.startedAt))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * The largest `discoveredCount` any full-coverage run for this source has
+ * ever persisted, regardless of that run's own status — a fallback baseline
+ * for when `getLastCompletedCrawlRun` returns null (adversarial review,
+ * 2026-09-05, round 10). `null` there means "no run has ever earned
+ * 'completed' status," NOT "no history exists": a source can have prior
+ * `partial` runs (e.g. discovery succeeded fully but a detail-fetch storm
+ * made the run partial) that already observed the real corpus size. Without
+ * this, a severely truncated crawl — a pagination/caching fault serving one
+ * small page everywhere, satisfying `complete` and the fixed floor — would
+ * be certified as this source's first 'completed' run, becoming the
+ * baseline for every subsequent relative-coverage check and letting a few
+ * repetitions mass-close real listings, exactly the failure mode the
+ * relative-coverage guard (round 4) exists to prevent.
+ *
+ * `fullCoverage: true` only: `closeMissingListings` itself only ever trusts
+ * full-coverage runs, so a baseline drawn from a future §10.1 incremental
+ * slice would compare against a different, smaller kind of walk. No status
+ * filter otherwise — a `partial` or even `failed` run's `discoveredCount` is
+ * a genuinely observed set of real IDs (0 if it died before discovery even
+ * ran, which is harmless here) and is a valid lower bound on corpus size
+ * regardless of why that run didn't fully succeed.
+ *
+ * Uses `orderBy` + `limit(1)` rather than `max()`: avoids drizzle/pg
+ * returning an aggregate as a string, matching this file's own
+ * getLastCompletedCrawlRun just above.
+ */
+export async function getMaxDiscoveredCountForSource(
+  db: DatabaseOrTransaction,
+  sourceId: string,
+  excludeCrawlRunId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ discoveredCount: crawlRuns.discoveredCount })
+    .from(crawlRuns)
+    .where(
+      and(
+        eq(crawlRuns.sourceId, sourceId),
+        eq(crawlRuns.fullCoverage, true),
+        ne(crawlRuns.id, excludeCrawlRunId),
+      ),
+    )
+    .orderBy(desc(crawlRuns.discoveredCount))
+    .limit(1);
+  return row?.discoveredCount ?? 0;
 }
 
 export interface CrawlRunCounts {

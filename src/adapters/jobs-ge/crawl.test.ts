@@ -777,6 +777,75 @@ describe('runJobsGeCrawl', () => {
     expect(stillActive?.missingStreak).toBe(0);
   });
 
+  it('does not certify a truncated run just because no completed run exists yet, when an earlier partial run already saw a bigger corpus', async () => {
+    // Adversarial review, 2026-09-05, round 10: getLastCompletedCrawlRun
+    // returning null means "no run has ever earned 'completed' status," NOT
+    // "no history exists" — a prior 'partial' run (discovery succeeded fully
+    // but something else made it partial) still persists a real
+    // discoveredCount. Without a fallback baseline, a severely truncated
+    // crawl (a pagination/caching fault serving one small page everywhere)
+    // could certify itself as this source's first 'completed' run and
+    // become the baseline for every later comparison — exactly the mass
+    // mis-closure the relative-collapse guard (round 4, below) exists to
+    // prevent, just reached through the "no baseline yet" escape hatch
+    // instead of around it.
+    const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+    const bigIds = Array.from({ length: 10 }, (_, i) => `100${i}`);
+    const first = await runJobsGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(
+          new Map<string, HttpFetchResult | Error>([
+            [adsPageUrl(1), htmlResponse(adsPageUrl(1), buildAdsPageHtml([], bigIds))],
+            [adsPageUrl(2), new Error('simulated network failure on page 2')],
+            ...bigIds.map(
+              (id) => [detailUrl(id), htmlResponse(detailUrl(id), mailtoDetailHtml(id))] as const,
+            ),
+          ]),
+        ),
+        now: clock,
+      },
+      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 },
+    );
+    expect(first.crawlRun.status).toBe('partial'); // no completed baseline exists yet
+    expect(first.crawlRun.discoveredCount).toBe(10);
+
+    // Second run: only 2 listings, but genuinely confirmed (page 1, page 2,
+    // and the distant probe all agree) — not an unconfirmed fluke. Without
+    // this fix, lastCompletedRun would still be null here (run 1 never
+    // completed), so baselineOk would trivially pass.
+    const collapsedIds = ['2001', '2002'];
+    const second = await runJobsGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(
+          new Map<string, HttpFetchResult | Error>([
+            ...discoveryPages([], collapsedIds),
+            ...collapsedIds.map(
+              (id) => [detailUrl(id), htmlResponse(detailUrl(id), mailtoDetailHtml(id))] as const,
+            ),
+          ]),
+        ),
+        now: clock,
+      },
+      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1, maxQuarantineRate: 1 },
+    );
+
+    expect(second.crawlRun.discoveredCount).toBe(2);
+    expect(second.crawlRun.status).toBe('partial'); // 2 < 10 * 0.5 — must not be 'completed'
+    expect(second.crawlRun.missingCount).toBe(0); // reconciliation must not have run at all
+
+    const run1Listings = await db
+      .select()
+      .from(sourceListings)
+      .where(inArray(sourceListings.sourceRecordId, bigIds));
+    expect(run1Listings).toHaveLength(10);
+    for (const listing of run1Listings) {
+      expect(listing.status).toBe('active');
+      expect(listing.missingStreak).toBe(0);
+    }
+  });
+
   it('marks the run partial on a relative count collapse vs. the last completed run, even though complete/floor/quarantine all pass', async () => {
     // Simulates a systemic pagination/caching regression that consistently
     // serves the SAME small subset at every page number queried, including
