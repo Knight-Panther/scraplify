@@ -62,6 +62,28 @@ export async function closeMissingListings(
   db: Database,
   input: CloseMissingListingsInput,
 ): Promise<CloseMissingListingsResult> {
+  return db.transaction((tx) => closeMissingListingsInTransaction(tx, input));
+}
+
+/**
+ * Same contract as closeMissingListings, composable inside a caller's own
+ * transaction (the same "accept DatabaseOrTransaction" pattern
+ * expireOverdueListings already follows below) — added so the crawl
+ * orchestrator can settle a run's terminal status, expiry, missing
+ * reconciliation, and reconciledAt in one atomic transaction rather than as
+ * separate autocommitted steps (adversarial review, 2026-09-05, round 9):
+ * a crash between this function's own commit and the orchestrator's final
+ * reconciledAt write could otherwise leave listings closed while the run
+ * itself stayed unsettled. Eligibility is still read from the run's own
+ * persisted row, not caller-supplied fields (round 2's invariant, above) —
+ * running inside the caller's transaction only changes WHERE that row might
+ * have been written (possibly this same transaction's own earlier,
+ * not-yet-committed write), never WHO gets to claim eligibility.
+ */
+export async function closeMissingListingsInTransaction(
+  tx: DatabaseOrTransaction,
+  input: CloseMissingListingsInput,
+): Promise<CloseMissingListingsResult> {
   if (
     !Number.isInteger(input.missingStreakThreshold) ||
     input.missingStreakThreshold < MIN_MISSING_STREAK_THRESHOLD
@@ -71,56 +93,51 @@ export async function closeMissingListings(
     );
   }
 
-  return db.transaction(async (tx) => {
-    const [run] = await tx.select().from(crawlRuns).where(eq(crawlRuns.id, input.crawlRunId));
-    if (!run) {
-      throw new Error(`closeMissingListings: no crawl run found with id ${input.crawlRunId}`);
-    }
+  const [run] = await tx.select().from(crawlRuns).where(eq(crawlRuns.id, input.crawlRunId));
+  if (!run) {
+    throw new Error(`closeMissingListings: no crawl run found with id ${input.crawlRunId}`);
+  }
 
-    if (run.status !== 'completed' || !run.fullCoverage) {
-      return { skipped: true, missingSuspectedCount: 0, closedCount: 0 };
-    }
+  if (run.status !== 'completed' || !run.fullCoverage) {
+    return { skipped: true, missingSuspectedCount: 0, closedCount: 0 };
+  }
 
-    const baseWhere = and(
-      eq(sourceListings.sourceId, run.sourceId),
-      inArray(sourceListings.status, OPEN_STATUSES),
-      lt(sourceListings.lastSeenAt, run.startedAt),
-      or(
-        isNull(sourceListings.lastReconciledAt),
-        lt(sourceListings.lastReconciledAt, run.startedAt),
-      ),
-    );
+  const baseWhere = and(
+    eq(sourceListings.sourceId, run.sourceId),
+    inArray(sourceListings.status, OPEN_STATUSES),
+    lt(sourceListings.lastSeenAt, run.startedAt),
+    or(isNull(sourceListings.lastReconciledAt), lt(sourceListings.lastReconciledAt, run.startedAt)),
+  );
 
-    const closed = await tx
-      .update(sourceListings)
-      .set({
-        missingStreak: sql`${sourceListings.missingStreak} + 1`,
-        status: 'closed',
-        lastReconciledAt: run.startedAt,
-      })
-      .where(
-        and(baseWhere, sql`${sourceListings.missingStreak} + 1 >= ${input.missingStreakThreshold}`),
-      )
-      .returning({ id: sourceListings.id });
+  const closed = await tx
+    .update(sourceListings)
+    .set({
+      missingStreak: sql`${sourceListings.missingStreak} + 1`,
+      status: 'closed',
+      lastReconciledAt: run.startedAt,
+    })
+    .where(
+      and(baseWhere, sql`${sourceListings.missingStreak} + 1 >= ${input.missingStreakThreshold}`),
+    )
+    .returning({ id: sourceListings.id });
 
-    const missingSuspected = await tx
-      .update(sourceListings)
-      .set({
-        missingStreak: sql`${sourceListings.missingStreak} + 1`,
-        status: 'missing_suspected',
-        lastReconciledAt: run.startedAt,
-      })
-      .where(
-        and(baseWhere, sql`${sourceListings.missingStreak} + 1 < ${input.missingStreakThreshold}`),
-      )
-      .returning({ id: sourceListings.id });
+  const missingSuspected = await tx
+    .update(sourceListings)
+    .set({
+      missingStreak: sql`${sourceListings.missingStreak} + 1`,
+      status: 'missing_suspected',
+      lastReconciledAt: run.startedAt,
+    })
+    .where(
+      and(baseWhere, sql`${sourceListings.missingStreak} + 1 < ${input.missingStreakThreshold}`),
+    )
+    .returning({ id: sourceListings.id });
 
-    return {
-      skipped: false,
-      missingSuspectedCount: missingSuspected.length,
-      closedCount: closed.length,
-    };
-  });
+  return {
+    skipped: false,
+    missingSuspectedCount: missingSuspected.length,
+    closedCount: closed.length,
+  };
 }
 
 export interface ExpireOverdueListingsInput {

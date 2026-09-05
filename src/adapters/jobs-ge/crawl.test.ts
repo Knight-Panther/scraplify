@@ -921,4 +921,80 @@ describe('runJobsGeCrawl', () => {
     expect(run?.status).toBe('failed');
     expect(run?.finishedAt).not.toBeNull();
   });
+
+  it('does not leave listings closed/expired while the run itself stays unsettled, when settlement fails', async () => {
+    // Proves settlement (terminal status -> expire -> close -> final
+    // status+reconciledAt) is atomic (adversarial review, 2026-09-05, round
+    // 9): before this fix these were separate autocommitted steps, so a
+    // crash between them could leave listings closed/expired while the run
+    // itself stayed unsettled (reconciledAt still null), or let the catch
+    // block relabel an already-reconciled run 'failed' with stale counts.
+    // Counting db.transaction() calls and failing the SECOND one (call 1 is
+    // writeSourceListingRevision for this run's one listing; call 2 is the
+    // settlement transaction) simulates a total settlement failure and
+    // proves nothing it would have written persisted.
+    await ensureJobsGeSourceSeeded(db);
+    const expiredCandidate = await createTestSourceListing(jobsGeSource.id, {
+      sourceRecordId: '8001',
+      status: 'active',
+      missingStreak: 0,
+      lastSeenAt: '2026-09-04T12:00:00Z',
+      sourceDeadlineAt: '2026-01-01T00:00:00Z', // already past
+    });
+    const missingCandidate = await createTestSourceListing(jobsGeSource.id, {
+      sourceRecordId: '8002',
+      status: 'active',
+      missingStreak: 0,
+      lastSeenAt: '2026-01-01T00:00:00Z', // old enough, and absent from this run's discovery
+    });
+
+    let transactionCalls = 0;
+    const settlementFailingDb = {
+      insert: db.insert.bind(db),
+      select: db.select.bind(db),
+      update: db.update.bind(db),
+      // biome-ignore lint/suspicious/noExplicitAny: matches drizzle's own transaction callback signature loosely enough to pass through to the real db.transaction without fighting its generics in a test-only stub.
+      transaction: (fn: any) => {
+        transactionCalls++;
+        if (transactionCalls >= 2) {
+          throw new Error('simulated settlement failure');
+        }
+        return db.transaction(fn);
+      },
+    } as unknown as typeof db;
+
+    const responses = new Map<string, HttpFetchResult | Error>([
+      ...discoveryPages([], ['1001']),
+      [detailUrl('1001'), htmlResponse(detailUrl('1001'), mailtoDetailHtml('1001'))],
+    ]);
+
+    await expect(
+      runJobsGeCrawl(
+        {
+          db: settlementFailingDb,
+          httpFetcher: new FakeHttpFetcher(responses),
+          now: makeClock(Date.UTC(2026, 8, 4, 12, 0, 0)),
+        },
+        { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 },
+      ),
+    ).rejects.toThrow('simulated settlement failure');
+
+    const [run] = await db.select().from(crawlRuns).where(eq(crawlRuns.sourceId, jobsGeSource.id));
+    expect(run?.status).toBe('failed');
+    expect(run?.expiredCount).toBe(0);
+    expect(run?.missingCount).toBe(0);
+
+    const [stillExpiredCandidate] = await db
+      .select()
+      .from(sourceListings)
+      .where(eq(sourceListings.id, expiredCandidate.id));
+    expect(stillExpiredCandidate?.status).toBe('active');
+
+    const [stillMissingCandidate] = await db
+      .select()
+      .from(sourceListings)
+      .where(eq(sourceListings.id, missingCandidate.id));
+    expect(stillMissingCandidate?.status).toBe('active');
+    expect(stillMissingCandidate?.missingStreak).toBe(0);
+  });
 });

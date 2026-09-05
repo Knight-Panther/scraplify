@@ -11,7 +11,10 @@ import {
   startCrawlRun,
   upsertResource,
 } from '../../db/ingest.js';
-import { closeMissingListings, expireOverdueListings } from '../../db/reconcile-source-listings.js';
+import {
+  closeMissingListingsInTransaction,
+  expireOverdueListings,
+} from '../../db/reconcile-source-listings.js';
 import {
   type CrawlRunRow,
   sourcePolicies as sourcePoliciesTable,
@@ -633,32 +636,53 @@ export async function runJobsGeCrawl(
     const finishedAt = now();
     const runStatus: CrawlRunStatus = discoveryOk ? 'completed' : 'partial';
 
-    // reconciledAt deliberately omitted here — the row's exclusivity lock
-    // (src/db/schema/runs.ts's partial unique index keys on reconciledAt,
-    // not status) must stay held through reconciliation below, or another
-    // invocation could start in this exact window and race it (adversarial
-    // review, 2026-09-05, round 6). status is set now so closeMissingListings
-    // can read this persisted terminal value.
-    await finishCrawlRun(db, crawlRun.id, { finishedAt, status: runStatus, counts });
+    // Settlement — the terminal status write, expiry, missing-reconciliation,
+    // final counts, and the reconciledAt write that releases the exclusivity
+    // lock — all happen in ONE transaction (adversarial review, 2026-09-05,
+    // round 9): previously these were separate autocommitted steps, so a
+    // crash or transient DB failure between them could leave listings closed
+    // while the run itself stayed unsettled (reconciledAt still null), or
+    // let the catch block below relabel an already-reconciled run 'failed'.
+    // Building settledCounts as a NEW local object rather than mutating the
+    // outer `counts` matters here specifically: if this transaction rolls
+    // back, the catch block below still uses the outer `counts` to mark the
+    // run 'failed' — it must never report expiry/closure that the database
+    // itself rolled back.
+    const finalRun = await db.transaction(async (tx) => {
+      // reconciledAt deliberately omitted here — the row's exclusivity lock
+      // (src/db/schema/runs.ts's partial unique index keys on reconciledAt,
+      // not status) must stay held through reconciliation below, or another
+      // invocation could start in this exact window and race it (adversarial
+      // review, 2026-09-05, round 6). status is set now so
+      // closeMissingListingsInTransaction can read this persisted terminal
+      // value — including its own, not-yet-committed write within this same
+      // transaction, which is fine: eligibility still comes from the
+      // database's own record, never a caller-supplied claim.
+      await finishCrawlRun(tx, crawlRun.id, { finishedAt, status: runStatus, counts });
 
-    const expireResult = await expireOverdueListings(db, {
-      sourceId: jobsGeSource.id,
-      asOf: finishedAt,
-    });
-    const closeResult = await closeMissingListings(db, {
-      crawlRunId: crawlRun.id,
-      missingStreakThreshold: options.missingStreakThreshold,
-    });
-    counts.expiredCount = expireResult.expiredCount;
-    counts.missingCount = closeResult.missingSuspectedCount + closeResult.closedCount;
+      const expireResult = await expireOverdueListings(tx, {
+        sourceId: jobsGeSource.id,
+        asOf: finishedAt,
+      });
+      const closeResult = await closeMissingListingsInTransaction(tx, {
+        crawlRunId: crawlRun.id,
+        missingStreakThreshold: options.missingStreakThreshold,
+      });
 
-    // reconciledAt set here, once reconciliation has actually committed —
-    // this is what finally releases the exclusivity lock.
-    const finalRun = await finishCrawlRun(db, crawlRun.id, {
-      finishedAt,
-      status: runStatus,
-      counts,
-      reconciledAt: finishedAt,
+      const settledCounts: CrawlRunCounts = {
+        ...counts,
+        expiredCount: expireResult.expiredCount,
+        missingCount: closeResult.missingSuspectedCount + closeResult.closedCount,
+      };
+
+      // reconciledAt set here, once reconciliation has actually committed —
+      // this is what finally releases the exclusivity lock.
+      return finishCrawlRun(tx, crawlRun.id, {
+        finishedAt,
+        status: runStatus,
+        counts: settledCounts,
+        reconciledAt: finishedAt,
+      });
     });
     return { crawlRun: finalRun };
   } catch (err) {
