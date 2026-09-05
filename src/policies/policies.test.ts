@@ -3,6 +3,7 @@ import { isPathAllowed } from '../domain/index.js';
 import {
   hrGePolicy,
   hrGeSource,
+  isHrGeUrlAllowed,
   isJobsGeUrlAllowed,
   jobsGePolicy,
   jobsGeSource,
@@ -28,8 +29,20 @@ describe('source policy records', () => {
     expect(isPathAllowed(jobsGePolicy, '/')).toBe(true);
   });
 
-  it("hr.ge policy does not yet allow 'api' pending the acquisition-decision spike", () => {
+  it("hr.ge's acquisition-decision spike (2026-09-05) confirmed 'api' should not be adopted", () => {
+    // The endpoint exists but was rejected on its merits (RECON_NOTES.md):
+    // POST-only, undocumented, CORS-locked to hr.ge's own frontend, and its
+    // data is already embedded verbatim in the public HTML. This is a
+    // settled decision now, not a placeholder pending investigation.
     expect(hrGePolicy.allowedAcquisitionModes).not.toContain('api');
+  });
+
+  it('hr.ge policy authorizes both hosts the adapter needs: the site and the sitemap', () => {
+    expect(hrGePolicy.allowedHosts).toEqual(['www.hr.ge', 'api.p.hr.ge']);
+  });
+
+  it('hr.ge policy records the measured 3-second rate limit (Ratelimit-Policy: 20;w=60)', () => {
+    expect(hrGePolicy.rateLimit.crawlDelaySeconds).toBe(3);
   });
 
   it('both policies default to not republishing full source content while terms are unreviewed', () => {
@@ -141,6 +154,75 @@ describe('source policy records', () => {
     // empty authority, confirmed empirically before writing the assertion.
     expect(() => isJobsGeUrlAllowed('http://')).not.toThrow();
     expect(isJobsGeUrlAllowed('http://')).toBe(false);
+  });
+
+  it('isHrGeUrlAllowed authorizes the discovery view and its ?pg= pagination', () => {
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting')).toBe(true);
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting?pg=2')).toBe(true);
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting?pg=33')).toBe(true);
+    // Relative form, resolved against the source's own baseUrl.
+    expect(isHrGeUrlAllowed('/search-posting?pg=2')).toBe(true);
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting?pg=0')).toBe(false); // not positive
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting?pg=02')).toBe(false); // leading zero
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting?pg=-1')).toBe(false);
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting?pg=1&pg=1')).toBe(false); // duplicate
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting?pg=2&extra=1')).toBe(false);
+    // The filter-form defaults seen during recon are deliberately not
+    // authorized — bare ?pg=N is sufficient (RECON_NOTES.md).
+    expect(isHrGeUrlAllowed('https://www.hr.ge/search-posting?os=false&pg=2')).toBe(false);
+  });
+
+  it('isHrGeUrlAllowed authorizes detail pages by the confirmed /announcement/<id>/<slug> shape', () => {
+    expect(
+      isHrGeUrlAllowed('https://www.hr.ge/announcement/491744/inglisurenovani-gayidvebis-agenti'),
+    ).toBe(true);
+    // The slug is decorative (RECON_NOTES.md) but the shape is still
+    // checked as a structural assertion, not left to isPathAllowed alone.
+    expect(isHrGeUrlAllowed('https://www.hr.ge/announcement/491744')).toBe(false); // no slug
+    expect(isHrGeUrlAllowed('https://www.hr.ge/announcement/abc/slug')).toBe(false); // non-numeric id
+    expect(isHrGeUrlAllowed('https://www.hr.ge/announcement/491744/slug?x=1')).toBe(false); // no query
+    // The favorites carve-out (disallowedPathPatterns) still applies.
+    expect(isHrGeUrlAllowed('https://www.hr.ge/announcement/favorites')).toBe(false);
+  });
+
+  it('isHrGeUrlAllowed authorizes the sitemap on its own host, and nowhere else', () => {
+    expect(
+      isHrGeUrlAllowed('https://api.p.hr.ge/public-portal/tenant/1/api/v3/seo/sitemap'),
+    ).toBe(true);
+    expect(
+      isHrGeUrlAllowed('https://api.p.hr.ge/public-portal/tenant/1/api/v3/seo/sitemap?x=1'),
+    ).toBe(false);
+    // The path-level rule is shared across hosts, but api.p.hr.ge must not
+    // inherit www.hr.ge's other authorized paths — the exact gap a naive
+    // "host allowed AND path allowed" check (evaluated independently)
+    // would miss, since isPathAllowed never looks at which host matched.
+    expect(isHrGeUrlAllowed('https://api.p.hr.ge/search-posting')).toBe(false);
+    expect(
+      isHrGeUrlAllowed('https://api.p.hr.ge/announcement/491744/slug'),
+    ).toBe(false);
+    // Nor may the sitemap path be fetched from the wrong host.
+    expect(
+      isHrGeUrlAllowed('https://www.hr.ge/public-portal/tenant/1/api/v3/seo/sitemap'),
+    ).toBe(false);
+  });
+
+  it('isHrGeUrlAllowed rejects a same-path URL on a different origin: host, scheme, or port', () => {
+    expect(isHrGeUrlAllowed('https://evil.example/search-posting')).toBe(false);
+    expect(isHrGeUrlAllowed('file://www.hr.ge/search-posting')).toBe(false);
+    expect(isHrGeUrlAllowed('https://www.hr.ge:4444/search-posting')).toBe(false);
+    expect(isHrGeUrlAllowed('http://www.hr.ge/search-posting')).toBe(false);
+  });
+
+  it('isHrGeUrlAllowed authorizes the homepage and employer pages bare, not with a query', () => {
+    expect(isHrGeUrlAllowed('https://www.hr.ge/')).toBe(true);
+    expect(isHrGeUrlAllowed('https://www.hr.ge/?x=1')).toBe(false);
+    expect(isHrGeUrlAllowed('https://www.hr.ge/customer/59550/avto-reg')).toBe(true);
+    expect(isHrGeUrlAllowed('https://www.hr.ge/jobseeker/sign-in')).toBe(false);
+  });
+
+  it('isHrGeUrlAllowed fails closed on an unparseable URL', () => {
+    expect(() => isHrGeUrlAllowed('http://')).not.toThrow();
+    expect(isHrGeUrlAllowed('http://')).toBe(false);
   });
 
   it('exposes both records by slug, matching each source’s own slug field', () => {

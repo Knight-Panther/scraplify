@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CrawlRunSchema,
   DuplicateCandidateSchema,
+  isHostAllowed,
   isPathAllowed,
   matchesPathRule,
   OpportunityRevisionSchema,
@@ -481,6 +482,7 @@ describe('SourcePolicySchema', () => {
     allowedAcquisitionModes: ['http'] as const,
     allowedPathPatterns: [{ pattern: '/announcement/', match: 'prefix' as const }],
     disallowedPathPatterns: [],
+    allowedHosts: ['example.ge'],
     disallowedHosts: [],
     authenticationScope: 'none' as const,
     rateLimit: { crawlDelaySeconds: 5, maxConcurrency: 1, notes: null },
@@ -510,6 +512,40 @@ describe('SourcePolicySchema', () => {
   it('rejects an empty allowedPathPatterns — default-deny, not default-allow (§5.3)', () => {
     const result = SourcePolicySchema.safeParse({ ...validPolicy, allowedPathPatterns: [] });
     expect(result.success).toBe(false);
+  });
+
+  it('rejects an empty allowedHosts — default-deny, matching allowedPathPatterns', () => {
+    const result = SourcePolicySchema.safeParse({ ...validPolicy, allowedHosts: [] });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('isHostAllowed', () => {
+  const policy = { allowedHosts: ['www.hr.ge', 'api.p.hr.ge'], disallowedHosts: [] };
+
+  it('allows a listed host on plain https at the default port', () => {
+    expect(isHostAllowed(policy, new URL('https://www.hr.ge/search-posting'))).toBe(true);
+    expect(isHostAllowed(policy, new URL('https://api.p.hr.ge/seo/sitemap'))).toBe(true);
+  });
+
+  it('rejects a host not in allowedHosts', () => {
+    expect(isHostAllowed(policy, new URL('https://evil.example/'))).toBe(false);
+  });
+
+  it('disallow always wins, even over an allowed host', () => {
+    const overlapping = { allowedHosts: ['www.hr.ge'], disallowedHosts: ['www.hr.ge'] };
+    expect(isHostAllowed(overlapping, new URL('https://www.hr.ge/'))).toBe(false);
+  });
+
+  it('rejects a scheme bypass on an otherwise-allowed hostname', () => {
+    // .hostname alone would not catch this — confirmed empirically the
+    // same way isJobsGeUrlAllowed's original origin check was.
+    expect(isHostAllowed(policy, new URL('file://www.hr.ge/etc/passwd'))).toBe(false);
+    expect(isHostAllowed(policy, new URL('http://www.hr.ge/'))).toBe(false);
+  });
+
+  it('rejects a port bypass on an otherwise-allowed hostname', () => {
+    expect(isHostAllowed(policy, new URL('https://www.hr.ge:4444/'))).toBe(false);
   });
 });
 
