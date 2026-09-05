@@ -283,7 +283,12 @@ describe('runJobsGeCrawl', () => {
         httpFetcher: new FakeHttpFetcher(responses),
         now: makeClock(Date.UTC(2026, 8, 4, 12, 0, 0)),
       },
-      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 },
+      // maxFetchFailureRate raised: this test is about failedCount
+      // bookkeeping for one listing (a 50% rate here, out of just 2
+      // discovered — technically passes the default 50% ceiling too, but
+      // pinning it explicitly keeps this test isolated from that guard's
+      // own behavior, which the dedicated "marks the run partial..." test covers.
+      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1, maxFetchFailureRate: 1 },
     );
 
     expect(result.crawlRun.status).toBe('completed');
@@ -483,7 +488,16 @@ describe('runJobsGeCrawl', () => {
 
   it('does not mark a listing missing when its detail fetch fails but it is still present in discovery', async () => {
     const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
-    const options = { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 };
+    // maxFetchFailureRate raised: run 2 is 1 discovered / 1 failed = 100%,
+    // which would otherwise trip the new fetch-failure-rate guard — this
+    // test's subject is touchSourceListingSeen protecting the listing, not
+    // that guard's own behavior (see the dedicated "marks the run
+    // partial..." test for that).
+    const options = {
+      missingStreakThreshold: 3,
+      minExpectedDiscoveredListings: 1,
+      maxFetchFailureRate: 1,
+    };
 
     // Run 1: fully successful, establishes the listing with a real revision.
     await runJobsGeCrawl(
@@ -714,6 +728,53 @@ describe('runJobsGeCrawl', () => {
     expect(result.crawlRun.quarantinedCount).toBe(4);
     expect(result.crawlRun.status).toBe('partial'); // must NOT be 'completed' despite discovery succeeding
     expect(result.crawlRun.missingCount).toBe(0); // reconciliation must not have run at all
+  });
+
+  it('marks the run partial when every detail fetch fails, even though discovery itself completed', async () => {
+    // Distinct from the quarantine-rate guard above: a systemic FETCH
+    // failure (a ban/WAF/policy-block, or the site returning non-200s for
+    // every detail request) never reaches the parser at all, so
+    // quarantinedCount/quarantineRate stay 0 — without its own guard this
+    // would sail through as 'completed' despite acquiring zero real content
+    // this run (adversarial review, 2026-09-05, round 9).
+    const ids = ['1001', '1002', '1003', '1004'];
+    const responses = new Map<string, HttpFetchResult | Error>([
+      ...discoveryPages([], ids),
+      ...ids.map((id) => [detailUrl(id), new Error('simulated systemic fetch failure')] as const),
+    ]);
+    // A pre-existing, genuinely-absent listing — proves reconciliation
+    // never ran off this unreliable run's results. ensureJobsGeSourceSeeded
+    // first, since the sources row this listing's FK needs is normally only
+    // created inside runJobsGeCrawl itself.
+    await ensureJobsGeSourceSeeded(db);
+    const preExisting = await createTestSourceListing(jobsGeSource.id, {
+      sourceRecordId: '9999',
+      status: 'active',
+      missingStreak: 0,
+      lastSeenAt: '2026-01-01T00:00:00Z',
+    });
+
+    const result = await runJobsGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(responses),
+        now: makeClock(Date.UTC(2026, 8, 4, 12, 0, 0)),
+      },
+      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 },
+    );
+
+    expect(result.crawlRun.discoveredCount).toBe(4);
+    expect(result.crawlRun.failedCount).toBe(4);
+    expect(result.crawlRun.quarantinedCount).toBe(0);
+    expect(result.crawlRun.status).toBe('partial'); // must NOT be 'completed' despite discovery succeeding
+    expect(result.crawlRun.missingCount).toBe(0); // reconciliation must not have run at all
+
+    const [stillActive] = await db
+      .select()
+      .from(sourceListings)
+      .where(eq(sourceListings.id, preExisting.id));
+    expect(stillActive?.status).toBe('active');
+    expect(stillActive?.missingStreak).toBe(0);
   });
 
   it('marks the run partial on a relative count collapse vs. the last completed run, even though complete/floor/quarantine all pass', async () => {

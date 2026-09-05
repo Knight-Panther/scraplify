@@ -73,6 +73,30 @@ const DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS = 100;
 const DEFAULT_MAX_QUARANTINE_RATE = 0.1;
 
 /**
+ * A coarse guard against systemic detail-FETCH failure (distinct from
+ * DEFAULT_MAX_QUARANTINE_RATE, which only covers parse failures on
+ * successfully-fetched pages): discovery succeeding while most or all
+ * detail fetches fail (timeouts, 403/429, an SSRF/policy block) is itself
+ * evidence this run acquired no real content, even though quarantineRate
+ * stays 0 — nothing got fetched to parse, so nothing threw (adversarial
+ * review, 2026-09-05, round 9; a re-raise of a round-4 idea this project
+ * originally logged and deliberately skipped as P2 — see docs/STATUS.md —
+ * now taken because a different review pass re-flagged it and the fix is
+ * this cheap). Looser than the 10% quarantine ceiling: a fetch failure is
+ * expected to be transient and self-healing (network blips, rate limits)
+ * where a parse failure is evidence of an actual template break — too
+ * tight a ceiling here would make 'partial' sticky on an ordinary flaky
+ * day, which silently stops closure forever (a worse failure than the one
+ * this guard exists to catch). 50% targets systemic acquisition failure
+ * (a ban/WAF/policy-block), the anomaly concept §21.3 actually names, not
+ * ordinary noise. Does NOT gate closure via discoveryOk's other purpose —
+ * touchSourceListingSeen already protects every fetch-failed listing from
+ * looking missing regardless of this guard, so tripping it only affects
+ * `status`/whether reconciliation runs at all, never listing correctness.
+ */
+const DEFAULT_MAX_FETCH_FAILURE_RATE = 0.5;
+
+/**
  * A guard against a RELATIVE count collapse, compared against this
  * source's own history rather than a fixed floor: DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS
  * and the confirmation probe (see discoverAllListings) still can't rule out
@@ -109,6 +133,8 @@ export interface RunJobsGeCrawlOptions {
   minExpectedDiscoveredListings?: number;
   /** See DEFAULT_MAX_QUARANTINE_RATE. Overridable for testing; production callers should rarely need to. */
   maxQuarantineRate?: number;
+  /** See DEFAULT_MAX_FETCH_FAILURE_RATE. Overridable for testing; production callers should rarely need to. */
+  maxFetchFailureRate?: number;
   /** See DEFAULT_MIN_RELATIVE_COVERAGE_RATIO. Overridable for testing; production callers should rarely need to. */
   minRelativeCoverageRatio?: number;
 }
@@ -421,6 +447,7 @@ export async function runJobsGeCrawl(
   const minExpectedDiscoveredListings =
     options.minExpectedDiscoveredListings ?? DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS;
   const maxQuarantineRate = options.maxQuarantineRate ?? DEFAULT_MAX_QUARANTINE_RATE;
+  const maxFetchFailureRate = options.maxFetchFailureRate ?? DEFAULT_MAX_FETCH_FAILURE_RATE;
   const minRelativeCoverageRatio =
     options.minRelativeCoverageRatio ?? DEFAULT_MIN_RELATIVE_COVERAGE_RATIO;
 
@@ -558,6 +585,10 @@ export async function runJobsGeCrawl(
     // after discovery the way discoveredCount/complete alone could be
     // (adversarial review, 2026-09-05, round 3).
     const quarantineRate = listings.size > 0 ? counts.quarantinedCount / listings.size : 0;
+    // Same denominator, same zero-guard, computed alongside quarantineRate
+    // for the same reason: needs the final failedCount, so can't be decided
+    // right after discovery (adversarial review, 2026-09-05, round 9).
+    const fetchFailureRate = listings.size > 0 ? counts.failedCount / listings.size : 0;
 
     // A systemic pagination/caching regression that serves identical
     // content at every page number queried (including the distant
@@ -594,6 +625,7 @@ export async function runJobsGeCrawl(
       complete &&
       listings.size >= minExpectedDiscoveredListings &&
       quarantineRate <= maxQuarantineRate &&
+      fetchFailureRate <= maxFetchFailureRate &&
       baselineOk &&
       vipOk &&
       standardOk;
