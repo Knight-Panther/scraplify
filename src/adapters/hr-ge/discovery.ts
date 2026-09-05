@@ -98,10 +98,14 @@ export function parseSearchPostingPage(html: string): ParsedSearchPostingPage {
   const body = entry.b as { data?: { announcements?: { items?: unknown; totalCount?: unknown } } };
   const announcements = body?.data?.announcements;
   if (announcements === undefined || !Array.isArray(announcements.items)) {
-    throw new SearchPostingParseError('announcement-search entry has no data.announcements.items[]');
+    throw new SearchPostingParseError(
+      'announcement-search entry has no data.announcements.items[]',
+    );
   }
   if (typeof announcements.totalCount !== 'number') {
-    throw new SearchPostingParseError('announcement-search entry has no data.announcements.totalCount');
+    throw new SearchPostingParseError(
+      'announcement-search entry has no data.announcements.totalCount',
+    );
   }
 
   const slugsById = extractSlugsById($);

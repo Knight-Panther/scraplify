@@ -15,7 +15,11 @@ function parseFixture(name: string, announcementId: string) {
     html: loadFixture(name),
     announcementId,
     extractionMethod: 'http',
-    provenance: { resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId, fetchedAt: '2026-09-05T12:00:00Z', notes: null },
+    provenance: {
+      resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId,
+      fetchedAt: '2026-09-05T12:00:00Z',
+      notes: null,
+    },
   });
 }
 
@@ -69,10 +73,7 @@ describe('parseHrGeDetailPage — real fixtures', () => {
   });
 
   it('external ATS + experience required (492350): workExperience carried despite showWorkExperience: false', () => {
-    const content = parseFixture(
-      'detail-492350-external-ats-experience-required.html',
-      '492350',
-    );
+    const content = parseFixture('detail-492350-external-ats-experience-required.html', '492350');
     expect(content.applicationMethod).toEqual({
       type: 'url',
       value: 'https://cleverstaff.net/i/vacancy-CCWXHQ',
@@ -121,7 +122,11 @@ describe('parseHrGeDetailPage — structural failures', () => {
         html: '<html><body>no island</body></html>',
         announcementId: '1',
         extractionMethod: 'http',
-        provenance: { resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId, fetchedAt: '2026-09-05T12:00:00Z', notes: null },
+        provenance: {
+          resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId,
+          fetchedAt: '2026-09-05T12:00:00Z',
+          notes: null,
+        },
       }),
     ).toThrow();
   });
@@ -134,7 +139,11 @@ describe('parseHrGeDetailPage — structural failures', () => {
         html,
         announcementId: '1',
         extractionMethod: 'http',
-        provenance: { resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId, fetchedAt: '2026-09-05T12:00:00Z', notes: null },
+        provenance: {
+          resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId,
+          fetchedAt: '2026-09-05T12:00:00Z',
+          notes: null,
+        },
       }),
     ).toThrow(HrGeDetailParseError);
   });
@@ -151,7 +160,11 @@ describe('parseHrGeDetailPage — structural failures', () => {
         html,
         announcementId: '1',
         extractionMethod: 'http',
-        provenance: { resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId, fetchedAt: '2026-09-05T12:00:00Z', notes: null },
+        provenance: {
+          resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId,
+          fetchedAt: '2026-09-05T12:00:00Z',
+          notes: null,
+        },
       }),
     ).toThrow(HrGeDetailParseError);
   });
@@ -168,7 +181,11 @@ describe('parseHrGeDetailPage — structural failures', () => {
         html,
         announcementId: '1',
         extractionMethod: 'http',
-        provenance: { resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId, fetchedAt: '2026-09-05T12:00:00Z', notes: null },
+        provenance: {
+          resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId,
+          fetchedAt: '2026-09-05T12:00:00Z',
+          notes: null,
+        },
       }),
     ).toThrow(HrGeDetailParseError);
   });
@@ -201,7 +218,11 @@ describe('parseHrGeDetailPage — structural failures', () => {
       html,
       announcementId: '1',
       extractionMethod: 'http',
-      provenance: { resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId, fetchedAt: '2026-09-05T12:00:00Z', notes: null },
+      provenance: {
+        resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId,
+        fetchedAt: '2026-09-05T12:00:00Z',
+        notes: null,
+      },
     });
     expect(content.titleRaw).toBe('minimal listing');
     expect(content.organizationRaw).toBeNull();

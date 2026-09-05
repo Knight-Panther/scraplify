@@ -50,7 +50,9 @@ const NG_STATE_SELECTOR = 'script#ng-state[type="application/json"]';
 export function extractNgState($: CheerioAPI): NgState {
   const raw = $(NG_STATE_SELECTOR).first().text();
   if (!raw) {
-    throw new NgStateMissingError('no <script id="ng-state" type="application/json"> element found');
+    throw new NgStateMissingError(
+      'no <script id="ng-state" type="application/json"> element found',
+    );
   }
 
   let parsed: unknown;

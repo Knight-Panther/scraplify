@@ -49,6 +49,8 @@ describe('parseHrGeSitemap', () => {
       <url><loc>https://www.hr.ge/announcement/2/b</loc></url>
     </urlset>`;
     const candidates = parseHrGeSitemap(xml);
-    expect(candidates).toEqual([{ sourceRecordId: '2', url: 'https://www.hr.ge/announcement/2/b' }]);
+    expect(candidates).toEqual([
+      { sourceRecordId: '2', url: 'https://www.hr.ge/announcement/2/b' },
+    ]);
   });
 });

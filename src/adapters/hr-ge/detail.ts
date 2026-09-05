@@ -235,7 +235,8 @@ export function parseHrGeDetailPage(input: ParseHrGeDetailPageInput): SourceList
       typeof announcementRequirements?.workScheduleName === 'string'
         ? announcementRequirements.workScheduleName
         : null,
-    employmentFormTypeName: typeof a.employmentFormTypeName === 'string' ? a.employmentFormTypeName : null,
+    employmentFormTypeName:
+      typeof a.employmentFormTypeName === 'string' ? a.employmentFormTypeName : null,
     isWorkFromHome: a.isWorkFromHome === true,
     workExperienceType: typeof a.workExperienceType === 'number' ? a.workExperienceType : null,
     workExperienceFrom: typeof a.workExperienceFrom === 'number' ? a.workExperienceFrom : null,

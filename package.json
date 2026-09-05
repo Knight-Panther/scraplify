@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "crawl:jobs-ge": "node --env-file=.env dist/cli/run-jobs-ge-crawl.js"
+    "crawl:jobs-ge": "node --env-file=.env dist/cli/run-jobs-ge-crawl.js",
+    "crawl:hr-ge": "node --env-file=.env dist/cli/run-hr-ge-crawl.js"
   },
   "repository": {
     "type": "git",

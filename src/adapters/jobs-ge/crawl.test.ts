@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../../db/client.js';
 import {
@@ -259,13 +259,23 @@ describe('runJobsGeCrawl', () => {
     const [stillActive] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(stillActive?.status).toBe('active');
 
     const [nowMissing] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1002'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1002'),
+        ),
+      );
     expect(nowMissing?.status).toBe('missing_suspected');
     expect(nowMissing?.missingStreak).toBe(1);
   });
@@ -338,7 +348,12 @@ describe('runJobsGeCrawl', () => {
     const [quarantined] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1002'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1002'),
+        ),
+      );
     expect(quarantined?.status).toBe('quarantined');
 
     const incidents = await db
@@ -384,7 +399,12 @@ describe('runJobsGeCrawl', () => {
     const [quarantined] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(quarantined?.status).toBe('quarantined');
 
     // Run 2: the site serves the ordinary template again — the parser
@@ -410,7 +430,12 @@ describe('runJobsGeCrawl', () => {
     const [recovered] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(recovered?.status).toBe('active');
     expect(recovered?.currentRevisionId).not.toBeNull();
   });
@@ -446,7 +471,12 @@ describe('runJobsGeCrawl', () => {
     const [afterFirst] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(afterFirst?.status).toBe('active');
     const revisionIdAfterFirst = afterFirst?.currentRevisionId;
     expect(revisionIdAfterFirst).not.toBeNull();
@@ -479,7 +509,12 @@ describe('runJobsGeCrawl', () => {
     const [afterSecond] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(afterSecond?.status).toBe('quarantined');
     // Last-known-good content preserved (concept §6.2) — the degraded
     // parse never got promoted to currentRevisionId.
@@ -536,7 +571,12 @@ describe('runJobsGeCrawl', () => {
     const [listing] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(listing?.status).toBe('active');
     expect(listing?.missingStreak).toBe(0);
   });

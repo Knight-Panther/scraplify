@@ -72,8 +72,12 @@ describe('findNgStateEntry', () => {
   });
 
   it('the same numeric key differs per page — confirms lookup cannot go by key', () => {
-    const stateA = extractNgState(cheerio.load(loadFixture('detail-492368-email-application.html')));
-    const stateB = extractNgState(cheerio.load(loadFixture('detail-491887-onsite-application-salary-bonus.html')));
+    const stateA = extractNgState(
+      cheerio.load(loadFixture('detail-492368-email-application.html')),
+    );
+    const stateB = extractNgState(
+      cheerio.load(loadFixture('detail-491887-onsite-application-salary-bonus.html')),
+    );
     const entryA = findNgStateEntry(stateA, /\/api\/v3\/announcement\/[0-9]+$/);
     const entryB = findNgStateEntry(stateB, /\/api\/v3\/announcement\/[0-9]+$/);
     expect(entryA).not.toBeNull();
