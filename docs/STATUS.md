@@ -1,18 +1,53 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-05 (Phase 1A exit gate closed for merge — see "Current phase" checklist below for what's checked and why)
+Last updated: 2026-09-05 (Phase 1A merged to `main` via PR #2; Phase 1B started)
 
 Tracks progress against the phased plan in [`scraplify-concept.md`](./scraplify-concept.md) §25. Update this file in the same commit/PR as the work that changes its status — that keeps it honest (Codex reviews the status change alongside the code) instead of a self-reported log that can drift from reality.
 
 Check an item only when it's actually true, not aspirationally.
 
-## Current phase: Phase 1A — jobs.ge vertical slice
+## Current phase: Phase 1B — hr.ge acquisition decision and adapter
 
-On branch `phase-1a-jobsge` off merged `main`. Milestone 1 (reconnaissance and fixture capture) is done — see `src/adapters/jobs-ge/RECON_NOTES.md` for the full findings and `src/policies/jobs-ge.ts` for the resulting policy/authorization update. Per §25: capture sanitized index/detail fixtures, implement VIP and standard discovery partitions, investigate filters/date ordering and define completeness, implement source-compliant HTTP fetching, store source listings/revisions/resources/attempts/crawl runs, implement incremental overlap and conservative closure logic, schedule local read-only runs.
+Not started. On branch `phase-1b-hrge` off merged `main`. Per concept §25/§10.2: complete the bounded API-versus-HTML acquisition experiment, capture sanitized sitemap/index/detail fixtures, implement sitemap reconciliation and frequent small-index discovery, parse rich structured fields, add WAF/challenge detection and source-specific health checks. `src/policies/hr-ge.ts` already records Phase 0's initial reconnaissance (2026-09-02: Angular app with server-rendered listings, AWS WAF challenge infrastructure present, no confirmed public listing/search JSON API, a public sitemap on a separate host `api.p.hr.ge` not yet authorized in the policy) — the acquisition-decision spike below revisits and confirms or overturns those findings with fresh evidence before any adapter code is written.
+
+### Exit gate
+
+- [ ] Bounded API-versus-HTML acquisition experiment complete (concept §10.2); selected acquisition modes are evidence-backed and recorded in `src/policies/hr-ge.ts`
+- [ ] Sanitized sitemap, index/search, and detail fixtures captured (read-only reconnaissance per concept §25's skill-adoption note — no sign-in, upload, submit, or send against hr.ge)
+- [ ] Sitemap reconciliation and frequent small-index discovery implemented
+- [ ] Rich structured fields parsed (specialty, industry, seniority, employment form, schedule, work mode, experience, education, languages, location, salary, application method)
+- [ ] WAF/challenge detection and source-specific health checks implemented, never bypassed
+- [ ] hr.ge ingestion reruns idempotently; a failing source cannot affect jobs.ge's already-established state
+
+**Exit gate condition (concept §25):** the selected method is evidence-backed and policy-recorded; hr.ge ingestion is idempotent and independently healthy.
+
+## Upcoming phases
+
+Not started, listed in order:
+
+- Phase 1C — cross-source reconciliation
+- Phase 2 — normalization, taxonomy, deduplication
+- Phase 3 — browse and shortlist
+- Phase 4 — attachments and resource expansion
+- Phase 5 — CV matching
+- Phase 6 — outreach assistance
+- Phase 7 — operations and supervised repair
+
+## Completed
+
+### Phase 0 — policy and domain foundation
+
+Merged to `main` via PR #1 (`a45332f`). `/codex:adversarial-review --base main` ran once and returned 3 P1 findings, all fixed. A second confirming run was intended but skipped by explicit user decision after the Codex CLI hung unresponsively twice (`/codex:cancel` found no job to cancel both times); the last commits before merge landed via `--no-verify` instead, verified by hand against a real local Postgres instance (seeded legacy/invalid data, confirmed both the intended rejections and successes) plus the full local gate (format, lint, typecheck, test, build, clean install). CI ran green on GitHub for the first time on the pre-merge push.
+
+Delivered: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), CI (`.github/workflows/ci.yml`), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`), threat model and approval boundaries doc (`docs/THREAT_MODEL.md`), Postgres + Drizzle migrations 0000-0006 (`docker-compose.yml`, `drizzle.config.ts`, `src/db/`) including a composite ownership FK on `source_listings.currentRevisionId` added after adversarial review.
+
+### Phase 1A — jobs.ge vertical slice
+
+Merged to `main` via PR #2 (`c41d0b7`), squash-merged from `phase-1a-jobsge`. Milestone 1 (reconnaissance and fixture capture) is done — see `src/adapters/jobs-ge/RECON_NOTES.md` for the full findings and `src/policies/jobs-ge.ts` for the resulting policy/authorization update. Per §25: capture sanitized index/detail fixtures, implement VIP and standard discovery partitions, investigate filters/date ordering and define completeness, implement source-compliant HTTP fetching, store source listings/revisions/resources/attempts/crawl runs, implement incremental overlap and conservative closure logic, schedule local read-only runs.
 
 The requirement carried forward from Phase 0's adversarial review — `source_listing_revisions` has no DB-level uniqueness on `(sourceListingId, meaningfulContentHash)` (removed deliberately — see `src/db/schema/source-listings.ts`; a lifetime-unique index would reject a listing whose content legitimately reverts to an earlier hash), so retry-safe idempotency has to be enforced in the write path itself — is now implemented: `src/db/write-source-listing-revision.ts`'s `writeSourceListingRevision` insert-or-ignores the listing row, then `SELECT ... FOR UPDATE`s it, re-reads its current revision's hash under that lock, and only inserts a new revision (then repoints `currentRevisionId`) if the freshly observed hash differs — all inside one transaction. Proven by a real concurrency test in `src/db/write-source-listing-revision.test.ts` (two `Promise.all`-raced calls for the same new listing collapse to one revision), which is why CI now runs a Postgres service (`.github/workflows/ci.yml`) rather than only verifying DB behavior by hand as Phase 0 did.
 
-### Exit gate
+#### Exit gate
 
 - [x] Sanitized index and detail HTML fixtures captured (read-only reconnaissance per concept §25's skill-adoption note — no sign-in, upload, submit, or send against jobs.ge) — 5 real fixtures saved to `src/adapters/jobs-ge/fixtures/`: the browse page, its last paginated page, and 3 detail pages chosen to represent 3 distinct application-method structures found (mailto, inline external link in description text, direct external ATS link). Full recon writeup in `src/adapters/jobs-ge/RECON_NOTES.md`
 - [x] VIP and standard discovery partitions implemented — `src/adapters/jobs-ge/discovery.ts`'s `parseAdsPage` parses one `/ge/ads/?page=N` HTML page into its VIP and standard partitions (each listing's numeric ID + policy-checked detail URL + title). Partition membership comes only from which container a row is in (`.vipEntries` vs `#job_list_table`), never from the title anchor's own CSS class — confirmed against the real fixtures that jobs.ge reuses `class="vip"` on the title link in *both* sections, a genuine parsing trap. Verified against both real fixture pages: 10 VIP + 300 standard on page 1, 10 VIP + 247 standard on the last page, zero ID overlap, matching RECON_NOTES.md's counts exactly. Caught and fixed a real bug in the process: the 5 fixture files had been saved as JSON-escaped strings rather than raw HTML at capture time (see RECON_NOTES.md's 2026-09-04 correction) — string-search validation didn't catch it, but the actual cheerio parser did.
@@ -76,24 +111,3 @@ The requirement carried forward from Phase 0's adversarial review — `source_li
 - [x] Concurrency-safe revision write protocol implemented and tested (carried forward from Phase 0, see above)
 
 **Exit gate condition (concept §25):** jobs.ge reruns idempotently; new, changed, unchanged, missing, expired, and failed states are correct; incomplete runs cannot mass-close records.
-
-## Upcoming phases
-
-Not started, listed in order:
-
-- Phase 1B — hr.ge acquisition decision and adapter
-- Phase 1C — cross-source reconciliation
-- Phase 2 — normalization, taxonomy, deduplication
-- Phase 3 — browse and shortlist
-- Phase 4 — attachments and resource expansion
-- Phase 5 — CV matching
-- Phase 6 — outreach assistance
-- Phase 7 — operations and supervised repair
-
-## Completed
-
-### Phase 0 — policy and domain foundation
-
-Merged to `main` via PR #1 (`a45332f`). `/codex:adversarial-review --base main` ran once and returned 3 P1 findings, all fixed. A second confirming run was intended but skipped by explicit user decision after the Codex CLI hung unresponsively twice (`/codex:cancel` found no job to cancel both times); the last commits before merge landed via `--no-verify` instead, verified by hand against a real local Postgres instance (seeded legacy/invalid data, confirmed both the intended rejections and successes) plus the full local gate (format, lint, typecheck, test, build, clean install). CI ran green on GitHub for the first time on the pre-merge push.
-
-Delivered: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), CI (`.github/workflows/ci.yml`), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`), threat model and approval boundaries doc (`docs/THREAT_MODEL.md`), Postgres + Drizzle migrations 0000-0006 (`docker-compose.yml`, `drizzle.config.ts`, `src/db/`) including a composite ownership FK on `source_listings.currentRevisionId` added after adversarial review.
