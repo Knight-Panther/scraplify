@@ -1,13 +1,16 @@
+import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from './client.js';
 import {
   CrawlAlreadyRunningError,
+  failUnsettledCrawlRun,
   finishCrawlRun,
   getMaxDiscoveredCountForSource,
   recordFetchAttempt,
   startCrawlRun,
   upsertResource,
 } from './ingest.js';
+import { crawlRuns } from './schema/index.js';
 import { cleanupTestSource, createTestCrawlRun, createTestSource } from './test-support.js';
 
 describe('upsertResource', () => {
@@ -305,5 +308,77 @@ describe('getMaxDiscoveredCountForSource', () => {
     const result = await getMaxDiscoveredCountForSource(db, sourceId, excluded.id);
 
     expect(result).toBe(42);
+  });
+});
+
+describe('failUnsettledCrawlRun', () => {
+  let sourceId: string;
+
+  afterEach(async () => {
+    if (sourceId) await cleanupTestSource(sourceId);
+  });
+
+  const zeroCounts = {
+    discoveredCount: 0,
+    vipCount: 0,
+    standardCount: 0,
+    newCount: 0,
+    changedCount: 0,
+    unchangedCount: 0,
+    missingCount: 0,
+    expiredCount: 0,
+    reopenedCount: 0,
+    quarantinedCount: 0,
+    failedCount: 0,
+  };
+
+  it('marks an unsettled run failed', async () => {
+    sourceId = await createTestSource();
+    const run = await startCrawlRun(db, {
+      sourceId,
+      startedAt: '2026-09-04T12:00:00Z',
+      fullCoverage: true,
+    });
+
+    const result = await failUnsettledCrawlRun(db, run.id, {
+      finishedAt: '2026-09-04T12:05:00Z',
+      counts: zeroCounts,
+      reconciledAt: '2026-09-04T12:05:00Z',
+    });
+
+    expect(result?.status).toBe('failed');
+    expect(result?.reconciledAt).not.toBeNull();
+  });
+
+  it('does not touch an already-reconciled run — returns null instead of overwriting it', async () => {
+    // The exact scenario adversarial review, 2026-09-05, round 10 flagged:
+    // an ambiguous COMMIT can leave a run genuinely settled on the database
+    // side even though the client-side call that settled it threw.
+    sourceId = await createTestSource();
+    const run = await startCrawlRun(db, {
+      sourceId,
+      startedAt: '2026-09-04T12:00:00Z',
+      fullCoverage: true,
+    });
+    const settled = await finishCrawlRun(db, run.id, {
+      finishedAt: '2026-09-04T12:05:00Z',
+      status: 'completed',
+      counts: { ...zeroCounts, discoveredCount: 5, expiredCount: 1, missingCount: 2 },
+      reconciledAt: '2026-09-04T12:05:00Z',
+    });
+
+    const result = await failUnsettledCrawlRun(db, run.id, {
+      finishedAt: '2026-09-04T12:06:00Z',
+      counts: zeroCounts,
+      reconciledAt: '2026-09-04T12:06:00Z',
+    });
+
+    expect(result).toBeNull();
+
+    const [row] = await db.select().from(crawlRuns).where(eq(crawlRuns.id, run.id));
+    expect(row?.status).toBe('completed');
+    expect(row?.expiredCount).toBe(1);
+    expect(row?.missingCount).toBe(2);
+    expect(row?.reconciledAt).toEqual(settled.reconciledAt);
   });
 });

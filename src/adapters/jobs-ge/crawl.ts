@@ -4,6 +4,7 @@ import type { ResourceRole } from '../../domain/resource.js';
 import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
 import {
   type CrawlRunCounts,
+  failUnsettledCrawlRun,
   finishCrawlRun,
   getLastCompletedCrawlRun,
   getMaxDiscoveredCountForSource,
@@ -704,10 +705,19 @@ export async function runJobsGeCrawl(
     // to hold the lock for, so it's released immediately rather than left
     // stuck (matching the existing documented stance on stale locks: a
     // clean 'failed' marking is exactly what's supposed to let a future
-    // run proceed).
-    await finishCrawlRun(db, crawlRun.id, {
+    // run proceed). Conditional on reconciledAt still being null (not a
+    // plain finishCrawlRun call) — the settlement transaction above can
+    // ambiguously fail: PostgreSQL commits (expiry, closure, counts,
+    // reconciledAt all persisted) but the client never receives the COMMIT
+    // acknowledgment, so db.transaction still throws here even though the
+    // run already genuinely settled (adversarial review, 2026-09-05, round
+    // 10). Unconditionally overwriting that row would relabel an
+    // already-reconciled run 'failed' with stale pre-settlement counts —
+    // failUnsettledCrawlRun's own no-op-if-already-settled result is
+    // deliberately not inspected further: a null return means the row is
+    // already authoritative, and is left exactly as settlement wrote it.
+    await failUnsettledCrawlRun(db, crawlRun.id, {
       finishedAt: now(),
-      status: 'failed',
       counts,
       reconciledAt: now(),
     });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { ParserIncidentKind, ParserIncidentSeverity } from '../domain/incident.js';
 import type { ResourceRole, ResourceStatus } from '../domain/resource.js';
 import type { CrawlRunStatus, FetchOutcome } from '../domain/run.js';
@@ -274,6 +274,54 @@ export async function finishCrawlRun(
     .returning();
   if (!row) throw new Error(`finishCrawlRun: no crawl run found with id ${crawlRunId}`);
   return row;
+}
+
+/**
+ * Marks a run 'failed' ONLY if it hasn't already settled — unlike
+ * finishCrawlRun (an unconditional update), this is specifically for the
+ * crawl orchestrator's outer catch block, which cannot tell an ordinary
+ * mid-run failure apart from an ambiguous-COMMIT failure: PostgreSQL can
+ * actually commit the settlement transaction (expiry, closure, counts,
+ * reconciledAt all persisted) while the client never receives the COMMIT
+ * acknowledgment, so `db.transaction(...)` still throws on the client side
+ * (adversarial review, 2026-09-05, round 10). An unconditional overwrite
+ * there would relabel an already-genuinely-settled, already-reconciled run
+ * 'failed' with stale (pre-settlement) counts — recreating, in miniature,
+ * the exact "row says X, listings say Y" contradiction round 9's atomic
+ * settlement transaction was built to eliminate. This is a PRE-EXISTING gap
+ * from round 6's two-phase finishCrawlRun pattern (round 9 collapsed four
+ * ambiguous-commit windows into this one, smaller one, not introduced it).
+ *
+ * `WHERE reconciled_at IS NULL` is the only correct guard: reconciledAt for
+ * a given run id is only ever written by that run's own settlement or by
+ * this same function, so a zero-row result here means the settlement
+ * transaction's COMMIT genuinely landed — the row is already authoritative
+ * and reconciled, and is deliberately left untouched rather than
+ * "resurrected" into a returned success (that would flip the CLI's exit
+ * code for a connection failure that genuinely occurred, and could
+ * overwrite a row an operator already settled by hand via the documented
+ * recovery query — docs/STATUS.md).
+ *
+ * A separate function rather than reusing finishCrawlRun with a WHERE
+ * clause: finishCrawlRun throws when its update returns no row, which here
+ * would destroy the original mid-run error and report the wrong cause.
+ */
+export async function failUnsettledCrawlRun(
+  db: DatabaseOrTransaction,
+  crawlRunId: string,
+  input: { finishedAt: string; counts: CrawlRunCounts; reconciledAt: string },
+): Promise<CrawlRunRow | null> {
+  const [row] = await db
+    .update(crawlRuns)
+    .set({
+      finishedAt: input.finishedAt,
+      status: 'failed',
+      ...input.counts,
+      reconciledAt: input.reconciledAt,
+    })
+    .where(and(eq(crawlRuns.id, crawlRunId), isNull(crawlRuns.reconciledAt)))
+    .returning();
+  return row ?? null;
 }
 
 export interface FetchAttemptObservation {
