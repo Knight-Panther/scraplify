@@ -4,3 +4,16 @@
 *.ps1 text eol=crlf
 *.md text eol=lf
 *.json text eol=lf
+
+# Captured HTML fixtures are evidence, not source: they must round-trip
+# byte-for-byte, exactly as the live server sent them. Under the "* text=auto"
+# rule above they would be stored LF-only and checked out CRLF on Windows
+# (core.autocrlf=true) but LF on Linux CI - so the same fixture would hash
+# differently in the two places, which matters here because this project
+# hashes fixture-derived content (meaningfulContentHash) and pins golden
+# parser output against it. "-text" disables all line-ending translation.
+# Deliberately scoped to hr-ge only: applying it to jobs-ge's already-merged
+# fixtures would rewrite their working-tree bytes and is out of Phase 1B's
+# scope, though the same fix is recommended for them (see
+# src/adapters/hr-ge/RECON_NOTES.md).
+src/adapters/hr-ge/fixtures/** -text
