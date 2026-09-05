@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SYNTHETIC fixture, hand-authored — NOT captured from the live site.
+  The real public sitemap (src/adapters/hr-ge/RECON_NOTES.md) is a single
+  flat <urlset>, 5.38 MB decompressed, 39,268 <url> entries with no
+  <lastmod> anywhere; it is characterized in RECON_NOTES.md rather than
+  committed. This fixture reproduces its exact documented shape at a
+  testable size: real announcement/customer/jobs path patterns, the one
+  third-host customer.hr.ge entry, and the announcement-only 0.8/weekly
+  vs. everything-else 0.5/monthly split RECON_NOTES.md observed.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.hr.ge/announcement/491744/inglisurenovani-gayidvebis-agenti</loc>
+    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.hr.ge/announcement/491887/eqspert-konsultanti</loc>
+    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.hr.ge/customer/59550/avto-reg</loc>
+    <priority>0.5</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.hr.ge/jobs/some-category</loc>
+    <priority>0.5</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.hr.ge/jobs-in/tbilisi</loc>
+    <priority>0.5</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://www.hr.ge/search-posting</loc>
+    <priority>0.5</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+  <url>
+    <loc>https://customer.hr.ge/customer/register</loc>
+    <priority>0.5</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+</urlset>
