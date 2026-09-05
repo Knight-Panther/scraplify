@@ -410,6 +410,77 @@ describe('runJobsGeCrawl', () => {
     expect(recovered?.currentRevisionId).not.toBeNull();
   });
 
+  it('quarantines listings (does not silently promote a degraded revision) when detail pages drift to a structurally different template', async () => {
+    // Adversarial review, 2026-09-05, round 9: a site template change that
+    // preserves the title row but drops everything else used to parse
+    // "successfully" (a new hash, since the raw HTML really did change) and
+    // get promoted to currentRevisionId with degraded data — invisible to
+    // every other run-health guard since nothing threw. detail.ts's new
+    // structural-drift checks (missing description cell; neither
+    // organization nor published row) now catch this via the same
+    // quarantine path round 2/3/8 already exercise.
+    const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+    // Deliberately the DEFAULT maxQuarantineRate on run 2 (not raised, unlike
+    // other quarantine-bookkeeping tests here) — this test's whole point is
+    // proving the guard actually trips on a single-listing 100% quarantine.
+    const options = { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 };
+
+    await runJobsGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(
+          new Map<string, HttpFetchResult | Error>([
+            ...discoveryPages([], ['1001']),
+            [detailUrl('1001'), htmlResponse(detailUrl('1001'), mailtoDetailHtml('1001'))],
+          ]),
+        ),
+        now: clock,
+      },
+      options,
+    );
+    const [afterFirst] = await db
+      .select()
+      .from(sourceListings)
+      .where(eq(sourceListings.sourceRecordId, '1001'));
+    expect(afterFirst?.status).toBe('active');
+    const revisionIdAfterFirst = afterFirst?.currentRevisionId;
+    expect(revisionIdAfterFirst).not.toBeNull();
+
+    // Run 2: title row survives, everything else the template relied on
+    // (organization/published rows, the description cell) is gone.
+    const driftedHtml = `<html><body>
+      <table class="dtable">
+        <tr><td class="dtitle"><span class="grey">დასახელება:</span> <b>Listing 1001</b></td></tr>
+      </table>
+    </body></html>`;
+    const second = await runJobsGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(
+          new Map<string, HttpFetchResult | Error>([
+            ...discoveryPages([], ['1001']),
+            [detailUrl('1001'), htmlResponse(detailUrl('1001'), driftedHtml)],
+          ]),
+        ),
+        now: clock,
+      },
+      options,
+    );
+
+    expect(second.crawlRun.status).toBe('partial');
+    expect(second.crawlRun.quarantinedCount).toBe(1);
+    expect(second.crawlRun.missingCount).toBe(0); // reconciliation must not have run at all
+
+    const [afterSecond] = await db
+      .select()
+      .from(sourceListings)
+      .where(eq(sourceListings.sourceRecordId, '1001'));
+    expect(afterSecond?.status).toBe('quarantined');
+    // Last-known-good content preserved (concept §6.2) — the degraded
+    // parse never got promoted to currentRevisionId.
+    expect(afterSecond?.currentRevisionId).toBe(revisionIdAfterFirst);
+  });
+
   it('does not mark a listing missing when its detail fetch fails but it is still present in discovery', async () => {
     const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
     const options = { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 };

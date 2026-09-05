@@ -122,4 +122,54 @@ describe('parseJobsGeDetailPage: real fixtures', () => {
       }),
     ).toThrow(/could not find listing title/);
   });
+
+  it('throws when the title row is present but the description cell is missing (structural drift)', () => {
+    const html = `<html><body>
+      <table class="dtable">
+        <tr><td class="dtitle"><span class="grey">დასახელება:</span> <b>Title</b></td></tr>
+        <tr><td class="dtitle"><span class="grey">გამოქვეყნდა:</span> <b>02 სექტემბერი</b></td></tr>
+      </table>
+    </body></html>`;
+
+    expect(() =>
+      parseJobsGeDetailPage({ html, extractionMethod: 'http', provenance: PROVENANCE }),
+    ).toThrow(/no description cell found/);
+  });
+
+  it('throws when neither the organization nor published-date row is found (structural drift)', () => {
+    const html = `<html><body>
+      <table class="dtable">
+        <tr><td class="dtitle"><span class="grey">დასახელება:</span> <b>Title</b></td></tr>
+        <tr><td>Some description text</td></tr>
+      </table>
+    </body></html>`;
+
+    expect(() =>
+      parseJobsGeDetailPage({ html, extractionMethod: 'http', provenance: PROVENANCE }),
+    ).toThrow(/neither .* nor .* row found/);
+  });
+
+  it('does not require an organization row when the published row is present (negative control)', () => {
+    // Guards against over-tightening the structural-drift check to require
+    // BOTH organization and published rows: RECON_NOTES.md's fixtures were
+    // sampled by ID recency, not stratified across the announcement types
+    // this crawl deliberately aggregates, so there's no evidence every type
+    // carries an organization row.
+    const html = `<html><body>
+      <table class="dtable">
+        <tr><td class="dtitle"><span class="grey">დასახელება:</span> <b>Title</b></td></tr>
+        <tr><td class="dtitle"><span class="grey">გამოქვეყნდა:</span> <b>02 სექტემბერი</b> / <span class="grey">ბოლო ვადა:</span> <b>02 ოქტომბერი</b></td></tr>
+        <tr><td>Some description text</td></tr>
+      </table>
+    </body></html>`;
+
+    const result = parseJobsGeDetailPage({
+      html,
+      extractionMethod: 'http',
+      provenance: PROVENANCE,
+    });
+
+    expect(result.organizationRaw).toBeNull();
+    expect(result.publishedDate.raw).toBe('02 სექტემბერი');
+  });
 });

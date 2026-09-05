@@ -123,6 +123,27 @@ function extractApplicationMethod(
  * non-nullable in the domain schema, so a page that doesn't match this
  * template at all is a genuine parse failure, not something the schema's
  * own nullability can absorb the way a missing date or organization can.
+ *
+ * Also throws on two narrower structural-drift signals (adversarial
+ * review, 2026-09-05, round 9): a missing description cell, and neither
+ * the organization nor the published-date row being found. Both catch a
+ * site template change that preserves the title row but moves or renames
+ * everything else — which would otherwise parse "successfully" (a new,
+ * genuinely-different hash, since the raw HTML really did change) and get
+ * promoted to currentRevisionId with degraded data, invisible to the
+ * quarantine-rate guard (crawl.ts) since nothing threw. Deliberately "at
+ * least one of organization/published," not "both": RECON_NOTES.md's 18
+ * sampled pages were sampled by ID recency, not stratified across the
+ * five announcement types this crawl deliberately aggregates (scholarships/
+ * trainings/tenders/other, not just vacancies — src/policies/jobs-ge.ts),
+ * so there's no evidence every type carries an organization row — and the
+ * synthetic fixtures this project's own orchestrator tests use (crawl.test.ts)
+ * have a published row but no organization row, which is itself evidence
+ * that requiring both would be over-tight. A missing description cell is
+ * checked structurally (the cell's absence), never on its text being empty
+ * — a listing with a legitimately blank body still has the cell, and
+ * treating emptiness as failure would violate concept §6.2's "prefer an
+ * explicit unknown state" in the other direction.
  */
 export function parseJobsGeDetailPage(
   input: ParseJobsGeDetailPageInput,
@@ -136,9 +157,19 @@ export function parseJobsGeDetailPage(
   }
 
   const organizationRow = findLabeledRow($, ORGANIZATION_LABEL);
-  const organizationRaw = organizationRow?.find('b').first().text().trim() || null;
-
   const datesRow = findLabeledRow($, PUBLISHED_LABEL);
+  if (organizationRow === null && datesRow === null) {
+    throw new Error(
+      `parseJobsGeDetailPage: page does not match the expected .dtable scaffold (neither "${ORGANIZATION_LABEL}" nor "${PUBLISHED_LABEL}" row found)`,
+    );
+  }
+  if ($(DESCRIPTION_SELECTOR).length === 0) {
+    throw new Error(
+      'parseJobsGeDetailPage: page does not match the expected .dtable scaffold (no description cell found)',
+    );
+  }
+
+  const organizationRaw = organizationRow?.find('b').first().text().trim() || null;
   const dateValues = datesRow?.find('b').toArray() ?? [];
   const publishedRaw = dateValues[0] ? $(dateValues[0]).text().trim() : null;
   const deadlineRaw = dateValues[1] ? $(dateValues[1]).text().trim() : null;
