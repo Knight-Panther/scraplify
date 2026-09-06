@@ -16,6 +16,7 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../db/test-support.js';
+import { detachListing, resolveDuplicateCandidate } from './membership-review.js';
 import { runDedupe } from './run-dedupe.js';
 
 /**
@@ -426,5 +427,74 @@ describe('runDedupe', () => {
         );
       expect(live.length).toBeLessThanOrEqual(1);
     }
+  });
+
+  it('does not recreate a merge a human reversed, even when the ruleset still says same', async () => {
+    // §14.2 puts review authority with the human. Guarding only the candidate
+    // upsert was not enough: linkPair still ran off the fresh ruleset score,
+    // so an --auto-link run could rebuild exactly the merge a reviewer had
+    // undone (adversarial review, 2026-09-06).
+    const a = await createTestSource();
+    const b = await createTestSource();
+    sourceIds.push(a, b);
+    const url = `https://ats.invalid/vacancy-${randomUUID()}`;
+    const listingA = await addListing(a, {
+      title: 'Reviewed apart',
+      organization: 'Review Org',
+      applicationType: 'url',
+      applicationValue: url,
+    });
+    const listingB = await addListing(b, {
+      title: 'Reviewed apart',
+      organization: 'Review Org',
+      applicationType: 'url',
+      applicationValue: url,
+    });
+    listingIds = [listingA, listingB].sort();
+
+    // The ruleset links them...
+    const first = await runDedupe(db, {
+      autoLink: true,
+      sourceIds,
+      now: () => '2026-09-06T12:00:00Z',
+    });
+    expect(first.byDecision.confirmed_same).toBeGreaterThanOrEqual(1);
+
+    // ...a human then separates them and records the verdict.
+    await detachListing(db, {
+      sourceListingId: listingIds[1] as string,
+      at: '2026-09-06T13:00:00Z',
+    });
+    const [candidate] = await db
+      .select()
+      .from(duplicateCandidates)
+      .where(eq(duplicateCandidates.sourceListingIdA, listingIds[0] as string));
+    await resolveDuplicateCandidate(db, {
+      candidateId: candidate?.id as string,
+      decision: 'distinct',
+    });
+
+    // A later automated pass must respect that, not undo it.
+    await runDedupe(db, { autoLink: true, sourceIds, now: () => '2026-09-06T14:00:00Z' });
+
+    const live = await db
+      .select()
+      .from(opportunitySourceMemberships)
+      .where(
+        and(
+          inArray(opportunitySourceMemberships.sourceListingId, listingIds),
+          isNull(opportunitySourceMemberships.supersededAt),
+        ),
+      );
+    // Each listing is canonicalized separately; they must not share a cluster.
+    expect(new Set(live.map((row) => row.opportunityId)).size).toBe(2);
+
+    // And the human's verdict on the candidate itself survives the rerun.
+    const [after] = await db
+      .select()
+      .from(duplicateCandidates)
+      .where(eq(duplicateCandidates.id, candidate?.id as string));
+    expect(after?.resultingDecision).toBe('distinct');
+    expect(after?.decidedBy).toBe('human');
   });
 });
