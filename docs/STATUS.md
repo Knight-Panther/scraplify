@@ -1,16 +1,25 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-06. Phase 1B is merged to `main` by explicit user decision **without** a completed whole-branch review and **without** live full-run validation. Both were the documented merge conditions in `CLAUDE.md`; neither was met. They are carried forward below as open work rather than treated as satisfied, and the phase's own exit-gate items stay unchecked where they are not actually true.
+Last updated: 2026-09-06. Two gate waivers, both by explicit user decision, both recorded here rather than quietly satisfied:
 
-The [confirmed concept](scraplify-concept.md) is authoritative. This file distinguishes implementation evidence from operational readiness.
+- **Phase 1B** was merged **without** a completed whole-branch review and **without** live full-run validation.
+- **Phase 1C, 2A, 2B, 2C, 3A and 5A** (one stacked branch) are **approved to merge with Phase 1C's completeness gate unmet** — no full-coverage run has happened for either source, so closure has still never run against live data. The *review* condition was met here, unlike 1B: three whole-branch adversarial rounds (6 → 11 → 4 P1s, all fixed) plus per-commit review on everything after. The completeness condition needs elapsed crawl time, not code, and was waived to keep moving.
 
-## Current phase: Phase 2 — normalization, taxonomy, and deduplication
+Those are the sub-phases actually carried by that branch, listed rather than written as a range: **3B (UI) and 4 (attachments) are not in it and are not done.**
 
-On `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: stacking kept closure-adjacent code off `main` while Codex was unavailable and Phase 1C could not be reviewed. Both branches have since been reviewed together, three times (see below).
+In both cases the open work is carried forward below rather than treated as done, and each phase's own exit-gate items stay unchecked where they are not actually true.
+
+## Current phase: Phase 3B — UI (not started)
+
+## Current phase: Phase 3B — UI (not started). Phases 1C–5A merged to `main`.
+
+Nothing is in progress. The next piece of work is the UI, which has not been started — see upcoming phases.
+
+Everything below this heading is the record of the work being merged now. It was built on `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: stacking kept closure-adjacent code off `main` while Codex was unavailable and Phase 1C could not be reviewed. Both branches were then reviewed together, three times (see below), and go to `main` as one.
 
 The branch carries considerably more than its name: 2A normalization, 2B cross-source dedupe, 2C reversible membership review, 3A browse/inspect, and 5A CV ranking.
 
-**It is reviewed but not mergeable under this repo's own rules.** `CLAUDE.md` permits a merge only when the phase's exit-gate checklist is actually checked off, and because this branch is stacked on `phase-1c-cross-source-reconciliation`, merging it merges Phase 1C too — whose completeness gate is recorded below as unmet and cannot be met without live full-coverage runs. Merging therefore needs the same explicit user decision to accept unmet gates that Phase 1B was merged under, and should be recorded here as such if taken. The alternative is to leave the branch open and keep building on it, which costs nothing but branch size.
+**Approved to merge with Phase 1C's completeness gate unmet, by explicit user decision (2026-09-06).** `CLAUDE.md` permits a merge only when the phase's exit-gate checklist is actually checked off, and because this branch is stacked on `phase-1c-cross-source-reconciliation`, merging it merges Phase 1C too — whose completeness half cannot be met without live full-coverage runs that have never happened. The *review* condition was met (three whole-branch rounds, then per-commit review on the rest); the completeness condition needs elapsed crawl time, not code, and is waived rather than satisfied. The waived items stay unchecked below and are carried in upcoming work.
 
 Phase 1C was **stopped deliberately, not completed** — see its section below for exactly what is and is not done.
 
@@ -119,7 +128,7 @@ Fixed after the third round, as deliberately-carried P2s rather than blockers, b
 
 The sources also have **disjoint field coverage** — hr.ge has locations on 100/100 and salary on 36; jobs.ge has neither on any of 310. "One source has the field, the other does not" is therefore the normal case for canonical resolution (§12.4), not an edge case.
 
-## Stopped deliberately: Phase 1C — cross-source reconciliation
+## Merged with unmet gates: Phase 1C — cross-source reconciliation (stopped deliberately, not completed)
 
 Worked on `phase-1c-cross-source-reconciliation`. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
 
@@ -131,6 +140,8 @@ Concept §25's four items, with honest status:
 - [ ] **Add browser-versus-HTTP canaries where useful.** Not started. Playwright is still not an application dependency — concept §28 defers adding it until a source or automated canary requires it, and whether one does is part of this item's own decision.
 
 **Exit gate:** completeness is measured and failures are isolated by source. **The isolation half is met; the completeness half is not, and Phase 1C was stopped here by explicit decision rather than finished.** Items 1, 2 and 4 remain open: coverage/overlap reports, full-reconciliation validation, and browser-versus-HTTP canaries. All three depend on a full-corpus run that has never happened for either source (hr.ge ~2.75h, jobs.ge ~7.9h), and item 4 additionally needs a Playwright dependency decision (§28). Closure has therefore still never run against live data on either source.
+
+**This gate is waived, not satisfied (explicit user decision, 2026-09-06).** The stacked branch carrying 1C, 2A-2C, 3A and 5A goes to `main` with these three items open. Anything built on top inherits that: absence reconciliation is proven against fake fetchers and a real database, never against a full live corpus of either source.
 
 ### Cross-source failure isolation (primitives)
 
