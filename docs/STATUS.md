@@ -11,8 +11,6 @@ In both cases the open work is carried forward below rather than treated as done
 
 ## Current phase: Phase 3B — UI (not started)
 
-## Current phase: Phase 3B — UI (not started). Phases 1C–5A merged to `main`.
-
 Nothing is in progress. The next piece of work is the UI, which has not been started — see upcoming phases.
 
 Everything below this heading is the record of the work being merged now. It was built on `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: stacking kept closure-adjacent code off `main` while Codex was unavailable and Phase 1C could not be reviewed. Both branches were then reviewed together, three times (see below), and go to `main` as one.
@@ -128,7 +126,7 @@ Fixed after the third round, as deliberately-carried P2s rather than blockers, b
 
 The sources also have **disjoint field coverage** — hr.ge has locations on 100/100 and salary on 36; jobs.ge has neither on any of 310. "One source has the field, the other does not" is therefore the normal case for canonical resolution (§12.4), not an edge case.
 
-## Merged with unmet gates: Phase 1C — cross-source reconciliation (stopped deliberately, not completed)
+## Approved to merge with unmet gates: Phase 1C — cross-source reconciliation (stopped deliberately, not completed)
 
 Worked on `phase-1c-cross-source-reconciliation`. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
 
