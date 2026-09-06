@@ -33,13 +33,16 @@ this environment, so there is no setup cost to doing it.
    supported query layer. Note that layer is a starting point, **not a finished
    contract**: at least one screen needs its return type widened before it can be
    built correctly, and `product-context.md` names it.
-2. Read `references/georgian-typography.md` **before choosing any font**. Most of
+2. Read `references/design-direction.md`. The visual direction is **settled**, not
+   open: a dark, restrained system derived from the SynapseX reference the owner
+   supplied. Do not invent a palette or a type scale from scratch.
+3. Read `references/georgian-typography.md` **before choosing any font**. Most of
    this corpus is Georgian script. The wrong font stack is the single most likely
    way this UI will look broken, and it is invisible to anyone testing with Latin
    placeholder text.
-3. Read `references/data-density.md`. This is a dense data tool, not a landing
+4. Read `references/data-density.md`. This is a dense data tool, not a landing
    page. Its failure modes are not the usual ones.
-4. Check `references/anti-patterns.md` — tuned to this product, not a generic list.
+5. Check `references/anti-patterns.md` — tuned to this product, not a generic list.
 
 ## During implementation
 
