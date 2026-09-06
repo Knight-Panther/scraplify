@@ -274,7 +274,19 @@ A bounded run against the production source — `--mode incremental --pages 1`, 
 
 Phases have not been worked strictly in order — 3A and 5A were taken early because they needed nothing from the phases before them, and 1C was stopped deliberately mid-phase. Remaining work, most valuable first:
 
-- **Phase 3B — UI.** Not started, and the only remaining gap between a working backend and a usable product. Everything is currently terminal-only. `src/browse/queries.ts` exists precisely so a UI consumes it rather than writing its own SQL. Apply the frontend anti-slop workflow here (design-first, real browser QA) per §25.
+- **Phase 3B — UI.** Not started, and the only remaining gap between a working backend and a usable product. Everything is currently terminal-only. `src/browse/queries.ts` exists precisely so a UI consumes it rather than writing its own SQL.
+  - **Stack decided (2026-09-06): Next.js App Router + Tailwind + shadcn primitives.** Chosen because server components can import the existing Drizzle query layer directly for page rendering, where a Vite SPA would have required a separate HTTP service purely to feed itself. This does not discard the concept's API boundary: Next.js Route Handlers are the "Fastify or a comparably small TypeScript HTTP layer" its stack table calls for, so the concept is satisfied rather than overridden.
+  - **Known blocker for the review screen:** `listReviewQueue` does not return `duplicateCandidates.evidence`, so as it stands a UI cannot show *why* a pair was proposed — which `AGENTS.md` now classes as a P1 frontend defect. Widening that return type is the first implementation task of that screen. Found by Codex while reviewing this setup.
+  - **Anti-slop tooling is set up and ready** (see `.claude/skills/professional-frontend/`): the Anthropic `frontend-design` and Vercel `web-design-guidelines` skills are installed globally, and a project skill carries what neither can know — Xtelo's product context, its Georgian-script typography constraints, its data-density patterns, and a browser QA gate. Playwright MCP was already connected, so browser inspection needs no setup.
+  - **First setup step of the phase, once `components.json` exists.** Both the shadcn and React Bits integrations are the *same* MCP server — React Bits publishes no MCP of its own, and its official docs direct users to shadcn's. Add both registries to `components.json`, then initialise once:
+    ```json
+    { "registries": { "@react-bits": "https://reactbits.dev/r/{name}.json" } }
+    ```
+    ```bash
+    npx shadcn@latest mcp init --client claude
+    ```
+    Verified 2026-09-06 against `ui.shadcn.com/docs/mcp` and react-bits' own `src/docs/McpServer.jsx`. Note that the npm packages matching "reactbits" are third-party, not official — components come from the registry above or `npx shadcn@latest add @react-bits/<Component>`.
+  - **Deferred or rejected:** Figma MCP until a Figma file exists; Storybook entirely, since this is a single-user internal tool rather than a component library; and the Python `webapp-testing` skill, which would duplicate the already-connected Playwright MCP that §25 warns against stacking variants of.
 - **Phase 1C items 1, 2 and 4** — closure has still never run against live data on either source, and neither source has had a full-coverage run (jobs.ge ≈ 7.9h, hr.ge ≈ 2.75h). Operational, not blocking: it needs elapsed time, not code. hr.ge's 100 listings also still carry stale `missing_suspected`/streak-2 residue that a real run would clear.
 - **Phase 2 item 2 — taxonomy mapping.** Blocked on input, not effort: both sources store zero `sourceCategories` (see the gap section above).
 - **Phase 5 — CV parsing.** PDF/DOCX extraction, so profiles come from an uploaded CV rather than hand-entered JSON.

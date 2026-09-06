@@ -22,3 +22,11 @@ The Codex CLI does not provide a staged-only review target. `--uncommitted` revi
 
 - Focus on bugs, security issues, and correctness — not style nits.
 - Flag blocking issues with `[P0]` or `[P1]` so the pre-commit hook can catch them; use lower severities for non-blocking suggestions.
+
+## Frontend review
+
+Frontend work is not complete when the code compiles. A change described as done with no evidence it was rendered and inspected in a browser has not met this repo's gate.
+
+Load the `professional-frontend` skill (`.agents/skills/professional-frontend/`) when reviewing UI code. It names what to weight most heavily here and points to the shared reference files under `.claude/skills/professional-frontend/references/` rather than duplicating them.
+
+Highest-severity frontend defects in this repo, worth `[P1]`: **fabricated data shown to the user** (invented listings, employers, logos, metrics or scores — a correctness bug, since the product's value is that its data is real and traceable), **lost provenance** (a canonical opportunity with no route back to its sources, or a duplicate suggestion shown without its evidence), and **broken Georgian script handling** (a font stack without Georgian coverage, `text-transform: uppercase` reaching Georgian text, or JavaScript truncation of Georgian strings by index).
