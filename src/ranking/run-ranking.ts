@@ -64,6 +64,7 @@ async function loadOpportunitiesForScoring(
     .select({
       opportunityId: opportunities.id,
       canonicalTitle: opportunities.canonicalTitle,
+      canonicalStatus: opportunities.canonicalStatus,
       currentRevisionId: opportunities.currentCanonicalRevisionId,
     })
     .from(opportunities)
@@ -80,6 +81,7 @@ async function loadOpportunitiesForScoring(
       description: sourceListingRevisions.description,
       locations: sourceListingRevisions.locations,
       deadlineAt: sourceListings.sourceDeadlineAt,
+      status: sourceListings.status,
     })
     .from(opportunitySourceMemberships)
     .innerJoin(sourceListings, eq(sourceListings.id, opportunitySourceMemberships.sourceListingId))
@@ -107,18 +109,31 @@ async function loadOpportunitiesForScoring(
         }
       }
     }
-    // The EARLIEST deadline across contributing sources: if one board says the
-    // vacancy closes sooner, that is when a candidate loses the chance to
-    // apply through it, and treating the later date as authoritative would
-    // keep recommending an opportunity that is already shut on that source.
-    const deadlines = members
+    // The LATEST deadline among members that are still open — the last date on
+    // which ANY application route remains available.
+    //
+    // An earlier version took the earliest deadline across all members, on the
+    // reasoning that a route closing is a real loss. That was wrong, and
+    // wrong in a way that contradicted this codebase's own availability rule:
+    // resolve-canonical.ts holds that an opportunity is as available as its
+    // most available source, so taking the earliest date made a cross-post
+    // ineligible the moment its FIRST route shut, hiding a vacancy the user
+    // could still apply to through the other board (adversarial review,
+    // 2026-09-06). Members that are themselves closed or expired contribute no
+    // deadline, since their route is already gone.
+    const openMembers = members.filter(
+      (member) => member.status === 'active' || member.status === 'missing_suspected',
+    );
+    const deadlines = (openMembers.length > 0 ? openMembers : members)
       .map((member) => member.deadlineAt)
       .filter((deadline): deadline is string => deadline !== null)
-      .sort();
+      .sort()
+      .reverse();
     return {
       opportunityId: row.opportunityId,
       currentRevisionId: row.currentRevisionId,
       title: row.canonicalTitle,
+      canonicalStatus: row.canonicalStatus,
       description: members.map((member) => member.description).join('\n\n'),
       deadlineAt: deadlines[0] ?? null,
       locations: [...locations],

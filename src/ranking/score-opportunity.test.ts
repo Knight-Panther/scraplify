@@ -29,6 +29,7 @@ function opportunity(overrides: Partial<OpportunityForScoring> = {}): Opportunit
     description: 'We need experience with TypeScript, PostgreSQL and Docker.',
     deadlineAt: '2026-10-01T00:00:00Z',
     locations: [],
+    canonicalStatus: 'active',
     ...overrides,
   };
 }

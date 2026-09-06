@@ -435,6 +435,62 @@ export async function runDedupe(
   // existing cluster is itself destructive, and §14.2 puts that call with a
   // human. The pair is written back as `needs_review` so it surfaces in the
   // queue, and a human then detaches or keeps it via membership-review.ts.
+  // Every persisted AUTOMATIC merge is re-scored here, not just the pairs the
+  // current blocking happened to regenerate. Blocking keys on the shared
+  // application value or organization — the very evidence a merge rests on —
+  // so a pair whose ATS link later changed leaves every block and would never
+  // be re-examined by a block-driven check. The merge would then outlive its
+  // justification permanently and invisibly (adversarial review, 2026-09-06).
+  //
+  // This also catches a downgrade to `probable_same`, which is equally
+  // unqualified to hold an automatic link: anything that no longer scores
+  // `confirmed_same` is queued.
+  const clusteredListings = new Map<string, LoadedListing>();
+  for (const listing of listings) clusteredListings.set(listing.sourceListingId, listing);
+
+  const automaticClusters = await db
+    .select({
+      opportunityId: opportunitySourceMemberships.opportunityId,
+      sourceListingId: opportunitySourceMemberships.sourceListingId,
+      decidedBy: opportunitySourceMemberships.decidedBy,
+    })
+    .from(opportunitySourceMemberships)
+    .where(isNull(opportunitySourceMemberships.supersededAt));
+
+  const membersByOpportunity = new Map<string, Array<{ listingId: string; decidedBy: string }>>();
+  for (const row of automaticClusters) {
+    if (!clusteredListings.has(row.sourceListingId)) continue;
+    const existing = membersByOpportunity.get(row.opportunityId);
+    const entry = { listingId: row.sourceListingId, decidedBy: row.decidedBy };
+    if (existing) existing.push(entry);
+    else membersByOpportunity.set(row.opportunityId, [entry]);
+  }
+
+  for (const [, members] of membersByOpportunity) {
+    // Single-member clusters assert nothing about another listing.
+    if (members.length < 2) continue;
+    for (let i = 0; i < members.length; i++) {
+      for (let j = i + 1; j < members.length; j++) {
+        const first = members[i];
+        const second = members[j];
+        if (first === undefined || second === undefined) continue;
+        // A human's merge outranks the ruleset (§14.2) and is never second-guessed.
+        if (first.decidedBy === 'human' || second.decidedBy === 'human') continue;
+        const a = clusteredListings.get(first.listingId);
+        const b = clusteredListings.get(second.listingId);
+        if (a === undefined || b === undefined) continue;
+        const [low, high] = a.sourceListingId < b.sourceListingId ? [a, b] : [b, a];
+        const key = `${low.sourceListingId}|${high.sourceListingId}`;
+        if (seenPairs.has(key)) continue;
+        seenPairs.add(key);
+        const rescored = scorePair(low, high, context);
+        if (rescored.decision !== 'confirmed_same') {
+          contradictedPairs.push({ a: low, b: high, score: rescored });
+        }
+      }
+    }
+  }
+
   let staleLinksFlagged = 0;
   for (const { a, b, score } of contradictedPairs) {
     const [liveA] = await db
@@ -537,39 +593,27 @@ export async function runDedupe(
 
       await db.transaction(async (tx) => {
         const opportunityId = randomUUID();
+        // The row is created as a shell and the membership attached; the
+        // canonical revision and the status are then derived by the resolver.
+        //
+        // This path previously built its own revision and hardcoded
+        // `canonicalStatus: 'active'`, so a closed, expired or quarantined
+        // listing became a live-looking opportunity that browsing and ranking
+        // would happily recommend (adversarial review, 2026-09-06). Building
+        // canonical state in a second place was the mistake — the resolver
+        // exists precisely so there is one.
         await tx.insert(opportunities).values({
           id: opportunityId,
           type: listing.opportunityType,
           canonicalTitle: listing.titleRaw,
           organizationId: null,
-          canonicalStatus: 'active',
+          // Provisional; resolveCanonicalOpportunity overwrites it below from
+          // the member's real §13 state before this transaction commits.
+          canonicalStatus: 'discovered',
           currentCanonicalRevisionId: null,
           createdAt: timestamp,
           updatedAt: timestamp,
         });
-
-        const revisionId = randomUUID();
-        await tx.insert(opportunityRevisions).values({
-          id: revisionId,
-          opportunityId,
-          canonicalTitle: listing.titleRaw,
-          canonicalStatus: 'active',
-          organizationId: null,
-          resolvedFields: {
-            title: [{ sourceListingId: listing.sourceListingId, value: listing.titleRaw }],
-            organization: [
-              { sourceListingId: listing.sourceListingId, value: listing.organizationRaw },
-            ],
-          },
-          sourceMembershipVersions: { [listing.sourceListingId]: listing.currentRevisionId },
-          resolutionRulesetVersion: DEDUPE_RULESET_VERSION,
-          meaningfulContentHash: 'sha256:pending-resolution',
-          createdAt: timestamp,
-        });
-        await tx
-          .update(opportunities)
-          .set({ currentCanonicalRevisionId: revisionId, updatedAt: timestamp })
-          .where(eq(opportunities.id, opportunityId));
 
         await tx.insert(opportunitySourceMemberships).values({
           id: randomUUID(),
@@ -587,6 +631,8 @@ export async function runDedupe(
           dedupeModelOrRulesetVersion: DEDUPE_RULESET_VERSION,
           supersededAt: null,
         });
+
+        await resolveCanonicalOpportunity(tx, opportunityId, timestamp);
       });
       singletonsCanonicalized++;
       opportunitiesCreated++;

@@ -38,6 +38,8 @@ export interface OpportunityForScoring {
   deadlineAt: string | null;
   /** Locations any contributing source stated; empty when none did. */
   locations: readonly string[];
+  /** §13 lifecycle state resolved across members by resolve-canonical.ts. */
+  canonicalStatus: string;
 }
 
 export interface ScoreOpportunityResult {
@@ -60,6 +62,14 @@ const WEIGHTS = {
   language: 0.05,
   professionPreference: 0.15,
 } as const;
+
+/**
+ * §13 states in which a candidate can still apply. 'missing_suspected' is
+ * included deliberately: it means a crawl did not see the listing this run,
+ * not that the source withdrew it, and §13 treats it as recoverable rather
+ * than terminal.
+ */
+const AVAILABLE_STATUSES: readonly string[] = ['active', 'missing_suspected', 'discovered'];
 
 /** Work-mode vocabulary a listing might state. Matched as whole words. */
 const WORK_MODE_TERMS = [
@@ -117,6 +127,19 @@ export function scoreOpportunity(
   // would silently discard three quarters of the corpus and look like a
   // working filter while doing it. Every check below therefore fires only on
   // data that is actually present.
+
+  // An opportunity no source lists as available any more is not a match at
+  // any score. Ranking previously ignored canonical status entirely, so a
+  // closed or expired opportunity with a future deadline (or none) scored as
+  // eligible and appeared in default results — recommending a dead vacancy,
+  // which is the plainest possible user-visible failure (adversarial review,
+  // 2026-09-06).
+  if (!AVAILABLE_STATUSES.includes(opportunity.canonicalStatus)) {
+    hardFilterReasons.push({
+      filter: 'not_available',
+      detail: `opportunity is ${opportunity.canonicalStatus}, not open to applications`,
+    });
+  }
 
   if (
     opportunity.deadlineAt !== null &&
