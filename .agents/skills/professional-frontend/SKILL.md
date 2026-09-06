@@ -13,6 +13,9 @@ here, so the two agents cannot drift apart:
 
 - `.claude/skills/professional-frontend/references/product-context.md` — what the
   product is, who uses it, the measured shape of the corpus
+- `.claude/skills/professional-frontend/references/design-direction.md` — the
+  settled palette, contrast floors and typeface split. The visual direction is
+  decided; a review finding that proposes a different one is out of scope
 - `.claude/skills/professional-frontend/references/georgian-typography.md`
 - `.claude/skills/professional-frontend/references/data-density.md`
 - `.claude/skills/professional-frontend/references/anti-patterns.md`

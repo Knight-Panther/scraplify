@@ -22,9 +22,9 @@ do not. Concretely:
 --color-surface-raised  #1c191e     one step further up
 --color-accent-surface  #29232e     selected / active rows
 --color-foreground      #ffffff
---color-muted-fg        #ffffff99   secondary columns
---color-faint-fg        #ffffff66   tertiary, labels, counts
---color-disabled-fg     #ffffff40
+--color-muted-fg        #ffffff99   secondary columns          7.37:1
+--color-faint-fg        #ffffff8c   tertiary, labels, counts   6.25:1
+--color-nontext         #ffffff40   dividers, disabled controls  — NOT text
 --color-border          #ffffff26   hairline table rules
 --color-accent          #d88bd2     the single accent
 --color-accent-strong   #b841ad     selection background
@@ -32,9 +32,18 @@ do not. Concretely:
 --radius                0.75rem
 ```
 
-The three-step muted-text ladder (`99` → `66` → `40`) is the most useful thing
-here: a dense table needs exactly that gradation for secondary and tertiary
-columns, and it arrives already tuned.
+The muted-text ladder is the most useful thing here: a dense table needs exactly
+that gradation for secondary and tertiary columns.
+
+**One value was changed from the reference, for contrast.** SynapseX uses
+`#ffffff66` for its labels and metric captions. Measured, that composites to
+`#666` and gives **3.66:1** on black and **3.03:1** on the raised surfaces —
+under WCAG AA's 4.5:1 floor for normal text, which the interface checklist
+requires. Raised to `#ffffff8c`, which measures 6.25:1 and 5.17:1. The
+reference's original 40% survives as `--color-nontext`, restricted to dividers
+and disabled controls, which WCAG exempts. Ratios above are measured, not
+estimated; accent (8.54:1), ring (11.57:1) and accent-strong on white (4.78:1)
+all passed unchanged.
 
 **Focus ring, taken verbatim** — `outline: 2px solid #f0a9ea; outline-offset: 6px`.
 Stronger and more visible than most defaults, and it satisfies the focus rules in
