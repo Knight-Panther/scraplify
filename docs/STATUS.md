@@ -1,12 +1,18 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-05. Phase 1A is merged; Phase 1B implementation and reliability fixes are on `phase-1b-hrge`, pending final commit review, whole-branch review, and live full-run validation.
+Last updated: 2026-09-06. Phase 1B is merged to `main` by explicit user decision **without** a completed whole-branch review and **without** live full-run validation. Both were the documented merge conditions in `CLAUDE.md`; neither was met. They are carried forward below as open work rather than treated as satisfied, and the phase's own exit-gate items stay unchecked where they are not actually true.
 
 The [confirmed concept](scraplify-concept.md) is authoritative. This file distinguishes implementation evidence from operational readiness.
 
-## Current phase: Phase 1B — hr.ge acquisition and reliability
+## Current phase: Phase 1C — cross-source reconciliation
 
-Implemented in the branch and current changeset:
+Not started. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
+
+## Merged with unmet gates: Phase 1B — hr.ge acquisition and reliability
+
+Merged to `main` via PR #3 from `phase-1b-hrge`, 2026-09-06. CI passed. Two of its commits — the discovery-resume fix and the 405 challenge fix — never went through the per-commit Codex gate: it was blocked by a usage limit, not by a finding, and the commits landed with `--no-verify` by explicit decision. No whole-branch adversarial review ever completed; two attempts died mid-run on the same limit, and one of them emitted `Verdict: approve` while its own text said it was still tracing, which is an artifact of a failed turn and not a pass.
+
+Implemented:
 
 - HTTP-first discovery/detail parsing from server-rendered HTML and Angular transfer state; privacy flags honored. Reconnaissance and sanitized fixtures: [RECON_NOTES.md](../src/adapters/hr-ge/RECON_NOTES.md).
 - Full discovery walks the index to a clean 404 terminator and validates observed counts against source totals and historical full-run coverage. A blocked 404 cannot certify completion. Sitemap IDs are candidates only and count toward coverage only after a successfully parsed detail.
@@ -40,13 +46,13 @@ Still outstanding:
 
 Earlier review notes are preserved in [Phase 1B history](reviews/phase-1b-history-2026-09-05.md). Historical assertions that fixes had already landed are not commit evidence.
 
-**Exit gate:** acquisition is evidence-backed and policy-recorded; local idempotency and failure isolation are tested. Merge approval and live operational validation remain separate gates.
+**Exit gate:** acquisition is evidence-backed and policy-recorded, and local idempotency and failure isolation are tested — those parts are met. Independent review and live operational validation are **not** met and were waived at merge, not satisfied. Anything built on Phase 1B inherits that: its behavior is proven against fake fetchers and a real database, never against hr.ge itself.
 
 ## Upcoming phases
 
 Not started, listed in order:
 
-- Phase 1C — cross-source reconciliation
+- Phase 1C — cross-source reconciliation (current)
 - Phase 2 — normalization, taxonomy, deduplication
 - Phase 3 — browse and shortlist
 - Phase 4 — attachments and resource expansion
