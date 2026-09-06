@@ -10,12 +10,12 @@ In progress on `phase-1c-cross-source-reconciliation`. Phase 1B is merged (see b
 
 Concept §25's four items, with honest status:
 
-- [ ] **Produce coverage and overlap reports.** Not started. Needs live corpora from both sources; jobs.ge ingestion is now possible in bounded slices (see below), hr.ge has 100 listings from one bounded run.
+- [ ] **Produce coverage and overlap reports.** Not started. Corpora now exist for the first time: 310 live jobs.ge listings and 100 live hr.ge listings, both from bounded runs. Neither is a full corpus, so any coverage figure drawn from them is a floor, not a measurement.
 - [ ] **Validate full-reconciliation behavior.** Not started. Overlaps Phase 1B's own outstanding full-coverage run and idempotency rerun.
-- [ ] **Confirm that a failing source cannot affect the other source's state.** Done at the primitive level (see below); not yet done at the orchestrator level.
+- [x] **Confirm that a failing source cannot affect the other source's state.** Done at the primitive level, the orchestrator level, and once operationally against live data (see below). All three mutation-verified.
 - [ ] **Add browser-versus-HTTP canaries where useful.** Not started. Playwright is still not an application dependency — concept §28 defers adding it until a source or automated canary requires it, and whether one does is part of this item's own decision.
 
-**Exit gate:** completeness is measured and failures are isolated by source. Neither half is met yet — nothing has measured completeness, and isolation is confirmed only for the shared database primitives, not for a real failing crawl.
+**Exit gate:** completeness is measured and failures are isolated by source. **The isolation half is met**; the completeness half is not — nothing has yet measured coverage or overlap, and neither source has ever had a full-corpus run to measure against.
 
 ### Cross-source failure isolation (primitives)
 
@@ -50,6 +50,41 @@ This is **fixed-page polling, not §10.1's adaptive rolling overlap window**, wh
 6 new tests in `src/adapters/jobs-ge/crawl.test.ts` plus `src/cli/jobs-ge-options.test.ts`. Verified load-bearing by mutation, not just by passing: changing `fullCoverage: !incremental` to `fullCoverage: true` fails 4 of them, including the mass-closure one. Restored, full suite green (375 tests, 25 files).
 
 **Not independently reviewed.** The Codex CLI was unavailable, so the per-commit gate blocked on "Codex not found" rather than on any finding, and these commits landed with `--no-verify` by explicit user decision. This is closure-adjacent code that normally would not merge unreviewed — it needs a review pass when Codex is back.
+
+### First live jobs.ge ingestion run (2026-09-06)
+
+`--mode incremental --pages 1`, crawl run `373ed762`. **311 requests over 27m08s**, all `success` — zero failures, retries, or blocked responses.
+
+- **`completed`, `fullCoverage=false`**, 310 discovered (10 VIP + 300 standard), 310 new, 0 changed/unchanged/missing/expired/quarantined/failed. The partition split matches `RECON_NOTES.md`'s captured baseline and the canary exactly.
+- **Field completeness 310/310**: organization, description, and application method present on every listing. **310 distinct `meaningfulContentHash` values** — no collision, no dedup fault.
+- **Bounded-mode invariants held live, not just in tests:** the run row records `fullCoverage=false`, reconciliation was skipped (`missingCount=0`), and **no `crawl_cursors` row was written at all** — the full walk's position was neither consumed nor invented.
+- **Cross-source isolation confirmed against production data.** hr.ge's complete state was checksummed before and after: `37382687b3dde2b550367a5944652550` both times. A 27-minute live crawl of one source left the other's listings, revisions, runs, and cursors byte-identical. This is Phase 1C's isolation gate evidenced operationally, not only by test.
+
+### Cross-source failure isolation (orchestrator level)
+
+`src/adapters/jobs-ge/crawl-isolation.test.ts` — 5 tests driving real crawls through the real orchestrator with a fully populated neighbouring source alongside: a totally unreachable source, a source whose every detail fetch fails, a rate-limited source taking a cooldown, a fully successful source whose own reconciliation genuinely closes and expires its listings, and an unsettled run not blocking the neighbour from starting one.
+
+Verified load-bearing by mutation: deleting the per-source clause from `expireOverdueListings` fails **all four** failure-path tests (expiry runs even on failed runs, so an unscoped one leaks into the neighbour on exactly the paths these tests cover); deleting it from `closeMissingListings` fails the reconciliation test. Both restored, suite green.
+
+Together with the primitive-level suite, **Phase 1C's third item is now met**: isolation is confirmed at the primitive level, the orchestrator level, and once operationally against live data.
+
+### Incident: mutation testing corrupted live jobs.ge rows (2026-09-06)
+
+**The mutation checks above damaged real data, twice.** Removing the per-source `WHERE` clause is precisely what stops a test's reconciliation reaching other sources' rows — so with it removed, test crawl runs reconciled every source in the shared dev database and moved all 310 freshly-crawled jobs.ge listings from `active` to `missing_suspected` (streak reached 2 across repeated runs).
+
+- **No content was lost.** All 310 revisions survived, every listing kept its `currentRevisionId`, `lastSeenAt` was untouched (`closeMissingListings` does not write it), and the real crawl run row was unaffected. Repaired with one scoped `UPDATE` back to `active` / streak `0` / `lastReconciledAt` null — the exact state the run's own counts (`newCount=310, missingCount=0`) establish.
+- **hr.ge escaped only by accident**, which is worth stating plainly: its listings carry the stale `lastReconciledAt` of `2026-09-07` described below, later than any test run's `startedAt`, so the idempotency guard excluded them. Pre-existing corruption is what shielded it, not any working protection.
+
+**Guard added:** `src/db/real-data-guard.ts`, wired in as a vitest `globalSetup`. It fingerprints every real source's listings, runs, cursors and revision count before and after the whole suite, and fails the run if they differ. A `globalSetup` rather than a per-file hook because test files run in parallel — nothing inside one can observe what another wrote.
+
+It does **not** refuse to run against a database holding real data; that is the normal state of any dev machine that has crawled, and a guard like that would just get switched off. It asserts the weaker always-true property instead: whatever real data is present, the suite must leave it byte-identical. On CI's fresh database there are no real source rows, so it is a silent no-op there — fittingly, since CI could not have caught this accident either.
+
+**The guard was itself broken for its first two iterations, and both failures were the same shape as the bug it exists to catch:**
+
+1. Its fingerprint SQL had a misplaced parenthesis, and a broad `catch` turned the syntax error into a constant string — identical before and after, so the guard passed silently. Now only Postgres's `42P01` (no schema yet) is tolerated; anything else throws.
+2. After that was fixed it detected the change and printed loudly, but vitest reports a `globalSetup` teardown rejection as "error during close" and **still exits 0** — so CI would have gone green on a real detection. It now sets `process.exitCode = 1` explicitly.
+
+Both were found only by deliberately probing the guard with a throwaway test that writes to a real row, then confirming exit code 1 and, after removal, exit code 0. A guard whose failure mode is "silently succeed" is worse than no guard, so verifying it was not optional.
 
 ### Stale reconciliation residue on real hr.ge rows (found 2026-09-06)
 
