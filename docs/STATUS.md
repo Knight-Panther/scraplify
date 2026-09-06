@@ -122,7 +122,13 @@ Fixed after the third round, as deliberately-carried P2s rather than blockers, b
 
 ### Known input gap for the rest of Phase 2
 
-**Both sources store zero `sourceCategories`,** so §15.2 step 1 ("preserve source category IDs and labels exactly") currently has nothing to preserve, and taxonomy mapping has no input. jobs.ge does expose categories on the site; Phase 1A deliberately skipped them, since the unfiltered index already covers every listing and the `jid` filter went unused. So item 2 of Phase 2 needs a decision before it can start: either extend discovery to capture source categories, or treat classification as *inference* from title/description — a materially harder and different problem. Not started either way.
+**Both sources store zero `sourceCategories`** — but that is not the same as "no taxonomy input", which is what this section wrongly claimed until 2026-09-06.
+
+**hr.ge carries real category data in a different column:** `structuredAttributes.specialty` and `.industry`, populated on all 100 of its listings, with 90 distinct Georgian specialty values (`src/adapters/hr-ge/detail.ts:234-236`). §15.2 step 1 ("preserve source category IDs and labels exactly") is therefore already half-satisfied by accident — the labels are preserved, just not in the field named for them.
+
+jobs.ge genuinely has none. It does expose categories on the site; Phase 1A deliberately skipped them, since the unfiltered index already covers every listing and the `jid` filter went unused.
+
+So item 2 of Phase 2 is **partially unblocked**, and the open decisions are narrower than "can this start at all": whether to normalize hr.ge's existing labels into the §12.6 taxonomy tables (which exist in no migration yet), whether to extend jobs.ge discovery to capture its categories, and whether to fall back to *inference* from title/description for whatever remains uncovered — a materially harder and different problem. Not started either way.
 
 The sources also have **disjoint field coverage** — hr.ge has locations on 100/100 and salary on 36; jobs.ge has neither on any of 310. "One source has the field, the other does not" is therefore the normal case for canonical resolution (§12.4), not an edge case.
 
