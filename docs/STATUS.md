@@ -6,9 +6,15 @@ The [confirmed concept](scraplify-concept.md) is authoritative. This file distin
 
 ## Current phase: Phase 2 — normalization, taxonomy, and deduplication
 
-In progress on `phase-2a-normalization-foundation` (2A normalization foundation + 2B cross-source dedupe delivered), **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: Phase 1C is unmerged and unreviewed (Codex unavailable), and stacking keeps closure-adjacent code off `main` while still allowing forward progress. Both branches are intended to be reviewed together in one pass when Codex returns.
+On `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: stacking kept closure-adjacent code off `main` while Codex was unavailable and Phase 1C could not be reviewed. Both branches have since been reviewed together, three times (see below).
+
+The branch carries considerably more than its name: 2A normalization, 2B cross-source dedupe, 2C reversible membership review, 3A browse/inspect, and 5A CV ranking.
+
+**It is reviewed but not mergeable under this repo's own rules.** `CLAUDE.md` permits a merge only when the phase's exit-gate checklist is actually checked off, and because this branch is stacked on `phase-1c-cross-source-reconciliation`, merging it merges Phase 1C too — whose completeness gate is recorded below as unmet and cannot be met without live full-coverage runs. Merging therefore needs the same explicit user decision to accept unmet gates that Phase 1B was merged under, and should be recorded here as such if taken. The alternative is to leave the branch open and keep building on it, which costs nothing but branch size.
 
 Phase 1C was **stopped deliberately, not completed** — see its section below for exactly what is and is not done.
+
+**Still true across all of it: there is no UI.** Every capability listed here is reachable only from the terminal.
 
 ### Delivered
 
@@ -81,6 +87,31 @@ Deliberately headless. The gate is about the corpus being reachable without `psq
 ### Cleanup: orphan test sources were polluting the review queue
 
 Four `test-source-*` rows left by test runs that errored before their cleanup hook were previously recorded here as harmless. They were not: once dedupe ran, they generated candidate pairs **against real listings** and appeared in the review queue as fake duplicates. Removed via the project's own `cleanupTestSource` path. The corpus is now exactly two sources and 410 listings, and a clean dedupe pass reproduces the original figures — 4 `confirmed_same`, 11 `needs_review`.
+
+### Phase 5A — CV matching and ranking (2026-09-06)
+
+Taken out of order, ahead of Phase 3B (UI) and Phase 4, because it is the feature the product exists for and it needs nothing from either. `src/ranking/`, `npm run rank`.
+
+- `profile-store.ts` — versioned candidate profiles with claims. Editing a profile bumps its version rather than overwriting, so a ranking always names the profile version it was computed against (§17.2's "never overwrite prior assessments when an input or model changes").
+- `score-opportunity.ts` — deterministic, explainable scoring: every result carries its component scores and, when filtered, its hard-filter reasons. **No model call.** §17 permits ranking by rules, and a rule-based scorer that can explain itself is the right floor to add a model on top of later, not a placeholder for one.
+- `run-ranking.ts` — caching keyed by (opportunity revision, profile, profile version, evaluation version). Changing any of those appends a new row instead of overwriting an old one, and a rerun with unchanged inputs is free.
+  - **Known gap (open P2):** the clock is a scoring input that is *not* in that key, because it cannot be. An opportunity that crosses its deadline correctly bypasses the cache and is rescored — but it then writes back to the same four-column key via `onConflictDoUpdate`, overwriting the assessment made while it was still eligible. So §17.2's no-overwrite invariant holds for every input except time. Recorded rather than fixed, per the standing P2 policy; the fix is to put a time bucket in the key or stop upserting on rescore.
+- Hard filters run against the **canonical** status, and `not_available` opportunities are excluded outright — a ranked list must not recommend a vacancy nobody can apply to.
+
+**Not built: CV parsing.** Profiles are reviewed JSON, entered through the CLI. PDF/DOCX extraction is a separate problem, and §17's ranking is testable and useful without it. This is the honest gap between "Phase 5A" and "Phase 5".
+
+### Whole-branch adversarial review, three rounds (2026-09-06)
+
+Codex reviewed the accumulated branch three times, with fixes and re-review between: **6 P1 → 11 P1 → 4 P1**, all fixed. P2 findings were skipped per standing project policy.
+
+Round 2 is worth recording because it found that three of round 1's fixes were shallow — the reported symptoms were gone, the causes were not. Both root causes were the same shape: canonical state derived from a caller's local view rather than the cluster's real membership, and human review decisions not being authoritative end to end. `src/dedupe/resolve-canonical.ts` exists as the single resolver because of that round.
+
+### Two safety mechanisms that did nothing (2026-09-06)
+
+Fixed after the third round, as deliberately-carried P2s rather than blockers, because both are *"a mechanism that exists to detect change, which cannot detect change"* — the category behind all three real-data incidents in this file.
+
+- `opportunity_revisions.meaningfulContentHash` held the literal string `'sha256:pending-resolution'`, violating `OpportunityRevisionSchema`'s own `Sha256Hex` contract. It now holds a real digest over key-sorted canonical content (Postgres `jsonb` does not preserve key order, so plain `JSON.stringify` produced a hash unverifiable against the row it describes), and it is what change detection compares — replacing a hand-written field-by-field comparison that silently ignored every field it did not name. All 406 current canonical revisions now carry real hashes; the 502 historical ones keep the placeholder, since revisions are immutable.
+- The real-data guard fingerprinted `source_listing_revisions` by row **count**, so an in-place content rewrite moved nothing. Every subquery now digests whole rows via `md5(t::text)` rather than a hand-picked column list — the first fix attempt used named columns and Codex rejected it correctly, since `meaningful_content_hash` is application-maintained and a write that changed `title_raw` without recomputing it still slipped through. Verified against the live database in rolled-back transactions. Coverage also extended to `opportunities` and `opportunity_revisions` for any cluster containing a real listing.
 
 ### Known input gap for the rest of Phase 2
 
@@ -232,15 +263,15 @@ A bounded run against the production source — `--mode incremental --pages 1`, 
 
 ## Upcoming phases
 
-Not started, listed in order:
+Phases have not been worked strictly in order — 3A and 5A were taken early because they needed nothing from the phases before them, and 1C was stopped deliberately mid-phase. Remaining work, most valuable first:
 
-- Phase 1C — cross-source reconciliation (current)
-- Phase 2 — normalization, taxonomy, deduplication
-- Phase 3 — browse and shortlist
-- Phase 4 — attachments and resource expansion
-- Phase 5 — CV matching
-- Phase 6 — outreach assistance
-- Phase 7 — operations and supervised repair
+- **Phase 3B — UI.** Not started, and the only remaining gap between a working backend and a usable product. Everything is currently terminal-only. `src/browse/queries.ts` exists precisely so a UI consumes it rather than writing its own SQL. Apply the frontend anti-slop workflow here (design-first, real browser QA) per §25.
+- **Phase 1C items 1, 2 and 4** — closure has still never run against live data on either source, and neither source has had a full-coverage run (jobs.ge ≈ 7.9h, hr.ge ≈ 2.75h). Operational, not blocking: it needs elapsed time, not code. hr.ge's 100 listings also still carry stale `missing_suspected`/streak-2 residue that a real run would clear.
+- **Phase 2 item 2 — taxonomy mapping.** Blocked on input, not effort: both sources store zero `sourceCategories` (see the gap section above).
+- **Phase 5 — CV parsing.** PDF/DOCX extraction, so profiles come from an uploaded CV rather than hand-entered JSON.
+- Phase 4 — attachments and resource expansion.
+- Phase 6 — outreach assistance.
+- Phase 7 — operations and supervised repair.
 
 ## Completed
 
