@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import {
+  candidateProfiles,
   opportunities,
   opportunitySourceMemberships,
   rankings,
@@ -146,7 +147,15 @@ export async function runRanking(
     // A cached row is only reusable when it pins the same revision. An
     // opportunity with no canonical revision yet pins nothing, so its ranking
     // is explicitly provisional and always recomputed.
-    if (!options.force && target.currentRevisionId !== null) {
+    // Deadline eligibility depends on the CLOCK, which is not part of the
+    // cache key and cannot be — so an opportunity ranked before its deadline
+    // would stay a cache hit, and stay eligible, indefinitely after it passed
+    // (adversarial review, 2026-09-06). Anything whose deadline has since
+    // gone by is therefore always rescored rather than served from cache.
+    // Only listings that are still open can safely reuse a cached row.
+    const deadlinePassed =
+      target.deadlineAt !== null && Date.parse(target.deadlineAt) < Date.parse(timestamp);
+    if (!options.force && !deadlinePassed && target.currentRevisionId !== null) {
       const [cached] = await db
         .select({ id: rankings.id })
         .from(rankings)
@@ -246,7 +255,28 @@ export async function listRankedOpportunities(
   db: DatabaseOrTransaction,
   input: { profileId: string; includeIneligible?: boolean; limit?: number },
 ): Promise<RankedOpportunityView[]> {
-  const conditions = [eq(rankings.profileId, input.profileId)];
+  // Historical rankings are deliberately never overwritten (§17.2), so this
+  // table accumulates rows for superseded profile versions, older evaluation
+  // versions, and previous opportunity revisions. Filtering on profile id
+  // alone therefore returned all of them at once — the same opportunity
+  // appearing several times, and stale high scores able to push current
+  // results out of the limit (adversarial review, 2026-09-06). The view must
+  // name the CURRENT inputs explicitly.
+  const [profile] = await db
+    .select({ version: candidateProfiles.version })
+    .from(candidateProfiles)
+    .where(and(eq(candidateProfiles.id, input.profileId), isNull(candidateProfiles.deletedAt)));
+  if (profile === undefined) return [];
+
+  const conditions = [
+    eq(rankings.profileId, input.profileId),
+    eq(rankings.profileVersion, profile.version),
+    eq(rankings.evaluationVersion, RANKING_EVALUATION_VERSION),
+    // Only the ranking computed against the opportunity's CURRENT canonical
+    // revision. A row pinned to a superseded revision described different
+    // content and must not be presented as this opportunity's score.
+    eq(rankings.opportunityRevisionId, opportunities.currentCanonicalRevisionId),
+  ];
   if (input.includeIneligible !== true) conditions.push(eq(rankings.eligible, true));
 
   return db

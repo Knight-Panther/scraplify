@@ -6,6 +6,7 @@ import {
   opportunitySourceMemberships,
 } from '../db/schema/index.js';
 import type { Database, DatabaseOrTransaction } from '../db/types.js';
+import { resolveCanonicalOpportunity } from './resolve-canonical.js';
 import type { DedupeDecision } from './score-pair.js';
 
 /**
@@ -112,6 +113,12 @@ export async function detachListing(
           isNull(opportunitySourceMemberships.supersededAt),
         ),
       );
+    // The cluster this listing left now has a different member set, so its
+    // canonical revision and denormalized columns must be rebuilt — otherwise
+    // they keep describing a membership that no longer exists, and an existing
+    // ranking stays a cache hit under an unchanged revision id even though a
+    // human just corrected the cluster (adversarial review, 2026-09-06).
+    await resolveCanonicalOpportunity(tx, detachedFrom, input.at);
     return { detachedFrom, leftOpportunityEmpty: remaining.length === 0 };
   });
 }
@@ -175,10 +182,11 @@ export async function reassignListing(
       dedupeModelOrRulesetVersion: input.actor.version,
       supersededAt: null,
     });
-    await tx
-      .update(opportunities)
-      .set({ updatedAt: input.at })
-      .where(eq(opportunities.id, input.toOpportunityId));
+    // BOTH clusters changed: one lost a member, the other gained one.
+    if (previousOpportunityId !== null) {
+      await resolveCanonicalOpportunity(tx, previousOpportunityId, input.at);
+    }
+    await resolveCanonicalOpportunity(tx, input.toOpportunityId, input.at);
 
     return { previousOpportunityId };
   });
@@ -235,6 +243,12 @@ export async function splitListingIntoNewOpportunity(
       supersededAt: null,
     });
 
+    // The split listing's NEW opportunity needs a canonical revision like any
+    // other (§12.4), and the cluster it left has a changed member set.
+    await resolveCanonicalOpportunity(tx, opportunityId, input.at);
+    if (previousOpportunityId !== null) {
+      await resolveCanonicalOpportunity(tx, previousOpportunityId, input.at);
+    }
     return { opportunityId, previousOpportunityId };
   });
 }

@@ -11,6 +11,7 @@ import {
 import type { Database, DatabaseOrTransaction } from '../db/types.js';
 import { normalizeOrganizationName } from '../normalize/organization.js';
 import { normalizeApplicationValue } from '../normalize/text.js';
+import { resolveCanonicalOpportunity } from './resolve-canonical.js';
 import {
   DEDUPE_RULESET_VERSION,
   type ListingForScoring,
@@ -84,6 +85,8 @@ export interface RunDedupeResult {
 interface LoadedListing extends ListingForScoring {
   currentRevisionId: string;
   opportunityType: 'job';
+  /** §13 lifecycle state of the contributing source listing. */
+  status: string;
 }
 
 async function loadListings(
@@ -101,6 +104,7 @@ async function loadListings(
       applicationMethod: sourceListingRevisions.applicationMethod,
       publishedAt: sourceListings.sourcePublishedAt,
       deadlineAt: sourceListings.sourceDeadlineAt,
+      status: sourceListings.status,
     })
     .from(sourceListings)
     .innerJoin(
@@ -121,6 +125,7 @@ async function loadListings(
       applicationValue: method?.value ?? null,
       publishedAt: row.publishedAt,
       deadlineAt: row.deadlineAt,
+      status: row.status,
       // Every listing both sources currently carry is a job vacancy. The
       // other §12.3 types (scholarship, grant, event) become reachable once
       // classification exists; hardcoding the honest current value beats
@@ -180,74 +185,6 @@ function countApplicationValues(listings: LoadedListing[]): Map<string, number> 
  * hard-to-reverse operation that §14.2's "false merges are more damaging"
  * rule says a human should authorize, not a batch job.
  */
-/**
- * Appends a new canonical revision when the contributing source revisions no
- * longer match what the current canonical revision was computed from (§12.4:
- * revisions are "recomputed only when source membership, a contributing source
- * revision, or the resolution ruleset changes meaningfully").
- *
- * Appends rather than edits: an OpportunityRevision is an immutable resolved
- * view, so a changed input produces the next revision and the previous one
- * stays intact as the record of what was believed before.
- */
-async function refreshCanonicalRevisionIfStale(
-  tx: DatabaseOrTransaction,
-  opportunityId: string,
-  members: readonly LoadedListing[],
-  now: string,
-): Promise<boolean> {
-  const [opportunity] = await tx
-    .select({ currentRevisionId: opportunities.currentCanonicalRevisionId })
-    .from(opportunities)
-    .where(eq(opportunities.id, opportunityId));
-  if (opportunity === undefined) return false;
-
-  const expected: Record<string, string> = {};
-  for (const member of members) expected[member.sourceListingId] = member.currentRevisionId;
-
-  if (opportunity.currentRevisionId !== null) {
-    const [current] = await tx
-      .select({ versions: opportunityRevisions.sourceMembershipVersions })
-      .from(opportunityRevisions)
-      .where(eq(opportunityRevisions.id, opportunity.currentRevisionId));
-    const stored = (current?.versions ?? {}) as Record<string, string>;
-    const sameKeys =
-      Object.keys(stored).length === Object.keys(expected).length &&
-      Object.entries(expected).every(([listingId, revisionId]) => stored[listingId] === revisionId);
-    if (sameKeys) return false;
-  }
-
-  const revisionId = randomUUID();
-  const first = members[0];
-  if (first === undefined) return false;
-  await tx.insert(opportunityRevisions).values({
-    id: revisionId,
-    opportunityId,
-    canonicalTitle: first.titleRaw,
-    canonicalStatus: 'active',
-    organizationId: null,
-    resolvedFields: {
-      title: members.map((member) => ({
-        sourceListingId: member.sourceListingId,
-        value: member.titleRaw,
-      })),
-      organization: members.map((member) => ({
-        sourceListingId: member.sourceListingId,
-        value: member.organizationRaw,
-      })),
-    },
-    sourceMembershipVersions: expected,
-    resolutionRulesetVersion: DEDUPE_RULESET_VERSION,
-    meaningfulContentHash: 'sha256:pending-resolution',
-    createdAt: now,
-  });
-  await tx
-    .update(opportunities)
-    .set({ currentCanonicalRevisionId: revisionId, updatedAt: now })
-    .where(eq(opportunities.id, opportunityId));
-  return true;
-}
-
 async function linkPair(
   tx: DatabaseOrTransaction,
   a: LoadedListing,
@@ -279,7 +216,7 @@ async function linkPair(
       // returning early without checking leaves the resolved fields and
       // sourceMembershipVersions describing content neither source shows any
       // more (adversarial review, 2026-09-06).
-      await refreshCanonicalRevisionIfStale(tx, existingA, [a, b], now);
+      await resolveCanonicalOpportunity(tx, existingA, now);
     }
     // Two separate clusters are deliberately left alone: joining established
     // clusters is destructive and §14.2 says a human authorizes it.
@@ -460,7 +397,27 @@ export async function runDedupe(
         });
       candidatesWritten++;
 
-      if (autoLink && score.decision === 'confirmed_same') {
+      // A human's verdict outranks the ruleset's, and guarding only the
+      // candidate upsert was not enough: this branch still linked purely off
+      // the fresh score, so an --auto-link run could recreate exactly the
+      // merge a reviewer had reversed (adversarial review, 2026-09-06). The
+      // persisted human decision is consulted before any linking happens.
+      const [persisted] = await tx
+        .select({
+          decidedBy: duplicateCandidates.decidedBy,
+          decision: duplicateCandidates.resultingDecision,
+        })
+        .from(duplicateCandidates)
+        .where(
+          and(
+            eq(duplicateCandidates.sourceListingIdA, a.sourceListingId),
+            eq(duplicateCandidates.sourceListingIdB, b.sourceListingId),
+          ),
+        );
+      const humanSaidNotSame =
+        persisted?.decidedBy === 'human' && persisted.decision !== 'confirmed_same';
+
+      if (autoLink && score.decision === 'confirmed_same' && !humanSaidNotSame) {
         const linked = await linkPair(tx, a, b, score, timestamp);
         if (linked.createdOpportunity) opportunitiesCreated++;
         membershipsCreated += linked.createdMemberships;
@@ -557,7 +514,7 @@ export async function runDedupe(
   if (autoLink) {
     for (const listing of listings) {
       const existing = await db
-        .select({ id: opportunitySourceMemberships.id })
+        .select({ opportunityId: opportunitySourceMemberships.opportunityId })
         .from(opportunitySourceMemberships)
         .where(
           and(
@@ -565,7 +522,18 @@ export async function runDedupe(
             isNull(opportunitySourceMemberships.supersededAt),
           ),
         );
-      if (existing.length > 0) continue;
+      const existingMembership = existing[0];
+      if (existingMembership !== undefined) {
+        // Already clustered — but its source revision may have moved on since
+        // the canonical revision was built. Skipping outright pinned every
+        // singleton to whatever it looked like on the FIRST dedupe run, so a
+        // later title change never reached browsing or ranking (adversarial
+        // review, 2026-09-06).
+        await db.transaction(async (tx) => {
+          await resolveCanonicalOpportunity(tx, existingMembership.opportunityId, timestamp);
+        });
+        continue;
+      }
 
       await db.transaction(async (tx) => {
         const opportunityId = randomUUID();

@@ -88,7 +88,13 @@ const FINGERPRINT_SQL = `
         dc.id::text || dc.status || coalesce(dc.resulting_decision::text, '-'),
         ',' order by dc.id), '')
       from duplicate_candidates dc
-      join source_listings sl on sl.id = dc.source_listing_id_a
+      -- EITHER endpoint, not just side A. Pairs are stored with the smaller
+      -- UUID first, so an accidental test-versus-real candidate has the real
+      -- listing on side B about half the time; joining through side A alone
+      -- let exactly the review-queue pollution this guard exists to catch slip
+      -- past unnoticed (adversarial review, 2026-09-06).
+      join source_listings sl
+        on sl.id = dc.source_listing_id_a or sl.id = dc.source_listing_id_b
       join sources s on s.id = sl.source_id
       where s.slug = any($1))
   )) as fingerprint

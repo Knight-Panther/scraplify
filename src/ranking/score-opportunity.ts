@@ -61,6 +61,16 @@ const WEIGHTS = {
   professionPreference: 0.15,
 } as const;
 
+/** Work-mode vocabulary a listing might state. Matched as whole words. */
+const WORK_MODE_TERMS = [
+  'remote',
+  'hybrid',
+  'onsite',
+  'on site',
+  'დისტანციური',
+  'ჰიბრიდული',
+] as const;
+
 /** A role title at or above this counts as matching the listing's title. */
 const ROLE_TITLE_SIMILARITY = 0.55;
 
@@ -91,6 +101,8 @@ export function scoreOpportunity(
   options: { now: string },
 ): ScoreOpportunityResult {
   const hardFilterReasons: HardFilterReason[] = [];
+  /** Constraints the profile states that this scorer cannot yet check. */
+  const unenforcedConstraints: HardFilterReason[] = [];
 
   const normalizedTitle = normalizeTitle(opportunity.title) ?? '';
   const normalizedDescription = normalizeTitle(opportunity.description) ?? '';
@@ -148,11 +160,54 @@ export function scoreOpportunity(
     }
   }
 
+  // Work-mode preference, like location, applies only where the listing
+  // actually says something. "remote"/"hybrid"/"on-site" appear in the
+  // description when they apply at all; silence is not a contradiction.
+  const workModePreferences = claimsOfKind(claims, 'work_mode_preference');
+  if (workModePreferences.length > 0) {
+    const statedModes = WORK_MODE_TERMS.filter((mode) => containsTerm(searchable, mode));
+    if (statedModes.length > 0) {
+      const anyPreferred = workModePreferences.some((preference) =>
+        statedModes.some((mode) => containsTerm(preference.valueNormalized, mode)),
+      );
+      if (!anyPreferred) {
+        hardFilterReasons.push({
+          filter: 'work_mode_preference',
+          detail: `listing states work mode [${statedModes.join(', ')}], which matches no stated preference`,
+        });
+      }
+    }
+  }
+
+  // Salary and schedule constraints are ACCEPTED by the profile schema but
+  // cannot be enforced yet, and saying so explicitly beats silently ignoring
+  // them: a user who states "minimum 3000 GEL" would otherwise be shown
+  // opportunities violating it, marked eligible, with nothing indicating the
+  // constraint was never applied (adversarial review, 2026-09-06).
+  //
+  // They are not enforced because the data to enforce them against does not
+  // exist in a comparable form: `salaryRaw` is free text present on only 36 of
+  // 410 listings, and no schedule field is extracted at all. Parsing free-text
+  // Georgian salary ranges into comparable numbers is real work that belongs
+  // with the structured-attribute extraction it depends on, not guessed at
+  // here — and a filter that silently mis-parsed salary would exclude real
+  // opportunities, which is worse than not filtering.
+  for (const kind of ['salary_constraint', 'schedule_constraint'] as const) {
+    for (const constraint of claimsOfKind(claims, kind)) {
+      unenforcedConstraints.push({
+        filter: `${kind}_not_enforced`,
+        detail: `"${constraint.value}" was NOT applied — this source data is not extracted in a comparable form yet`,
+      });
+    }
+  }
+
   if (hardFilterReasons.length > 0) {
     return {
       eligible: false,
       score: null,
-      hardFilterReasons,
+      // Unenforced constraints are reported alongside the filters that did
+      // fire, so the explanation never overstates what was checked.
+      hardFilterReasons: [...hardFilterReasons, ...unenforcedConstraints],
       componentScores: [],
       evaluationVersion: RANKING_EVALUATION_VERSION,
     };
@@ -250,7 +305,7 @@ export function scoreOpportunity(
   return {
     eligible: true,
     score: totalWeight === 0 ? 0 : weighted / totalWeight,
-    hardFilterReasons: [],
+    hardFilterReasons: unenforcedConstraints,
     componentScores,
     evaluationVersion: RANKING_EVALUATION_VERSION,
   };

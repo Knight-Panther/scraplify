@@ -29,11 +29,16 @@ function listing(overrides: Partial<ListingForScoring> = {}): ListingForScoring 
 }
 
 /** Counts as measured in the live corpus: ATS links are per-vacancy, inboxes are not. */
+// Keys carry the URLs' REAL casing. URL paths and query values are
+// case-sensitive, so normalizeApplicationValue preserves them — lowercasing
+// them would collapse distinct ATS vacancy links into one key, which is a
+// false-merge vector (adversarial review, 2026-09-06). These are the actual
+// corpus values, capitals and all.
 const context: ScoringContext = {
   applicationValueListingCounts: new Map([
-    ['https://smrtr.io/bb-nd', 2],
-    ['https://cleverstaff.net/i/vacancy-ccwxhq', 2],
-    ['https://cleverstaff.net/i/vacancy-apswvf', 2],
+    ['https://smrtr.io/BB-Nd', 2],
+    ['https://cleverstaff.net/i/vacancy-CCWXHQ', 2],
+    ['https://cleverstaff.net/i/vacancy-aPSWVf', 2],
     ['info@ipkli.com', 8],
     ['https://example.invalid/careers', 40],
   ]),

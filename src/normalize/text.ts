@@ -141,7 +141,16 @@ export function normalizeApplicationValue(
         ? parsed.pathname.slice(0, -1)
         : parsed.pathname;
     const query = parsed.searchParams.toString();
-    return `${parsed.protocol}//${parsed.host}${path}${query ? `?${query}` : ''}`.toLowerCase();
+    // Scheme and host are case-insensitive per RFC 3986 and are folded above;
+    // the PATH and QUERY are not, and must keep their case. ATS vacancy links
+    // routinely carry case-sensitive identifiers, so lowercasing the whole URL
+    // collapsed `/Job/ABC?token=XyZ` and `/job/abc?token=xyz` into one key —
+    // and since a shared vacancy-level value is half of the only automatic
+    // merge path, that is a false-merge vector (adversarial review,
+    // 2026-09-06).
+    return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${path}${
+      query ? `?${query}` : ''
+    }`;
   }
 
   // 'form', 'unspecified', and anything else carry no cross-source identity:
