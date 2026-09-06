@@ -27,6 +27,17 @@ One thing that check surfaced, worth recording as a standing caution alongside t
 
 Not covered by this work: isolation at the orchestrator level. No test yet drives a genuinely failing crawl for one source and asserts the other's state is untouched end-to-end; the primitives are proven individually, which is weaker than proving the path that composes them.
 
+### First live jobs.ge contact (2026-09-06)
+
+A read-only two-request canary through the real policy-checked, rate-limited fetcher — one discovery page, one detail page, no database writes, no crawl run. This is the **first evidence of any kind** that the jobs.ge adapter works against jobs.ge rather than against fixtures; it was merged in Phase 1A and had never touched the live site.
+
+- **Discovery page 1: HTTP 200**, gzip, 399,936 decoded bytes. Parsed to **10 VIP + 300 standard = 310 distinct IDs with zero VIP/standard overlap** — exactly the baseline `src/adapters/jobs-ge/RECON_NOTES.md` recorded at capture time. The `class="vip"`-on-both-sections trap the parser was written against did not fire.
+- **Crawl delay honored against the live site:** 5,642 ms between the two requests, against the 5 s `robots.txt` mandates.
+- **Detail page: HTTP 200**, parsed cleanly. Title matched the discovery-page title, organization present, application method extracted as `email`, description 1,335 chars. Yearless Georgian dates resolved with the correct Asia/Tbilisi +04:00 offset: `06 სექტემბერი` → `2026-09-06T00:00:00+04:00`, `06 ოქტომბერი` → `2026-10-06T00:00:00+04:00`. **First live validation of `parseYearlessGeorgianDate`'s year inference**, which until now was only proven against fixtures.
+- **Not done: any live jobs.ge ingestion run.** Nothing was written to the database, so idempotency, change detection, reconciliation, and closure remain unproven against live jobs.ge data. Two requests is not a crawl.
+
+**A full jobs.ge run is far more expensive than hr.ge's, in the opposite direction from what was assumed when this was scheduled.** jobs.ge's corpus is ~5,647 listings against hr.ge's ~3,265, *and* its mandated crawl delay is 5 s against hr.ge's 3 s, at concurrency 1 — roughly **5,666 requests / ~7.9 hours** for one full walk, against hr.ge's ~2.75. The jobs.ge adapter also has **no bounded mode**: unlike hr.ge's `--mode incremental --pages N`, `RunJobsGeCrawlOptions` exposes only health-guard thresholds, so every invocation is an all-or-nothing full-corpus walk. There is currently no way to do a small live jobs.ge ingestion run without adding one.
+
 ## Merged with unmet gates: Phase 1B — hr.ge acquisition and reliability
 
 Merged to `main` via PR #3 from `phase-1b-hrge`, 2026-09-06. CI passed. Two of its commits — the discovery-resume fix and the 405 challenge fix — never went through the per-commit Codex gate: it was blocked by a usage limit, not by a finding, and the commits landed with `--no-verify` by explicit decision. No whole-branch adversarial review ever completed; two attempts died mid-run on the same limit, and one of them emitted `Verdict: approve` while its own text said it was still tracing, which is an artifact of a failed turn and not a pass.
