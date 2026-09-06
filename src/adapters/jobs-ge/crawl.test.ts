@@ -1,7 +1,11 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../../db/client.js';
-import { getCrawlCursor } from '../../db/ingest.js';
+import {
+  getCrawlCursor,
+  getLastCompletedCrawlRun,
+  getMaxDiscoveredCountForSource,
+} from '../../db/ingest.js';
 import {
   crawlRuns,
   parserIncidents,
@@ -1263,5 +1267,213 @@ describe('runJobsGeCrawl', () => {
       .where(eq(sourceListings.id, missingCandidate.id));
     expect(stillMissingCandidate?.status).toBe('missing_suspected');
     expect(stillMissingCandidate?.missingStreak).toBe(1);
+  });
+
+  // Bounded incremental mode (concept §19.2's "jobs.ge lightweight
+  // discovery, 30–60 minutes", impossible against a ~7.9-hour full walk).
+  // These tests are about what bounded mode must NOT do: a deliberately
+  // partial view of the corpus is indistinguishable from a catastrophically
+  // truncated one unless the run says so itself, so every safety property
+  // here rests on fullCoverage=false being recorded and honored.
+  describe('incremental mode', () => {
+    it('covers only the requested pages and never requests the page after them', async () => {
+      const responses = new Map<string, HttpFetchResult | Error>([
+        [adsPageUrl(1), htmlResponse(adsPageUrl(1), buildAdsPageHtml(['2001'], ['1001']))],
+        [adsPageUrl(2), htmlResponse(adsPageUrl(2), buildAdsPageHtml([], ['1002']))],
+        [adsPageUrl(3), htmlResponse(adsPageUrl(3), buildAdsPageHtml([], ['1003']))],
+        ...['1001', '1002', '1003', '2001'].map(
+          (id) => [detailUrl(id), htmlResponse(detailUrl(id), mailtoDetailHtml(id))] as const,
+        ),
+      ]);
+      const httpFetcher = new FakeHttpFetcher(responses);
+      const spy = vi.spyOn(httpFetcher, 'fetch');
+
+      const result = await runJobsGeCrawl(
+        { db, httpFetcher, now: makeClock(Date.UTC(2026, 8, 4, 12, 0, 0)) },
+        { missingStreakThreshold: 3, mode: 'incremental', incrementalPages: 2 },
+      );
+
+      // Exhausting the page budget is a clean stop, not a truncation, so the
+      // run still certifies as 'completed' — but only ever as a slice.
+      expect(result.crawlRun.status).toBe('completed');
+      expect(result.crawlRun.fullCoverage).toBe(false);
+      expect(result.crawlRun.discoveredCount).toBe(3);
+      expect(result.crawlRun.newCount).toBe(3);
+      expect(spy).toHaveBeenCalledWith(adsPageUrl(1));
+      expect(spy).toHaveBeenCalledWith(adsPageUrl(2));
+      expect(spy).not.toHaveBeenCalledWith(adsPageUrl(3));
+      // No clamp-confirmation probe either: the budget ended the walk before
+      // any repeated-page candidate could arise.
+      expect(spy).not.toHaveBeenCalledWith(adsPageUrl(2 + CLAMP_CONFIRMATION_PROBE_OFFSET));
+    });
+
+    it('cannot advance a missing streak for listings outside the polled slice', async () => {
+      // The single most important property of bounded mode. A listing that a
+      // one-page poll never looked at must not be treated as absent — if it
+      // were, routine 30-minute polling would close the entire corpus in a
+      // few hours.
+      await ensureJobsGeSourceSeeded(db);
+      const outsideSlice = await createTestSourceListing(jobsGeSource.id, {
+        status: 'active',
+        lastSeenAt: '2026-01-01T00:00:00Z',
+      });
+      const nearClosure = await createTestSourceListing(jobsGeSource.id, {
+        status: 'missing_suspected',
+        lastSeenAt: '2026-01-01T00:00:00Z',
+        missingStreak: 2,
+      });
+
+      const responses = new Map<string, HttpFetchResult | Error>([
+        [adsPageUrl(1), htmlResponse(adsPageUrl(1), buildAdsPageHtml([], ['1001']))],
+        [detailUrl('1001'), htmlResponse(detailUrl('1001'), mailtoDetailHtml('1001'))],
+      ]);
+
+      const result = await runJobsGeCrawl(
+        { db, httpFetcher: new FakeHttpFetcher(responses), now: makeClock(Date.UTC(2026, 8, 4)) },
+        { missingStreakThreshold: 3, mode: 'incremental', incrementalPages: 1 },
+      );
+
+      expect(result.crawlRun.status).toBe('completed');
+      expect(result.crawlRun.fullCoverage).toBe(false);
+      expect(result.crawlRun.missingCount).toBe(0);
+
+      const [untouched] = await db
+        .select()
+        .from(sourceListings)
+        .where(eq(sourceListings.id, outsideSlice.id));
+      expect(untouched?.status).toBe('active');
+      expect(untouched?.missingStreak).toBe(0);
+      expect(untouched?.lastReconciledAt).toBeNull();
+
+      // The one that a single further miss would have closed, had this run
+      // been allowed to count as a reconciliation.
+      const [stillOpen] = await db
+        .select()
+        .from(sourceListings)
+        .where(eq(sourceListings.id, nearClosure.id));
+      expect(stillOpen?.status).toBe('missing_suspected');
+      expect(stillOpen?.missingStreak).toBe(2);
+    });
+
+    it("neither consumes nor clears the full walk's cursor", async () => {
+      const ids = ['1001', '1002', '1003'];
+      const fullResponses = new Map<string, HttpFetchResult | Error>([
+        ...discoveryPages([], ids),
+        ...ids.map(
+          (id) => [detailUrl(id), htmlResponse(detailUrl(id), mailtoDetailHtml(id))] as const,
+        ),
+      ]);
+      // Strand a full walk mid-corpus so there is a real cursor to protect.
+      const limited = new Map(fullResponses);
+      limited.set(detailUrl('1002'), {
+        ...htmlResponse(detailUrl('1002'), ''),
+        status: 429,
+        headers: { 'retry-after': '120' },
+      });
+      await runJobsGeCrawl(
+        { db, httpFetcher: new FakeHttpFetcher(limited), now: () => '2026-09-05T12:00:00Z' },
+        { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 },
+      );
+      expect(await getCrawlCursor(db, jobsGeSource.id)).toBe('1002');
+
+      // A clean bounded poll runs (well after the cooldown) and must leave
+      // that position exactly where it was — neither rotating its own work by
+      // it, nor clearing it as though a healthy full sweep had happened.
+      const pollResponses = new Map<string, HttpFetchResult | Error>([
+        [adsPageUrl(1), htmlResponse(adsPageUrl(1), buildAdsPageHtml([], ['1001']))],
+        [detailUrl('1001'), htmlResponse(detailUrl('1001'), mailtoDetailHtml('1001'))],
+      ]);
+      const poll = await runJobsGeCrawl(
+        { db, httpFetcher: new FakeHttpFetcher(pollResponses), now: () => '2026-09-05T14:00:00Z' },
+        { missingStreakThreshold: 3, mode: 'incremental', incrementalPages: 1 },
+      );
+
+      expect(poll.crawlRun.status).toBe('completed');
+      expect(await getCrawlCursor(db, jobsGeSource.id)).toBe('1002');
+    });
+
+    it('is not blocked by whole-corpus health guards a slice cannot satisfy', async () => {
+      // A one-page slice against a full-run baseline is a ~0.05 coverage
+      // ratio and loses VIP entirely — both would fail the guards that exist
+      // to catch a truncated FULL walk. Skipping them for a run that already
+      // declares fullCoverage=false is what makes bounded mode usable; the
+      // guards remain in force for real full walks.
+      const fullIds = ['1001', '1002', '1003', '1004'];
+      const fullResponses = new Map<string, HttpFetchResult | Error>([
+        ...discoveryPages(['2001'], fullIds),
+        ...[...fullIds, '2001'].map(
+          (id) => [detailUrl(id), htmlResponse(detailUrl(id), mailtoDetailHtml(id))] as const,
+        ),
+      ]);
+      const baseline = await runJobsGeCrawl(
+        {
+          db,
+          httpFetcher: new FakeHttpFetcher(fullResponses),
+          now: makeClock(Date.UTC(2026, 8, 4)),
+        },
+        { missingStreakThreshold: 3, minExpectedDiscoveredListings: 5 },
+      );
+      expect(baseline.crawlRun.status).toBe('completed');
+      expect(baseline.crawlRun.vipCount).toBe(1);
+      expect(baseline.crawlRun.discoveredCount).toBe(5);
+
+      const sliceResponses = new Map<string, HttpFetchResult | Error>([
+        [adsPageUrl(1), htmlResponse(adsPageUrl(1), buildAdsPageHtml([], ['1001']))],
+        [detailUrl('1001'), htmlResponse(detailUrl('1001'), mailtoDetailHtml('1001'))],
+      ]);
+      const slice = await runJobsGeCrawl(
+        {
+          db,
+          httpFetcher: new FakeHttpFetcher(sliceResponses),
+          now: makeClock(Date.UTC(2026, 8, 5)),
+        },
+        {
+          missingStreakThreshold: 3,
+          // Deliberately left at a full-corpus floor the slice cannot meet.
+          minExpectedDiscoveredListings: 5,
+          mode: 'incremental',
+          incrementalPages: 1,
+        },
+      );
+
+      expect(slice.crawlRun.status).toBe('completed');
+      expect(slice.crawlRun.fullCoverage).toBe(false);
+      expect(slice.crawlRun.discoveredCount).toBe(1);
+      expect(slice.crawlRun.vipCount).toBe(0);
+      expect(slice.crawlRun.unchangedCount).toBe(1);
+      expect(slice.crawlRun.missingCount).toBe(0);
+    });
+
+    it('never becomes the coverage baseline a later full run is measured against', async () => {
+      // getLastCompletedCrawlRun and getMaxDiscoveredCountForSource both
+      // filter on fullCoverage, so a small slice must not lower the bar for
+      // the next full walk's collapse detection.
+      const responses = new Map<string, HttpFetchResult | Error>([
+        [adsPageUrl(1), htmlResponse(adsPageUrl(1), buildAdsPageHtml([], ['1001']))],
+        [detailUrl('1001'), htmlResponse(detailUrl('1001'), mailtoDetailHtml('1001'))],
+      ]);
+      await runJobsGeCrawl(
+        { db, httpFetcher: new FakeHttpFetcher(responses), now: makeClock(Date.UTC(2026, 8, 4)) },
+        { missingStreakThreshold: 3, mode: 'incremental', incrementalPages: 1 },
+      );
+
+      expect(await getLastCompletedCrawlRun(db, jobsGeSource.id)).toBeNull();
+      expect(
+        await getMaxDiscoveredCountForSource(
+          db,
+          jobsGeSource.id,
+          '00000000-0000-0000-0000-000000000000',
+        ),
+      ).toBe(0);
+    });
+
+    it.each([0, 201, 1.5])('rejects an out-of-range page budget (%s)', async (pages) => {
+      await expect(
+        runJobsGeCrawl(
+          { db, httpFetcher: new FakeHttpFetcher(new Map()) },
+          { missingStreakThreshold: 3, mode: 'incremental', incrementalPages: pages },
+        ),
+      ).rejects.toThrow(/incrementalPages/);
+    });
   });
 });

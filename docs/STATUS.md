@@ -10,7 +10,7 @@ In progress on `phase-1c-cross-source-reconciliation`. Phase 1B is merged (see b
 
 Concept §25's four items, with honest status:
 
-- [ ] **Produce coverage and overlap reports.** Not started. Needs live corpora from both sources, which do not exist yet.
+- [ ] **Produce coverage and overlap reports.** Not started. Needs live corpora from both sources; jobs.ge ingestion is now possible in bounded slices (see below), hr.ge has 100 listings from one bounded run.
 - [ ] **Validate full-reconciliation behavior.** Not started. Overlaps Phase 1B's own outstanding full-coverage run and idempotency rerun.
 - [ ] **Confirm that a failing source cannot affect the other source's state.** Done at the primitive level (see below); not yet done at the orchestrator level.
 - [ ] **Add browser-versus-HTTP canaries where useful.** Not started. Playwright is still not an application dependency — concept §28 defers adding it until a source or automated canary requires it, and whether one does is part of this item's own decision.
@@ -35,6 +35,29 @@ A read-only two-request canary through the real policy-checked, rate-limited fet
 - **Crawl delay honored against the live site:** 5,642 ms between the two requests, against the 5 s `robots.txt` mandates.
 - **Detail page: HTTP 200**, parsed cleanly. Title matched the discovery-page title, organization present, application method extracted as `email`, description 1,335 chars. Yearless Georgian dates resolved with the correct Asia/Tbilisi +04:00 offset: `06 სექტემბერი` → `2026-09-06T00:00:00+04:00`, `06 ოქტომბერი` → `2026-10-06T00:00:00+04:00`. **First live validation of `parseYearlessGeorgianDate`'s year inference**, which until now was only proven against fixtures.
 - **Not done: any live jobs.ge ingestion run.** Nothing was written to the database, so idempotency, change detection, reconciliation, and closure remain unproven against live jobs.ge data. Two requests is not a crawl.
+
+### jobs.ge bounded incremental mode (2026-09-06)
+
+Added so jobs.ge can be polled without an ~7.9-hour full walk. This closes a **concept requirement that was silently unimplemented**: §19.2's cadence table specifies "jobs.ge lightweight discovery — 30–60 minutes", which a full-corpus walk cannot satisfy at any cadence. `--mode incremental --pages N`, mirroring hr.ge's existing reviewed flags (`src/cli/jobs-ge-options.ts` is a deliberate mirror of `hr-ge-options.ts`).
+
+This is **fixed-page polling, not §10.1's adaptive rolling overlap window**, which remains deferred (§28). The safety invariants are hr.ge's, and are tested:
+
+- the run records `fullCoverage=false`, so `closeMissingListings` refuses it and **no missing streak can advance off a deliberately partial view** — without this, 30-minute polling would close the whole corpus within hours;
+- the full walk's own cursor is neither consumed nor cleared;
+- the whole-corpus health guards (fixed floor, relative-coverage baseline, per-partition collapse) are skipped rather than failed, since a one-page slice is legitimately ~0.05 of a full-run baseline and would otherwise never certify;
+- a bounded run never becomes the coverage baseline a later full run is measured against.
+
+6 new tests in `src/adapters/jobs-ge/crawl.test.ts` plus `src/cli/jobs-ge-options.test.ts`. Verified load-bearing by mutation, not just by passing: changing `fullCoverage: !incremental` to `fullCoverage: true` fails 4 of them, including the mass-closure one. Restored, full suite green (375 tests, 25 files).
+
+**Not independently reviewed.** The Codex CLI was unavailable, so the per-commit gate blocked on "Codex not found" rather than on any finding, and these commits landed with `--no-verify` by explicit user decision. This is closure-adjacent code that normally would not merge unreviewed — it needs a review pass when Codex is back.
+
+### Stale reconciliation residue on real hr.ge rows (found 2026-09-06)
+
+All 100 live-crawled hr.ge listings sit at `status='missing_suspected'`, `missing_streak=2`, `last_reconciled_at='2026-09-07T12:00:00Z'` — a **future, hardcoded test-clock timestamp**, not a real instant. The only genuine hr.ge crawl run in the database (`6675bc38`) is `completed` with `full_coverage=false` and `missing_count=0`: it never advanced a streak and could not have. The crawl runs that did this were test-created rows for the real source id, since deleted.
+
+**This is historical residue from before PR #4's test-isolation fix, not an active defect.** Verified rather than assumed: the full suite was run against a captured checksum of every hr.ge listing's id/status/lastSeenAt/missingStreak, and the hash was byte-identical afterwards (`37382687b3dde2b550367a5944652550` before and after 375 tests). The current suite does not touch real source data.
+
+It is still wrong data, and it matters: those listings are one miss from closure on a threshold of 3. A genuine full hr.ge run would re-see the still-live ones and reset them, so the exposure is bounded — but any listing genuinely gone would close after one run rather than three. Left in place pending an explicit decision; repairing live rows is not something to do silently.
 
 **A full jobs.ge run is far more expensive than hr.ge's, in the opposite direction from what was assumed when this was scheduled.** jobs.ge's corpus is ~5,647 listings against hr.ge's ~3,265, *and* its mandated crawl delay is 5 s against hr.ge's 3 s, at concurrency 1 — roughly **5,666 requests / ~7.9 hours** for one full walk, against hr.ge's ~2.75. The jobs.ge adapter also has **no bounded mode**: unlike hr.ge's `--mode incremental --pages N`, `RunJobsGeCrawlOptions` exposes only health-guard thresholds, so every invocation is an all-or-nothing full-corpus walk. There is currently no way to do a small live jobs.ge ingestion run without adding one.
 
