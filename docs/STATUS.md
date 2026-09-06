@@ -47,6 +47,15 @@ Results on the live 410-listing corpus:
 
 Auto-linking requires **two independent signals** (a per-vacancy application link *and* title agreement) and nothing else can reach `confirmed_same`, however much weak evidence accumulates. `--auto-link` is opt-in; the default pass is read-only with respect to canonical state.
 
+### Phase 2C — reversible, audited cluster membership (2026-09-06)
+
+`src/dedupe/membership-review.ts`, 11 tests. This is the undo for everything `runDedupe` does automatically, and it is the reason auto-linking is defensible at all: §14.2 permits it only because a wrong merge can be corrected. Without a working reversal path the honest response would be to disable auto-linking entirely.
+
+- `detachListing` removes a listing from a cluster; `reassignListing` moves it to another; `splitListingIntoNewOpportunity` breaks it out into its own; `resolveDuplicateCandidate` settles a review-queue pair without touching membership at all.
+- **Nothing deletes a membership.** Retiring one stamps `supersededAt` and leaves the row, its evidence, its confidence and its decider intact — a DELETE would destroy exactly the record a human needs when asking why a merge happened. An emptied opportunity is likewise kept, not deleted: retired memberships still reference it and it is the evidence of a merge that was undone.
+- Round-trip proven: an automatic merge can be detached and restored, and all three steps remain in the history with one live membership throughout.
+- Mutation-verified: removing the retire step from `reassignListing` fails 3 tests, one of them by violating the database's own partial unique index — so the one-live-membership invariant is enforced by the schema, not only by application code.
+
 ### Incident: dedupe tests wrote canonical rows for real listings (2026-09-06)
 
 The first version of `runDedupe` had no source scoping — it read and wrote against **every** listing in the database. The tests set up disposable sources, but the pass scanned the real corpus alongside them and created 4 opportunities and 8 memberships for genuine jobs.ge/hr.ge listings as a test side effect.
