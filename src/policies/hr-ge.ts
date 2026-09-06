@@ -76,10 +76,17 @@ export const hrGePolicy = SourcePolicySchema.parse({
     // 2026-09-05): 'Ratelimit-Limit: 20' / 'Ratelimit-Policy: 20;w=60'
     // — 20 requests per 60s window, i.e. one every 3 seconds. Recorded
     // here as the binding limit rather than left null.
+    //
+    // Measured 2026-09-06: that bucket does NOT govern SSR page responses
+    // (RECON_NOTES.md). The value below is deliberately unchanged anyway —
+    // learning that an assumed constraint doesn't apply is not evidence
+    // about what rate this source actually tolerates, and 3s remains the
+    // politeness floor this project chose. Substantively unchanged, so no
+    // policyVersion bump: only the evidence behind it is now firmer.
     crawlDelaySeconds: 3,
     maxConcurrency: 1,
     notes:
-      "robots.txt declares no Crawl-delay, but the site advertises 'Ratelimit-Policy: 20;w=60' (20 requests / 60s = one per 3s) in response headers; crawlDelaySeconds reflects that. Caveat: those headers were observed on the robots.txt response (served by the Express edge layer) and NOT on the SSR page responses, so it is unconfirmed that the same bucket governs page fetches — 3s is the conservative reading, not a measured page-fetch ceiling. Concurrency stays at 1 until observed response times and WAF behavior justify more; a 429 or 'Ratelimit-Remaining: 0' must be treated as a first-class backoff signal.",
+      "robots.txt declares no Crawl-delay, but the site advertises 'Ratelimit-Policy: 20;w=60' (20 requests / 60s = one per 3s) on its robots.txt response, served by the Express edge layer; crawlDelaySeconds reflects that. Measured 2026-09-06: SSR page responses carry no 'Ratelimit-*' headers at all, so that bucket does not govern page fetches — confirmed by direct probe and by a 101-request live crawl with zero 429s. The delay stays at 3s regardless: nothing was learned about what rate the source tolerates, only that one assumed limit does not apply, and the probe was a single request from one IP against a CloudFront-cached path. Concurrency stays at 1 until observed response times and WAF behavior justify more; a 429 or 'Ratelimit-Remaining: 0' must still be treated as a first-class backoff signal wherever it does appear.",
   },
   termsUrl: null,
   robotsUrl: 'https://www.hr.ge/robots.txt',

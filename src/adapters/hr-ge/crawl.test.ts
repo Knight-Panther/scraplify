@@ -37,7 +37,19 @@ vi.mock('../../policies/hr-ge.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../policies/hr-ge.js')>();
   return {
     ...actual,
-    hrGeSource: { ...actual.hrGeSource, id: testIds.sourceId },
+    // The slug must be disposable too, not just the id: `sources.slug` is
+    // UNIQUE, and ensureHrGeSourceSeeded inserts with onConflictDoNothing, so
+    // reusing the real 'hr-ge' slug meant a database that already held the
+    // REAL source row (any machine where a live crawl has ever run) silently
+    // inserted nothing, leaving the policy insert's source_id FK to fail.
+    // Found 2026-09-06, when the first live run made that the normal state of
+    // a dev database. CI never caught it — its database is created fresh per
+    // run, so the collision cannot occur there.
+    hrGeSource: {
+      ...actual.hrGeSource,
+      id: testIds.sourceId,
+      slug: `crawl-test-${testIds.sourceId}`,
+    },
     hrGePolicy: { ...actual.hrGePolicy, id: testIds.policyId, sourceId: testIds.sourceId },
   };
 });
