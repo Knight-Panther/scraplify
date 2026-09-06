@@ -113,6 +113,20 @@
       "when": 1788684063001,
       "tag": "0015_canonical_opportunity_and_organizations",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788701148012,
+      "tag": "0016_candidate_profiles_and_rankings",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788701496844,
+      "tag": "0017_duplicate_candidate_decided_by",
+      "breakpoints": true
     }
   ]
 }

@@ -75,6 +75,10 @@ export interface RunDedupeResult {
   byDecision: Record<string, number>;
   opportunitiesCreated: number;
   membershipsCreated: number;
+  /** Listings that had no duplicate and were canonicalized as single-member opportunities. */
+  singletonsCanonicalized: number;
+  /** Existing automatic merges whose evidence no longer holds, queued for human review. */
+  staleLinksFlagged: number;
 }
 
 interface LoadedListing extends ListingForScoring {
@@ -176,6 +180,74 @@ function countApplicationValues(listings: LoadedListing[]): Map<string, number> 
  * hard-to-reverse operation that §14.2's "false merges are more damaging"
  * rule says a human should authorize, not a batch job.
  */
+/**
+ * Appends a new canonical revision when the contributing source revisions no
+ * longer match what the current canonical revision was computed from (§12.4:
+ * revisions are "recomputed only when source membership, a contributing source
+ * revision, or the resolution ruleset changes meaningfully").
+ *
+ * Appends rather than edits: an OpportunityRevision is an immutable resolved
+ * view, so a changed input produces the next revision and the previous one
+ * stays intact as the record of what was believed before.
+ */
+async function refreshCanonicalRevisionIfStale(
+  tx: DatabaseOrTransaction,
+  opportunityId: string,
+  members: readonly LoadedListing[],
+  now: string,
+): Promise<boolean> {
+  const [opportunity] = await tx
+    .select({ currentRevisionId: opportunities.currentCanonicalRevisionId })
+    .from(opportunities)
+    .where(eq(opportunities.id, opportunityId));
+  if (opportunity === undefined) return false;
+
+  const expected: Record<string, string> = {};
+  for (const member of members) expected[member.sourceListingId] = member.currentRevisionId;
+
+  if (opportunity.currentRevisionId !== null) {
+    const [current] = await tx
+      .select({ versions: opportunityRevisions.sourceMembershipVersions })
+      .from(opportunityRevisions)
+      .where(eq(opportunityRevisions.id, opportunity.currentRevisionId));
+    const stored = (current?.versions ?? {}) as Record<string, string>;
+    const sameKeys =
+      Object.keys(stored).length === Object.keys(expected).length &&
+      Object.entries(expected).every(([listingId, revisionId]) => stored[listingId] === revisionId);
+    if (sameKeys) return false;
+  }
+
+  const revisionId = randomUUID();
+  const first = members[0];
+  if (first === undefined) return false;
+  await tx.insert(opportunityRevisions).values({
+    id: revisionId,
+    opportunityId,
+    canonicalTitle: first.titleRaw,
+    canonicalStatus: 'active',
+    organizationId: null,
+    resolvedFields: {
+      title: members.map((member) => ({
+        sourceListingId: member.sourceListingId,
+        value: member.titleRaw,
+      })),
+      organization: members.map((member) => ({
+        sourceListingId: member.sourceListingId,
+        value: member.organizationRaw,
+      })),
+    },
+    sourceMembershipVersions: expected,
+    resolutionRulesetVersion: DEDUPE_RULESET_VERSION,
+    meaningfulContentHash: 'sha256:pending-resolution',
+    createdAt: now,
+  });
+  await tx
+    .update(opportunities)
+    .set({ currentCanonicalRevisionId: revisionId, updatedAt: now })
+    .where(eq(opportunities.id, opportunityId));
+  return true;
+}
+
 async function linkPair(
   tx: DatabaseOrTransaction,
   a: LoadedListing,
@@ -200,7 +272,17 @@ async function linkPair(
   const existingB = await liveMembership(b.sourceListingId);
 
   if (existingA !== null && existingB !== null) {
-    // Already together, or two separate clusters that only a human may join.
+    if (existingA === existingB) {
+      // Already together — but their SOURCE revisions may have moved on since
+      // the canonical revision was computed. §12.4 requires a canonical
+      // revision to be recomputed when a contributing source revision changes;
+      // returning early without checking leaves the resolved fields and
+      // sourceMembershipVersions describing content neither source shows any
+      // more (adversarial review, 2026-09-06).
+      await refreshCanonicalRevisionIfStale(tx, existingA, [a, b], now);
+    }
+    // Two separate clusters are deliberately left alone: joining established
+    // clusters is destructive and §14.2 says a human authorizes it.
     return {
       createdOpportunity: false,
       createdMemberships: 0,
@@ -290,11 +372,23 @@ export async function runDedupe(
   const autoLink = options.autoLink ?? false;
 
   const listings = await loadListings(db, options.sourceIds);
-  const context = { applicationValueListingCounts: countApplicationValues(listings) };
+  // Selectivity is measured over the WHOLE corpus, never over the scoped
+  // subset (adversarial review, 2026-09-06). Counting only scoped listings
+  // would let a generic careers inbox or ATS landing page — one carried by
+  // forty listings across the corpus — appear to be carried by two, clear the
+  // vacancy-level threshold, and satisfy the single automatic merge path.
+  // That is precisely the false merge §14.2 forbids, and scoping a run to one
+  // source pair is exactly when it would happen. Candidate GENERATION stays
+  // scoped; only the counts are global.
+  const corpusForCounts =
+    options.sourceIds === undefined ? listings : await loadListings(db, undefined);
+  const context = { applicationValueListingCounts: countApplicationValues(corpusForCounts) };
   const blocks = buildBlocks(listings);
 
   const seenPairs = new Set<string>();
   const scored: Array<{ a: LoadedListing; b: LoadedListing; score: PairScore }> = [];
+  /** Pairs now scoring 'distinct' — only acted on if they are currently linked. */
+  const contradictedPairs: Array<{ a: LoadedListing; b: LoadedListing; score: PairScore }> = [];
   let pairsCompared = 0;
 
   for (const group of blocks.values()) {
@@ -314,7 +408,14 @@ export async function runDedupe(
         seenPairs.add(key);
         pairsCompared++;
         const score = scorePair(a, b, context);
+        // A pair that now scores 'distinct' is still kept when the two are
+        // currently linked: their existing automatic membership was built on
+        // evidence that no longer holds, and dropping the pair here would
+        // leave that stale merge in place forever with no path to revisit it
+        // (adversarial review, 2026-09-06). Everything else that scores
+        // 'distinct' is genuinely uninteresting and discarded.
         if (score.decision !== 'distinct') scored.push({ a, b, score });
+        else contradictedPairs.push({ a, b, score });
       }
     }
   }
@@ -340,6 +441,7 @@ export async function runDedupe(
           similarityScore: score.signals.titleSimilarity,
           status: 'evaluated',
           resultingDecision: score.decision,
+          decidedBy: 'ruleset',
         })
         .onConflictDoUpdate({
           target: [duplicateCandidates.sourceListingIdA, duplicateCandidates.sourceListingIdB],
@@ -348,7 +450,13 @@ export async function runDedupe(
             similarityScore: score.signals.titleSimilarity,
             status: 'evaluated',
             resultingDecision: score.decision,
+            decidedBy: 'ruleset',
           },
+          // A human's verdict outranks the ruleset's. Without this guard the
+          // pass overwrites an operator's `distinct` with its own
+          // `needs_review`, putting a settled pair straight back in the queue
+          // and losing the correction (adversarial review, 2026-09-06).
+          setWhere: sql`${duplicateCandidates.decidedBy} is distinct from 'human'`,
         });
       candidatesWritten++;
 
@@ -360,6 +468,164 @@ export async function runDedupe(
     });
   }
 
+  // Revisit automatic merges whose evidence has since evaporated. A pair
+  // linked on a shared ATS link that a later revision changed still scores
+  // 'confirmed_same' nowhere, yet its membership persists — so the merge
+  // outlives its own justification and nothing ever queues it for a second
+  // look (adversarial review, 2026-09-06).
+  //
+  // The correction is to FLAG, not to unmerge: automatically tearing apart an
+  // existing cluster is itself destructive, and §14.2 puts that call with a
+  // human. The pair is written back as `needs_review` so it surfaces in the
+  // queue, and a human then detaches or keeps it via membership-review.ts.
+  let staleLinksFlagged = 0;
+  for (const { a, b, score } of contradictedPairs) {
+    const [liveA] = await db
+      .select({ opportunityId: opportunitySourceMemberships.opportunityId })
+      .from(opportunitySourceMemberships)
+      .where(
+        and(
+          eq(opportunitySourceMemberships.sourceListingId, a.sourceListingId),
+          isNull(opportunitySourceMemberships.supersededAt),
+        ),
+      );
+    if (liveA === undefined) continue;
+    const [liveB] = await db
+      .select({ opportunityId: opportunitySourceMemberships.opportunityId })
+      .from(opportunitySourceMemberships)
+      .where(
+        and(
+          eq(opportunitySourceMemberships.sourceListingId, b.sourceListingId),
+          isNull(opportunitySourceMemberships.supersededAt),
+        ),
+      );
+    if (liveB === undefined || liveA.opportunityId !== liveB.opportunityId) continue;
+
+    // Only automatic merges are second-guessed. A human who deliberately put
+    // these together outranks the ruleset (§14.2).
+    const [membership] = await db
+      .select({ decidedBy: opportunitySourceMemberships.decidedBy })
+      .from(opportunitySourceMemberships)
+      .where(
+        and(
+          eq(opportunitySourceMemberships.sourceListingId, a.sourceListingId),
+          isNull(opportunitySourceMemberships.supersededAt),
+        ),
+      );
+    if (membership?.decidedBy === 'human') continue;
+
+    await db
+      .insert(duplicateCandidates)
+      .values({
+        id: randomUUID(),
+        sourceListingIdA: a.sourceListingId,
+        sourceListingIdB: b.sourceListingId,
+        generatedAt: timestamp,
+        generationMethod: 'deterministic_match',
+        similarityScore: score.signals.titleSimilarity,
+        status: 'evaluated',
+        resultingDecision: 'needs_review',
+        decidedBy: 'ruleset',
+      })
+      .onConflictDoUpdate({
+        target: [duplicateCandidates.sourceListingIdA, duplicateCandidates.sourceListingIdB],
+        set: {
+          generatedAt: timestamp,
+          similarityScore: score.signals.titleSimilarity,
+          status: 'evaluated',
+          resultingDecision: 'needs_review',
+          decidedBy: 'ruleset',
+        },
+        setWhere: sql`${duplicateCandidates.decidedBy} is distinct from 'human'`,
+      });
+    staleLinksFlagged++;
+    byDecision.stale_link_flagged = (byDecision.stale_link_flagged ?? 0) + 1;
+  }
+
+  // Canonicalize the leftovers. Without this step only DUPLICATED listings
+  // ever become opportunities, and the canonical layer would hold just the
+  // handful of cross-posted vacancies while every unique job — 406 of the
+  // corpus's 410 listings — existed nowhere above the raw source tables.
+  // Anything reading the canonical layer (browsing, and §17's ranking, which
+  // enumerates opportunities) would then show a user four jobs instead of four
+  // hundred. Found 2026-09-06 by ranking the real corpus and getting 4 results.
+  //
+  // A single-member opportunity is not a merge and carries none of a merge's
+  // risk: there is no second listing to be wrong about, so this cannot produce
+  // a false merge however it behaves.
+  let singletonsCanonicalized = 0;
+  if (autoLink) {
+    for (const listing of listings) {
+      const existing = await db
+        .select({ id: opportunitySourceMemberships.id })
+        .from(opportunitySourceMemberships)
+        .where(
+          and(
+            eq(opportunitySourceMemberships.sourceListingId, listing.sourceListingId),
+            isNull(opportunitySourceMemberships.supersededAt),
+          ),
+        );
+      if (existing.length > 0) continue;
+
+      await db.transaction(async (tx) => {
+        const opportunityId = randomUUID();
+        await tx.insert(opportunities).values({
+          id: opportunityId,
+          type: listing.opportunityType,
+          canonicalTitle: listing.titleRaw,
+          organizationId: null,
+          canonicalStatus: 'active',
+          currentCanonicalRevisionId: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+
+        const revisionId = randomUUID();
+        await tx.insert(opportunityRevisions).values({
+          id: revisionId,
+          opportunityId,
+          canonicalTitle: listing.titleRaw,
+          canonicalStatus: 'active',
+          organizationId: null,
+          resolvedFields: {
+            title: [{ sourceListingId: listing.sourceListingId, value: listing.titleRaw }],
+            organization: [
+              { sourceListingId: listing.sourceListingId, value: listing.organizationRaw },
+            ],
+          },
+          sourceMembershipVersions: { [listing.sourceListingId]: listing.currentRevisionId },
+          resolutionRulesetVersion: DEDUPE_RULESET_VERSION,
+          meaningfulContentHash: 'sha256:pending-resolution',
+          createdAt: timestamp,
+        });
+        await tx
+          .update(opportunities)
+          .set({ currentCanonicalRevisionId: revisionId, updatedAt: timestamp })
+          .where(eq(opportunities.id, opportunityId));
+
+        await tx.insert(opportunitySourceMemberships).values({
+          id: randomUUID(),
+          opportunityId,
+          sourceListingId: listing.sourceListingId,
+          // Its relationship to its own single-member cluster is trivially
+          // identity — this is not a claim about any other listing.
+          decision: 'confirmed_same',
+          confidence: 1,
+          evidence: {
+            reasons: ['no duplicate found; canonicalized as a single-member opportunity'],
+          },
+          decidedBy: 'ruleset',
+          decidedAt: timestamp,
+          dedupeModelOrRulesetVersion: DEDUPE_RULESET_VERSION,
+          supersededAt: null,
+        });
+      });
+      singletonsCanonicalized++;
+      opportunitiesCreated++;
+      membershipsCreated++;
+    }
+  }
+
   return {
     listingsConsidered: listings.length,
     pairsCompared,
@@ -367,6 +633,8 @@ export async function runDedupe(
     byDecision,
     opportunitiesCreated,
     membershipsCreated,
+    singletonsCanonicalized,
+    staleLinksFlagged,
   };
 }
 

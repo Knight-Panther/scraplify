@@ -69,6 +69,15 @@ const MAX_DISCOVERY_PAGES = 200;
 const DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS = 100;
 
 /**
+ * The floor a BOUNDED run must clear. Deliberately 1, not a proportion of a
+ * page: the point is only to distinguish "this slice observed real listings"
+ * from "the selectors matched nothing", which is what a silent markup change
+ * looks like. A real jobs.ge index page carries ~310 rows, so any nonzero
+ * result is overwhelmingly likely to be genuine, while zero never is.
+ */
+const MIN_EXPECTED_INCREMENTAL_LISTINGS = 1;
+
+/**
  * A coarse guard against a source-wide DETAIL-parsing regression (distinct
  * from DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS, which only covers
  * discovery-page health): discovery succeeding while a large share of
@@ -767,7 +776,16 @@ export async function runJobsGeCrawl(
     // intended stop, and whether a source-wide stop signal fired.
     const discoveryOk =
       complete &&
-      (incremental || listings.size >= minExpectedDiscoveredListings) &&
+      // A bounded run is exempt from the whole-corpus FLOOR, but not from
+      // needing to have found anything at all (adversarial review,
+      // 2026-09-06). Exhausting the page budget sets `complete`, so without
+      // this a structurally valid HTTP 200 whose selectors match nothing —
+      // the exact shape of a silent markup change — would certify as
+      // 'completed' and exit 0, reporting a healthy poll that ingested
+      // nothing. A slice that legitimately covers real pages always has rows.
+      (incremental
+        ? listings.size >= MIN_EXPECTED_INCREMENTAL_LISTINGS
+        : listings.size >= minExpectedDiscoveredListings) &&
       quarantineRate <= maxQuarantineRate &&
       fetchFailureRate <= maxFetchFailureRate &&
       (incremental || baselineOk) &&

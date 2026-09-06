@@ -239,9 +239,19 @@ describe('runDedupe', () => {
       now: () => '2026-09-06T12:00:00Z',
     });
 
-    expect(result.membershipsCreated).toBe(0);
     expect(result.byDecision.confirmed_same ?? 0).toBe(0);
     expect(result.byDecision.needs_review).toBeGreaterThanOrEqual(1);
+    // Each listing is canonicalized as its OWN single-member opportunity, so
+    // memberships exist — the claim under test is that none of them were
+    // MERGED, which is what distinct opportunity ids per listing shows.
+    // Asserting membershipsCreated === 0 would only have tested that
+    // singletons are not canonicalized, which is a different (and wrong) thing.
+    const memberships = await db
+      .select()
+      .from(opportunitySourceMemberships)
+      .where(inArray(opportunitySourceMemberships.sourceListingId, listingIds));
+    expect(memberships).toHaveLength(3);
+    expect(new Set(memberships.map((m) => m.opportunityId)).size).toBe(3);
   });
 
   it('is idempotent — a second pass creates no duplicate candidates or memberships', async () => {
@@ -325,7 +335,62 @@ describe('runDedupe', () => {
     // Selectivity is what governs, not agreement count: a link on three
     // listings is an employer/ATS page, so this stays in review.
     expect(result.byDecision.confirmed_same ?? 0).toBe(0);
-    expect(result.membershipsCreated).toBe(0);
+    // Same distinction as above: all three are canonicalized, but each into
+    // its own opportunity. Nothing was merged.
+    const memberships = await db
+      .select()
+      .from(opportunitySourceMemberships)
+      .where(inArray(opportunitySourceMemberships.sourceListingId, listingIds));
+    expect(new Set(memberships.map((m) => m.opportunityId)).size).toBe(3);
+  });
+
+  it('canonicalizes a listing with no duplicate as its own opportunity', async () => {
+    // Without this, only DUPLICATED listings would ever reach the canonical
+    // layer, and browsing or ranking would show a handful of cross-posted jobs
+    // instead of the corpus. Found 2026-09-06 by ranking real data and getting
+    // 4 results from 410 listings; independently flagged P1 by review.
+    const a = await createTestSource();
+    sourceIds.push(a);
+    const solitary = await addListing(a, {
+      title: 'Entirely unique role',
+      organization: 'Solo Org',
+    });
+    listingIds = [solitary];
+
+    const result = await runDedupe(db, {
+      autoLink: true,
+      sourceIds,
+      now: () => '2026-09-06T12:00:00Z',
+    });
+
+    expect(result.singletonsCanonicalized).toBe(1);
+    const memberships = await db
+      .select()
+      .from(opportunitySourceMemberships)
+      .where(inArray(opportunitySourceMemberships.sourceListingId, listingIds));
+    expect(memberships).toHaveLength(1);
+    expect(memberships[0]?.supersededAt).toBeNull();
+  });
+
+  it('does not re-canonicalize an already-clustered listing on a rerun', async () => {
+    const a = await createTestSource();
+    sourceIds.push(a);
+    const solitary = await addListing(a, { title: 'Rerun role', organization: 'Rerun Org' });
+    listingIds = [solitary];
+
+    await runDedupe(db, { autoLink: true, sourceIds, now: () => '2026-09-06T12:00:00Z' });
+    const second = await runDedupe(db, {
+      autoLink: true,
+      sourceIds,
+      now: () => '2026-09-06T13:00:00Z',
+    });
+
+    expect(second.singletonsCanonicalized).toBe(0);
+    const memberships = await db
+      .select()
+      .from(opportunitySourceMemberships)
+      .where(inArray(opportunitySourceMemberships.sourceListingId, listingIds));
+    expect(memberships).toHaveLength(1);
   });
 
   it('gives every listing at most one live membership', async () => {

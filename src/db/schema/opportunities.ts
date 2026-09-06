@@ -185,6 +185,18 @@ export const duplicateCandidates = pgTable(
     status: duplicateCandidateStatusEnum('status').notNull(),
     /** Null while pending; set once evaluated (§14.1 stage 5). */
     resultingDecision: dedupeDecisionEnum('resulting_decision'),
+    /**
+     * Who produced `resultingDecision`. Null while pending.
+     *
+     * This exists to keep an operator's verdict authoritative: without it, the
+     * next automated dedupe pass upserts its own result over a human's, so a
+     * pair a reviewer settled as `distinct` reappears in the queue the moment
+     * the ruleset still rates it `needs_review` — the correction is silently
+     * discarded and the reviewer does the same work again (adversarial review,
+     * 2026-09-06). The automated upsert refuses to overwrite a row decided by
+     * a human.
+     */
+    decidedBy: dedupeDecidedByEnum('decided_by'),
   },
   (table) => [
     unique('duplicate_candidates_pair_unique').on(table.sourceListingIdA, table.sourceListingIdB),

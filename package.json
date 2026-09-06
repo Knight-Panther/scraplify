@@ -21,7 +21,8 @@
     "crawl:jobs-ge": "node --env-file-if-exists=.env dist/cli/run-jobs-ge-crawl.js",
     "crawl:hr-ge": "node --env-file-if-exists=.env dist/cli/run-hr-ge-crawl.js",
     "dedupe": "node --env-file-if-exists=.env dist/cli/run-dedupe.js",
-    "browse": "node --env-file-if-exists=.env dist/cli/browse.js"
+    "browse": "node --env-file-if-exists=.env dist/cli/browse.js",
+    "rank": "node --env-file-if-exists=.env dist/cli/rank.js"
   },
   "repository": {
     "type": "git",

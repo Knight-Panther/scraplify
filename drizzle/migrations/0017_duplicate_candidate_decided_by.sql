@@ -1,0 +1,1 @@
+ALTER TABLE "duplicate_candidates" ADD COLUMN "decided_by" "dedupe_decided_by";

@@ -249,11 +249,18 @@ export async function splitListingIntoNewOpportunity(
  */
 export async function resolveDuplicateCandidate(
   db: DatabaseOrTransaction,
-  input: { candidateId: string; decision: DedupeDecision },
+  input: { candidateId: string; decision: DedupeDecision; decidedBy?: 'human' | 'ruleset' },
 ): Promise<void> {
   const updated = await db
     .update(duplicateCandidates)
-    .set({ status: 'evaluated', resultingDecision: input.decision })
+    .set({
+      status: 'evaluated',
+      resultingDecision: input.decision,
+      // Defaults to 'human' because that is what this function is for: an
+      // operator settling a pair. Stamping it is what stops the next automated
+      // pass overwriting the verdict and resurfacing the pair.
+      decidedBy: input.decidedBy ?? 'human',
+    })
     .where(eq(duplicateCandidates.id, input.candidateId))
     .returning({ id: duplicateCandidates.id });
   if (updated.length === 0) {
