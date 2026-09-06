@@ -6,8 +6,15 @@
  * was taken, what was changed, and why.
  *
  * Every value a component uses comes from here. No ad-hoc hex, spacing or radius.
+ *
+ * `static` is load-bearing. By default Tailwind v4 emits only the theme
+ * variables something actually references, so tokens no screen uses YET —
+ * --measure, the status colours, --color-nontext — were silently absent from
+ * the stylesheet (caught in browser QA, 2026-09-07). That defeats the purpose
+ * of committing a token contract before the screens exist, and would have
+ * surfaced later as a token that mysteriously resolved to nothing.
  */
-@theme {
+@theme static {
   /* Surfaces: near-black ground with three raised steps. */
   --color-background: #000000;
   --color-surface: #121014;
@@ -66,6 +73,24 @@ body {
   color: var(--color-foreground);
   font-family: var(--font-sans);
   line-height: var(--leading-body);
+}
+
+/* Georgian must never be letter-spaced (georgian-typography.md rule 6), and any
+   heading in this product can carry a Georgian job title — so tracking is
+   neutralised on content rather than left for each component to remember.
+   Caught in browser QA when the specimen's own type scale used tracking-tight
+   on Georgian (2026-09-07). */
+h1,
+h2,
+h3,
+h4,
+p,
+li,
+dd,
+dt,
+td,
+th {
+  letter-spacing: normal;
 }
 
 /* Numerals, dates, scores and IDs. Latin/digits only, so Space Mono is safe

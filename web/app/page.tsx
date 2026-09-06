@@ -37,21 +37,21 @@ export default async function Page() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
       <header className="border-b border-border pb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Xtelo</h1>
+        <h1 className="text-2xl font-semibold">Xtelo</h1>
         <p className="mt-1 text-faint">Design system — no screens built yet.</p>
       </header>
 
-      <section className="mt-8 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+      <dl className="mt-8 flex flex-wrap gap-x-8 gap-y-2 text-sm">
         <Fact label="Database" value={databaseLabel()} />
         <Fact label="Writes" value={writesEnabled() ? 'enabled' : 'disabled'} />
         <Fact label="Sources" value={String(health.length)} numeric />
         <Fact label="Listings" value={String(total)} numeric />
         <Fact label="Mixed-script titles" value={String(mixed.length)} numeric />
-      </section>
+      </dl>
 
       <Section title="Type scale" note="Noto Sans Georgian, one family for both scripts.">
         <div className="space-y-3">
-          <p className="text-2xl font-semibold tracking-tight">უფროსი Android დეველოპერი</p>
+          <p className="text-2xl font-semibold">უფროსი Android დეველოპერი</p>
           <p className="text-lg">უფროსი Android დეველოპერი</p>
           <p className="text-base">უფროსი Android დეველოპერი</p>
           <p className="text-sm text-muted">უფროსი Android დეველოპერი</p>
@@ -111,8 +111,8 @@ export default async function Page() {
 function Fact({ label, value, numeric }: { label: string; value: string; numeric?: boolean }) {
   return (
     <div>
-      <div className="text-xs text-faint">{label}</div>
-      <div className={numeric === true ? 'numeric' : undefined}>{value}</div>
+      <dt className="text-xs text-faint">{label}</dt>
+      <dd className={`ml-0 ${numeric === true ? 'numeric' : ''}`}>{value}</dd>
     </div>
   );
 }
