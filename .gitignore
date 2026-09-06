@@ -35,3 +35,10 @@ Thumbs.db
 
 # Machine-local Claude settings
 .claude/settings.local.json
+
+# Next.js build output and caches (web/)
+web/.next/
+web/out/
+web/.turbo/
+next-env.d.ts
+web/tsconfig.tsbuildinfo

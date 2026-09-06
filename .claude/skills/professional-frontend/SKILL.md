@@ -51,8 +51,11 @@ this environment, so there is no setup cost to doing it.
   the concept's "small TypeScript HTTP layer" where a real HTTP surface is
   warranted. Widen a query's return type when a screen needs more, instead of
   querying around it.
-- Semantic HTML first, then shadcn primitives, then custom. shadcn supplies
-  accessible *behaviour* (dialog, combobox, table) — it is not the visual identity.
+- Semantic HTML first, then custom. No component library is installed: a plain
+  `<table>`, `<input>` and `<button>` cover these screens, and the palette is a
+  custom dark system anyway. If a genuinely hard primitive appears — a
+  focus-trapped dialog, a combobox — add shadcn for that one thing rather than
+  hand-rolling its accessibility.
 - Every value from a token. No arbitrary hex, spacing, radius or shadow.
 - Never render a raw enum or ID to the user. `missing_suspected` is a database
   state, not a label a person should read.

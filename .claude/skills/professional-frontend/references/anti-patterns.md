@@ -54,29 +54,23 @@ any of it in the UI is not a cosmetic problem, it is a correctness problem.
 - Latin-tuned letter-spacing on Georgian.
 - Truncating Georgian strings in JavaScript by character index.
 
-## Using React Bits without wrecking the tool
+## Animation libraries
 
-The `@react-bits` registry is configured alongside shadcn, so components like
-`Dither`, `BlurText`, `FadeContent` and `ClickSpark` are one command away. It is
-an **animation and effects** library, which puts it in direct tension with
-everything above — so the boundary needs stating rather than leaving to taste.
+None is installed, and that is deliberate. React Bits was evaluated as a
+component source and rejected: it is an animation and effects library
+(`Dither`, `BlurText`, `SplitText`, `ClickSpark`), and its components belong on
+landing pages, which this product does not have.
 
-- **shadcn is the default for anything functional.** Tables, dialogs, comboboxes,
-  forms: use the accessible primitive, not an animated substitute.
-- **Do not animate the working surfaces.** The opportunities list, the review
-  queue and the listing detail are used repeatedly, daily, at speed. Entrance
-  animations on rows, scroll-triggered reveals and hover effects on every card
-  make a scanning tool slower and more tiring. This is the main screen where
-  React Bits would do damage.
-- **Where it can legitimately earn its place:** a login or landing surface if one
-  is ever added, an empty state, a genuine one-off moment. Somewhere the user is
-  not trying to get through a list.
-- **Motion that answers an action is fine anywhere** — a dialog opening, a
-  decision confirming, an undo landing. That is feedback, not decoration.
-- Anything imported from the registry is still subject to the token system.
-  Don't let a component drag in its own palette, radius or shadow.
+If one is ever added, the boundary is: **never on the working surfaces.** The
+opportunities list, the review queue and the listing detail are used repeatedly,
+daily, at speed — entrance animations, scroll-triggered reveals and per-card
+hover effects make a scanning tool slower and more tiring. Character-splitting
+text effects are additionally unsafe here, since they operate per character on a
+multi-byte script.
 
-Respect `prefers-reduced-motion` for everything, without exception.
+Motion that answers a user action is fine and needs no library: a dialog
+opening, a decision confirming, an undo landing. Respect
+`prefers-reduced-motion` for all of it, without exception.
 
 ## Interaction
 
