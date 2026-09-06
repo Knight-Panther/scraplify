@@ -69,6 +69,15 @@ const MAX_DISCOVERY_PAGES = 200;
 const DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS = 100;
 
 /**
+ * The floor a BOUNDED run must clear. Deliberately 1, not a proportion of a
+ * page: the point is only to distinguish "this slice observed real listings"
+ * from "the selectors matched nothing", which is what a silent markup change
+ * looks like. A real jobs.ge index page carries ~310 rows, so any nonzero
+ * result is overwhelmingly likely to be genuine, while zero never is.
+ */
+const MIN_EXPECTED_INCREMENTAL_LISTINGS = 1;
+
+/**
  * A coarse guard against a source-wide DETAIL-parsing regression (distinct
  * from DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS, which only covers
  * discovery-page health): discovery succeeding while a large share of
@@ -139,6 +148,27 @@ export interface RunJobsGeCrawlDeps {
 export interface RunJobsGeCrawlOptions {
   /** concept §13: "missing across the configured number of complete successful reconciliations." Must be >= 2 — see reconcile-source-listings.ts. */
   missingStreakThreshold: number;
+  /**
+   * 'full' (the default) walks the entire corpus. 'incremental' stops after
+   * `incrementalPages` index pages — concept §19.2's cadence table calls for
+   * "jobs.ge lightweight discovery" every 30–60 minutes, which a full walk
+   * cannot satisfy: at ~5,647 listings and robots.txt's mandated 5s crawl
+   * delay at concurrency 1, one full walk is ~5,666 requests / ~7.9 hours.
+   *
+   * This is bounded recent-page polling, exactly as hr.ge's own incremental
+   * mode is (src/adapters/hr-ge/crawl.ts) — NOT §10.1's adaptive rolling
+   * overlap window against a high-water mark, which stays deferred (§28).
+   * The invariants are the same as hr.ge's and are what make it safe: the
+   * run records `fullCoverage=false`, so `closeMissingListings` refuses it
+   * and no missing streak can advance off a deliberately partial view; the
+   * full walk's own cursor is neither consumed nor overwritten; and the
+   * whole-corpus health guards are skipped rather than failed, since a
+   * one-page slice legitimately looks like a catastrophic collapse next to a
+   * full-run baseline.
+   */
+  mode?: 'full' | 'incremental';
+  /** Index pages to cover in 'incremental' mode. Defaults to 2, matching hr.ge. Ignored in 'full' mode. */
+  incrementalPages?: number;
   /** See DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS. Overridable for testing; production callers should rarely need to. */
   minExpectedDiscoveredListings?: number;
   /** See DEFAULT_MAX_QUARANTINE_RATE. Overridable for testing; production callers should rarely need to. */
@@ -397,12 +427,14 @@ async function discoverAllListings(
   crawlRun: CrawlRunRow,
   now: () => string,
   control: FetchControl,
+  incrementalPages: number | null,
 ): Promise<DiscoverAllListingsResult> {
   const listings = new Map<string, DiscoveredListing>();
   let complete = false;
   let previousPageIds: Set<string> | null = null;
+  const lastPage = incrementalPages ?? MAX_DISCOVERY_PAGES;
 
-  for (let page = 1; page <= MAX_DISCOVERY_PAGES && !control.stopped; page++) {
+  for (let page = 1; page <= lastPage && !control.stopped; page++) {
     const fetched = await fetchPageIds(db, httpFetcher, crawlRun, now, page, control);
     if (fetched === null) break;
     const { ids: pageIds, listings: pageListings } = fetched;
@@ -427,6 +459,14 @@ async function discoverAllListings(
       listings.set(listing.sourceRecordId, listing);
     }
     previousPageIds = pageIds;
+
+    // Exhausting a deliberately bounded page budget is this walk reaching
+    // its own intended stop, not a truncation — so it sets `complete` the
+    // same way the confirmed clamp above does. That only ever means "this
+    // walk covered what it set out to cover"; it says nothing about whole-
+    // corpus coverage, which is carried separately by the run's
+    // `fullCoverage=false` and is what actually gates closure.
+    if (incrementalPages !== null && page === incrementalPages) complete = true;
   }
 
   return { listings, complete };
@@ -438,16 +478,21 @@ async function discoverAllListings(
  * missing/expired listings. Every fetch (discovery pages and detail pages
  * alike) is recorded as a resource + fetch attempt regardless of outcome.
  *
- * `fullCoverage` is asserted true at crawl-run start — every jobs.ge run
- * today is scoped as a full-corpus walk, never a deliberately-partial
- * incremental poll (concept §10.1's rolling-overlap-window optimization is
- * deferred, see docs/STATUS.md). Whether that attempt actually succeeded is
- * a separate question, decided by `status` after the walk completes (or
- * doesn't) — reconcile-source-listings.ts's closeMissingListings requires
- * both to proceed, so an incomplete discovery walk (a failed page fetch,
- * the MAX_DISCOVERY_PAGES safety cap, or too few listings found — see
+ * `fullCoverage` is set from the run's MODE at crawl-run start: true for a
+ * full-corpus walk, false for a bounded incremental poll (see
+ * RunJobsGeCrawlOptions.mode). Whether a full walk actually succeeded is a
+ * separate question, decided by `status` after it completes (or doesn't) —
+ * reconcile-source-listings.ts's closeMissingListings requires both to
+ * proceed, so an incomplete discovery walk (a failed page fetch, the
+ * MAX_DISCOVERY_PAGES safety cap, or too few listings found — see
  * DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS) naturally leaves the run
- * ineligible for closure without needing its own separate check here.
+ * ineligible for closure without needing its own separate check here. An
+ * incremental run is ineligible on the coverage flag alone, whatever its
+ * status — which is why bounded polling cannot advance a missing streak
+ * even when it finishes perfectly cleanly.
+ *
+ * §10.1's adaptive rolling-overlap-window optimization remains deferred
+ * (§28, docs/STATUS.md); incremental mode here is fixed-page polling only.
  *
  * A per-listing fetch or parse failure never aborts the whole run — one bad
  * detail page is routine, not catastrophic (concept §21.3 distinguishes
@@ -485,13 +530,29 @@ export async function runJobsGeCrawl(
   const minRelativeCoverageRatio =
     options.minRelativeCoverageRatio ?? DEFAULT_MIN_RELATIVE_COVERAGE_RATIO;
 
+  const incremental = options.mode === 'incremental';
+  const incrementalPages = incremental ? (options.incrementalPages ?? 2) : null;
+  if (
+    incrementalPages !== null &&
+    (!Number.isInteger(incrementalPages) ||
+      incrementalPages < 1 ||
+      incrementalPages > MAX_DISCOVERY_PAGES)
+  ) {
+    throw new Error('incrementalPages must be an integer between 1 and 200');
+  }
+
   await ensureJobsGeSourceSeeded(db);
 
   const startedAt = now();
   const crawlRun = await startCrawlRun(db, {
     sourceId: jobsGeSource.id,
     startedAt,
-    fullCoverage: true,
+    // The single most important line in bounded mode: a partial view of the
+    // corpus must never be recorded as full coverage, because that flag is
+    // exactly what closeMissingListings reads to decide whether absence is
+    // real. With it false, every listing outside this slice is simply not
+    // considered, rather than counted as missing.
+    fullCoverage: !incremental,
   });
 
   const counts: CrawlRunCounts = {
@@ -509,7 +570,12 @@ export async function runJobsGeCrawl(
   };
 
   try {
-    const previousCursor = await getCrawlCursor(db, jobsGeSource.id);
+    // Read but deliberately not applied in incremental mode: the cursor is
+    // the full walk's own position through the whole corpus, and rotating a
+    // one-page slice by it would be meaningless. Incremental polling neither
+    // consumes nor advances it (see the cursor write below) — matching
+    // hr.ge, so a bounded poll can never cost the full walk its progress.
+    const previousCursor = incremental ? null : await getCrawlCursor(db, jobsGeSource.id);
     const backoffUntil = await getSourceBackoffUntil(db, jobsGeSource.id);
     const control: FetchControl = {
       stopped: backoffUntil !== null && Date.parse(backoffUntil) > Date.parse(now()),
@@ -520,6 +586,7 @@ export async function runJobsGeCrawl(
       crawlRun,
       now,
       control,
+      incrementalPages,
     );
     counts.discoveredCount = listings.size;
     // Tracked separately per concept §26 ("VIP and standard sections are
@@ -697,20 +764,45 @@ export async function runJobsGeCrawl(
     const standardOk =
       lastCompletedRun === null || lastCompletedRun.standardCount === 0 || counts.standardCount > 0;
 
+    // The whole-corpus guards (the fixed floor, the relative-coverage
+    // baseline, and the per-partition collapse checks) are skipped in
+    // incremental mode rather than merely passed: all three ask "does this
+    // run look like the whole corpus?", and a deliberately bounded slice
+    // correctly does not. A one-page run's ~310 listings against a ~5,647
+    // baseline is a 0.05 ratio — it would fail baselineOk every time and
+    // never certify, which would make bounded mode useless rather than safe.
+    // The guards that still apply are the ones about THIS slice's own health:
+    // parse quarantine rate, fetch failure rate, whether the walk reached its
+    // intended stop, and whether a source-wide stop signal fired.
     const discoveryOk =
       complete &&
-      listings.size >= minExpectedDiscoveredListings &&
+      // A bounded run is exempt from the whole-corpus FLOOR, but not from
+      // needing to have found anything at all (adversarial review,
+      // 2026-09-06). Exhausting the page budget sets `complete`, so without
+      // this a structurally valid HTTP 200 whose selectors match nothing —
+      // the exact shape of a silent markup change — would certify as
+      // 'completed' and exit 0, reporting a healthy poll that ingested
+      // nothing. A slice that legitimately covers real pages always has rows.
+      (incremental
+        ? listings.size >= MIN_EXPECTED_INCREMENTAL_LISTINGS
+        : listings.size >= minExpectedDiscoveredListings) &&
       quarantineRate <= maxQuarantineRate &&
       fetchFailureRate <= maxFetchFailureRate &&
-      baselineOk &&
-      vipOk &&
-      standardOk &&
+      (incremental || baselineOk) &&
+      (incremental || vipOk) &&
+      (incremental || standardOk) &&
       !control.stopped;
 
-    if (hasResumeDecision) {
-      await setCrawlCursor(db, jobsGeSource.id, resumeAt, now());
-    } else if (discoveryOk && counts.failedCount === 0 && counts.quarantinedCount === 0) {
-      await setCrawlCursor(db, jobsGeSource.id, null, now());
+    // Incremental polls leave both cursor branches alone entirely. Writing
+    // a resume point from a bounded slice would strand the full walk partway
+    // through a corpus this run never looked at, and clearing the cursor
+    // would falsely claim a healthy full sweep had happened.
+    if (!incremental) {
+      if (hasResumeDecision) {
+        await setCrawlCursor(db, jobsGeSource.id, resumeAt, now());
+      } else if (discoveryOk && counts.failedCount === 0 && counts.quarantinedCount === 0) {
+        await setCrawlCursor(db, jobsGeSource.id, null, now());
+      }
     }
 
     const finishedAt = now();

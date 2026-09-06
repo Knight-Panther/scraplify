@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { DEFAULT_MISSING_STREAK_THRESHOLD, runJobsGeCrawl } from '../adapters/jobs-ge/crawl.js';
+import { runJobsGeCrawl } from '../adapters/jobs-ge/crawl.js';
 import { db } from '../db/client.js';
 import { CrawlAlreadyRunningError } from '../db/ingest.js';
 import { logger } from '../logger.js';
@@ -7,6 +7,7 @@ import { createHttpFetcher } from '../net/http-fetcher.js';
 import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { isJobsGeUrlAllowed, jobsGePolicy } from '../policies/jobs-ge.js';
+import { parseJobsGeOptions } from './jobs-ge-options.js';
 
 /**
  * One-shot production entry point for a single jobs.ge crawl — meant to be
@@ -17,6 +18,10 @@ import { isJobsGeUrlAllowed, jobsGePolicy } from '../policies/jobs-ge.js';
  * skip a run."
  */
 async function main(): Promise<void> {
+  // Parsed before the database preflight below so a malformed flag fails
+  // immediately and loudly, without opening a connection or touching the
+  // source — matching src/cli/run-hr-ge-crawl.ts.
+  const options = parseJobsGeOptions(process.argv.slice(2));
   // Configuration and source-policy validity are enforced at import time
   // (db/client.ts throws if DATABASE_URL is unset; policies/jobs-ge.ts's
   // Zod .parse() throws if the policy is malformed) — reaching here already
@@ -44,15 +49,16 @@ async function main(): Promise<void> {
     // The fourth preflight check (lock): startCrawlRun's partial unique
     // index rejects a second concurrent run for this source, surfaced here
     // as CrawlAlreadyRunningError — see the catch block below.
-    const { crawlRun } = await runJobsGeCrawl(
-      { db, httpFetcher },
-      { missingStreakThreshold: DEFAULT_MISSING_STREAK_THRESHOLD },
-    );
+    const { crawlRun } = await runJobsGeCrawl({ db, httpFetcher }, options);
 
     logger.info(
       {
         crawlRunId: crawlRun.id,
         status: crawlRun.status,
+        // Distinguishes a bounded incremental poll from a full-corpus walk in
+        // the log itself - the two have very different discoveredCounts and
+        // only one of them can ever drive closure.
+        fullCoverage: crawlRun.fullCoverage,
         durationMs: Date.now() - startedAtMs,
         discoveredCount: crawlRun.discoveredCount,
         vipCount: crawlRun.vipCount,

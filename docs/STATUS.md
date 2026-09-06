@@ -1,12 +1,224 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-06. Phase 1B is merged to `main` by explicit user decision **without** a completed whole-branch review and **without** live full-run validation. Both were the documented merge conditions in `CLAUDE.md`; neither was met. They are carried forward below as open work rather than treated as satisfied, and the phase's own exit-gate items stay unchecked where they are not actually true.
+Last updated: 2026-09-06. Two gate waivers, both by explicit user decision, both recorded here rather than quietly satisfied:
 
-The [confirmed concept](scraplify-concept.md) is authoritative. This file distinguishes implementation evidence from operational readiness.
+- **Phase 1B** was merged **without** a completed whole-branch review and **without** live full-run validation.
+- **Phase 1C, 2A, 2B, 2C, 3A and 5A** (one stacked branch) are **approved to merge with Phase 1C's completeness gate unmet** — no full-coverage run has happened for either source, so closure has still never run against live data. The *review* condition was met here, unlike 1B: three whole-branch adversarial rounds (6 → 11 → 4 P1s, all fixed) plus per-commit review on everything after. The completeness condition needs elapsed crawl time, not code, and was waived to keep moving.
 
-## Current phase: Phase 1C — cross-source reconciliation
+Those are the sub-phases actually carried by that branch, listed rather than written as a range: **3B (UI) and 4 (attachments) are not in it and are not done.**
 
-Not started. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
+In both cases the open work is carried forward below rather than treated as done, and each phase's own exit-gate items stay unchecked where they are not actually true.
+
+## Current phase: Phase 3B — UI (not started)
+
+Nothing is in progress. The next piece of work is the UI, which has not been started — see upcoming phases.
+
+Everything below this heading is the record of the work being merged now. It was built on `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: stacking kept closure-adjacent code off `main` while Codex was unavailable and Phase 1C could not be reviewed. Both branches were then reviewed together, three times (see below), and go to `main` as one.
+
+The branch carries considerably more than its name: 2A normalization, 2B cross-source dedupe, 2C reversible membership review, 3A browse/inspect, and 5A CV ranking.
+
+**Approved to merge with Phase 1C's completeness gate unmet, by explicit user decision (2026-09-06).** `CLAUDE.md` permits a merge only when the phase's exit-gate checklist is actually checked off, and because this branch is stacked on `phase-1c-cross-source-reconciliation`, merging it merges Phase 1C too — whose completeness half cannot be met without live full-coverage runs that have never happened. The *review* condition was met (three whole-branch rounds, then per-commit review on the rest); the completeness condition needs elapsed crawl time, not code, and is waived rather than satisfied. The waived items stay unchecked below and are carried in upcoming work.
+
+Phase 1C was **stopped deliberately, not completed** — see its section below for exactly what is and is not done.
+
+**Still true across all of it: there is no UI.** Every capability listed here is reachable only from the terminal.
+
+### Delivered
+
+- **Canonical schema (migration 0015).** `organizations`, `organization_aliases`, `opportunities`, `opportunity_revisions`, `opportunity_source_memberships`, `duplicate_candidates` — the tables §12.3–§12.6 specify and the ones dedupe decisions need somewhere to live. Applied locally; `db:generate` reports no drift.
+  - `opportunities.currentCanonicalRevisionId` carries the same composite ownership FK as `source_listings`, so the database itself refuses to point an opportunity at another opportunity's revision.
+  - `opportunity_source_memberships` is **append-only with a `supersededAt` tombstone**, not a mutable pointer: §12.5 requires cluster moves to be reversible and audited, which an updated-in-place row cannot provide — the edit that most needs explaining would destroy the prior decision and its evidence. A partial unique index enforces at most one live membership per listing while allowing any number of retired ones.
+  - `organizations.normalizedName` is **stored, not computed on read**, with a `normalizerVersion` beside it, so a rule change becomes a visible re-runnable migration rather than an invisible re-clustering of history (§14.2).
+  - `normalizedName` is deliberately **not unique**: two real employers can share a key, and §14.2 forbids auto-linking on a name match alone. A collision is a review candidate, not a constraint violation.
+- **Organization normalizer** (`src/normalize/organization.ts`, `ORGANIZATION_NORMALIZER_VERSION = 'v1'`), 13 tests written against strings taken from the live corpus rather than invented. Folds case (hr.ge shouts `AUTOPAPA`, jobs.ge doesn't), quotes, punctuation, domain-style names (`Shop.ge` → `shop ge`), and whole-word legal forms (`შპს`, `სს`, `LLC`, …). Returns **null**, never `''`, for a name that normalizes away entirely — an empty key would bucket every signal-less employer together, which is the accidental mass-merge §14.2 exists to prevent.
+
+### Measured against the real 410-listing corpus
+
+Validated by running the normalizer over all 220 distinct organization strings, not only the hand-picked test cases:
+
+- 220 raw strings → **216 keys, 0 nulls, 0 unintended merges.**
+- **It finds exactly the same 4 cross-source organizations that plain exact-string matching already found** — თიბისი (20 jobs.ge / 8 hr.ge), იფქლი (2/4), ჯიაიჯი ჰოლდინგი (2/2), Evolution (1/4). On this corpus normalization adds **no** matching power over string equality. Recorded plainly because it would be easy to present the four matches as a result of the normalizer; they are not. Its value here is latent — the case, quote and legal-form variants it handles are real and will appear as the corpus grows, but they are not in these 410 listings.
+
+### Phase 2B — cross-source deduplication (2026-09-06)
+
+Working end to end, and **producing correct canonical opportunities from real data**.
+
+- `src/dedupe/score-pair.ts` — weighted evidence scoring (§14.1 stage 4) and decision (stage 5), ruleset `v1`.
+- `src/dedupe/run-dedupe.ts` — blocking, scoring, and persistence into `duplicate_candidates` / `opportunities` / `opportunity_source_memberships`.
+- `src/normalize/text.ts` — title normalization, trigram similarity, and application-value normalization.
+- `npm run dedupe` (add `--auto-link` to write memberships).
+
+**The central design decision is selectivity, and it was measured rather than assumed.** A shared application value only counts as a per-vacancy identifier when at most 2 distinct listings carry it. Measured over the live corpus: application URLs are never shared by more than **2** listings, while one email (`info@ipkli.com`) is shared by **8**. Without this, "same contact address" would merge every vacancy an employer posts from one inbox — the corpus contains exactly that trap, with two genuinely different jobs behind one address.
+
+Results on the live 410-listing corpus:
+
+- Blocking reduced **83,845 all-pairs to 1,104 comparisons** — §14.1 stage 3 satisfied without `pg_trgm`, which stays the right tool for title-only fuzzy blocking later but is not needed while every real duplicate shares a contact value or employer name.
+- **4 `confirmed_same`, 17 `needs_review`, 0 false merges.** The four became canonical opportunities, each linking one jobs.ge and one hr.ge listing at confidence 0.97.
+- **Idempotent against live data:** a second `--auto-link` pass created 0 opportunities and 0 memberships, totals unchanged.
+
+**The hard negative held on real data.** `...უფროსი ანალიტიკოსი` (senior analyst) and `...უმცროსი ანალიტიკოსი` (junior analyst) — same employer, titles differing by one morpheme in a long string — score **0.86** trigram similarity, above the 0.82 "strong" threshold. They remain two separate opportunities, held apart by their distinct ATS links. This is why title similarity never authorizes a merge on its own: for Georgian compound titles it is structurally unable to separate seniority levels, and §14.2's prohibition on auto-linking from title-and-employer agreement is doing real work here, not theoretical work.
+
+Auto-linking requires **two independent signals** (a per-vacancy application link *and* title agreement) and nothing else can reach `confirmed_same`, however much weak evidence accumulates. `--auto-link` is opt-in; the default pass is read-only with respect to canonical state.
+
+### Phase 2C — reversible, audited cluster membership (2026-09-06)
+
+`src/dedupe/membership-review.ts`, 11 tests. This is the undo for everything `runDedupe` does automatically, and it is the reason auto-linking is defensible at all: §14.2 permits it only because a wrong merge can be corrected. Without a working reversal path the honest response would be to disable auto-linking entirely.
+
+- `detachListing` removes a listing from a cluster; `reassignListing` moves it to another; `splitListingIntoNewOpportunity` breaks it out into its own; `resolveDuplicateCandidate` settles a review-queue pair without touching membership at all.
+- **Nothing deletes a membership.** Retiring one stamps `supersededAt` and leaves the row, its evidence, its confidence and its decider intact — a DELETE would destroy exactly the record a human needs when asking why a merge happened. An emptied opportunity is likewise kept, not deleted: retired memberships still reference it and it is the evidence of a merge that was undone.
+- Round-trip proven: an automatic merge can be detached and restored, and all three steps remain in the history with one live membership throughout.
+- Mutation-verified: removing the retire step from `reassignListing` fails 3 tests, one of them by violating the database's own partial unique index — so the one-live-membership invariant is enforced by the schema, not only by application code.
+
+### Incident: dedupe tests wrote canonical rows for real listings (2026-09-06)
+
+The first version of `runDedupe` had no source scoping — it read and wrote against **every** listing in the database. The tests set up disposable sources, but the pass scanned the real corpus alongside them and created 4 opportunities and 8 memberships for genuine jobs.ge/hr.ge listings as a test side effect.
+
+**The real-data guard did not catch it**, because it fingerprinted only acquisition tables (`source_listings`, `crawl_runs`, `crawl_cursors`, revision counts) and the new canonical tables were outside its view. A guard covering part of the writable surface gives false assurance about the rest — the same lesson as its two earlier failures, in a third form.
+
+Both fixed: `runDedupe` takes an optional `sourceIds` scope (every test now passes it; it is also genuinely useful in production for rescoring one source pair), and the guard's fingerprint now covers `opportunity_source_memberships` and `duplicate_candidates` for real listings. The accidental rows were deleted and recreated by a deliberate `--auto-link` run.
+
+Minor known residue: four orphan `test-source-*` rows with one listing each, left by test runs that errored before their cleanup hook. Harmless, and not worth a broad destructive cleanup statement.
+
+### Phase 3A — browse and inspect (2026-09-06)
+
+`src/browse/queries.ts` + `npm run browse`, 9 tests. Satisfies the **inspect** half of Phase 3's exit gate ("the stored corpus can be inspected and corrected without direct database access"); the **correct** half is already served by `src/dedupe/membership-review.ts`.
+
+Deliberately headless. The gate is about the corpus being reachable without `psql`, not about HTML existing, so the query layer is built and tested first and a UI later consumes it rather than embedding its own SQL. §17's CV ranking also gets a supported way to enumerate opportunities without reaching into tables.
+
+- `browse listings` — search by text, source, §13 status, deadline window (the "closing soon" view) and first-seen window (the "new" view).
+- `browse opportunities` — the deduplicated canonical view, following LIVE memberships only, so a review correction is reflected immediately while the retired row survives for audit.
+- `browse review` — the pending duplicate queue with both sides fully rendered, so a reviewer needs no second lookup.
+- `browse health` — per-source §21.2 metrics. **`lastFullCoverageRunAt` is surfaced separately from `lastRunAt` on purpose:** a source polled hourly by bounded runs can still be weeks without full coverage, and in that state absence reconciliation silently is not happening (§10.2). Showing only "last run" would make that look healthy — and it currently reads `never` for both sources, which is true.
+- `--json` on every command, so the same code serves an operator and a later UI.
+
+### Cleanup: orphan test sources were polluting the review queue
+
+Four `test-source-*` rows left by test runs that errored before their cleanup hook were previously recorded here as harmless. They were not: once dedupe ran, they generated candidate pairs **against real listings** and appeared in the review queue as fake duplicates. Removed via the project's own `cleanupTestSource` path. The corpus is now exactly two sources and 410 listings, and a clean dedupe pass reproduces the original figures — 4 `confirmed_same`, 11 `needs_review`.
+
+### Phase 5A — CV matching and ranking (2026-09-06)
+
+Taken out of order, ahead of Phase 3B (UI) and Phase 4, because it is the feature the product exists for and it needs nothing from either. `src/ranking/`, `npm run rank`.
+
+- `profile-store.ts` — versioned candidate profiles with claims. Editing a profile bumps its version rather than overwriting, so a ranking always names the profile version it was computed against (§17.2's "never overwrite prior assessments when an input or model changes").
+- `score-opportunity.ts` — deterministic, explainable scoring: every result carries its component scores and, when filtered, its hard-filter reasons. **No model call.** §17 permits ranking by rules, and a rule-based scorer that can explain itself is the right floor to add a model on top of later, not a placeholder for one.
+- `run-ranking.ts` — caching keyed by (opportunity revision, profile, profile version, evaluation version). Changing any of those appends a new row instead of overwriting an old one, and a rerun with unchanged inputs is free.
+  - **Known gap (open P2):** the clock is a scoring input that is *not* in that key, because it cannot be. An opportunity that crosses its deadline correctly bypasses the cache and is rescored — but it then writes back to the same four-column key via `onConflictDoUpdate`, overwriting the assessment made while it was still eligible. So §17.2's no-overwrite invariant holds for every input except time. Recorded rather than fixed, per the standing P2 policy; the fix is to put a time bucket in the key or stop upserting on rescore.
+- Hard filters run against the **canonical** status, and `not_available` opportunities are excluded outright — a ranked list must not recommend a vacancy nobody can apply to.
+
+**Not built: CV parsing.** Profiles are reviewed JSON, entered through the CLI. PDF/DOCX extraction is a separate problem, and §17's ranking is testable and useful without it. This is the honest gap between "Phase 5A" and "Phase 5".
+
+### Whole-branch adversarial review, three rounds (2026-09-06)
+
+Codex reviewed the accumulated branch three times, with fixes and re-review between: **6 P1 → 11 P1 → 4 P1**, all fixed. P2 findings were skipped per standing project policy.
+
+Round 2 is worth recording because it found that three of round 1's fixes were shallow — the reported symptoms were gone, the causes were not. Both root causes were the same shape: canonical state derived from a caller's local view rather than the cluster's real membership, and human review decisions not being authoritative end to end. `src/dedupe/resolve-canonical.ts` exists as the single resolver because of that round.
+
+### Two safety mechanisms that did nothing (2026-09-06)
+
+Fixed after the third round, as deliberately-carried P2s rather than blockers, because both are *"a mechanism that exists to detect change, which cannot detect change"* — the category behind all three real-data incidents in this file.
+
+- `opportunity_revisions.meaningfulContentHash` held the literal string `'sha256:pending-resolution'`, violating `OpportunityRevisionSchema`'s own `Sha256Hex` contract. It now holds a real digest over key-sorted canonical content (Postgres `jsonb` does not preserve key order, so plain `JSON.stringify` produced a hash unverifiable against the row it describes), and it is what change detection compares — replacing a hand-written field-by-field comparison that silently ignored every field it did not name. All 406 current canonical revisions now carry real hashes; the 502 historical ones keep the placeholder, since revisions are immutable.
+- The real-data guard fingerprinted `source_listing_revisions` by row **count**, so an in-place content rewrite moved nothing. Every subquery now digests whole rows via `md5(t::text)` rather than a hand-picked column list — the first fix attempt used named columns and Codex rejected it correctly, since `meaningful_content_hash` is application-maintained and a write that changed `title_raw` without recomputing it still slipped through. Verified against the live database in rolled-back transactions. Coverage also extended to `opportunities` and `opportunity_revisions` for any cluster containing a real listing.
+
+### Known input gap for the rest of Phase 2
+
+**Both sources store zero `sourceCategories`,** so §15.2 step 1 ("preserve source category IDs and labels exactly") currently has nothing to preserve, and taxonomy mapping has no input. jobs.ge does expose categories on the site; Phase 1A deliberately skipped them, since the unfiltered index already covers every listing and the `jid` filter went unused. So item 2 of Phase 2 needs a decision before it can start: either extend discovery to capture source categories, or treat classification as *inference* from title/description — a materially harder and different problem. Not started either way.
+
+The sources also have **disjoint field coverage** — hr.ge has locations on 100/100 and salary on 36; jobs.ge has neither on any of 310. "One source has the field, the other does not" is therefore the normal case for canonical resolution (§12.4), not an edge case.
+
+## Approved to merge with unmet gates: Phase 1C — cross-source reconciliation (stopped deliberately, not completed)
+
+Worked on `phase-1c-cross-source-reconciliation`. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
+
+Concept §25's four items, with honest status:
+
+- [ ] **Produce coverage and overlap reports.** Not started. Corpora now exist for the first time: 310 live jobs.ge listings and 100 live hr.ge listings, both from bounded runs. Neither is a full corpus, so any coverage figure drawn from them is a floor, not a measurement.
+- [ ] **Validate full-reconciliation behavior.** Not started. Overlaps Phase 1B's own outstanding full-coverage run and idempotency rerun.
+- [x] **Confirm that a failing source cannot affect the other source's state.** Done at the primitive level, the orchestrator level, and once operationally against live data (see below). All three mutation-verified.
+- [ ] **Add browser-versus-HTTP canaries where useful.** Not started. Playwright is still not an application dependency — concept §28 defers adding it until a source or automated canary requires it, and whether one does is part of this item's own decision.
+
+**Exit gate:** completeness is measured and failures are isolated by source. **The isolation half is met; the completeness half is not, and Phase 1C was stopped here by explicit decision rather than finished.** Items 1, 2 and 4 remain open: coverage/overlap reports, full-reconciliation validation, and browser-versus-HTTP canaries. All three depend on a full-corpus run that has never happened for either source (hr.ge ~2.75h, jobs.ge ~7.9h), and item 4 additionally needs a Playwright dependency decision (§28). Closure has therefore still never run against live data on either source.
+
+**This gate is waived, not satisfied (explicit user decision, 2026-09-06).** The stacked branch carrying 1C, 2A-2C, 3A and 5A goes to `main` with these three items open. Anything built on top inherits that: absence reconciliation is proven against fake fetchers and a real database, never against a full live corpus of either source.
+
+### Cross-source failure isolation (primitives)
+
+`src/db/cross-source-isolation.test.ts` — 13 tests over two throwaway sources, covering reconciliation (missing-streak advance, threshold closure, expiry), coverage baselines, run exclusivity, cursors and cooldowns, shared record ids and canonical URLs, incident attribution, and a whole-state snapshot comparison. `snapshotSourceState` in `src/db/test-support.ts` captures every table carrying per-source state, so the snapshot test's claim is not limited to the listing rows alone.
+
+Every test passed on first run: these **confirm** existing scoping rather than having discovered a defect. To establish that they are load-bearing rather than vacuous, the two per-source `WHERE` clauses in `closeMissingListings` and `getMaxDiscoveredCountForSource` were each temporarily deleted — 5 of the 13 fail against that mutation, including the whole-state snapshot; both clauses were then restored and the full suite re-run green (360 tests, 24 files).
+
+One thing that check surfaced, worth recording as a standing caution alongside the 2026-09-06 slug finding: the **pre-existing** suite also fails under that mutation (8 tests), but largely by accident rather than by assertion. `src/db/ingest.test.ts:320` ("returns 0 when no other full-coverage run exists for this source") creates a single source and would still return 0 — and pass — on a database holding no other rows. It fails here only because a shared dev database happens to contain other sources' runs. On CI's fresh-per-run database that mutation would go undetected. Same lesson as the slug bug: green CI is not evidence of source isolation.
+
+Not covered by this work: isolation at the orchestrator level. No test yet drives a genuinely failing crawl for one source and asserts the other's state is untouched end-to-end; the primitives are proven individually, which is weaker than proving the path that composes them.
+
+### First live jobs.ge contact (2026-09-06)
+
+A read-only two-request canary through the real policy-checked, rate-limited fetcher — one discovery page, one detail page, no database writes, no crawl run. This is the **first evidence of any kind** that the jobs.ge adapter works against jobs.ge rather than against fixtures; it was merged in Phase 1A and had never touched the live site.
+
+- **Discovery page 1: HTTP 200**, gzip, 399,936 decoded bytes. Parsed to **10 VIP + 300 standard = 310 distinct IDs with zero VIP/standard overlap** — exactly the baseline `src/adapters/jobs-ge/RECON_NOTES.md` recorded at capture time. The `class="vip"`-on-both-sections trap the parser was written against did not fire.
+- **Crawl delay honored against the live site:** 5,642 ms between the two requests, against the 5 s `robots.txt` mandates.
+- **Detail page: HTTP 200**, parsed cleanly. Title matched the discovery-page title, organization present, application method extracted as `email`, description 1,335 chars. Yearless Georgian dates resolved with the correct Asia/Tbilisi +04:00 offset: `06 სექტემბერი` → `2026-09-06T00:00:00+04:00`, `06 ოქტომბერი` → `2026-10-06T00:00:00+04:00`. **First live validation of `parseYearlessGeorgianDate`'s year inference**, which until now was only proven against fixtures.
+- **Not done: any live jobs.ge ingestion run.** Nothing was written to the database, so idempotency, change detection, reconciliation, and closure remain unproven against live jobs.ge data. Two requests is not a crawl.
+
+### jobs.ge bounded incremental mode (2026-09-06)
+
+Added so jobs.ge can be polled without an ~7.9-hour full walk. This closes a **concept requirement that was silently unimplemented**: §19.2's cadence table specifies "jobs.ge lightweight discovery — 30–60 minutes", which a full-corpus walk cannot satisfy at any cadence. `--mode incremental --pages N`, mirroring hr.ge's existing reviewed flags (`src/cli/jobs-ge-options.ts` is a deliberate mirror of `hr-ge-options.ts`).
+
+This is **fixed-page polling, not §10.1's adaptive rolling overlap window**, which remains deferred (§28). The safety invariants are hr.ge's, and are tested:
+
+- the run records `fullCoverage=false`, so `closeMissingListings` refuses it and **no missing streak can advance off a deliberately partial view** — without this, 30-minute polling would close the whole corpus within hours;
+- the full walk's own cursor is neither consumed nor cleared;
+- the whole-corpus health guards (fixed floor, relative-coverage baseline, per-partition collapse) are skipped rather than failed, since a one-page slice is legitimately ~0.05 of a full-run baseline and would otherwise never certify;
+- a bounded run never becomes the coverage baseline a later full run is measured against.
+
+6 new tests in `src/adapters/jobs-ge/crawl.test.ts` plus `src/cli/jobs-ge-options.test.ts`. Verified load-bearing by mutation, not just by passing: changing `fullCoverage: !incremental` to `fullCoverage: true` fails 4 of them, including the mass-closure one. Restored, full suite green (375 tests, 25 files).
+
+**Not independently reviewed.** The Codex CLI was unavailable, so the per-commit gate blocked on "Codex not found" rather than on any finding, and these commits landed with `--no-verify` by explicit user decision. This is closure-adjacent code that normally would not merge unreviewed — it needs a review pass when Codex is back.
+
+### First live jobs.ge ingestion run (2026-09-06)
+
+`--mode incremental --pages 1`, crawl run `373ed762`. **311 requests over 27m08s**, all `success` — zero failures, retries, or blocked responses.
+
+- **`completed`, `fullCoverage=false`**, 310 discovered (10 VIP + 300 standard), 310 new, 0 changed/unchanged/missing/expired/quarantined/failed. The partition split matches `RECON_NOTES.md`'s captured baseline and the canary exactly.
+- **Field completeness 310/310**: organization, description, and application method present on every listing. **310 distinct `meaningfulContentHash` values** — no collision, no dedup fault.
+- **Bounded-mode invariants held live, not just in tests:** the run row records `fullCoverage=false`, reconciliation was skipped (`missingCount=0`), and **no `crawl_cursors` row was written at all** — the full walk's position was neither consumed nor invented.
+- **Cross-source isolation confirmed against production data.** hr.ge's complete state was checksummed before and after: `37382687b3dde2b550367a5944652550` both times. A 27-minute live crawl of one source left the other's listings, revisions, runs, and cursors byte-identical. This is Phase 1C's isolation gate evidenced operationally, not only by test.
+
+### Cross-source failure isolation (orchestrator level)
+
+`src/adapters/jobs-ge/crawl-isolation.test.ts` — 5 tests driving real crawls through the real orchestrator with a fully populated neighbouring source alongside: a totally unreachable source, a source whose every detail fetch fails, a rate-limited source taking a cooldown, a fully successful source whose own reconciliation genuinely closes and expires its listings, and an unsettled run not blocking the neighbour from starting one.
+
+Verified load-bearing by mutation: deleting the per-source clause from `expireOverdueListings` fails **all four** failure-path tests (expiry runs even on failed runs, so an unscoped one leaks into the neighbour on exactly the paths these tests cover); deleting it from `closeMissingListings` fails the reconciliation test. Both restored, suite green.
+
+Together with the primitive-level suite, **Phase 1C's third item is now met**: isolation is confirmed at the primitive level, the orchestrator level, and once operationally against live data.
+
+### Incident: mutation testing corrupted live jobs.ge rows (2026-09-06)
+
+**The mutation checks above damaged real data, twice.** Removing the per-source `WHERE` clause is precisely what stops a test's reconciliation reaching other sources' rows — so with it removed, test crawl runs reconciled every source in the shared dev database and moved all 310 freshly-crawled jobs.ge listings from `active` to `missing_suspected` (streak reached 2 across repeated runs).
+
+- **No content was lost.** All 310 revisions survived, every listing kept its `currentRevisionId`, `lastSeenAt` was untouched (`closeMissingListings` does not write it), and the real crawl run row was unaffected. Repaired with one scoped `UPDATE` back to `active` / streak `0` / `lastReconciledAt` null — the exact state the run's own counts (`newCount=310, missingCount=0`) establish.
+- **hr.ge escaped only by accident**, which is worth stating plainly: its listings carry the stale `lastReconciledAt` of `2026-09-07` described below, later than any test run's `startedAt`, so the idempotency guard excluded them. Pre-existing corruption is what shielded it, not any working protection.
+
+**Guard added:** `src/db/real-data-guard.ts`, wired in as a vitest `globalSetup`. It fingerprints every real source's listings, runs, cursors and revision count before and after the whole suite, and fails the run if they differ. A `globalSetup` rather than a per-file hook because test files run in parallel — nothing inside one can observe what another wrote.
+
+It does **not** refuse to run against a database holding real data; that is the normal state of any dev machine that has crawled, and a guard like that would just get switched off. It asserts the weaker always-true property instead: whatever real data is present, the suite must leave it byte-identical. On CI's fresh database there are no real source rows, so it is a silent no-op there — fittingly, since CI could not have caught this accident either.
+
+**The guard was itself broken for its first two iterations, and both failures were the same shape as the bug it exists to catch:**
+
+1. Its fingerprint SQL had a misplaced parenthesis, and a broad `catch` turned the syntax error into a constant string — identical before and after, so the guard passed silently. Now only Postgres's `42P01` (no schema yet) is tolerated; anything else throws.
+2. After that was fixed it detected the change and printed loudly, but vitest reports a `globalSetup` teardown rejection as "error during close" and **still exits 0** — so CI would have gone green on a real detection. It now sets `process.exitCode = 1` explicitly.
+
+Both were found only by deliberately probing the guard with a throwaway test that writes to a real row, then confirming exit code 1 and, after removal, exit code 0. A guard whose failure mode is "silently succeed" is worse than no guard, so verifying it was not optional.
+
+### Stale reconciliation residue on real hr.ge rows (found 2026-09-06)
+
+All 100 live-crawled hr.ge listings sit at `status='missing_suspected'`, `missing_streak=2`, `last_reconciled_at='2026-09-07T12:00:00Z'` — a **future, hardcoded test-clock timestamp**, not a real instant. The only genuine hr.ge crawl run in the database (`6675bc38`) is `completed` with `full_coverage=false` and `missing_count=0`: it never advanced a streak and could not have. The crawl runs that did this were test-created rows for the real source id, since deleted.
+
+**This is historical residue from before PR #4's test-isolation fix, not an active defect.** Verified rather than assumed: the full suite was run against a captured checksum of every hr.ge listing's id/status/lastSeenAt/missingStreak, and the hash was byte-identical afterwards (`37382687b3dde2b550367a5944652550` before and after 375 tests). The current suite does not touch real source data.
+
+It is still wrong data, and it matters: those listings are one miss from closure on a threshold of 3. A genuine full hr.ge run would re-see the still-live ones and reset them, so the exposure is bounded — but any listing genuinely gone would close after one run rather than three. Left in place pending an explicit decision; repairing live rows is not something to do silently.
+
+**A full jobs.ge run is far more expensive than hr.ge's, in the opposite direction from what was assumed when this was scheduled.** jobs.ge's corpus is ~5,647 listings against hr.ge's ~3,265, *and* its mandated crawl delay is 5 s against hr.ge's 3 s, at concurrency 1 — roughly **5,666 requests / ~7.9 hours** for one full walk, against hr.ge's ~2.75. The jobs.ge adapter also has **no bounded mode**: unlike hr.ge's `--mode incremental --pages N`, `RunJobsGeCrawlOptions` exposes only health-guard thresholds, so every invocation is an all-or-nothing full-corpus walk. There is currently no way to do a small live jobs.ge ingestion run without adding one.
 
 ## Merged with unmet gates: Phase 1B — hr.ge acquisition and reliability
 
@@ -60,15 +272,15 @@ A bounded run against the production source — `--mode incremental --pages 1`, 
 
 ## Upcoming phases
 
-Not started, listed in order:
+Phases have not been worked strictly in order — 3A and 5A were taken early because they needed nothing from the phases before them, and 1C was stopped deliberately mid-phase. Remaining work, most valuable first:
 
-- Phase 1C — cross-source reconciliation (current)
-- Phase 2 — normalization, taxonomy, deduplication
-- Phase 3 — browse and shortlist
-- Phase 4 — attachments and resource expansion
-- Phase 5 — CV matching
-- Phase 6 — outreach assistance
-- Phase 7 — operations and supervised repair
+- **Phase 3B — UI.** Not started, and the only remaining gap between a working backend and a usable product. Everything is currently terminal-only. `src/browse/queries.ts` exists precisely so a UI consumes it rather than writing its own SQL. Apply the frontend anti-slop workflow here (design-first, real browser QA) per §25.
+- **Phase 1C items 1, 2 and 4** — closure has still never run against live data on either source, and neither source has had a full-coverage run (jobs.ge ≈ 7.9h, hr.ge ≈ 2.75h). Operational, not blocking: it needs elapsed time, not code. hr.ge's 100 listings also still carry stale `missing_suspected`/streak-2 residue that a real run would clear.
+- **Phase 2 item 2 — taxonomy mapping.** Blocked on input, not effort: both sources store zero `sourceCategories` (see the gap section above).
+- **Phase 5 — CV parsing.** PDF/DOCX extraction, so profiles come from an uploaded CV rather than hand-entered JSON.
+- Phase 4 — attachments and resource expansion.
+- Phase 6 — outreach assistance.
+- Phase 7 — operations and supervised repair.
 
 ## Completed
 

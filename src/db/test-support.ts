@@ -165,3 +165,83 @@ export async function cleanupTestSource(sourceId: string): Promise<void> {
   await db.delete(crawlCursors).where(eq(crawlCursors.sourceId, sourceId));
   await db.delete(sources).where(eq(sources.id, sourceId));
 }
+
+/**
+ * Everything the database records about one source, ordered deterministically
+ * so two snapshots can be compared directly with `toEqual`.
+ *
+ * This is the concrete form of Phase 1C's "a failing source cannot affect the
+ * other source's state": the claim is only as strong as the set of tables it
+ * covers, so this deliberately captures every table that carries per-source
+ * state rather than only the listing rows a reader might first think of.
+ * `fetch_attempts` is keyed by crawl run rather than by source, so it is
+ * gathered through this source's runs; `source_listing_revisions` likewise
+ * through its listings.
+ *
+ * Not included: `sources` and `source_policies`. Both are seeded configuration
+ * rather than crawl-produced state, and a crawl for another source has no code
+ * path that writes them — except the seeding collision that broke 20 hr-ge
+ * tests on 2026-09-06 (docs/STATUS.md), which is a test-isolation concern
+ * covered where the adapters mock their own policy modules.
+ */
+export interface SourceStateSnapshot {
+  listings: SourceListingRow[];
+  revisions: Array<typeof sourceListingRevisions.$inferSelect>;
+  runs: CrawlRunRow[];
+  cursors: Array<typeof crawlCursors.$inferSelect>;
+  resources: Array<typeof resources.$inferSelect>;
+  incidents: Array<typeof parserIncidents.$inferSelect>;
+  fetchAttempts: Array<typeof fetchAttempts.$inferSelect>;
+}
+
+export async function snapshotSourceState(sourceId: string): Promise<SourceStateSnapshot> {
+  const listings = await db
+    .select()
+    .from(sourceListings)
+    .where(eq(sourceListings.sourceId, sourceId))
+    .orderBy(sourceListings.id);
+  const listingIds = listings.map((row) => row.id);
+
+  const runs = await db
+    .select()
+    .from(crawlRuns)
+    .where(eq(crawlRuns.sourceId, sourceId))
+    .orderBy(crawlRuns.id);
+  const runIds = runs.map((row) => row.id);
+
+  return {
+    listings,
+    revisions:
+      listingIds.length === 0
+        ? []
+        : await db
+            .select()
+            .from(sourceListingRevisions)
+            .where(inArray(sourceListingRevisions.sourceListingId, listingIds))
+            .orderBy(sourceListingRevisions.id),
+    runs,
+    cursors: await db
+      .select()
+      .from(crawlCursors)
+      .where(eq(crawlCursors.sourceId, sourceId))
+      .orderBy(crawlCursors.sourceId),
+    resources: await db
+      .select()
+      .from(resources)
+      .where(eq(resources.sourceId, sourceId))
+      .orderBy(resources.id),
+    incidents: await db
+      .select()
+      .from(parserIncidents)
+      .where(eq(parserIncidents.sourceId, sourceId))
+      .orderBy(parserIncidents.id),
+    fetchAttempts:
+      runIds.length === 0
+        ? []
+        : await db
+            .select()
+            .from(fetchAttempts)
+            .where(inArray(fetchAttempts.crawlRunId, runIds))
+            .orderBy(fetchAttempts.id),
+  };
+}

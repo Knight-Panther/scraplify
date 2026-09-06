@@ -44,6 +44,10 @@ async function main(): Promise<void> {
       {
         crawlRunId: crawlRun.id,
         status: crawlRun.status,
+        // Distinguishes a bounded incremental poll from a full-corpus walk in
+        // the log itself - the two have very different discoveredCounts and
+        // only one of them can ever drive closure.
+        fullCoverage: crawlRun.fullCoverage,
         durationMs: Date.now() - startedAtMs,
         discoveredCount: crawlRun.discoveredCount,
         vipCount: crawlRun.vipCount,

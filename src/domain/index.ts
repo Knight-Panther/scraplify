@@ -1,3 +1,4 @@
+export * from './candidate.js';
 export * from './duplicate.js';
 export * from './ids.js';
 export * from './incident.js';
