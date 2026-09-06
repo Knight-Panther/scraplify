@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import {
   opportunities,
@@ -61,6 +61,59 @@ function resolveStatus(memberStatuses: readonly string[]): (typeof STATUS_PRECED
   return 'closed';
 }
 
+/**
+ * JSON with object keys sorted, recursively; array order is content and is
+ * left alone.
+ *
+ * Plain `JSON.stringify` emits keys in insertion order, which would make this
+ * hash unverifiable against the row it describes: `resolvedFields` and
+ * `sourceMembershipVersions` are `jsonb` columns, and Postgres jsonb does not
+ * store key order — it normalizes it. So a hash taken over the in-memory
+ * object and a hash taken over the same object read back from the database
+ * disagreed, which the test for this function caught immediately. A content
+ * hash nobody can recompute from the stored content is barely better than the
+ * placeholder string it replaced.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, entryValue]) => entryValue !== undefined)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`).join(',')}}`;
+}
+
+/**
+ * The 64-hex `meaningfulContentHash` OpportunityRevisionSchema (§12.4)
+ * requires: a digest over everything a canonical revision asserts.
+ *
+ * The ruleset version is part of the input on purpose — §12.4 asks for a
+ * recompute when "the resolution ruleset changes meaningfully", and a hash
+ * that ignored the version would call a revision unchanged after the rules
+ * that produced it were replaced.
+ *
+ * The mirror of what the source adapters do for their own revisions, with the
+ * key-ordering hazard above handled.
+ */
+export function canonicalContentHash(input: {
+  canonicalTitle: string | null;
+  canonicalStatus: string;
+  resolvedFields: unknown;
+  sourceMembershipVersions: Record<string, string>;
+}): string {
+  return createHash('sha256')
+    .update(
+      stableStringify({
+        canonicalTitle: input.canonicalTitle,
+        canonicalStatus: input.canonicalStatus,
+        resolvedFields: input.resolvedFields,
+        sourceMembershipVersions: input.sourceMembershipVersions,
+        resolutionRulesetVersion: CANONICAL_RESOLUTION_VERSION,
+      }),
+    )
+    .digest('hex');
+}
+
 export interface ResolveCanonicalResult {
   /** True when a new canonical revision was appended. */
   refreshed: boolean;
@@ -115,26 +168,46 @@ export async function resolveCanonicalOpportunity(
   // between runs for reasons unrelated to the data.
   const canonicalTitle = members[0]?.title ?? null;
 
+  // §14.2: surface disagreements rather than silently choosing one value.
+  // Every member's value is kept alongside the others.
+  const resolvedFields = {
+    title: members.map((member) => ({
+      sourceListingId: member.sourceListingId,
+      value: member.title,
+    })),
+    organization: members.map((member) => ({
+      sourceListingId: member.sourceListingId,
+      value: member.organization,
+    })),
+    status: members.map((member) => ({
+      sourceListingId: member.sourceListingId,
+      value: member.status,
+    })),
+  };
+
+  const contentHash = canonicalContentHash({
+    canonicalTitle,
+    canonicalStatus,
+    resolvedFields,
+    sourceMembershipVersions: expectedVersions,
+  });
+
   if (opportunity.currentRevisionId !== null) {
+    // One comparison, against the hash the stored revision carries.
+    //
+    // An earlier version compared membership, title and status field by field
+    // and wrote the literal string 'sha256:pending-resolution' into the hash
+    // column — so the one column whose entire job is to answer "did anything
+    // meaningful change?" answered nothing, in violation of its own
+    // OpportunityRevisionSchema contract (Sha256Hex), while the hand-rolled
+    // comparison beside it silently ignored every field it did not name.
+    // Hashing the resolved content is both what the schema asks for and
+    // strictly more sensitive than what it replaces.
     const [current] = await tx
-      .select({
-        versions: opportunityRevisions.sourceMembershipVersions,
-        title: opportunityRevisions.canonicalTitle,
-        status: opportunityRevisions.canonicalStatus,
-      })
+      .select({ hash: opportunityRevisions.meaningfulContentHash })
       .from(opportunityRevisions)
       .where(eq(opportunityRevisions.id, opportunity.currentRevisionId));
-    const stored = (current?.versions ?? {}) as Record<string, string>;
-    const sameMembership =
-      Object.keys(stored).length === Object.keys(expectedVersions).length &&
-      Object.entries(expectedVersions).every(
-        ([listingId, revisionId]) => stored[listingId] === revisionId,
-      );
-    if (
-      sameMembership &&
-      current?.status === canonicalStatus &&
-      current?.title === canonicalTitle
-    ) {
+    if (current?.hash === contentHash) {
       return {
         refreshed: false,
         revisionId: opportunity.currentRevisionId,
@@ -165,25 +238,10 @@ export async function resolveCanonicalOpportunity(
     canonicalTitle: canonicalTitle ?? '',
     canonicalStatus,
     organizationId: null,
-    // §14.2: surface disagreements rather than silently choosing one value.
-    // Every member's value is kept alongside the others.
-    resolvedFields: {
-      title: members.map((member) => ({
-        sourceListingId: member.sourceListingId,
-        value: member.title,
-      })),
-      organization: members.map((member) => ({
-        sourceListingId: member.sourceListingId,
-        value: member.organization,
-      })),
-      status: members.map((member) => ({
-        sourceListingId: member.sourceListingId,
-        value: member.status,
-      })),
-    },
+    resolvedFields,
     sourceMembershipVersions: expectedVersions,
     resolutionRulesetVersion: CANONICAL_RESOLUTION_VERSION,
-    meaningfulContentHash: 'sha256:pending-resolution',
+    meaningfulContentHash: contentHash,
     createdAt: now,
   });
 

@@ -15,7 +15,7 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../db/test-support.js';
-import { resolveCanonicalOpportunity } from './resolve-canonical.js';
+import { canonicalContentHash, resolveCanonicalOpportunity } from './resolve-canonical.js';
 
 /**
  * These cover the four separate stale-state defects a single resolver
@@ -32,7 +32,11 @@ describe('resolveCanonicalOpportunity', () => {
 
   async function addListing(
     sourceId: string,
-    spec: { title: string; status?: 'active' | 'closed' | 'expired' | 'missing_suspected' },
+    spec: {
+      title: string;
+      status?: 'active' | 'closed' | 'expired' | 'missing_suspected';
+      organization?: string;
+    },
   ): Promise<{ listingId: string; revisionId: string }> {
     const listing = await createTestSourceListing(sourceId, { status: spec.status ?? 'active' });
     const resourceId = await createTestResource(sourceId);
@@ -46,7 +50,7 @@ describe('resolveCanonicalOpportunity', () => {
       meaningfulContentHash: randomUUID().replace(/-/g, '').padEnd(64, '0'),
       titleRaw: spec.title,
       titleNormalized: spec.title.toLowerCase(),
-      organizationRaw: 'Canonical Test Org',
+      organizationRaw: spec.organization ?? 'Canonical Test Org',
       description: 'description',
       locations: [],
       publishedDate: { raw: '', parsed: '2026-09-01T00:00:00Z' },
@@ -250,6 +254,100 @@ describe('resolveCanonicalOpportunity', () => {
       .from(opportunityRevisions)
       .where(eq(opportunityRevisions.opportunityId, opportunityId));
     expect(revisions).toHaveLength(1);
+  });
+
+  it('stores a real sha256 content hash, not a placeholder', async () => {
+    // The column's whole purpose is to answer "did anything meaningful
+    // change?". It spent three phases holding the literal string
+    // 'sha256:pending-resolution', which both violated
+    // OpportunityRevisionSchema's Sha256Hex contract and made the answer
+    // permanently "no".
+    const source = await createTestSource();
+    sourceIds.push(source);
+    const opportunityId = await makeOpportunity();
+    const { listingId } = await addListing(source, { title: 'Hashed' });
+    await addMember(opportunityId, listingId);
+
+    const result = await db.transaction((tx) =>
+      resolveCanonicalOpportunity(tx, opportunityId, '2026-09-06T13:00:00Z'),
+    );
+
+    const [revision] = await db
+      .select()
+      .from(opportunityRevisions)
+      .where(eq(opportunityRevisions.id, result.revisionId as string));
+    expect(revision?.meaningfulContentHash).toMatch(/^[0-9a-f]{64}$/);
+    // And it is derived from the content, not from the row's identity.
+    expect(
+      canonicalContentHash({
+        canonicalTitle: 'Hashed',
+        canonicalStatus: 'active',
+        resolvedFields: revision?.resolvedFields,
+        sourceMembershipVersions: revision?.sourceMembershipVersions as Record<string, string>,
+      }),
+    ).toBe(revision?.meaningfulContentHash);
+  });
+
+  it('refreshes when a member field changes that is neither title nor status', async () => {
+    // The old change detection compared membership versions, title and
+    // status by hand, so it noticed only what it happened to name. This
+    // swaps the organization while keeping the title, the status and the
+    // member set identical — the membership version moves, which the old
+    // check would also have caught, so the point is that the CONTENT is what
+    // the new revision records: resolvedFields.organization must actually
+    // follow the source.
+    const source = await createTestSource();
+    sourceIds.push(source);
+    const opportunityId = await makeOpportunity();
+    const first = await addListing(source, { title: 'Same title', organization: 'Org One' });
+    await addMember(opportunityId, first.listingId);
+    const before = await db.transaction((tx) =>
+      resolveCanonicalOpportunity(tx, opportunityId, '2026-09-06T13:00:00Z'),
+    );
+
+    // A re-crawl that found a corrected employer name: a NEW source revision
+    // on the SAME listing, which is how §12.4 records changed content.
+    const resourceId = await createTestResource(source);
+    const nextRevisionId = randomUUID();
+    await db.insert(sourceListingRevisions).values({
+      id: nextRevisionId,
+      sourceListingId: first.listingId,
+      parserVersion: 'test-v1',
+      extractionMethod: 'http',
+      rawResourceHash: 'b'.repeat(64),
+      meaningfulContentHash: randomUUID().replace(/-/g, '').padEnd(64, '0'),
+      titleRaw: 'Same title',
+      titleNormalized: 'same title',
+      organizationRaw: 'Org Two',
+      description: 'description',
+      locations: [],
+      publishedDate: { raw: '', parsed: '2026-09-01T00:00:00Z' },
+      deadlineDate: { raw: '', parsed: '2026-12-01T00:00:00Z' },
+      applicationMethod: null,
+      sourceCategories: [],
+      structuredAttributes: {},
+      createdAt: '2026-09-01T00:00:00Z',
+      provenanceResourceId: resourceId,
+      provenanceFetchedAt: '2026-09-01T00:00:00Z',
+      provenanceNotes: null,
+    });
+    await db
+      .update(sourceListings)
+      .set({ currentRevisionId: nextRevisionId })
+      .where(eq(sourceListings.id, first.listingId));
+
+    const after = await db.transaction((tx) =>
+      resolveCanonicalOpportunity(tx, opportunityId, '2026-09-06T14:00:00Z'),
+    );
+
+    expect(after.refreshed).toBe(true);
+    expect(after.revisionId).not.toBe(before.revisionId);
+    const [revision] = await db
+      .select()
+      .from(opportunityRevisions)
+      .where(eq(opportunityRevisions.id, after.revisionId as string));
+    const resolved = revision?.resolvedFields as { organization: Array<{ value: string }> };
+    expect(resolved.organization.map((entry) => entry.value)).toEqual(['Org Two']);
   });
 
   it('marks an emptied opportunity closed without inventing a revision', async () => {

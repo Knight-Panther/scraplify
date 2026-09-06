@@ -373,6 +373,67 @@ describe('runDedupe', () => {
     expect(memberships[0]?.supersededAt).toBeNull();
   });
 
+  it('refreshes the canonical revision when a listing joins an existing cluster', async () => {
+    // The property under test is the end state of a run, not one code path:
+    // after a listing joins a cluster that was canonicalized on an earlier
+    // run, the current canonical revision must name BOTH members. Two
+    // separate places in runDedupe can satisfy it, and removing either one
+    // alone leaves it satisfied — so this is written against the outcome.
+    // Removing both makes only this test fail, which is the check that it is
+    // load-bearing at all (verified by mutation, 2026-09-06).
+    const a = await createTestSource();
+    const b = await createTestSource();
+    sourceIds.push(a, b);
+    const url = `https://ats.invalid/vacancy-${randomUUID()}`;
+
+    // Pass one: only the first listing exists, so it is canonicalized alone.
+    const listingA = await addListing(a, {
+      title: 'ფინანსური ანალიტიკოსი',
+      organization: 'Join Org',
+      applicationType: 'url',
+      applicationValue: url,
+    });
+    listingIds = [listingA];
+    await runDedupe(db, { autoLink: true, sourceIds, now: () => '2026-09-06T12:00:00Z' });
+
+    // Pass two: the cross-post appears and auto-links into that opportunity.
+    const listingB = await addListing(b, {
+      title: 'ფინანსური ანალიტიკოსი',
+      organization: 'Join Org',
+      applicationType: 'url',
+      applicationValue: url,
+    });
+    listingIds = [listingA, listingB].sort();
+    await runDedupe(db, { autoLink: true, sourceIds, now: () => '2026-09-06T13:00:00Z' });
+
+    const memberships = await db
+      .select()
+      .from(opportunitySourceMemberships)
+      .where(
+        and(
+          inArray(opportunitySourceMemberships.sourceListingId, listingIds),
+          isNull(opportunitySourceMemberships.supersededAt),
+        ),
+      );
+    const opportunityId = memberships[0]?.opportunityId;
+    expect(new Set(memberships.map((m) => m.opportunityId)).size).toBe(1);
+
+    const [opportunity] = await db
+      .select()
+      .from(opportunities)
+      .where(eq(opportunities.id, opportunityId as string));
+    const [revision] = await db
+      .select()
+      .from(opportunityRevisions)
+      .where(eq(opportunityRevisions.id, opportunity?.currentCanonicalRevisionId as string));
+    // The current revision names BOTH contributing listings, not just the
+    // one that was there when the opportunity was created.
+    expect(Object.keys(revision?.sourceMembershipVersions as object).sort()).toEqual(listingIds);
+    // And it carries a real content hash, never the placeholder string that
+    // stood in this column while it was written by hand here.
+    expect(revision?.meaningfulContentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('does not re-canonicalize an already-clustered listing on a rerun', async () => {
     const a = await createTestSource();
     sourceIds.push(a);

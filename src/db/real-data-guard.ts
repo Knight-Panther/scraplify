@@ -35,37 +35,40 @@ import { Pool } from 'pg';
 const REAL_SOURCE_SLUGS = ['jobs-ge', 'hr-ge'];
 
 /**
- * One checksum over every per-source table a crawl or reconciliation writes,
- * restricted to the real sources. Ordered inside each `string_agg` so the
- * value is stable across runs; `coalesce` keeps a source with no rows in one
- * table from collapsing the whole fingerprint to NULL.
+ * One checksum over every row of every table a crawl, reconciliation or
+ * dedupe pass writes, restricted to rows belonging to the real sources.
+ *
+ * **Whole rows, via `md5(t::text)`, never a hand-picked column list.** Naming
+ * columns is how this guard kept being wrong. Its first version fingerprinted
+ * `source_listing_revisions` with `count(*)`, so an in-place rewrite of a real
+ * revision moved nothing. Replacing that count with a few named columns —
+ * id, parser version, and the two hash columns — was no better in the way
+ * that matters: `meaningful_content_hash` is maintained by application code,
+ * so a write that changed `title_raw` or a parsed date without recomputing it
+ * still slipped through, and the same objection applied to every other
+ * subquery here (adversarial review, 2026-09-06). Casting the row to text
+ * covers every column including ones added later, which is the only version
+ * of this that actually asserts the stated property: **byte-identical.**
+ *
+ * `order by` inside each `string_agg` keeps the value stable across runs;
+ * `coalesce` keeps a table with no rows from collapsing the whole fingerprint
+ * to NULL.
  */
 const FINGERPRINT_SQL = `
   select md5(concat_ws('|',
-    (select coalesce(string_agg(
-        sl.id::text || sl.status || sl.last_seen_at::text || sl.missing_streak::text
-          || coalesce(sl.last_reconciled_at::text, '-')
-          || coalesce(sl.current_revision_id::text, '-'),
-        ',' order by sl.id), '')
+    (select coalesce(string_agg(md5(sl::text), ',' order by sl.id), '')
       from source_listings sl
       join sources s on s.id = sl.source_id
       where s.slug = any($1)),
-    (select coalesce(string_agg(
-        cr.id::text || cr.status || cr.full_coverage::text
-          || coalesce(cr.reconciled_at::text, '-'),
-        ',' order by cr.id), '')
+    (select coalesce(string_agg(md5(cr::text), ',' order by cr.id), '')
       from crawl_runs cr
       join sources s on s.id = cr.source_id
       where s.slug = any($1)),
-    (select coalesce(string_agg(
-        cc.source_id::text || coalesce(cc.next_source_record_id, '-')
-          || coalesce(cc.next_discovery_page::text, '-')
-          || coalesce(cc.next_fetch_at::text, '-'),
-        ',' order by cc.source_id), '')
+    (select coalesce(string_agg(md5(cc::text), ',' order by cc.source_id), '')
       from crawl_cursors cc
       join sources s on s.id = cc.source_id
       where s.slug = any($1)),
-    (select count(*)::text
+    (select coalesce(string_agg(md5(r::text), ',' order by r.id), '')
       from source_listing_revisions r
       join source_listings sl on sl.id = r.source_listing_id
       join sources s on s.id = sl.source_id
@@ -76,17 +79,12 @@ const FINGERPRINT_SQL = `
     -- the test's own sources, and this guard could not see it because it only
     -- covered acquisition tables. A guard that watches some of the writable
     -- surface gives false assurance about the rest.
-    (select coalesce(string_agg(
-        m.id::text || m.opportunity_id::text || m.decision
-          || coalesce(m.superseded_at::text, '-'),
-        ',' order by m.id), '')
+    (select coalesce(string_agg(md5(m::text), ',' order by m.id), '')
       from opportunity_source_memberships m
       join source_listings sl on sl.id = m.source_listing_id
       join sources s on s.id = sl.source_id
       where s.slug = any($1)),
-    (select coalesce(string_agg(
-        dc.id::text || dc.status || coalesce(dc.resulting_decision::text, '-'),
-        ',' order by dc.id), '')
+    (select coalesce(string_agg(md5(dc::text), ',' order by dc.id), '')
       from duplicate_candidates dc
       -- EITHER endpoint, not just side A. Pairs are stored with the smaller
       -- UUID first, so an accidental test-versus-real candidate has the real
@@ -96,7 +94,28 @@ const FINGERPRINT_SQL = `
       join source_listings sl
         on sl.id = dc.source_listing_id_a or sl.id = dc.source_listing_id_b
       join sources s on s.id = sl.source_id
-      where s.slug = any($1))
+      where s.slug = any($1)),
+    -- The opportunity rows and their revisions, for every cluster a real
+    -- listing belongs to. Memberships above say WHICH listings are grouped
+    -- together; these are what browsing and ranking actually read, and a test
+    -- could rewrite a real opportunity's canonical title, status or revision
+    -- pointer — or the revision behind it — without touching a membership row.
+    (select coalesce(string_agg(md5(o::text), ',' order by o.id), '')
+      from opportunities o
+      where exists (
+        select 1
+        from opportunity_source_memberships m
+        join source_listings sl on sl.id = m.source_listing_id
+        join sources s on s.id = sl.source_id
+        where m.opportunity_id = o.id and s.slug = any($1))),
+    (select coalesce(string_agg(md5(orev::text), ',' order by orev.id), '')
+      from opportunity_revisions orev
+      where exists (
+        select 1
+        from opportunity_source_memberships m
+        join source_listings sl on sl.id = m.source_listing_id
+        join sources s on s.id = sl.source_id
+        where m.opportunity_id = orev.opportunity_id and s.slug = any($1)))
   )) as fingerprint
 `;
 

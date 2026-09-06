@@ -3,7 +3,6 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   duplicateCandidates,
   opportunities,
-  opportunityRevisions,
   opportunitySourceMemberships,
   sourceListingRevisions,
   sourceListings,
@@ -231,6 +230,15 @@ async function linkPair(
   let createdOpportunity = false;
 
   if (opportunityId === null) {
+    // A SHELL only — no revision. The canonical revision is built at the end,
+    // by the one resolver, from the memberships that actually exist by then.
+    //
+    // This path used to build its own revision inline from the scored pair,
+    // which reproduced the resolver's logic badly: it hardcoded
+    // `canonicalStatus: 'active'` regardless of what the two listings' real
+    // statuses were, omitted the `status` field from `resolvedFields`, and
+    // wrote a placeholder string where the content hash belongs. The same
+    // duplicated-logic mistake resolve-canonical.ts was extracted to end.
     opportunityId = randomUUID();
     await tx.insert(opportunities).values({
       id: opportunityId,
@@ -242,40 +250,6 @@ async function linkPair(
       createdAt: now,
       updatedAt: now,
     });
-
-    const revisionId = randomUUID();
-    await tx.insert(opportunityRevisions).values({
-      id: revisionId,
-      opportunityId,
-      canonicalTitle: a.titleRaw,
-      canonicalStatus: 'active',
-      organizationId: null,
-      // §14.2: surface disagreements rather than silently choosing. Each
-      // field records what every contributing source said, so a later
-      // resolution ruleset can choose without having lost the alternatives.
-      resolvedFields: {
-        title: [
-          { sourceListingId: a.sourceListingId, value: a.titleRaw },
-          { sourceListingId: b.sourceListingId, value: b.titleRaw },
-        ],
-        organization: [
-          { sourceListingId: a.sourceListingId, value: a.organizationRaw },
-          { sourceListingId: b.sourceListingId, value: b.organizationRaw },
-        ],
-      },
-      sourceMembershipVersions: {
-        [a.sourceListingId]: a.currentRevisionId,
-        [b.sourceListingId]: b.currentRevisionId,
-      },
-      resolutionRulesetVersion: DEDUPE_RULESET_VERSION,
-      meaningfulContentHash: 'sha256:pending-resolution',
-      createdAt: now,
-    });
-
-    await tx
-      .update(opportunities)
-      .set({ currentCanonicalRevisionId: revisionId, updatedAt: now })
-      .where(eq(opportunities.id, opportunityId));
     createdOpportunity = true;
   }
 
@@ -297,6 +271,18 @@ async function linkPair(
     });
     createdMemberships++;
   }
+
+  // The canonical revision is built HERE, from the memberships that now
+  // exist, for both the new-opportunity and the join-an-existing-cluster
+  // case.
+  //
+  // A later loop in runDedupe re-resolves every clustered listing anyway, so
+  // this is not today the only thing standing between a grown cluster and a
+  // stale revision — but linkPair must leave consistent state on its own
+  // rather than depend on a distant caller running afterwards, and it is what
+  // lets this function stop hand-building a revision (and hand-writing a
+  // placeholder hash) altogether.
+  await resolveCanonicalOpportunity(tx, opportunityId, now);
 
   return { createdOpportunity, createdMemberships, conflict: false };
 }
