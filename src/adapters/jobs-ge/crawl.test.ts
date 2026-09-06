@@ -42,7 +42,17 @@ vi.mock('../../policies/jobs-ge.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../policies/jobs-ge.js')>();
   return {
     ...actual,
-    jobsGeSource: { ...actual.jobsGeSource, id: testIds.sourceId },
+    // Disposable slug as well as id — see the same fix in hr-ge's crawl.test.ts
+    // (2026-09-06). `sources.slug` is UNIQUE and the seed insert is
+    // onConflictDoNothing, so once a live jobs.ge crawl has populated a dev
+    // database with the real row, reusing its slug here inserts nothing and the
+    // policy insert's source_id FK fails. Fixed proactively: hr-ge hit this the
+    // day it first ran live, and jobs.ge is merged and runnable.
+    jobsGeSource: {
+      ...actual.jobsGeSource,
+      id: testIds.sourceId,
+      slug: `crawl-test-${testIds.sourceId}`,
+    },
     jobsGePolicy: { ...actual.jobsGePolicy, id: testIds.policyId, sourceId: testIds.sourceId },
   };
 });
