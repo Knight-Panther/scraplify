@@ -6,7 +6,26 @@ The [confirmed concept](scraplify-concept.md) is authoritative. This file distin
 
 ## Current phase: Phase 1C — cross-source reconciliation
 
-Not started. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
+In progress on `phase-1c-cross-source-reconciliation`. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
+
+Concept §25's four items, with honest status:
+
+- [ ] **Produce coverage and overlap reports.** Not started. Needs live corpora from both sources, which do not exist yet.
+- [ ] **Validate full-reconciliation behavior.** Not started. Overlaps Phase 1B's own outstanding full-coverage run and idempotency rerun.
+- [ ] **Confirm that a failing source cannot affect the other source's state.** Done at the primitive level (see below); not yet done at the orchestrator level.
+- [ ] **Add browser-versus-HTTP canaries where useful.** Not started. Playwright is still not an application dependency — concept §28 defers adding it until a source or automated canary requires it, and whether one does is part of this item's own decision.
+
+**Exit gate:** completeness is measured and failures are isolated by source. Neither half is met yet — nothing has measured completeness, and isolation is confirmed only for the shared database primitives, not for a real failing crawl.
+
+### Cross-source failure isolation (primitives)
+
+`src/db/cross-source-isolation.test.ts` — 13 tests over two throwaway sources, covering reconciliation (missing-streak advance, threshold closure, expiry), coverage baselines, run exclusivity, cursors and cooldowns, shared record ids and canonical URLs, incident attribution, and a whole-state snapshot comparison. `snapshotSourceState` in `src/db/test-support.ts` captures every table carrying per-source state, so the snapshot test's claim is not limited to the listing rows alone.
+
+Every test passed on first run: these **confirm** existing scoping rather than having discovered a defect. To establish that they are load-bearing rather than vacuous, the two per-source `WHERE` clauses in `closeMissingListings` and `getMaxDiscoveredCountForSource` were each temporarily deleted — 5 of the 13 fail against that mutation, including the whole-state snapshot; both clauses were then restored and the full suite re-run green (360 tests, 24 files).
+
+One thing that check surfaced, worth recording as a standing caution alongside the 2026-09-06 slug finding: the **pre-existing** suite also fails under that mutation (8 tests), but largely by accident rather than by assertion. `src/db/ingest.test.ts:320` ("returns 0 when no other full-coverage run exists for this source") creates a single source and would still return 0 — and pass — on a database holding no other rows. It fails here only because a shared dev database happens to contain other sources' runs. On CI's fresh-per-run database that mutation would go undetected. Same lesson as the slug bug: green CI is not evidence of source isolation.
+
+Not covered by this work: isolation at the orchestrator level. No test yet drives a genuinely failing crawl for one source and asserts the other's state is untouched end-to-end; the primitives are proven individually, which is weaker than proving the path that composes them.
 
 ## Merged with unmet gates: Phase 1B — hr.ge acquisition and reliability
 
