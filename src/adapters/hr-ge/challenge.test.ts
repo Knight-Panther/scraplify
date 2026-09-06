@@ -40,9 +40,15 @@ describe('classifyHrGeResponse', () => {
     ).toBe('challenged');
   });
 
-  it("classifies status 403 and 202 as 'challenged'", () => {
+  it("classifies status 403, 405 and 202 as 'challenged'", () => {
     expect(classifyHrGeResponse({ status: 403, headers: {}, body: 'blocked' })).toBe('challenged');
     expect(classifyHrGeResponse({ status: 202, headers: {}, body: 'js challenge' })).toBe(
+      'challenged',
+    );
+    // 405 is one of the three codes this function's own contract names, and
+    // it is the one that decides whether a run stops: 'unknown' would reach
+    // crawl.ts as an ordinary failure and let the walk keep requesting.
+    expect(classifyHrGeResponse({ status: 405, headers: {}, body: 'method not allowed' })).toBe(
       'challenged',
     );
   });

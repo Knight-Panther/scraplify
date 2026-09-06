@@ -54,7 +54,16 @@ export function classifyHrGeResponse(input: ClassifyHrGeResponseInput): HrGeResp
   // method), 202 (a JS/captcha challenge issued to a browser client, not
   // applicable to this project's plain-HTTP fetcher but included for
   // completeness against a future browser-fallback path per §10.1).
-  if (input.status === 202 || input.status === 403) {
+  //
+  // 405 was documented here but missing from the check until 2026-09-06:
+  // a 405 challenge classified 'unknown', so crawl.ts's classifyHttpResult
+  // saw an ordinary 'failure' rather than 'blocked', never set the run's
+  // stop flag, and kept issuing requests at an actively blocking WAF —
+  // contradicting both this function's own contract above and concept
+  // §6.2's "honor retry instructions." The fetch-failure-rate guard meant
+  // such a run could never mass-close anything, so the cost was politeness
+  // and wasted requests, not corrupted state.
+  if (input.status === 202 || input.status === 403 || input.status === 405) {
     return 'challenged';
   }
 

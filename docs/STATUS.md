@@ -15,13 +15,14 @@ Implemented in the branch and current changeset:
 - Durable discovery position (migration 0014): a walk stopped mid-index by a rate limit records the first page it did not cover and the next invocation resumes there, so the advertised 20-request/60s budget cannot pin every run to the same prefix and leave the pages beyond it permanently unreachable. Written only on a stop with covered ground behind it, or on reaching the terminator (which clears it); every other interruption preserves the saved position. A resumed walk observed only a suffix, so it cannot reach `completed`, its run row records `fullCoverage=false`, and reconciliation therefore never sees the pages it skipped.
 - hr.ge bounded incremental mode is invokable: `npm run crawl:hr-ge -- --mode incremental --pages 2`. It sets `fullCoverage=false`, skips sitemap/absence reconciliation, preserves the full cursor, and cannot replace the historical full-run baseline. This is bounded recent-page polling, not an adaptive high-water-mark algorithm.
 - Structural detail loss is quarantined instead of replacing good revisions/deadlines. Explicit null fields remain valid.
+- WAF challenge detection stops the run on all three response codes its own contract names. 405 was documented but unchecked until 2026-09-06, so a 405 challenge read as an ordinary failure and the walk kept requesting — found by comparing the function's comment against its code, and pinned by a test that fails on the unfixed version with 6 requests where 2 are correct.
 - Shared HTTP fetcher negotiates and decodes gzip, Brotli, and zstd, with bounds on both compressed and expanded bodies. Corrupt/unsupported encodings fail safely.
 - Migrations 0012/0013/0014 provide cursor/cooldown state, persisted positive host allow-lists (including backfill for the two existing source policies), and the discovery-page column.
 - Reproducible local setup: ignored `.env`, committed `.env.example`, Node environment-file loading, LF TypeScript files, and a narrowly scoped esbuild override for the inherited Drizzle tooling advisory. See [README](../README.md).
 
 Verification:
 
-- 346 tests across 23 files passed against local PostgreSQL, including regression tests first reproduced against the unfixed code.
+- 347 tests across 23 files passed against local PostgreSQL, including regression tests first reproduced against the unfixed code.
 - TypeScript build passed. Drizzle generation reports no schema drift; migration rerun succeeds after the dependency override. npm audit reports zero vulnerabilities.
 - Single-request live sitemap canary through the shared fetcher: HTTP 200, Content-Encoding zstd, 5,383,109 decoded bytes, 1,089 candidate announcement URLs (2026-09-05). XML naturally lacks HTML health markers; it passed the sitemap parser, not the HTML classifier.
 - Formatting, lint, typecheck, build, and the full suite passed after the final code changes.

@@ -313,3 +313,12 @@ it('a resumed walk cannot certify coverage or close the listings it skipped', as
   expect(skipped?.status).toBe('active');
   expect(skipped?.missingStreak).toBe(0);
 });
+
+it('a 405 WAF challenge stops the walk instead of reading as an ordinary failure', async () => {
+  const f = fetcher(all.slice(0, 3), 20, { status: 405 });
+  const result = await run(f.impl, 5, true);
+  expect(result.crawlRun.status).toBe('partial');
+  // Stopped at the challenge: no sitemap cross-check, no detail requests.
+  expect(f.calls).toHaveLength(2);
+  expect(f.calls.every((url) => url.includes('/search-posting'))).toBe(true);
+});
