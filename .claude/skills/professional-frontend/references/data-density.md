@@ -34,11 +34,19 @@ Three screens carry real design difficulty. The rest are ordinary.
 Two listings side by side; the user decides whether they are the same vacancy.
 Only 11 pairs pending, so this is a focused task, not a feed.
 
-- **The decision needs evidence, not a verdict.** Every candidate pair carries
-  scored signals and reasons in its `evidence` column. The UI must surface *why*
-  the pair was proposed — shared application link, matching employer, title
+- **The decision needs evidence, not a verdict.** The UI must surface *why* the
+  pair was proposed — shared application link, matching employer, title
   similarity — or the user is rubber-stamping a black box. This is the single most
   important design problem in the app.
+
+  **That evidence is not stored yet.** `duplicate_candidates` has no `evidence`
+  column: `scorePair`'s signals and reasons are computed and then discarded for
+  `needs_review` pairs, and evidence is only written to
+  `opportunity_source_memberships` — which exist only once a merge happens. So the
+  pairs a human must judge are exactly the ones with nothing recorded. Do not
+  build this screen against a field that does not exist: the migration, the
+  `run-dedupe.ts` write change and the backfill come first. See `docs/STATUS.md`
+  for the full shape of that work.
 - **Make the differences visible.** Two nearly identical Georgian titles are hard
   to diff by eye. Align the two sides field-by-field so differing values sit
   adjacent, and consider marking what differs.

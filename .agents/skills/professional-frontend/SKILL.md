@@ -44,5 +44,14 @@ Read the relevant ones before reviewing UI code.
    done with no evidence it was rendered and inspected has not met the gate in
    `browser-qa.md`. A green build is not the gate.
 
-Ordinary accessibility and interface-quality review is covered by the
-`web-design-guidelines` rules; do not restate them here.
+## Accessibility and interface quality
+
+Claude reviews against Vercel's Web Interface Guidelines through a global skill
+that fetches them at review time. **You cannot load that skill** — skill
+discovery is separate for each agent — so a condensed, static snapshot lives
+beside this file: `web-interface-checklist.md`.
+
+Read it for the ordinary interface rules. It also records the three places where
+those guidelines **conflict** with Xtelo's own rules (case transforms,
+virtualization, and confirmation dialogs for reversible actions); Xtelo's rules
+win there, so flagging code for following them is a false positive.
