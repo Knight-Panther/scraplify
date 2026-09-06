@@ -18,3 +18,14 @@
 # scope, though the same fix is recommended for them (see
 # src/adapters/hr-ge/RECON_NOTES.md).
 src/adapters/hr-ge/fixtures/** -text
+
+# GitHub's Linguist ranks languages by byte count, so these fixtures decide how
+# the repo is labelled: hr.ge's SSR pages embed a large ng-state island (one
+# index page alone is 1.9 MB), and 9.1 MB of captured HTML across 13 files
+# outweighed 0.7 MB of TypeScript across 144, reporting the project as 94% HTML.
+# They are captured evidence, not source, so mark them vendored - excluded from
+# the language stats and collapsed by default in diffs, which is wanted anyway
+# for a 1.9 MB file. Purely presentational: unlike the "-text" rule above this
+# changes no stored or checked-out bytes, which is why it can safely cover
+# jobs-ge's already-merged fixtures too.
+src/adapters/*/fixtures/** linguist-vendored
