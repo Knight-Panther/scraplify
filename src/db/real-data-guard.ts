@@ -69,6 +69,27 @@ const FINGERPRINT_SQL = `
       from source_listing_revisions r
       join source_listings sl on sl.id = r.source_listing_id
       join sources s on s.id = sl.source_id
+      where s.slug = any($1)),
+    -- Canonical/dedupe rows attached to real listings. Added after the dedupe
+    -- tests silently created opportunities and memberships for real crawled
+    -- listings on 2026-09-06: the pass scanned the whole database rather than
+    -- the test's own sources, and this guard could not see it because it only
+    -- covered acquisition tables. A guard that watches some of the writable
+    -- surface gives false assurance about the rest.
+    (select coalesce(string_agg(
+        m.id::text || m.opportunity_id::text || m.decision
+          || coalesce(m.superseded_at::text, '-'),
+        ',' order by m.id), '')
+      from opportunity_source_memberships m
+      join source_listings sl on sl.id = m.source_listing_id
+      join sources s on s.id = sl.source_id
+      where s.slug = any($1)),
+    (select coalesce(string_agg(
+        dc.id::text || dc.status || coalesce(dc.resulting_decision::text, '-'),
+        ',' order by dc.id), '')
+      from duplicate_candidates dc
+      join source_listings sl on sl.id = dc.source_listing_id_a
+      join sources s on s.id = sl.source_id
       where s.slug = any($1))
   )) as fingerprint
 `;

@@ -19,7 +19,8 @@
     "db:generate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs migrate",
     "crawl:jobs-ge": "node --env-file-if-exists=.env dist/cli/run-jobs-ge-crawl.js",
-    "crawl:hr-ge": "node --env-file-if-exists=.env dist/cli/run-hr-ge-crawl.js"
+    "crawl:hr-ge": "node --env-file-if-exists=.env dist/cli/run-hr-ge-crawl.js",
+    "dedupe": "node --env-file-if-exists=.env dist/cli/run-dedupe.js"
   },
   "repository": {
     "type": "git",

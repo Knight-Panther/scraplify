@@ -4,9 +4,9 @@ Last updated: 2026-09-06. Phase 1B is merged to `main` by explicit user decision
 
 The [confirmed concept](scraplify-concept.md) is authoritative. This file distinguishes implementation evidence from operational readiness.
 
-## Current phase: Phase 2A — normalization foundation
+## Current phase: Phase 2 — normalization, taxonomy, and deduplication
 
-In progress on `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: Phase 1C is unmerged and unreviewed (Codex unavailable), and stacking keeps closure-adjacent code off `main` while still allowing forward progress. Both branches are intended to be reviewed together in one pass when Codex returns.
+In progress on `phase-2a-normalization-foundation` (2A normalization foundation + 2B cross-source dedupe delivered), **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: Phase 1C is unmerged and unreviewed (Codex unavailable), and stacking keeps closure-adjacent code off `main` while still allowing forward progress. Both branches are intended to be reviewed together in one pass when Codex returns.
 
 Phase 1C was **stopped deliberately, not completed** — see its section below for exactly what is and is not done.
 
@@ -25,6 +25,37 @@ Validated by running the normalizer over all 220 distinct organization strings, 
 
 - 220 raw strings → **216 keys, 0 nulls, 0 unintended merges.**
 - **It finds exactly the same 4 cross-source organizations that plain exact-string matching already found** — თიბისი (20 jobs.ge / 8 hr.ge), იფქლი (2/4), ჯიაიჯი ჰოლდინგი (2/2), Evolution (1/4). On this corpus normalization adds **no** matching power over string equality. Recorded plainly because it would be easy to present the four matches as a result of the normalizer; they are not. Its value here is latent — the case, quote and legal-form variants it handles are real and will appear as the corpus grows, but they are not in these 410 listings.
+
+### Phase 2B — cross-source deduplication (2026-09-06)
+
+Working end to end, and **producing correct canonical opportunities from real data**.
+
+- `src/dedupe/score-pair.ts` — weighted evidence scoring (§14.1 stage 4) and decision (stage 5), ruleset `v1`.
+- `src/dedupe/run-dedupe.ts` — blocking, scoring, and persistence into `duplicate_candidates` / `opportunities` / `opportunity_source_memberships`.
+- `src/normalize/text.ts` — title normalization, trigram similarity, and application-value normalization.
+- `npm run dedupe` (add `--auto-link` to write memberships).
+
+**The central design decision is selectivity, and it was measured rather than assumed.** A shared application value only counts as a per-vacancy identifier when at most 2 distinct listings carry it. Measured over the live corpus: application URLs are never shared by more than **2** listings, while one email (`info@ipkli.com`) is shared by **8**. Without this, "same contact address" would merge every vacancy an employer posts from one inbox — the corpus contains exactly that trap, with two genuinely different jobs behind one address.
+
+Results on the live 410-listing corpus:
+
+- Blocking reduced **83,845 all-pairs to 1,104 comparisons** — §14.1 stage 3 satisfied without `pg_trgm`, which stays the right tool for title-only fuzzy blocking later but is not needed while every real duplicate shares a contact value or employer name.
+- **4 `confirmed_same`, 17 `needs_review`, 0 false merges.** The four became canonical opportunities, each linking one jobs.ge and one hr.ge listing at confidence 0.97.
+- **Idempotent against live data:** a second `--auto-link` pass created 0 opportunities and 0 memberships, totals unchanged.
+
+**The hard negative held on real data.** `...უფროსი ანალიტიკოსი` (senior analyst) and `...უმცროსი ანალიტიკოსი` (junior analyst) — same employer, titles differing by one morpheme in a long string — score **0.86** trigram similarity, above the 0.82 "strong" threshold. They remain two separate opportunities, held apart by their distinct ATS links. This is why title similarity never authorizes a merge on its own: for Georgian compound titles it is structurally unable to separate seniority levels, and §14.2's prohibition on auto-linking from title-and-employer agreement is doing real work here, not theoretical work.
+
+Auto-linking requires **two independent signals** (a per-vacancy application link *and* title agreement) and nothing else can reach `confirmed_same`, however much weak evidence accumulates. `--auto-link` is opt-in; the default pass is read-only with respect to canonical state.
+
+### Incident: dedupe tests wrote canonical rows for real listings (2026-09-06)
+
+The first version of `runDedupe` had no source scoping — it read and wrote against **every** listing in the database. The tests set up disposable sources, but the pass scanned the real corpus alongside them and created 4 opportunities and 8 memberships for genuine jobs.ge/hr.ge listings as a test side effect.
+
+**The real-data guard did not catch it**, because it fingerprinted only acquisition tables (`source_listings`, `crawl_runs`, `crawl_cursors`, revision counts) and the new canonical tables were outside its view. A guard covering part of the writable surface gives false assurance about the rest — the same lesson as its two earlier failures, in a third form.
+
+Both fixed: `runDedupe` takes an optional `sourceIds` scope (every test now passes it; it is also genuinely useful in production for rescoring one source pair), and the guard's fingerprint now covers `opportunity_source_memberships` and `duplicate_candidates` for real listings. The accidental rows were deleted and recreated by a deliberate `--auto-link` run.
+
+Minor known residue: four orphan `test-source-*` rows with one listing each, left by test runs that errored before their cleanup hook. Harmless, and not worth a broad destructive cleanup statement.
 
 ### Known input gap for the rest of Phase 2
 
