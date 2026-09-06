@@ -1,6 +1,7 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../../db/client.js';
+import { getCrawlCursor } from '../../db/ingest.js';
 import {
   crawlRuns,
   parserIncidents,
@@ -143,6 +144,70 @@ describe('runJobsGeCrawl', () => {
     await cleanupTestSource(jobsGeSource.id);
   });
 
+  it('stops after a discovery rate limit, including during a clamp-confirmation probe', async () => {
+    const probePage = 2 + CLAMP_CONFIRMATION_PROBE_OFFSET;
+    const responses = new Map<string, HttpFetchResult | Error>(discoveryPages([], ['1001']));
+    responses.set(adsPageUrl(probePage), {
+      ...htmlResponse(adsPageUrl(probePage), ''),
+      status: 429,
+      headers: { 'retry-after': '120' },
+    });
+    const httpFetcher = new FakeHttpFetcher(responses);
+    const spy = vi.spyOn(httpFetcher, 'fetch');
+    const result = await runJobsGeCrawl(
+      { db, httpFetcher, now: () => '2026-09-05T12:00:00Z' },
+      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 },
+    );
+    expect(result.crawlRun.status).toBe('partial');
+    expect(result.crawlRun.missingCount).toBe(0);
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+
+  it('retains a rejected detail cursor, honors cooldown, and resumes after the reset', async () => {
+    const ids = ['1001', '1002', '1003'];
+    const responses = new Map<string, HttpFetchResult | Error>([
+      ...discoveryPages([], ids),
+      ...ids.map(
+        (id) => [detailUrl(id), htmlResponse(detailUrl(id), mailtoDetailHtml(id))] as const,
+      ),
+    ]);
+    const limited = new Map(responses);
+    limited.set(detailUrl('1002'), {
+      ...htmlResponse(detailUrl('1002'), ''),
+      status: 429,
+      headers: { 'retry-after': '120' },
+    });
+    const firstFetcher = new FakeHttpFetcher(limited);
+    const firstSpy = vi.spyOn(firstFetcher, 'fetch');
+    const options = { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 };
+    const first = await runJobsGeCrawl(
+      { db, httpFetcher: firstFetcher, now: () => '2026-09-05T12:00:00Z' },
+      options,
+    );
+    expect(first.crawlRun.status).toBe('partial');
+    expect(first.crawlRun.newCount).toBe(1);
+    expect(firstSpy).not.toHaveBeenCalledWith(detailUrl('1003'));
+    expect(await getCrawlCursor(db, jobsGeSource.id)).toBe('1002');
+    const pausedFetcher = new FakeHttpFetcher(responses);
+    const pausedSpy = vi.spyOn(pausedFetcher, 'fetch');
+    await runJobsGeCrawl(
+      { db, httpFetcher: pausedFetcher, now: () => '2026-09-05T12:01:00Z' },
+      options,
+    );
+    expect(pausedSpy).not.toHaveBeenCalled();
+    const resumedFetcher = new FakeHttpFetcher(responses);
+    const resumedSpy = vi.spyOn(resumedFetcher, 'fetch');
+    const resumed = await runJobsGeCrawl(
+      { db, httpFetcher: resumedFetcher, now: () => '2026-09-05T13:00:00Z' },
+      options,
+    );
+    expect(resumed.crawlRun.status).toBe('completed');
+    expect(resumedSpy.mock.calls.filter(([url]) => url.includes('view=jobs'))[0]?.[0]).toBe(
+      detailUrl('1002'),
+    );
+    expect(await getCrawlCursor(db, jobsGeSource.id)).toBeNull();
+  });
+
   it('uses a disposable test source id, never the real jobsGeSource.id constant', () => {
     // Guards the mock itself: if this ever silently stopped applying,
     // every afterEach's cleanupTestSource(jobsGeSource.id) call above would
@@ -259,13 +324,23 @@ describe('runJobsGeCrawl', () => {
     const [stillActive] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(stillActive?.status).toBe('active');
 
     const [nowMissing] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1002'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1002'),
+        ),
+      );
     expect(nowMissing?.status).toBe('missing_suspected');
     expect(nowMissing?.missingStreak).toBe(1);
   });
@@ -338,7 +413,12 @@ describe('runJobsGeCrawl', () => {
     const [quarantined] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1002'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1002'),
+        ),
+      );
     expect(quarantined?.status).toBe('quarantined');
 
     const incidents = await db
@@ -384,7 +464,12 @@ describe('runJobsGeCrawl', () => {
     const [quarantined] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(quarantined?.status).toBe('quarantined');
 
     // Run 2: the site serves the ordinary template again — the parser
@@ -410,7 +495,12 @@ describe('runJobsGeCrawl', () => {
     const [recovered] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(recovered?.status).toBe('active');
     expect(recovered?.currentRevisionId).not.toBeNull();
   });
@@ -446,7 +536,12 @@ describe('runJobsGeCrawl', () => {
     const [afterFirst] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(afterFirst?.status).toBe('active');
     const revisionIdAfterFirst = afterFirst?.currentRevisionId;
     expect(revisionIdAfterFirst).not.toBeNull();
@@ -479,7 +574,12 @@ describe('runJobsGeCrawl', () => {
     const [afterSecond] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(afterSecond?.status).toBe('quarantined');
     // Last-known-good content preserved (concept §6.2) — the degraded
     // parse never got promoted to currentRevisionId.
@@ -536,7 +636,12 @@ describe('runJobsGeCrawl', () => {
     const [listing] = await db
       .select()
       .from(sourceListings)
-      .where(eq(sourceListings.sourceRecordId, '1001'));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          eq(sourceListings.sourceRecordId, '1001'),
+        ),
+      );
     expect(listing?.status).toBe('active');
     expect(listing?.missingStreak).toBe(0);
   });
@@ -838,7 +943,12 @@ describe('runJobsGeCrawl', () => {
     const run1Listings = await db
       .select()
       .from(sourceListings)
-      .where(inArray(sourceListings.sourceRecordId, bigIds));
+      .where(
+        and(
+          eq(sourceListings.sourceId, jobsGeSource.id),
+          inArray(sourceListings.sourceRecordId, bigIds),
+        ),
+      );
     expect(run1Listings).toHaveLength(10);
     for (const listing of run1Listings) {
       expect(listing.status).toBe('active');

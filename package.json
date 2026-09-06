@@ -14,11 +14,12 @@
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "crawl:jobs-ge": "node --env-file=.env dist/cli/run-jobs-ge-crawl.js"
+    "test": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run",
+    "test:watch": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs",
+    "db:generate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs migrate",
+    "crawl:jobs-ge": "node --env-file-if-exists=.env dist/cli/run-jobs-ge-crawl.js",
+    "crawl:hr-ge": "node --env-file-if-exists=.env dist/cli/run-hr-ge-crawl.js"
   },
   "repository": {
     "type": "git",
@@ -36,6 +37,11 @@
     "drizzle-kit": "^0.31.10",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    }
   },
   "dependencies": {
     "cheerio": "^1.2.0",

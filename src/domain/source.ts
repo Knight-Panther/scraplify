@@ -106,6 +106,31 @@ export function isPathAllowed(
 }
 
 /**
+ * Whether `url`'s origin is authorized under `policy`: its hostname is in
+ * allowedHosts and not in disallowedHosts (disallow always wins, matching
+ * isPathAllowed's own precedence), on plain https at the default port.
+ * Requiring an exact scheme/port match (not just hostname) closes both a
+ * scheme bypass (e.g. `file://www.jobs.ge/...`) and a port bypass (e.g.
+ * `https://www.jobs.ge:4444/...`) — confirmed empirically, the same way
+ * isJobsGeUrlAllowed's own origin check was, that neither scheme nor port
+ * is captured by `.hostname` alone. Every source policy in this project is
+ * public-web-only, so requiring https specifically (not just "some
+ * scheme") is deliberate, not incidental.
+ */
+export function isHostAllowed(
+  policy: Pick<SourcePolicy, 'allowedHosts' | 'disallowedHosts'>,
+  url: URL,
+): boolean {
+  if (url.protocol !== 'https:' || url.port !== '') {
+    return false;
+  }
+  if (policy.disallowedHosts.includes(url.hostname)) {
+    return false;
+  }
+  return policy.allowedHosts.includes(url.hostname);
+}
+
+/**
  * A versioned source policy record (§5.3). Every field listed there is
  * represented explicitly — including the ones we don't have an answer for
  * yet (termsUrl, retention days), which are nullable rather than guessed,
@@ -126,6 +151,19 @@ export const SourcePolicySchema = z.object({
    */
   allowedPathPatterns: z.array(PathMatchRule).min(1),
   disallowedPathPatterns: z.array(PathMatchRule),
+  /**
+   * Hosts a fetcher may request from under this policy — default-deny like
+   * allowedPathPatterns: nothing is authorized unless its hostname appears
+   * here. Most sources serve everything from baseUrl's own host and list
+   * only that one; hr.ge is the first source whose public sitemap lives on
+   * a materially different host (api.p.hr.ge) than the site itself
+   * (www.hr.ge) — see src/adapters/hr-ge/RECON_NOTES.md's "Recommended
+   * schema change," which is what this field exists to authorize. Bare
+   * hostnames only (e.g. 'www.jobs.ge'), not full origins — scheme and
+   * port are enforced separately by isHostAllowed below, which requires
+   * plain https on the default port regardless of what's listed here.
+   */
+  allowedHosts: z.array(z.string().min(1)).min(1),
   disallowedHosts: z.array(z.string()),
   authenticationScope: z.enum(['none', 'required']),
   rateLimit: z.object({

@@ -1,4 +1,5 @@
 import { MockAgent } from 'undici';
+import { brotliCompressSync, gzipSync, zstdCompressSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createHttpFetcher,
@@ -30,6 +31,55 @@ function allowAll(): boolean {
 }
 
 describe('createHttpFetcher', () => {
+  it.each([
+    ['gzip', gzipSync],
+    ['br', brotliCompressSync],
+    ['zstd', zstdCompressSync],
+  ] as const)('decodes %s content before handing it to a parser', async (encoding, compress) => {
+    const xml = '<urlset><url><loc>https://www.hr.ge/announcement/1/ვაკანსია</loc></url></urlset>';
+    mockAgent
+      .get(ORIGIN)
+      .intercept({ path: '/sitemap' })
+      .reply(200, compress(Buffer.from(xml)), { headers: { 'content-encoding': encoding } });
+    const fetcher = createHttpFetcher({
+      isUrlAllowed: allowAll,
+      rateLimiter,
+      userAgent: USER_AGENT,
+      dispatcher: mockAgent,
+    });
+    expect((await fetcher.fetch(`${ORIGIN}/sitemap`)).body).toBe(xml);
+  });
+
+  it('bounds expanded content as well as compressed bytes', async () => {
+    mockAgent
+      .get(ORIGIN)
+      .intercept({ path: '/bomb' })
+      .reply(200, gzipSync(Buffer.from('x'.repeat(100_000))), {
+        headers: { 'content-encoding': 'gzip' },
+      });
+    const fetcher = createHttpFetcher({
+      isUrlAllowed: allowAll,
+      rateLimiter,
+      userAgent: USER_AGENT,
+      dispatcher: mockAgent,
+      maxResponseBytes: 1000,
+    });
+    await expect(fetcher.fetch(`${ORIGIN}/bomb`)).rejects.toThrow(ResponseTooLargeError);
+  });
+
+  it('rejects corrupt compressed data instead of parsing garbled text', async () => {
+    mockAgent
+      .get(ORIGIN)
+      .intercept({ path: '/corrupt' })
+      .reply(200, 'not compressed', { headers: { 'content-encoding': 'zstd' } });
+    const fetcher = createHttpFetcher({
+      isUrlAllowed: allowAll,
+      rateLimiter,
+      userAgent: USER_AGENT,
+      dispatcher: mockAgent,
+    });
+    await expect(fetcher.fetch(`${ORIGIN}/corrupt`)).rejects.toBeTruthy();
+  });
   it('fetches an allowed URL and returns its status, body, and final URL', async () => {
     mockAgent
       .get(ORIGIN)

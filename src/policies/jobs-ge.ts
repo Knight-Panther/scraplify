@@ -1,4 +1,4 @@
-import { isPathAllowed, SourcePolicySchema, SourceSchema } from '../domain/index.js';
+import { isHostAllowed, isPathAllowed, SourcePolicySchema, SourceSchema } from '../domain/index.js';
 
 export const jobsGeSource = SourceSchema.parse({
   id: '8c3b7cbf-159a-4e13-9d9f-1b50597e4ae9',
@@ -34,6 +34,11 @@ export const jobsGePolicy = SourcePolicySchema.parse({
   // robots.txt: "Disallow: /data/clients/" (confirmed 2026-09-02). Prefix
   // match, per the Robots Exclusion Protocol's own semantics for Disallow.
   disallowedPathPatterns: [{ pattern: '/data/clients/', match: 'prefix' }],
+  // jobs.ge serves everything from one host. isJobsGeUrlAllowed enforces
+  // this via isHostAllowed rather than the hand-rolled origin comparison it
+  // used before allowedHosts existed on the schema (added for hr.ge's
+  // second-host sitemap case; see src/policies/hr-ge.ts).
+  allowedHosts: ['www.jobs.ge'],
   disallowedHosts: [],
   authenticationScope: 'none',
   rateLimit: {
@@ -76,8 +81,6 @@ export const jobsGePolicy = SourcePolicySchema.parse({
   decisionOwner: 'project owner',
 });
 
-const JOBS_GE_ORIGIN = new URL(jobsGeSource.baseUrl).origin;
-
 // '/' and '/ge/' are equivalent locale-wise (confirmed 2026-09-03) and
 // share the same allowed query shape; '/ge/ads/' is a distinct page (the
 // discovery/browse view) with its own shape. Kept as a Set/const rather
@@ -104,12 +107,7 @@ const ADS_PATH = '/ge/ads/';
  *   - '/ge/ads/': no query (page 1), or exactly `?page=<positive digits>`.
  * Everything else — including a same-path URL on a different host, scheme,
  * or port, which isPathAllowed alone would never catch since it never looks
- * at the origin at all — is rejected. Comparing `.origin` rather than
- * `.hostname` matters here specifically: `.hostname` alone would still
- * accept `file://www.jobs.ge/...` (a scheme bypass) or
- * `https://www.jobs.ge:4444/...` (a port bypass), since neither scheme nor
- * port is part of `.hostname` — confirmed empirically before writing this,
- * not assumed.
+ * at the origin at all — is rejected by isHostAllowed below.
  */
 export function isJobsGeUrlAllowed(url: string): boolean {
   let parsed: URL;
@@ -119,7 +117,7 @@ export function isJobsGeUrlAllowed(url: string): boolean {
     return false;
   }
 
-  if (parsed.origin !== JOBS_GE_ORIGIN) {
+  if (!isHostAllowed(jobsGePolicy, parsed)) {
     return false;
   }
   if (!isPathAllowed(jobsGePolicy, parsed.pathname)) {

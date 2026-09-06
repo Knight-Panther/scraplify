@@ -4,6 +4,7 @@ import type { ParserIncidentKind, ParserIncidentSeverity } from '../domain/incid
 import type { ResourceRole, ResourceStatus } from '../domain/resource.js';
 import type { CrawlRunStatus, FetchOutcome } from '../domain/run.js';
 import {
+  crawlCursors,
   crawlRuns,
   type CrawlRunRow,
   fetchAttempts,
@@ -177,10 +178,141 @@ export async function getLastCompletedCrawlRun(
   const [row] = await db
     .select()
     .from(crawlRuns)
-    .where(and(eq(crawlRuns.sourceId, sourceId), eq(crawlRuns.status, 'completed')))
+    .where(
+      and(
+        eq(crawlRuns.sourceId, sourceId),
+        eq(crawlRuns.status, 'completed'),
+        eq(crawlRuns.fullCoverage, true),
+      ),
+    )
     .orderBy(desc(crawlRuns.startedAt))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Reads an adapter's cross-run resumption cursor (see
+ * src/db/schema/crawl-cursors.ts's own comment for why this is a
+ * dedicated table rather than a crawl_runs column) — null if no row
+ * exists yet (a source that has never used cursor-based resumption, or
+ * hasn't run yet) or if the row's own value is null (the last sweep
+ * completed fully). Callers needing single-writer safety should call this
+ * AFTER acquiring their own exclusivity lock (e.g. after startCrawlRun
+ * succeeds), not before — reading a shared cross-run value before holding
+ * any lock risks a handoff race with another invocation that starts and
+ * settles in between (adversarial review, 2026-09-05, round 6).
+ */
+export async function getCrawlCursor(
+  db: DatabaseOrTransaction,
+  sourceId: string,
+): Promise<string | null> {
+  const [row] = await db.select().from(crawlCursors).where(eq(crawlCursors.sourceId, sourceId));
+  return row?.nextSourceRecordId ?? null;
+}
+
+/**
+ * Write a known next detail item, or clear after a healthy full sweep.
+ * Incomplete discovery alone must not clear prior progress. This update
+ * preserves the independently persisted source cooldown.
+ */
+export async function setCrawlCursor(
+  db: DatabaseOrTransaction,
+  sourceId: string,
+  nextSourceRecordId: string | null,
+  updatedAt: string,
+): Promise<void> {
+  await db
+    .insert(crawlCursors)
+    .values({ sourceId, nextSourceRecordId, updatedAt })
+    .onConflictDoUpdate({
+      target: crawlCursors.sourceId,
+      set: { nextSourceRecordId, updatedAt },
+    });
+}
+
+/**
+ * Reads the discovery walk's own resumption point — the index page a
+ * previous, interrupted walk stopped short of. Null means "start at page 1."
+ * Same locking requirement as `getCrawlCursor`.
+ */
+export async function getCrawlDiscoveryPage(
+  db: DatabaseOrTransaction,
+  sourceId: string,
+): Promise<number | null> {
+  const [row] = await db
+    .select({ nextDiscoveryPage: crawlCursors.nextDiscoveryPage })
+    .from(crawlCursors)
+    .where(eq(crawlCursors.sourceId, sourceId));
+  return row?.nextDiscoveryPage ?? null;
+}
+
+/**
+ * Write the first index page an interrupted walk did not cover, or clear
+ * after a walk reaches the source's terminator. Like `setCrawlCursor`, this
+ * preserves the independently persisted cooldown and detail cursor, and
+ * callers must not call it at all for outcomes that carry no progress
+ * information — not calling it is what preserves an earlier walk's real
+ * position.
+ */
+export async function setCrawlDiscoveryPage(
+  db: DatabaseOrTransaction,
+  sourceId: string,
+  nextDiscoveryPage: number | null,
+  updatedAt: string,
+): Promise<void> {
+  await db
+    .insert(crawlCursors)
+    .values({ sourceId, nextDiscoveryPage, updatedAt })
+    .onConflictDoUpdate({
+      target: crawlCursors.sourceId,
+      set: { nextDiscoveryPage, updatedAt },
+    });
+}
+
+/**
+ * A walk that resumed at a saved page saw only a suffix of the index, so its
+ * run row must not claim full coverage — `closeMissingListings` and
+ * `getMaxDiscoveredCountForSource` both read that flag as evidence about the
+ * whole corpus. The run's status guard alone would already block closure
+ * (a resumed walk can never be 'completed'), but leaving a true flag on a
+ * partial sweep would be a false statement in the data for any future reader.
+ */
+export async function markCrawlRunPartialCoverage(
+  db: DatabaseOrTransaction,
+  crawlRunId: string,
+): Promise<void> {
+  await db.update(crawlRuns).set({ fullCoverage: false }).where(eq(crawlRuns.id, crawlRunId));
+}
+
+/** Read under the source's crawl lock, before making any requests. */
+export async function getSourceBackoffUntil(
+  db: DatabaseOrTransaction,
+  sourceId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ nextFetchAt: crawlCursors.nextFetchAt })
+    .from(crawlCursors)
+    .where(eq(crawlCursors.sourceId, sourceId));
+  return row?.nextFetchAt ?? null;
+}
+
+/** A cooldown must never overwrite the detail cursor or shorten an existing cooldown. */
+export async function extendSourceBackoff(
+  db: DatabaseOrTransaction,
+  sourceId: string,
+  nextFetchAt: string,
+  updatedAt: string,
+): Promise<void> {
+  await db
+    .insert(crawlCursors)
+    .values({ sourceId, nextFetchAt, updatedAt })
+    .onConflictDoUpdate({
+      target: crawlCursors.sourceId,
+      set: {
+        nextFetchAt: sql`greatest(${crawlCursors.nextFetchAt}, ${nextFetchAt}::timestamptz)`,
+        updatedAt,
+      },
+    });
 }
 
 /**

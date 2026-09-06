@@ -6,6 +6,8 @@
 **Product/agent name:** Xtelo  
 **Amended:** 2026-09-05 — Phase 1A's scope narrowed at merge (§25): incremental overlap deferred, and "schedule" reduced to the code-level capability rather than an actually-registered live schedule. See §25's Phase 1A entry for the reasoning.
 
+**Acquisition correction:** 2026-09-05 — Phase 1B's recorded reconnaissance supersedes the initial hr.ge pagination/sitemap assumptions (§5.2/§10.2). Index HTML is the coverage authority; sitemap entries are additive candidates only. The current transport/orchestration is shared undici plus adapter loops, not Crawlee (§8.5/§20).
+
 ## 1. Purpose of this document
 
 This document is the proposed source of truth for Scraplify's product direction and system architecture. It combines:
@@ -127,20 +129,20 @@ Implications:
 Confirmed:
 
 - hr.ge is an Angular application with server-rendered listing content.
-- A Playwright inspection of `/search-posting` found 100 unique announcement links and no ordinary pagination links at the time of inspection.
+- The Phase 1B HTML inspection confirmed ordinary `/search-posting?pg=N` pagination, 100 listings per page, and a real out-of-range 404. This corrects the initial inspection's missed pagination links.
 - Detail pages use stable URLs such as `/announcement/<numeric-id>/<slug>`.
 - Detail HTML contains richer fields including specialty, industry, seniority, employment form, schedule, work mode, experience, education, languages, location, salary, and application method when present.
 - `robots.txt` currently allows public paths and advertises a large public sitemap.
-- The public sitemap contains announcement URLs and is useful for reconciliation.
+- The Phase 1B corpus comparison found only paid/priority announcements in the sitemap (about one third of the corpus), with no `lastmod`. It is an additive candidate source, never an absence or reconciliation oracle. See `src/adapters/hr-ge/RECON_NOTES.md` for the dated measurement.
 - The frontend loads configuration from `api.p.hr.ge`, but Playwright did not confirm a public listing/search JSON endpoint. Observed client API calls were ancillary, such as favorites and banners.
 - The site includes AWS WAF challenge infrastructure.
 
 Implications:
 
 - Do not lock production ingestion to an undocumented JSON API.
-- Begin with the public sitemap plus server-rendered index/detail HTML.
+- Use server-rendered index/detail HTML, with the sitemap as an optional additive cross-check.
 - Conduct a bounded API discovery experiment. Adopt a direct API only if its endpoint, completeness, stability, and permitted use are verified.
-- Use smaller today/search views for frequent discovery and the large sitemap for less-frequent reconciliation.
+- Use bounded recent index pages for frequent discovery and a validated full index walk for less-frequent reconciliation.
 - Detect WAF, challenge, login, consent, and access-denied responses as typed failures. Never bypass them.
 
 ### 5.3 Compliance interpretation
@@ -289,7 +291,7 @@ Use `pg_trgm` for fuzzy candidate generation. Add `pgvector` only when semantic 
 
 ### 8.5 Durable jobs only when needed
 
-Crawlee's request queue is sufficient for a single crawl run. Add `pg-boss` when document processing, ranking, notifications, or independently recoverable jobs require durable orchestration. Do not add Redis and BullMQ without a measured reason.
+The implemented adapters use shared undici transport and explicit per-source loops, with PostgreSQL run locks, cursor state, and cooldowns. Crawlee remains an option if measured queueing needs justify it; it is not currently installed. Add `pg-boss` when document processing, ranking, notifications, or independently recoverable jobs require durable orchestration. Do not add Redis and BullMQ without a measured reason.
 
 ## 9. Source adapter contract
 
@@ -363,10 +365,11 @@ Before locking the adapter:
 3. If an API is found, verify unauthenticated access, field completeness, pagination, rate behavior, stability, and permitted use.
 4. Record the selected modes in the source policy.
 
-Current default if no suitable API is verified:
+Recorded Phase 1B decision (2026-09-05; see `src/adapters/hr-ge/RECON_NOTES.md`):
 
-- Frequent discovery: public today/search HTML.
-- Reconciliation: public sitemap.
+- Frequent discovery: bounded recent pages of public `/search-posting` HTML.
+- Reconciliation: full index walk, validated against source totals and historical full-run coverage. Never advance absence on a partial or blocked run.
+- Sitemap: optional additive candidate cross-check; an unverified candidate cannot inflate observed coverage.
 - Details: server-rendered announcement HTML.
 - Browser: canary and fallback only.
 
@@ -375,7 +378,8 @@ Current default if no suitable API is verified:
 - Poll the smaller current-listing entry point frequently.
 - Fetch new details immediately.
 - Revisit known active details periodically even if the visible deadline is unchanged.
-- Download the large sitemap less frequently and compare its IDs with current state.
+- Download the large sitemap on full runs only and fetch any additional candidate details before treating them as observed. A sitemap-only clean 404 is not a positive sighting.
+- Bounded polling sets `fullCoverage=false`, cannot advance missing streaks, and preserves the full-run cursor. Adaptive overlap/high-water-mark optimization remains later work.
 - Never infer mass closure from a single reduced or failed result set.
 
 ## 11. Resource and request identity
@@ -770,7 +774,7 @@ Cadence is configuration, not a hard-coded product assumption.
 | hr.ge today/search discovery | 30–60 minutes | Tune after observing change rate and response size. |
 | New detail fetch | Immediately after discovery | Queue at source-compliant rate. |
 | Active detail refresh | Every 24–72 hours | Faster near deadline or after index changes. |
-| hr.ge full sitemap reconciliation | Every 6–24 hours | Avoid downloading the large sitemap on every small poll. |
+| hr.ge full index reconciliation | Every 6–24 hours | Validate index coverage; sitemap is an optional additive cross-check, not the coverage authority. |
 | Complete source reconciliation | Nightly or weekly | Source-specific and tuned from evidence. |
 | Playwright canary | Daily or after anomalies | Compare rendered and HTTP-derived coverage. |
 
@@ -796,7 +800,7 @@ Consider Apify or Browserless only after measured operations show that hosted cr
 | Runtime | Node.js 24 LTS, pinned by major | Foundation |
 | Language | TypeScript, strict ESM | Foundation |
 | Package manager | npm with committed lockfile | Foundation |
-| Crawl orchestration | Crawlee | First adapter |
+| Crawl orchestration | Explicit adapter loops + shared undici transport + PostgreSQL state | Implemented; Crawlee optional if justified later |
 | HTTP HTML extraction | CheerioCrawler | First adapter |
 | API/probes/downloads | Native Node `fetch`, with bounded/manual redirect handling where security requires | As needed |
 | Browser fallback | PlaywrightCrawler with Chromium | Only when escalation criteria are met |
@@ -1047,7 +1051,7 @@ Before committing symlinks on Windows, verify filesystem permissions and Git sym
 
 - Complete the bounded API-versus-HTML acquisition experiment.
 - Capture sitemap, index/search, and detail fixtures.
-- Implement sitemap reconciliation and frequent small-index discovery.
+- Implement full-index reconciliation, additive sitemap cross-checking, and frequent small-index discovery (corrected by the Phase 1B acquisition experiment).
 - Parse rich structured fields.
 - Add WAF/challenge detection and source-specific health checks.
 

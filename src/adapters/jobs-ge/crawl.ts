@@ -5,6 +5,10 @@ import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
 import {
   type CrawlRunCounts,
   failUnsettledCrawlRun,
+  extendSourceBackoff,
+  getSourceBackoffUntil,
+  getCrawlCursor,
+  setCrawlCursor,
   finishCrawlRun,
   getLastCompletedCrawlRun,
   getMaxDiscoveredCountForSource,
@@ -34,6 +38,7 @@ import {
   SsrfBlockedError,
   UrlNotAllowedError,
 } from '../../net/http-fetcher.js';
+import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import { jobsGePolicy, jobsGeSource } from '../../policies/jobs-ge.js';
 import { JOBS_GE_DETAIL_PARSER_VERSION, parseJobsGeDetailPage } from './detail.js';
 import { type DiscoveredListing, parseAdsPage } from './discovery.js';
@@ -178,6 +183,7 @@ export async function ensureJobsGeSourceSeeded(db: Database): Promise<void> {
       allowedPathPatterns: jobsGePolicy.allowedPathPatterns,
       disallowedPathPatterns: jobsGePolicy.disallowedPathPatterns,
       disallowedHosts: jobsGePolicy.disallowedHosts,
+      allowedHosts: jobsGePolicy.allowedHosts,
       authenticationScope: jobsGePolicy.authenticationScope,
       rateLimit: jobsGePolicy.rateLimit,
       termsUrl: jobsGePolicy.termsUrl,
@@ -203,6 +209,13 @@ function classifyOutcome(error: unknown, result: HttpFetchResult | null): FetchO
   if (error instanceof UrlNotAllowedError || error instanceof SsrfBlockedError) return 'blocked';
   if (error !== null) return 'failure';
   if (result === null) return 'failure';
+  if (
+    result.status === 403 ||
+    result.status === 202 ||
+    result.headers['x-amzn-waf-action'] !== undefined
+  )
+    return 'blocked';
+  if (result.status === 429) return 'retry';
   return result.status === 200 ? 'success' : 'failure';
 }
 
@@ -243,6 +256,7 @@ async function fetchAndRecord(
   role: ResourceRole,
   url: string,
   attemptedAt: string,
+  control: FetchControl,
 ): Promise<FetchAndRecordResult> {
   const startedAtMs = Date.now();
   let fetchResult: HttpFetchResult | null = null;
@@ -254,6 +268,16 @@ async function fetchAndRecord(
   }
   const durationMs = Date.now() - startedAtMs;
   const outcome = classifyOutcome(caughtError, fetchResult);
+  const backoffUntil =
+    fetchResult === null
+      ? null
+      : responseBackoffUntil(
+          fetchResult,
+          new Date(Date.parse(attemptedAt) + durationMs).toISOString(),
+        );
+  if (outcome === 'blocked' || outcome === 'retry' || backoffUntil !== null) control.stopped = true;
+  if (backoffUntil !== null)
+    await extendSourceBackoff(db, jobsGeSource.id, backoffUntil, attemptedAt);
   const succeeded = outcome === 'success' && fetchResult !== null;
 
   const resource = await upsertResource(db, {
@@ -320,7 +344,9 @@ async function fetchPageIds(
   crawlRun: CrawlRunRow,
   now: () => string,
   page: number,
+  control: FetchControl,
 ): Promise<{ ids: Set<string>; listings: DiscoveredListing[] } | null> {
+  if (control.stopped) return null;
   const url = buildAdsPageUrl(page);
   const attemptedAt = now();
   const { outcome, fetchResult } = await fetchAndRecord(
@@ -330,6 +356,7 @@ async function fetchPageIds(
     'INDEX',
     url,
     attemptedAt,
+    control,
   );
   if (outcome !== 'success' || fetchResult === null) return null;
 
@@ -369,13 +396,14 @@ async function discoverAllListings(
   httpFetcher: HttpFetcher,
   crawlRun: CrawlRunRow,
   now: () => string,
+  control: FetchControl,
 ): Promise<DiscoverAllListingsResult> {
   const listings = new Map<string, DiscoveredListing>();
   let complete = false;
   let previousPageIds: Set<string> | null = null;
 
-  for (let page = 1; page <= MAX_DISCOVERY_PAGES; page++) {
-    const fetched = await fetchPageIds(db, httpFetcher, crawlRun, now, page);
+  for (let page = 1; page <= MAX_DISCOVERY_PAGES && !control.stopped; page++) {
+    const fetched = await fetchPageIds(db, httpFetcher, crawlRun, now, page, control);
     if (fetched === null) break;
     const { ids: pageIds, listings: pageListings } = fetched;
 
@@ -386,6 +414,7 @@ async function discoverAllListings(
         crawlRun,
         now,
         page + CLAMP_CONFIRMATION_PROBE_OFFSET,
+        control,
       );
       if (probe !== null && setsEqual(probe.ids, pageIds)) {
         complete = true;
@@ -480,7 +509,18 @@ export async function runJobsGeCrawl(
   };
 
   try {
-    const { listings, complete } = await discoverAllListings(db, httpFetcher, crawlRun, now);
+    const previousCursor = await getCrawlCursor(db, jobsGeSource.id);
+    const backoffUntil = await getSourceBackoffUntil(db, jobsGeSource.id);
+    const control: FetchControl = {
+      stopped: backoffUntil !== null && Date.parse(backoffUntil) > Date.parse(now()),
+    };
+    const { listings, complete } = await discoverAllListings(
+      db,
+      httpFetcher,
+      crawlRun,
+      now,
+      control,
+    );
     counts.discoveredCount = listings.size;
     // Tracked separately per concept §26 ("VIP and standard sections are
     // measured separately") — also what the VIP/standard health guards
@@ -492,7 +532,16 @@ export async function runJobsGeCrawl(
       else counts.standardCount++;
     }
 
-    for (const listing of listings.values()) {
+    const orderedListings = [...listings.values()];
+    const cursorIndex = orderedListings.findIndex(
+      (listing) => listing.sourceRecordId === previousCursor,
+    );
+    const offset = Math.max(0, cursorIndex);
+    const rotatedListings = [...orderedListings.slice(offset), ...orderedListings.slice(0, offset)];
+    let resumeAt: string | null = null;
+    let hasResumeDecision = false;
+    for (const [index, listing] of rotatedListings.entries()) {
+      if (control.stopped) break;
       const identity = {
         sourceId: jobsGeSource.id,
         sourceRecordId: listing.sourceRecordId,
@@ -506,7 +555,16 @@ export async function runJobsGeCrawl(
         'OPPORTUNITY',
         listing.url,
         attemptedAt,
+        control,
       );
+      if (control.stopped) {
+        resumeAt =
+          outcome === 'success'
+            ? (rotatedListings[(index + 1) % rotatedListings.length]?.sourceRecordId ??
+              listing.sourceRecordId)
+            : listing.sourceRecordId;
+        hasResumeDecision = true;
+      }
       if (outcome !== 'success' || fetchResult === null) {
         counts.failedCount++;
         // Still present in discovery even though the detail fetch failed —
@@ -646,7 +704,14 @@ export async function runJobsGeCrawl(
       fetchFailureRate <= maxFetchFailureRate &&
       baselineOk &&
       vipOk &&
-      standardOk;
+      standardOk &&
+      !control.stopped;
+
+    if (hasResumeDecision) {
+      await setCrawlCursor(db, jobsGeSource.id, resumeAt, now());
+    } else if (discoveryOk && counts.failedCount === 0 && counts.quarantinedCount === 0) {
+      await setCrawlCursor(db, jobsGeSource.id, null, now());
+    }
 
     const finishedAt = now();
     const runStatus: CrawlRunStatus = discoveryOk ? 'completed' : 'partial';

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { db } from './client.js';
 import {
+  crawlCursors,
   type CrawlRunRow,
   crawlRuns,
   fetchAttempts,
@@ -158,5 +159,9 @@ export async function cleanupTestSource(sourceId: string): Promise<void> {
   // crawl.test.ts) — a throwaway createTestSource() id never has one, so
   // this delete is a routine no-op for every other test using this helper.
   await db.delete(sourcePolicies).where(eq(sourcePolicies.sourceId, sourceId));
+  // crawl_cursors.source_id FKs into sources.id — only ever populated for
+  // an adapter that uses cursor-based resumption (hr.ge), a no-op delete
+  // for every other test using this helper.
+  await db.delete(crawlCursors).where(eq(crawlCursors.sourceId, sourceId));
   await db.delete(sources).where(eq(sources.id, sourceId));
 }

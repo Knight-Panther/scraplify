@@ -28,6 +28,7 @@ export const sourcePolicies = pgTable('source_policies', {
   allowedPathPatterns: jsonb('allowed_path_patterns').notNull(),
   disallowedPathPatterns: jsonb('disallowed_path_patterns').notNull(),
   disallowedHosts: jsonb('disallowed_hosts').notNull(),
+  allowedHosts: jsonb('allowed_hosts').$type<string[]>().notNull().default([]),
   authenticationScope: authenticationScopeEnum('authentication_scope').notNull(),
   rateLimit: jsonb('rate_limit').notNull(),
   termsUrl: text('terms_url'),

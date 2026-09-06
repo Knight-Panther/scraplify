@@ -1,18 +1,80 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-05 (Phase 1A exit gate closed for merge — see "Current phase" checklist below for what's checked and why)
+Last updated: 2026-09-06. Phase 1B is merged to `main` by explicit user decision **without** a completed whole-branch review and **without** live full-run validation. Both were the documented merge conditions in `CLAUDE.md`; neither was met. They are carried forward below as open work rather than treated as satisfied, and the phase's own exit-gate items stay unchecked where they are not actually true.
 
-Tracks progress against the phased plan in [`scraplify-concept.md`](./scraplify-concept.md) §25. Update this file in the same commit/PR as the work that changes its status — that keeps it honest (Codex reviews the status change alongside the code) instead of a self-reported log that can drift from reality.
+The [confirmed concept](scraplify-concept.md) is authoritative. This file distinguishes implementation evidence from operational readiness.
 
-Check an item only when it's actually true, not aspirationally.
+## Current phase: Phase 1C — cross-source reconciliation
 
-## Current phase: Phase 1A — jobs.ge vertical slice
+Not started. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
 
-On branch `phase-1a-jobsge` off merged `main`. Milestone 1 (reconnaissance and fixture capture) is done — see `src/adapters/jobs-ge/RECON_NOTES.md` for the full findings and `src/policies/jobs-ge.ts` for the resulting policy/authorization update. Per §25: capture sanitized index/detail fixtures, implement VIP and standard discovery partitions, investigate filters/date ordering and define completeness, implement source-compliant HTTP fetching, store source listings/revisions/resources/attempts/crawl runs, implement incremental overlap and conservative closure logic, schedule local read-only runs.
+## Merged with unmet gates: Phase 1B — hr.ge acquisition and reliability
+
+Merged to `main` via PR #3 from `phase-1b-hrge`, 2026-09-06. CI passed. Two of its commits — the discovery-resume fix and the 405 challenge fix — never went through the per-commit Codex gate: it was blocked by a usage limit, not by a finding, and the commits landed with `--no-verify` by explicit decision. No whole-branch adversarial review ever completed; two attempts died mid-run on the same limit, and one of them emitted `Verdict: approve` while its own text said it was still tracing, which is an artifact of a failed turn and not a pass.
+
+Implemented:
+
+- HTTP-first discovery/detail parsing from server-rendered HTML and Angular transfer state; privacy flags honored. Reconnaissance and sanitized fixtures: [RECON_NOTES.md](../src/adapters/hr-ge/RECON_NOTES.md).
+- Full discovery walks the index to a clean 404 terminator and validates observed counts against source totals and historical full-run coverage. A blocked 404 cannot certify completion. Sitemap IDs are candidates only and count toward coverage only after a successfully parsed detail.
+- Source-wide stop signals apply during discovery, clamp probes, sitemap fetches, and details. Both adapters persist Retry-After/reset cooldowns across invocations. A usable quota-exhausting 200 is processed before stopping; rejected work resumes at its own ID.
+- Durable per-source cursor: zero-progress and unhealthy/truncated sweeps preserve it; only a healthy error-free full sweep clears it. Cursor and cooldown updates preserve each other's fields.
+- Durable discovery position (migration 0014): a walk stopped mid-index by a rate limit records the first page it did not cover and the next invocation resumes there, so the advertised 20-request/60s budget cannot pin every run to the same prefix and leave the pages beyond it permanently unreachable. Written only on a stop with covered ground behind it, or on reaching the terminator (which clears it); every other interruption preserves the saved position. A resumed walk observed only a suffix, so it cannot reach `completed`, its run row records `fullCoverage=false`, and reconciliation therefore never sees the pages it skipped.
+- hr.ge bounded incremental mode is invokable: `npm run crawl:hr-ge -- --mode incremental --pages 2`. It sets `fullCoverage=false`, skips sitemap/absence reconciliation, preserves the full cursor, and cannot replace the historical full-run baseline. This is bounded recent-page polling, not an adaptive high-water-mark algorithm.
+- Structural detail loss is quarantined instead of replacing good revisions/deadlines. Explicit null fields remain valid.
+- WAF challenge detection stops the run on all three response codes its own contract names. 405 was documented but unchecked until 2026-09-06, so a 405 challenge read as an ordinary failure and the walk kept requesting — found by comparing the function's comment against its code, and pinned by a test that fails on the unfixed version with 6 requests where 2 are correct.
+- Shared HTTP fetcher negotiates and decodes gzip, Brotli, and zstd, with bounds on both compressed and expanded bodies. Corrupt/unsupported encodings fail safely.
+- Migrations 0012/0013/0014 provide cursor/cooldown state, persisted positive host allow-lists (including backfill for the two existing source policies), and the discovery-page column.
+- Reproducible local setup: ignored `.env`, committed `.env.example`, Node environment-file loading, LF TypeScript files, and a narrowly scoped esbuild override for the inherited Drizzle tooling advisory. See [README](../README.md).
+
+Verification:
+
+- 347 tests across 23 files passed against local PostgreSQL, including regression tests first reproduced against the unfixed code.
+- TypeScript build passed. Drizzle generation reports no schema drift; migration rerun succeeds after the dependency override. npm audit reports zero vulnerabilities.
+- Single-request live sitemap canary through the shared fetcher: HTTP 200, Content-Encoding zstd, 5,383,109 decoded bytes, 1,089 candidate announcement URLs (2026-09-05). XML naturally lacks HTML health markers; it passed the sitemap parser, not the HTML classifier.
+- Formatting, lint, typecheck, build, and the full suite passed after the final code changes.
+- The per-commit Codex gate ran on this changeset (2026-09-06) and returned 1 P1 and 2 P2s. The P1 — discovery restarting at page 1 after a rate-limited walk — is fixed above, with two regression tests confirmed to fail against the unfixed code before the fix was restored. The commit itself then landed with `--no-verify` by explicit user decision rather than re-running the gate on the fix, so the fix's own diff has never been reviewed. Recorded here because that is exactly the kind of claim this file exists to keep honest.
+
+Still outstanding:
+
+- Whole-branch review against `main` before merge; a per-commit pass is not equivalent. The discovery-resume fix additionally has no per-commit review of its own (see the bypass note above).
+- Two P2s deferred from the 2026-09-06 gate, per this project's severity policy: an incremental poll interrupted mid-detail discards its resume decision rather than keeping a separate incremental resume point, so repeated limits re-process the same prefix of the polled window; and a blocked/challenge response carrying `Retry-After` on a sub-400 status (202, or 200 with `x-amzn-waf-action`) stops the run but persists no cooldown, so the next invocation may retry before the server-directed time.
+- Resumed walks make ingestion progress but never certify coverage, so under a persistently tight rate limit a source can go long stretches with no `completed` full-coverage run and therefore no absence reconciliation at all. That is the intended conservative trade (concept §10.2), not a solved problem.
+- Full live hr.ge ingestion and rerun against the production source. Test fetchers exercise the real database, but do not establish live end-to-end reliability.
+- Genuine blocked/CAPTCHA fixture; current challenge tests use documented signals and synthetic responses. Do not provoke or bypass a challenge to obtain one.
+- Automatic scheduling remains a separate operator action. No schedule has been enabled by these fixes.
+- Phase 1C and later work below remains unstarted. jobs.ge incremental overlap remains explicitly deferred by the concept.
+
+Earlier review notes are preserved in [Phase 1B history](reviews/phase-1b-history-2026-09-05.md). Historical assertions that fixes had already landed are not commit evidence.
+
+**Exit gate:** acquisition is evidence-backed and policy-recorded, and local idempotency and failure isolation are tested — those parts are met. Independent review and live operational validation are **not** met and were waived at merge, not satisfied. Anything built on Phase 1B inherits that: its behavior is proven against fake fetchers and a real database, never against hr.ge itself.
+
+## Upcoming phases
+
+Not started, listed in order:
+
+- Phase 1C — cross-source reconciliation (current)
+- Phase 2 — normalization, taxonomy, deduplication
+- Phase 3 — browse and shortlist
+- Phase 4 — attachments and resource expansion
+- Phase 5 — CV matching
+- Phase 6 — outreach assistance
+- Phase 7 — operations and supervised repair
+
+## Completed
+
+### Phase 0 — policy and domain foundation
+
+Merged to `main` via PR #1 (`a45332f`). `/codex:adversarial-review --base main` ran once and returned 3 P1 findings, all fixed. A second confirming run was intended but skipped by explicit user decision after the Codex CLI hung unresponsively twice (`/codex:cancel` found no job to cancel both times); the last commits before merge landed via `--no-verify` instead, verified by hand against a real local Postgres instance (seeded legacy/invalid data, confirmed both the intended rejections and successes) plus the full local gate (format, lint, typecheck, test, build, clean install). CI ran green on GitHub for the first time on the pre-merge push.
+
+Delivered: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), CI (`.github/workflows/ci.yml`), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`), threat model and approval boundaries doc (`docs/THREAT_MODEL.md`), Postgres + Drizzle migrations 0000-0006 (`docker-compose.yml`, `drizzle.config.ts`, `src/db/`) including a composite ownership FK on `source_listings.currentRevisionId` added after adversarial review.
+
+### Phase 1A — jobs.ge vertical slice
+
+Merged to `main` via PR #2 (`c41d0b7`), squash-merged from `phase-1a-jobsge`. Milestone 1 (reconnaissance and fixture capture) is done — see `src/adapters/jobs-ge/RECON_NOTES.md` for the full findings and `src/policies/jobs-ge.ts` for the resulting policy/authorization update. Per §25: capture sanitized index/detail fixtures, implement VIP and standard discovery partitions, investigate filters/date ordering and define completeness, implement source-compliant HTTP fetching, store source listings/revisions/resources/attempts/crawl runs, implement incremental overlap and conservative closure logic, schedule local read-only runs.
 
 The requirement carried forward from Phase 0's adversarial review — `source_listing_revisions` has no DB-level uniqueness on `(sourceListingId, meaningfulContentHash)` (removed deliberately — see `src/db/schema/source-listings.ts`; a lifetime-unique index would reject a listing whose content legitimately reverts to an earlier hash), so retry-safe idempotency has to be enforced in the write path itself — is now implemented: `src/db/write-source-listing-revision.ts`'s `writeSourceListingRevision` insert-or-ignores the listing row, then `SELECT ... FOR UPDATE`s it, re-reads its current revision's hash under that lock, and only inserts a new revision (then repoints `currentRevisionId`) if the freshly observed hash differs — all inside one transaction. Proven by a real concurrency test in `src/db/write-source-listing-revision.test.ts` (two `Promise.all`-raced calls for the same new listing collapse to one revision), which is why CI now runs a Postgres service (`.github/workflows/ci.yml`) rather than only verifying DB behavior by hand as Phase 0 did.
 
-### Exit gate
+#### Exit gate
 
 - [x] Sanitized index and detail HTML fixtures captured (read-only reconnaissance per concept §25's skill-adoption note — no sign-in, upload, submit, or send against jobs.ge) — 5 real fixtures saved to `src/adapters/jobs-ge/fixtures/`: the browse page, its last paginated page, and 3 detail pages chosen to represent 3 distinct application-method structures found (mailto, inline external link in description text, direct external ATS link). Full recon writeup in `src/adapters/jobs-ge/RECON_NOTES.md`
 - [x] VIP and standard discovery partitions implemented — `src/adapters/jobs-ge/discovery.ts`'s `parseAdsPage` parses one `/ge/ads/?page=N` HTML page into its VIP and standard partitions (each listing's numeric ID + policy-checked detail URL + title). Partition membership comes only from which container a row is in (`.vipEntries` vs `#job_list_table`), never from the title anchor's own CSS class — confirmed against the real fixtures that jobs.ge reuses `class="vip"` on the title link in *both* sections, a genuine parsing trap. Verified against both real fixture pages: 10 VIP + 300 standard on page 1, 10 VIP + 247 standard on the last page, zero ID overlap, matching RECON_NOTES.md's counts exactly. Caught and fixed a real bug in the process: the 5 fixture files had been saved as JSON-escaped strings rather than raw HTML at capture time (see RECON_NOTES.md's 2026-09-04 correction) — string-search validation didn't catch it, but the actual cheerio parser did.
@@ -76,24 +138,3 @@ The requirement carried forward from Phase 0's adversarial review — `source_li
 - [x] Concurrency-safe revision write protocol implemented and tested (carried forward from Phase 0, see above)
 
 **Exit gate condition (concept §25):** jobs.ge reruns idempotently; new, changed, unchanged, missing, expired, and failed states are correct; incomplete runs cannot mass-close records.
-
-## Upcoming phases
-
-Not started, listed in order:
-
-- Phase 1B — hr.ge acquisition decision and adapter
-- Phase 1C — cross-source reconciliation
-- Phase 2 — normalization, taxonomy, deduplication
-- Phase 3 — browse and shortlist
-- Phase 4 — attachments and resource expansion
-- Phase 5 — CV matching
-- Phase 6 — outreach assistance
-- Phase 7 — operations and supervised repair
-
-## Completed
-
-### Phase 0 — policy and domain foundation
-
-Merged to `main` via PR #1 (`a45332f`). `/codex:adversarial-review --base main` ran once and returned 3 P1 findings, all fixed. A second confirming run was intended but skipped by explicit user decision after the Codex CLI hung unresponsively twice (`/codex:cancel` found no job to cancel both times); the last commits before merge landed via `--no-verify` instead, verified by hand against a real local Postgres instance (seeded legacy/invalid data, confirmed both the intended rejections and successes) plus the full local gate (format, lint, typecheck, test, build, clean install). CI ran green on GitHub for the first time on the pre-merge push.
-
-Delivered: TypeScript/Node tooling scaffold (package.json, tsconfig, Biome, Vitest), CI (`.github/workflows/ci.yml`), domain contracts as Zod schemas (`src/domain/`), source-policy records for jobs.ge and hr.ge (`src/policies/`), threat model and approval boundaries doc (`docs/THREAT_MODEL.md`), Postgres + Drizzle migrations 0000-0006 (`docker-compose.yml`, `drizzle.config.ts`, `src/db/`) including a composite ownership FK on `source_listings.currentRevisionId` added after adversarial review.
