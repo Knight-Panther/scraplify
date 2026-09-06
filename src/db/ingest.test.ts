@@ -3,15 +3,54 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { db } from './client.js';
 import {
   CrawlAlreadyRunningError,
+  extendSourceBackoff,
   failUnsettledCrawlRun,
   finishCrawlRun,
   getMaxDiscoveredCountForSource,
+  getCrawlCursor,
+  getSourceBackoffUntil,
   recordFetchAttempt,
+  setCrawlCursor,
   startCrawlRun,
   upsertResource,
 } from './ingest.js';
 import { crawlRuns } from './schema/index.js';
 import { cleanupTestSource, createTestCrawlRun, createTestSource } from './test-support.js';
+
+describe('durable source state', () => {
+  let sourceId: string;
+  afterEach(async () => {
+    if (sourceId) await cleanupTestSource(sourceId);
+  });
+
+  it('cooldown updates preserve the detail cursor and cannot shorten a prior deadline', async () => {
+    sourceId = await createTestSource();
+    const now = '2026-09-05T12:00:00Z';
+    await setCrawlCursor(db, sourceId, '42', now);
+    await extendSourceBackoff(db, sourceId, '2026-09-05T14:00:00Z', now);
+    await extendSourceBackoff(db, sourceId, '2026-09-05T13:00:00Z', now);
+    expect(await getCrawlCursor(db, sourceId)).toBe('42');
+    expect(Date.parse((await getSourceBackoffUntil(db, sourceId)) ?? '')).toBe(
+      Date.parse('2026-09-05T14:00:00Z'),
+    );
+    await setCrawlCursor(db, sourceId, null, now);
+    expect(await getCrawlCursor(db, sourceId)).toBeNull();
+    expect(Date.parse((await getSourceBackoffUntil(db, sourceId)) ?? '')).toBe(
+      Date.parse('2026-09-05T14:00:00Z'),
+    );
+  });
+
+  it('a cooldown can create the first state row before any detail cursor exists', async () => {
+    sourceId = await createTestSource();
+    await extendSourceBackoff(db, sourceId, '2026-09-05T14:00:00Z', '2026-09-05T12:00:00Z');
+    expect(await getCrawlCursor(db, sourceId)).toBeNull();
+    await setCrawlCursor(db, sourceId, '42', '2026-09-05T12:01:00Z');
+    expect(await getCrawlCursor(db, sourceId)).toBe('42');
+    expect(Date.parse((await getSourceBackoffUntil(db, sourceId)) ?? '')).toBe(
+      Date.parse('2026-09-05T14:00:00Z'),
+    );
+  });
+});
 
 describe('upsertResource', () => {
   let sourceId: string;

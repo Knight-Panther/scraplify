@@ -3,7 +3,7 @@ import * as cheerio from 'cheerio';
 import type { SourceListingRevisionContent } from '../../db/write-source-listing-revision.js';
 import { extractNgState, findNgStateEntry } from './ng-state.js';
 
-export const HR_GE_DETAIL_PARSER_VERSION = 'v1';
+export const HR_GE_DETAIL_PARSER_VERSION = 'v2';
 
 export interface ParseHrGeDetailPageInput {
   html: string;
@@ -170,6 +170,14 @@ export function parseHrGeDetailPage(input: ParseHrGeDetailPageInput): SourceList
     throw new HrGeDetailParseError(
       `announcementId mismatch: requested ${input.announcementId}, island answered ${String(a.announcementId)}`,
     );
+  }
+
+  // These keys are present in all captured announcement envelopes. Explicit null
+  // remains a valid unknown; absent or mistyped keys indicate structural drift.
+  for (const key of ['description', 'customerName', 'publishDate', 'deadlineDate']) {
+    if (!(key in a) || (a[key] !== null && typeof a[key] !== 'string')) {
+      throw new HrGeDetailParseError(`missing or invalid ${key} field`);
+    }
   }
 
   const isAnonymous = a.isAnonymous === true;

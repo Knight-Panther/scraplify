@@ -24,6 +24,38 @@ function parseFixture(name: string, announcementId: string) {
 }
 
 describe('parseHrGeDetailPage — real fixtures', () => {
+  it.each(['description', 'customerName', 'publishDate', 'deadlineDate'])(
+    'rejects missing structural field %s while accepting explicit nulls',
+    (field) => {
+      const announcement: Record<string, unknown> = {
+        announcementId: 1,
+        title: 'Minimal',
+        description: null,
+        customerName: null,
+        publishDate: null,
+        deadlineDate: null,
+      };
+      const parse = () =>
+        parseHrGeDetailPage({
+          html: `<script id="ng-state" type="application/json">${JSON.stringify({
+            1: {
+              u: 'https://api.p.hr.ge/public-portal/tenant/1/api/v3/announcement/1',
+              b: { data: { announcement } },
+            },
+          })}</script>`,
+          announcementId: '1',
+          extractionMethod: 'http',
+          provenance: {
+            resourceId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa' as ResourceId,
+            fetchedAt: '2026-09-05T12:00:00Z',
+            notes: null,
+          },
+        });
+      expect(parse).not.toThrow();
+      delete announcement[field];
+      expect(parse).toThrow(HrGeDetailParseError);
+    },
+  );
   it('email application (492368): organization, email method, salary suppressed', () => {
     const content = parseFixture('detail-492368-email-application.html', '492368');
     expect(content.titleRaw).toBe('გაყიდვების კონსულტანტი');
@@ -201,6 +233,8 @@ describe('parseHrGeDetailPage — structural failures', () => {
               title: 'minimal listing',
               customerName: null,
               description: null,
+              publishDate: null,
+              deadlineDate: null,
               addresses: null,
               salaryFrom: null,
               salaryTo: null,

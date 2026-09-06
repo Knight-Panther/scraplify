@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { DEFAULT_MISSING_STREAK_THRESHOLD, runHrGeCrawl } from '../adapters/hr-ge/crawl.js';
+import { runHrGeCrawl } from '../adapters/hr-ge/crawl.js';
 import { db } from '../db/client.js';
 import { CrawlAlreadyRunningError } from '../db/ingest.js';
 import { logger } from '../logger.js';
@@ -7,6 +7,7 @@ import { createHttpFetcher } from '../net/http-fetcher.js';
 import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { hrGePolicy, isHrGeUrlAllowed } from '../policies/hr-ge.js';
+import { parseHrGeOptions } from './hr-ge-options.js';
 
 /**
  * One-shot production entry point for a single hr.ge crawl — mirrors
@@ -18,6 +19,7 @@ import { hrGePolicy, isHrGeUrlAllowed } from '../policies/hr-ge.js';
  * long-lived process itself.
  */
 async function main(): Promise<void> {
+  const options = parseHrGeOptions(process.argv.slice(2));
   try {
     await db.execute(sql`select 1`);
   } catch (err) {
@@ -36,10 +38,7 @@ async function main(): Promise<void> {
 
   const startedAtMs = Date.now();
   try {
-    const { crawlRun } = await runHrGeCrawl(
-      { db, httpFetcher },
-      { missingStreakThreshold: DEFAULT_MISSING_STREAK_THRESHOLD },
-    );
+    const { crawlRun } = await runHrGeCrawl({ db, httpFetcher }, options);
 
     logger.info(
       {

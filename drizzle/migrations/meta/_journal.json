@@ -85,6 +85,27 @@
       "when": 1788556213459,
       "tag": "0011_mute_joseph",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788623491292,
+      "tag": "0012_high_abomination",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788624805371,
+      "tag": "0013_source_policy_and_backoff",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788676851799,
+      "tag": "0014_discovery_page_cursor",
+      "breakpoints": true
     }
   ]
 }

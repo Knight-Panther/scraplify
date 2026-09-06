@@ -4,6 +4,7 @@
 *.ps1 text eol=crlf
 *.md text eol=lf
 *.json text eol=lf
+*.ts text eol=lf
 
 # Captured HTML fixtures are evidence, not source: they must round-trip
 # byte-for-byte, exactly as the live server sent them. Under the "* text=auto"

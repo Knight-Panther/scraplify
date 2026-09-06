@@ -45,17 +45,9 @@ const ANNOUNCEMENT_LOC_RE = /^https:\/\/www\.hr\.ge\/announcement\/([1-9][0-9]*)
  * `customer.hr.ge` entry RECON_NOTES.md found) — those are simply
  * filtered out, not a parse failure.
  *
- * Known gap, not yet resolved: the sitemap endpoint was observed
- * (2026-09-05) responding with `Content-Encoding: zstd`, and
- * src/net/http-fetcher.ts's raw undici `request()` does not negotiate or
- * decompress any encoding — if the live server sends compressed bytes
- * regardless of what the client asked for, this function would receive an
- * already-mis-decoded string. It fails safely in that case (garbled bytes
- * produce zero matching `<url>` elements, which the check above already
- * throws on) rather than silently accepting garbage, but this has not
- * been exercised against a real, currently-compressed fetch through the
- * shared fetcher — verify before relying on this path in production, and
- * see RECON_NOTES.md's note under "Implementation plan for adapter code."
+ * The shared fetcher decodes compressed responses before this parser runs,
+ * bounding both wire and expanded bytes. A live zstd response was verified
+ * through that path on 2026-09-05; see docs/STATUS.md for the canary result.
  */
 export function parseHrGeSitemap(xml: string): SitemapAnnouncementCandidate[] {
   const $ = cheerio.load(xml, { xmlMode: true });

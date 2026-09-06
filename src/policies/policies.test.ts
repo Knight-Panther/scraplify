@@ -186,9 +186,9 @@ describe('source policy records', () => {
   });
 
   it('isHrGeUrlAllowed authorizes the sitemap on its own host, and nowhere else', () => {
-    expect(
-      isHrGeUrlAllowed('https://api.p.hr.ge/public-portal/tenant/1/api/v3/seo/sitemap'),
-    ).toBe(true);
+    expect(isHrGeUrlAllowed('https://api.p.hr.ge/public-portal/tenant/1/api/v3/seo/sitemap')).toBe(
+      true,
+    );
     expect(
       isHrGeUrlAllowed('https://api.p.hr.ge/public-portal/tenant/1/api/v3/seo/sitemap?x=1'),
     ).toBe(false);
@@ -197,13 +197,11 @@ describe('source policy records', () => {
     // "host allowed AND path allowed" check (evaluated independently)
     // would miss, since isPathAllowed never looks at which host matched.
     expect(isHrGeUrlAllowed('https://api.p.hr.ge/search-posting')).toBe(false);
-    expect(
-      isHrGeUrlAllowed('https://api.p.hr.ge/announcement/491744/slug'),
-    ).toBe(false);
+    expect(isHrGeUrlAllowed('https://api.p.hr.ge/announcement/491744/slug')).toBe(false);
     // Nor may the sitemap path be fetched from the wrong host.
-    expect(
-      isHrGeUrlAllowed('https://www.hr.ge/public-portal/tenant/1/api/v3/seo/sitemap'),
-    ).toBe(false);
+    expect(isHrGeUrlAllowed('https://www.hr.ge/public-portal/tenant/1/api/v3/seo/sitemap')).toBe(
+      false,
+    );
   });
 
   it('isHrGeUrlAllowed rejects a same-path URL on a different origin: host, scheme, or port', () => {

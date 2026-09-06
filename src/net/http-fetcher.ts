@@ -1,3 +1,5 @@
+import { promisify } from 'node:util';
+import { brotliDecompress, gunzip, inflate, zstdDecompress } from 'node:zlib';
 import { Agent, request } from 'undici';
 import type { Dispatcher } from 'undici';
 import { classifyIpAddress } from '../domain/index.js';
@@ -9,6 +11,12 @@ export { SsrfBlockedError } from './ssrf-lookup.js';
 const DEFAULT_MAX_REDIRECTS = 5;
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 10_000_000;
+const decompressors = {
+  gzip: promisify(gunzip),
+  br: promisify(brotliDecompress),
+  deflate: promisify(inflate),
+  zstd: promisify(zstdDecompress),
+};
 
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 
@@ -119,7 +127,7 @@ async function readBodyWithLimit(
   body: AsyncIterable<Uint8Array>,
   limitBytes: number,
   url: string,
-): Promise<string> {
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of body) {
@@ -129,7 +137,29 @@ async function readBodyWithLimit(
     }
     chunks.push(Buffer.from(chunk));
   }
-  return Buffer.concat(chunks).toString('utf-8');
+  return Buffer.concat(chunks);
+}
+
+async function decodeBody(
+  bytes: Buffer,
+  encoding: string | string[] | undefined,
+  limitBytes: number,
+  url: string,
+): Promise<string> {
+  const name = (Array.isArray(encoding) ? encoding.join(',') : encoding)?.trim().toLowerCase();
+  if (!name || name === 'identity') return bytes.toString('utf-8');
+  if (!Object.hasOwn(decompressors, name)) throw new Error('Unsupported content encoding');
+  try {
+    const decoded = await decompressors[name as keyof typeof decompressors](bytes, {
+      maxOutputLength: limitBytes,
+    });
+    return decoded.toString('utf-8');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ERR_BUFFER_TOO_LARGE') {
+      throw new ResponseTooLargeError(url, limitBytes);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -185,7 +215,7 @@ export function createHttpFetcher(options: HttpFetcherOptions): HttpFetcher {
         const response = await request(currentUrl, {
           method: 'GET',
           dispatcher,
-          headers: { 'user-agent': options.userAgent },
+          headers: { 'user-agent': options.userAgent, 'accept-encoding': 'gzip, br, zstd' },
           signal: AbortSignal.timeout(requestTimeoutMs),
         });
 
@@ -203,7 +233,13 @@ export function createHttpFetcher(options: HttpFetcherOptions): HttpFetcher {
           continue;
         }
 
-        const body = await readBodyWithLimit(response.body, maxResponseBytes, currentUrl);
+        const bytes = await readBodyWithLimit(response.body, maxResponseBytes, currentUrl);
+        const body = await decodeBody(
+          bytes,
+          response.headers['content-encoding'],
+          maxResponseBytes,
+          currentUrl,
+        );
         return {
           status: response.statusCode,
           headers: response.headers,

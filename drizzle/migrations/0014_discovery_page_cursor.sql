@@ -1,0 +1,1 @@
+ALTER TABLE "crawl_cursors" ADD COLUMN "next_discovery_page" integer;
