@@ -1,1 +1,85 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/**
+ * Design tokens. Derived from the SynapseX reference — see
+ * .claude/skills/professional-frontend/references/design-direction.md for what
+ * was taken, what was changed, and why.
+ *
+ * Every value a component uses comes from here. No ad-hoc hex, spacing or radius.
+ */
+@theme {
+  /* Surfaces: near-black ground with three raised steps. */
+  --color-background: #000000;
+  --color-surface: #121014;
+  --color-surface-raised: #1c191e;
+  --color-surface-active: #29232e;
+
+  /* Text ladder. Contrast measured against both #000 and #1c191e.
+     faint is #ffffff8c, NOT the reference's #ffffff66: that composites to #666
+     and gives 3.66:1, under WCAG AA's 4.5:1 for normal text. */
+  --color-foreground: #ffffff;      /* 21.00:1 */
+  --color-muted: #ffffff99;         /*  7.37:1 */
+  --color-faint: #ffffff8c;         /*  6.25:1 */
+  --color-nontext: #ffffff40;       /*  dividers and disabled controls only */
+
+  --color-border: #ffffff26;
+  --color-border-strong: #ffffff40;
+
+  /* One accent. */
+  --color-accent: #d88bd2;          /*  8.54:1 on black */
+  --color-accent-strong: #b841ad;
+  --color-ring: #f0a9ea;            /* 11.57:1 on black */
+
+  /* §13 lifecycle. Paired with a SHAPE in the status chip, never hue alone. */
+  --color-status-open: #7ee787;
+  --color-status-unconfirmed: #e3b341;
+  --color-status-closed: #ffffff8c;
+  --color-status-held: #f0883e;
+
+  --radius: 0.75rem;
+
+  /* Georgian needs more leading than a Latin-only design: Mkhedruli has
+     pronounced ascenders and descenders and no capitals, so tight leading
+     collides. */
+  --leading-body: 1.6;
+  --leading-heading: 1.45;
+
+  /* Under 80 characters, per frontend-design. Descriptions reach 6,657 chars. */
+  --measure: 68ch;
+
+  --font-sans: var(--font-noto-georgian), 'Noto Sans', system-ui, sans-serif;
+  --font-mono: var(--font-space-mono), ui-monospace, monospace;
+}
+
+/* The reference's focus ring, taken verbatim — stronger than most defaults. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 6px;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  line-height: var(--leading-body);
+}
+
+/* Numerals, dates, scores and IDs. Latin/digits only, so Space Mono is safe
+   here and tabular figures are what a data column wants anyway. */
+.numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
