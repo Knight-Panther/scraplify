@@ -38,13 +38,22 @@ Still outstanding:
 
 - Whole-branch review against `main` before merge; a per-commit pass is not equivalent. The discovery-resume fix additionally has no per-commit review of its own (see the bypass note above).
 - Two P2s deferred from the 2026-09-06 gate, per this project's severity policy: an incremental poll interrupted mid-detail discards its resume decision rather than keeping a separate incremental resume point, so repeated limits re-process the same prefix of the polled window; and a blocked/challenge response carrying `Retry-After` on a sub-400 status (202, or 200 with `x-amzn-waf-action`) stops the run but persists no cooldown, so the next invocation may retry before the server-directed time.
-- Resumed walks make ingestion progress but never certify coverage, so under a persistently tight rate limit a source can go long stretches with no `completed` full-coverage run and therefore no absence reconciliation at all. That is the intended conservative trade (concept §10.2), not a solved problem.
+- Resumed walks make ingestion progress but never certify coverage, so under a persistently tight rate limit a source can go long stretches with no `completed` full-coverage run and therefore no absence reconciliation at all. That is the intended conservative trade (concept §10.2), not a solved problem. **Measured 2026-09-06 and found not to apply in practice** — see the live-run evidence below.
 - Full live hr.ge ingestion and rerun against the production source. Test fetchers exercise the real database, but do not establish live end-to-end reliability.
 - Genuine blocked/CAPTCHA fixture; current challenge tests use documented signals and synthetic responses. Do not provoke or bypass a challenge to obtain one.
 - Automatic scheduling remains a separate operator action. No schedule has been enabled by these fixes.
 - Phase 1C and later work below remains unstarted. jobs.ge incremental overlap remains explicitly deferred by the concept.
 
 Earlier review notes are preserved in [Phase 1B history](reviews/phase-1b-history-2026-09-05.md). Historical assertions that fixes had already landed are not commit evidence.
+
+### First live hr.ge run (2026-09-06)
+
+A bounded run against the production source — `--mode incremental --pages 1`, 101 requests over 6m25s at the policy's 3s delay, concurrency 1, crawl run `6675bc38`. This is the first evidence of any kind that this adapter works against hr.ge rather than against fixtures.
+
+- **`completed`, with 100 discovered (92 priority, 8 standard), 100 new, 0 failed, 0 quarantined.** Every detail page parsed; 100 distinct `meaningfulContentHash` values, so no collision or dedup fault. Descriptions non-empty on all 100, application method present on all 100, organization null on 2 (an honest unknown, permitted by §6.2). Dates parsed with the correct UTC+4 offset — raw `23:59:00` local stored as `19:59:00Z` — and both denormalized columns set on all 100 rows.
+- **SSR page responses carry no rate-limit headers.** A single probe returned `200` with `Cache-Control`, `Content-Encoding: br` and a CloudFront `X-Cache` header, and no `Ratelimit-*` of any kind. RECON_NOTES.md recorded `Ratelimit-Policy: 20;w=60` from the robots.txt response and explicitly flagged as unconfirmed whether the same bucket governs page fetches; it does not, as observed. So the "20 requests against a 33-page index" premise behind the discovery-starvation concern does not hold, and neither does the deferred P2 about a healthy 200 arriving with `Ratelimit-Remaining: 0`. Both remain correct defensive handling for a real 429; neither is load-bearing today. One probe from one IP at one moment is not proof the limit can never apply.
+- **Not yet done:** a full-coverage run (~33 index pages plus ~3,265 details, roughly 2.75 hours), and the rerun that would demonstrate idempotency and change detection against live data. The exit-gate item stays open on that basis.
+- **Owed to source-adjacent files, which need a phase branch rather than a direct `main` commit:** `src/adapters/hr-ge/RECON_NOTES.md` and the `notes` field in `src/policies/hr-ge.ts` both still describe the page-fetch rate limit as unconfirmed and should record this measurement.
 
 **Exit gate:** acquisition is evidence-backed and policy-recorded, and local idempotency and failure isolation are tested — those parts are met. Independent review and live operational validation are **not** met and were waived at merge, not satisfied. Anything built on Phase 1B inherits that: its behavior is proven against fake fetchers and a real database, never against hr.ge itself.
 
