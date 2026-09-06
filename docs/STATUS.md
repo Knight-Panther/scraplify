@@ -66,6 +66,22 @@ Both fixed: `runDedupe` takes an optional `sourceIds` scope (every test now pass
 
 Minor known residue: four orphan `test-source-*` rows with one listing each, left by test runs that errored before their cleanup hook. Harmless, and not worth a broad destructive cleanup statement.
 
+### Phase 3A — browse and inspect (2026-09-06)
+
+`src/browse/queries.ts` + `npm run browse`, 9 tests. Satisfies the **inspect** half of Phase 3's exit gate ("the stored corpus can be inspected and corrected without direct database access"); the **correct** half is already served by `src/dedupe/membership-review.ts`.
+
+Deliberately headless. The gate is about the corpus being reachable without `psql`, not about HTML existing, so the query layer is built and tested first and a UI later consumes it rather than embedding its own SQL. §17's CV ranking also gets a supported way to enumerate opportunities without reaching into tables.
+
+- `browse listings` — search by text, source, §13 status, deadline window (the "closing soon" view) and first-seen window (the "new" view).
+- `browse opportunities` — the deduplicated canonical view, following LIVE memberships only, so a review correction is reflected immediately while the retired row survives for audit.
+- `browse review` — the pending duplicate queue with both sides fully rendered, so a reviewer needs no second lookup.
+- `browse health` — per-source §21.2 metrics. **`lastFullCoverageRunAt` is surfaced separately from `lastRunAt` on purpose:** a source polled hourly by bounded runs can still be weeks without full coverage, and in that state absence reconciliation silently is not happening (§10.2). Showing only "last run" would make that look healthy — and it currently reads `never` for both sources, which is true.
+- `--json` on every command, so the same code serves an operator and a later UI.
+
+### Cleanup: orphan test sources were polluting the review queue
+
+Four `test-source-*` rows left by test runs that errored before their cleanup hook were previously recorded here as harmless. They were not: once dedupe ran, they generated candidate pairs **against real listings** and appeared in the review queue as fake duplicates. Removed via the project's own `cleanupTestSource` path. The corpus is now exactly two sources and 410 listings, and a clean dedupe pass reproduces the original figures — 4 `confirmed_same`, 11 `needs_review`.
+
 ### Known input gap for the rest of Phase 2
 
 **Both sources store zero `sourceCategories`,** so §15.2 step 1 ("preserve source category IDs and labels exactly") currently has nothing to preserve, and taxonomy mapping has no input. jobs.ge does expose categories on the site; Phase 1A deliberately skipped them, since the unfiltered index already covers every listing and the `jid` filter went unused. So item 2 of Phase 2 needs a decision before it can start: either extend discovery to capture source categories, or treat classification as *inference* from title/description — a materially harder and different problem. Not started either way.
