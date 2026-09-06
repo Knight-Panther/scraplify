@@ -4,9 +4,37 @@ Last updated: 2026-09-06. Phase 1B is merged to `main` by explicit user decision
 
 The [confirmed concept](scraplify-concept.md) is authoritative. This file distinguishes implementation evidence from operational readiness.
 
-## Current phase: Phase 1C — cross-source reconciliation
+## Current phase: Phase 2A — normalization foundation
 
-In progress on `phase-1c-cross-source-reconciliation`. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
+In progress on `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: Phase 1C is unmerged and unreviewed (Codex unavailable), and stacking keeps closure-adjacent code off `main` while still allowing forward progress. Both branches are intended to be reviewed together in one pass when Codex returns.
+
+Phase 1C was **stopped deliberately, not completed** — see its section below for exactly what is and is not done.
+
+### Delivered
+
+- **Canonical schema (migration 0015).** `organizations`, `organization_aliases`, `opportunities`, `opportunity_revisions`, `opportunity_source_memberships`, `duplicate_candidates` — the tables §12.3–§12.6 specify and the ones dedupe decisions need somewhere to live. Applied locally; `db:generate` reports no drift.
+  - `opportunities.currentCanonicalRevisionId` carries the same composite ownership FK as `source_listings`, so the database itself refuses to point an opportunity at another opportunity's revision.
+  - `opportunity_source_memberships` is **append-only with a `supersededAt` tombstone**, not a mutable pointer: §12.5 requires cluster moves to be reversible and audited, which an updated-in-place row cannot provide — the edit that most needs explaining would destroy the prior decision and its evidence. A partial unique index enforces at most one live membership per listing while allowing any number of retired ones.
+  - `organizations.normalizedName` is **stored, not computed on read**, with a `normalizerVersion` beside it, so a rule change becomes a visible re-runnable migration rather than an invisible re-clustering of history (§14.2).
+  - `normalizedName` is deliberately **not unique**: two real employers can share a key, and §14.2 forbids auto-linking on a name match alone. A collision is a review candidate, not a constraint violation.
+- **Organization normalizer** (`src/normalize/organization.ts`, `ORGANIZATION_NORMALIZER_VERSION = 'v1'`), 13 tests written against strings taken from the live corpus rather than invented. Folds case (hr.ge shouts `AUTOPAPA`, jobs.ge doesn't), quotes, punctuation, domain-style names (`Shop.ge` → `shop ge`), and whole-word legal forms (`შპს`, `სს`, `LLC`, …). Returns **null**, never `''`, for a name that normalizes away entirely — an empty key would bucket every signal-less employer together, which is the accidental mass-merge §14.2 exists to prevent.
+
+### Measured against the real 410-listing corpus
+
+Validated by running the normalizer over all 220 distinct organization strings, not only the hand-picked test cases:
+
+- 220 raw strings → **216 keys, 0 nulls, 0 unintended merges.**
+- **It finds exactly the same 4 cross-source organizations that plain exact-string matching already found** — თიბისი (20 jobs.ge / 8 hr.ge), იფქლი (2/4), ჯიაიჯი ჰოლდინგი (2/2), Evolution (1/4). On this corpus normalization adds **no** matching power over string equality. Recorded plainly because it would be easy to present the four matches as a result of the normalizer; they are not. Its value here is latent — the case, quote and legal-form variants it handles are real and will appear as the corpus grows, but they are not in these 410 listings.
+
+### Known input gap for the rest of Phase 2
+
+**Both sources store zero `sourceCategories`,** so §15.2 step 1 ("preserve source category IDs and labels exactly") currently has nothing to preserve, and taxonomy mapping has no input. jobs.ge does expose categories on the site; Phase 1A deliberately skipped them, since the unfiltered index already covers every listing and the `jid` filter went unused. So item 2 of Phase 2 needs a decision before it can start: either extend discovery to capture source categories, or treat classification as *inference* from title/description — a materially harder and different problem. Not started either way.
+
+The sources also have **disjoint field coverage** — hr.ge has locations on 100/100 and salary on 36; jobs.ge has neither on any of 310. "One source has the field, the other does not" is therefore the normal case for canonical resolution (§12.4), not an edge case.
+
+## Stopped deliberately: Phase 1C — cross-source reconciliation
+
+Worked on `phase-1c-cross-source-reconciliation`. Phase 1B is merged (see below) but carries unmet gates; read those before building on it.
 
 Concept §25's four items, with honest status:
 
@@ -15,7 +43,7 @@ Concept §25's four items, with honest status:
 - [x] **Confirm that a failing source cannot affect the other source's state.** Done at the primitive level, the orchestrator level, and once operationally against live data (see below). All three mutation-verified.
 - [ ] **Add browser-versus-HTTP canaries where useful.** Not started. Playwright is still not an application dependency — concept §28 defers adding it until a source or automated canary requires it, and whether one does is part of this item's own decision.
 
-**Exit gate:** completeness is measured and failures are isolated by source. **The isolation half is met**; the completeness half is not — nothing has yet measured coverage or overlap, and neither source has ever had a full-corpus run to measure against.
+**Exit gate:** completeness is measured and failures are isolated by source. **The isolation half is met; the completeness half is not, and Phase 1C was stopped here by explicit decision rather than finished.** Items 1, 2 and 4 remain open: coverage/overlap reports, full-reconciliation validation, and browser-versus-HTTP canaries. All three depend on a full-corpus run that has never happened for either source (hr.ge ~2.75h, jobs.ge ~7.9h), and item 4 additionally needs a Playwright dependency decision (§28). Closure has therefore still never run against live data on either source.
 
 ### Cross-source failure isolation (primitives)
 
