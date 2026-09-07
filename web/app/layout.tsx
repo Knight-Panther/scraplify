@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { SiteNav } from '../components/site-nav.js';
 import { notoGeorgian, spaceMono } from './fonts.js';
 import './globals.css';
 
@@ -15,7 +16,10 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${notoGeorgian.variable} ${spaceMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        <SiteNav />
+        {children}
+      </body>
     </html>
   );
 }
