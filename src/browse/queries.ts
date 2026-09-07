@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, type SQL, sql } from 'drizzle-orm';
 import {
   crawlRuns,
   duplicateCandidates,
@@ -72,19 +72,34 @@ function clampLimit(limit: number | undefined): number {
  * opportunities. Both views matter: a human checking whether a crawl is
  * healthy wants to see exactly what a source said, undeduplicated.
  */
-export async function searchListings(
-  db: DatabaseOrTransaction,
-  filters: SearchListingsFilters = {},
-): Promise<ListingView[]> {
-  const conditions = [];
+/**
+ * Search text, normalized.
+ *
+ * NFC because Georgian text pasted from a browser and Georgian text typed into
+ * an input can carry different Unicode normalizations for the same word, and
+ * `ilike` compares bytes. Case folding is a no-op for Mkhedruli, which has no
+ * capitals, but it still matters for the Latin employer names in the corpus.
+ */
+function searchPattern(text: string): string {
+  return `%${text.trim().normalize('NFC')}%`;
+}
+
+/**
+ * The WHERE clauses for a listing search.
+ *
+ * Extracted so `searchListings` and `countListings` cannot disagree. A count
+ * with a hand-copied filter set is the classic pagination bug — page 3 of a
+ * 2-page result — and the only reliable fix is one builder with two callers.
+ */
+function listingConditions(filters: SearchListingsFilters): SQL[] {
+  const conditions: SQL[] = [];
   if (filters.text !== undefined && filters.text.trim().length > 0) {
-    const pattern = `%${filters.text.trim()}%`;
-    conditions.push(
-      or(
-        ilike(sourceListingRevisions.titleRaw, pattern),
-        ilike(sourceListingRevisions.organizationRaw, pattern),
-      ),
+    const pattern = searchPattern(filters.text);
+    const match = or(
+      ilike(sourceListingRevisions.titleRaw, pattern),
+      ilike(sourceListingRevisions.organizationRaw, pattern),
     );
+    if (match !== undefined) conditions.push(match);
   }
   if (filters.sourceSlug !== undefined) conditions.push(eq(sources.slug, filters.sourceSlug));
   if (filters.statuses !== undefined && filters.statuses.length > 0) {
@@ -101,6 +116,14 @@ export async function searchListings(
     conditions.push(lte(sourceListings.sourceDeadlineAt, filters.deadlineTo));
   if (filters.firstSeenFrom !== undefined)
     conditions.push(gte(sourceListings.firstSeenAt, filters.firstSeenFrom));
+  return conditions;
+}
+
+export async function searchListings(
+  db: DatabaseOrTransaction,
+  filters: SearchListingsFilters = {},
+): Promise<ListingView[]> {
+  const conditions = listingConditions(filters);
 
   const rows = await db
     .select({
@@ -130,6 +153,24 @@ export async function searchListings(
   return rows;
 }
 
+/** How many listings a search matches, for pagination. Same filters, same builder. */
+export async function countListings(
+  db: DatabaseOrTransaction,
+  filters: Omit<SearchListingsFilters, 'limit' | 'offset'> = {},
+): Promise<number> {
+  const conditions = listingConditions(filters);
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(sourceListings)
+    .innerJoin(sources, eq(sources.id, sourceListings.sourceId))
+    .innerJoin(
+      sourceListingRevisions,
+      eq(sourceListingRevisions.id, sourceListings.currentRevisionId),
+    )
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+  return row?.total ?? 0;
+}
+
 export interface OpportunityView {
   opportunityId: string;
   canonicalTitle: string;
@@ -147,18 +188,121 @@ export interface OpportunityView {
  * detached by review disappears from its old cluster immediately while its
  * retired membership row survives for audit.
  */
+export interface SearchOpportunitiesFilters {
+  /** Case-insensitive substring over the canonical title. */
+  text?: string | undefined;
+  /** §13 canonical states; omitted means every state. */
+  statuses?: readonly string[] | undefined;
+  /** Has at least one LIVE member from this source. */
+  sourceSlug?: string | undefined;
+  /** Only clusters with more than one live member — the cross-posted ones. */
+  crossPostedOnly?: boolean | undefined;
+  /** Any live member's deadline on or after this instant. */
+  deadlineFrom?: string | undefined;
+  /** Any live member's deadline on or before this — the "closing soon" view. */
+  deadlineTo?: string | undefined;
+  /** Any live member first seen on or after this — the "new" view. */
+  firstSeenFrom?: string | undefined;
+  /** Default 'recent'. See ORDER_BY below for why that is not updatedAt. */
+  sort?: 'recent' | 'deadline' | 'title' | undefined;
+  limit?: number | undefined;
+  offset?: number | undefined;
+}
+
+/**
+ * Correlated subquery over an opportunity's LIVE members.
+ *
+ * Every member-based filter is an EXISTS rather than a join, and that is not a
+ * style preference: joining memberships to `opportunities` multiplies the
+ * opportunity row by its member count, so LIMIT and OFFSET would silently
+ * paginate over duplicates and a cross-posted opportunity would consume two
+ * slots on the page.
+ */
+function liveMemberExists(inner: SQL): SQL {
+  return sql`exists (
+    select 1
+    from ${opportunitySourceMemberships} m
+    join ${sourceListings} sl on sl.id = m.source_listing_id
+    join ${sources} s on s.id = sl.source_id
+    where m.opportunity_id = ${opportunities.id}
+      and m.superseded_at is null
+      and ${inner}
+  )`;
+}
+
+/** The earliest instant any live member of this cluster was first seen. */
+const EARLIEST_MEMBER_FIRST_SEEN = sql`(
+  select min(sl.first_seen_at)
+  from ${opportunitySourceMemberships} m
+  join ${sourceListings} sl on sl.id = m.source_listing_id
+  where m.opportunity_id = ${opportunities.id} and m.superseded_at is null
+)`;
+
+/** The latest deadline among live members that are still open. */
+const LATEST_OPEN_MEMBER_DEADLINE = sql`(
+  select max(sl.source_deadline_at)
+  from ${opportunitySourceMemberships} m
+  join ${sourceListings} sl on sl.id = m.source_listing_id
+  where m.opportunity_id = ${opportunities.id} and m.superseded_at is null
+)`;
+
+/**
+ * WHERE clauses for an opportunity search, shared with `countOpportunities`
+ * for the same reason `listingConditions` is shared.
+ */
+function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
+  const conditions: SQL[] = [];
+  if (filters.text !== undefined && filters.text.trim().length > 0) {
+    conditions.push(ilike(opportunities.canonicalTitle, searchPattern(filters.text)));
+  }
+  if (filters.statuses !== undefined && filters.statuses.length > 0) {
+    conditions.push(
+      inArray(
+        opportunities.canonicalStatus,
+        filters.statuses as unknown as typeof opportunities.canonicalStatus.enumValues,
+      ),
+    );
+  }
+  if (filters.sourceSlug !== undefined) {
+    conditions.push(liveMemberExists(sql`s.slug = ${filters.sourceSlug}`));
+  }
+  if (filters.deadlineFrom !== undefined) {
+    conditions.push(liveMemberExists(sql`sl.source_deadline_at >= ${filters.deadlineFrom}`));
+  }
+  if (filters.deadlineTo !== undefined) {
+    conditions.push(liveMemberExists(sql`sl.source_deadline_at <= ${filters.deadlineTo}`));
+  }
+  if (filters.firstSeenFrom !== undefined) {
+    conditions.push(liveMemberExists(sql`sl.first_seen_at >= ${filters.firstSeenFrom}`));
+  }
+  if (filters.crossPostedOnly === true) {
+    conditions.push(sql`(
+      select count(*)
+      from ${opportunitySourceMemberships} m
+      where m.opportunity_id = ${opportunities.id} and m.superseded_at is null
+    ) > 1`);
+  }
+  return conditions;
+}
+
 export async function searchOpportunities(
   db: DatabaseOrTransaction,
-  filters: {
-    text?: string | undefined;
-    limit?: number | undefined;
-    offset?: number | undefined;
-  } = {},
+  filters: SearchOpportunitiesFilters = {},
 ): Promise<OpportunityView[]> {
-  const conditions = [];
-  if (filters.text !== undefined && filters.text.trim().length > 0) {
-    conditions.push(ilike(opportunities.canonicalTitle, `%${filters.text.trim()}%`));
-  }
+  const conditions = opportunityConditions(filters);
+
+  // NOT opportunities.updatedAt, which is what this used to sort by.
+  // resolveCanonicalOpportunity stamps updatedAt on every cluster it touches
+  // during a dedupe pass, so that ordering reshuffled the whole list after each
+  // crawl and never meant "newest job". The earliest instant any live member
+  // was first seen is what a triager actually means by recent: when this
+  // vacancy first appeared anywhere.
+  const orderBy =
+    filters.sort === 'title'
+      ? sql`${opportunities.canonicalTitle} asc`
+      : filters.sort === 'deadline'
+        ? sql`${LATEST_OPEN_MEMBER_DEADLINE} asc nulls last`
+        : sql`${EARLIEST_MEMBER_FIRST_SEEN} desc nulls last`;
 
   const opportunityRows = await db
     .select({
@@ -169,7 +313,7 @@ export async function searchOpportunities(
     })
     .from(opportunities)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(opportunities.updatedAt))
+    .orderBy(orderBy)
     .limit(clampLimit(filters.limit))
     .offset(filters.offset ?? 0);
 
@@ -219,6 +363,72 @@ export async function searchOpportunities(
     ...row,
     members: membersByOpportunity.get(row.opportunityId) ?? [],
   }));
+}
+
+/**
+ * Live members for a set of opportunities, keyed by opportunity id.
+ *
+ * Extracted so the ranked-results screen can attach members without repeating
+ * this join — and, importantly, as a SECOND query keyed by id rather than a
+ * join onto the opportunity list, for the row-multiplication reason
+ * `liveMemberExists` documents.
+ */
+export async function listLiveMembersByOpportunity(
+  db: DatabaseOrTransaction,
+  opportunityIds: readonly string[],
+): Promise<Map<string, ListingView[]>> {
+  const byOpportunity = new Map<string, ListingView[]>();
+  if (opportunityIds.length === 0) return byOpportunity;
+
+  const rows = await db
+    .select({
+      opportunityId: opportunitySourceMemberships.opportunityId,
+      sourceListingId: sourceListings.id,
+      sourceSlug: sources.slug,
+      status: sourceListings.status,
+      title: sourceListingRevisions.titleRaw,
+      organization: sourceListingRevisions.organizationRaw,
+      canonicalUrl: sourceListings.canonicalSourceUrl,
+      publishedAt: sourceListings.sourcePublishedAt,
+      deadlineAt: sourceListings.sourceDeadlineAt,
+      firstSeenAt: sourceListings.firstSeenAt,
+      lastSeenAt: sourceListings.lastSeenAt,
+      applicationMethod: sourceListingRevisions.applicationMethod,
+    })
+    .from(opportunitySourceMemberships)
+    .innerJoin(sourceListings, eq(sourceListings.id, opportunitySourceMemberships.sourceListingId))
+    .innerJoin(sources, eq(sources.id, sourceListings.sourceId))
+    .innerJoin(
+      sourceListingRevisions,
+      eq(sourceListingRevisions.id, sourceListings.currentRevisionId),
+    )
+    .where(
+      and(
+        inArray(opportunitySourceMemberships.opportunityId, [...opportunityIds]),
+        isNull(opportunitySourceMemberships.supersededAt),
+      ),
+    );
+
+  for (const row of rows) {
+    const { opportunityId, ...listing } = row;
+    const existing = byOpportunity.get(opportunityId);
+    if (existing) existing.push(listing);
+    else byOpportunity.set(opportunityId, [listing]);
+  }
+  return byOpportunity;
+}
+
+/** How many opportunities a search matches. Same filters, same builder. */
+export async function countOpportunities(
+  db: DatabaseOrTransaction,
+  filters: Omit<SearchOpportunitiesFilters, 'limit' | 'offset' | 'sort'> = {},
+): Promise<number> {
+  const conditions = opportunityConditions(filters);
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(opportunities)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+  return row?.total ?? 0;
 }
 
 export interface ReviewQueueEntry {
@@ -301,6 +511,15 @@ async function searchListingsByIds(
       eq(sourceListingRevisions.id, sourceListings.currentRevisionId),
     )
     .where(inArray(sourceListings.id, [...ids]));
+}
+
+/** How many pairs are waiting for a human verdict. */
+export async function countReviewQueue(db: DatabaseOrTransaction): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(duplicateCandidates)
+    .where(eq(duplicateCandidates.resultingDecision, 'needs_review'));
+  return row?.total ?? 0;
 }
 
 export interface SourceHealthView {

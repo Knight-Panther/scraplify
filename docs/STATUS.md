@@ -9,9 +9,9 @@ Those are the sub-phases actually carried by that branch, listed rather than wri
 
 In both cases the open work is carried forward below rather than treated as done, and each phase's own exit-gate items stay unchecked where they are not actually true.
 
-## Current phase: Phase 3B — UI (in progress, Stage 3 of 11)
+## Current phase: Phase 3B — UI (in progress, Stage 4 of 11)
 
-In progress on `phase-3b-ui`. **Stages 1–3 are done**: Next.js integration, the design system, and the first real screen (source health). `npm run dev` brings up Postgres, applies migrations and starts the app in one command. The remaining eight stages are listed in the phase plan — the screens a person would use daily (opportunities, listings, detail, review, saved, ranked) are still terminal-only.
+In progress on `phase-3b-ui`. **Stages 1–4 are done**: Next.js integration, the design system, the first real screen (source health), and the query-layer widening the main list needs. `npm run dev` brings up Postgres, applies migrations and starts the app in one command. The remaining eight stages are listed in the phase plan — the screens a person would use daily (opportunities, listings, detail, review, saved, ranked) are still terminal-only.
 
 Everything below this heading is the record of work that has landed. It was built on `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: stacking kept closure-adjacent code off `main` while Codex was unavailable and Phase 1C could not be reviewed. Both branches were then reviewed together, three times (see below), and merged as one in PR #5. Both branches are deleted.
 

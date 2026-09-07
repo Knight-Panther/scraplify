@@ -1,5 +1,8 @@
 import { parseArgs } from 'node:util';
 import {
+  countListings,
+  countOpportunities,
+  countReviewQueue,
   getSourceHealth,
   listReviewQueue,
   searchListings,
@@ -41,8 +44,12 @@ async function main(): Promise<void> {
       text: { type: 'string' },
       source: { type: 'string' },
       status: { type: 'string', multiple: true },
+      'deadline-from': { type: 'string' },
       'deadline-to': { type: 'string' },
       'first-seen-from': { type: 'string' },
+      'cross-posted': { type: 'boolean', default: false },
+      sort: { type: 'string' },
+      offset: { type: 'string' },
       limit: { type: 'string' },
       json: { type: 'boolean', default: false },
     },
@@ -52,6 +59,7 @@ async function main(): Promise<void> {
 
   const command = positionals[0] ?? 'listings';
   const limit = values.limit === undefined ? undefined : Number(values.limit);
+  const offset = values.offset === undefined ? undefined : Number(values.offset);
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
     throw new Error('--limit must be a positive integer');
   }
@@ -67,23 +75,48 @@ async function main(): Promise<void> {
 
   switch (command) {
     case 'listings': {
-      const rows = await searchListings(db, {
+      const listingFilters = {
         text: values.text,
         sourceSlug: values.source,
         statuses: values.status,
+        deadlineFrom: values['deadline-from'],
         deadlineTo: values['deadline-to'],
         firstSeenFrom: values['first-seen-from'],
-        limit,
-      });
-      emit(`${rows.length} listing(s)`, rows, () => {
+      };
+      const rows = await searchListings(db, { ...listingFilters, limit, offset });
+      // The total, not just this page's length — otherwise a default limit of
+      // 50 silently reads as "50 listings" on a 410-listing corpus.
+      const total = await countListings(db, listingFilters);
+      emit(`${rows.length} of ${total} listing(s)`, rows, () => {
         for (const row of rows) console.log(formatListing(row));
       });
       break;
     }
 
     case 'opportunities': {
-      const rows = await searchOpportunities(db, { text: values.text, limit });
-      emit(`${rows.length} canonical opportunit(ies)`, rows, () => {
+      const sort = values.sort;
+      if (sort !== undefined && !['recent', 'deadline', 'title'].includes(sort)) {
+        console.error(`Unknown --sort ${sort}. Expected recent, deadline or title.`);
+        process.exitCode = 1;
+        return;
+      }
+      const opportunityFilters = {
+        text: values.text,
+        statuses: values.status,
+        sourceSlug: values.source,
+        crossPostedOnly: values['cross-posted'] === true ? true : undefined,
+        deadlineFrom: values['deadline-from'],
+        deadlineTo: values['deadline-to'],
+        firstSeenFrom: values['first-seen-from'],
+      };
+      const rows = await searchOpportunities(db, {
+        ...opportunityFilters,
+        sort: sort as 'recent' | 'deadline' | 'title' | undefined,
+        limit,
+        offset,
+      });
+      const total = await countOpportunities(db, opportunityFilters);
+      emit(`${rows.length} of ${total} canonical opportunit(ies)`, rows, () => {
         for (const row of rows) {
           console.log(`\n${row.canonicalTitle}  (${row.members.length} source listing(s))`);
           for (const member of row.members) console.log(formatListing(member));
@@ -93,8 +126,9 @@ async function main(): Promise<void> {
     }
 
     case 'review': {
-      const rows = await listReviewQueue(db, { limit });
-      emit(`${rows.length} pair(s) awaiting review`, rows, () => {
+      const rows = await listReviewQueue(db, { limit, offset });
+      const total = await countReviewQueue(db);
+      emit(`${rows.length} of ${total} pair(s) awaiting review`, rows, () => {
         for (const row of rows) {
           console.log(
             `\ncandidate ${row.candidateId}  similarity ${row.similarityScore.toFixed(3)}`,
