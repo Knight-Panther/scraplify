@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHref, parseOpportunityQuery, ROW_CAP } from './search-params.js';
+import { buildHref, parseOpportunityQuery, ROW_CHUNK } from './search-params.js';
 
 const SLUGS = ['jobs-ge', 'hr-ge'];
 const NOW = Date.parse('2026-09-07T12:00:00.000Z');
@@ -127,12 +127,60 @@ describe('buildHref', () => {
   });
 });
 
-describe('ROW_CAP', () => {
-  it('stays within the query layer’s own MAX_LIMIT', () => {
-    expect(ROW_CAP).toBeLessThanOrEqual(500);
+describe('show depth', () => {
+  it('starts at one chunk', () => {
+    expect(parseOpportunityQuery({}, SLUGS, NOW).show).toBe(ROW_CHUNK);
   });
 
-  it('covers the whole corpus, so the cap notice stays unreachable for now', () => {
-    expect(ROW_CAP).toBeGreaterThan(406);
+  it('accepts a deeper view', () => {
+    expect(parseOpportunityQuery({ show: '1000' }, SLUGS, NOW).show).toBe(1000);
+  });
+
+  /**
+   * A hand-edited depth is rounded UP to a whole chunk. Rounding down would
+   * render fewer rows than the URL asked for, and the "show more" link would
+   * then offer a depth already on screen.
+   */
+  it('rounds a partial depth up to a whole chunk', () => {
+    expect(parseOpportunityQuery({ show: '723' }, SLUGS, NOW).show).toBe(1000);
+    expect(parseOpportunityQuery({ show: '501' }, SLUGS, NOW).show).toBe(1000);
+  });
+
+  it.each([['0'], ['-5'], ['abc'], [''], ['500'], ['1.5']])(
+    'falls back to one chunk for %j',
+    (show) => {
+      expect(parseOpportunityQuery({ show }, SLUGS, NOW).show).toBe(ROW_CHUNK);
+    },
+  );
+
+  /**
+   * No terminal depth. A fixed ceiling is the bug this screen had twice: past
+   * it, "show more" renders a link that parses back to the ceiling and does
+   * nothing. The page clamps against the real total instead, so the control
+   * disappears exactly when there is nothing left to show.
+   */
+  it('has no ceiling of its own, however deep the URL asks', () => {
+    expect(parseOpportunityQuery({ show: '999999' }, SLUGS, NOW).show).toBe(1000000);
+    expect(parseOpportunityQuery({ show: '50000' }, SLUGS, NOW).show).toBe(50000);
+  });
+
+  it('can express a depth past the whole known corpus of ~8,900', () => {
+    expect(parseOpportunityQuery({ show: '9000' }, SLUGS, NOW).show).toBe(9000);
+  });
+
+  it('omits the default depth from the URL but carries a deeper one', () => {
+    const shallow = parseOpportunityQuery({}, SLUGS, NOW);
+    expect(buildHref(shallow, {})).toBe('/opportunities');
+    expect(buildHref(shallow, { show: 1000 })).toBe('/opportunities?show=1000');
+  });
+
+  /**
+   * Someone who has grown the list to 2,000 rows and then re-sorts means to
+   * re-sort what they are looking at, not to be dropped back to the first 500.
+   */
+  it('keeps the depth when the sort changes', () => {
+    const deep = parseOpportunityQuery({ show: '2000' }, SLUGS, NOW);
+    const href = buildHref(deep, { sort: 'title' });
+    expect(new URLSearchParams(href.split('?')[1]).get('show')).toBe('2000');
   });
 });

@@ -27,23 +27,32 @@ export const SINCE_OPTIONS = [
 ] as const;
 
 /**
- * Everything matching is rendered on one page — there is no pagination.
+ * One growing list rather than numbered pages.
  *
- * The corpus is 406 opportunities and this is a scanning tool: one scroll and
- * the browser's own find-in-page cover the whole result set, where paging
- * hides two thirds of it behind clicks. `data-density.md` already says 406 rows
- * need no virtualization.
+ * This is a scanning tool: one continuous scroll and the browser's own
+ * find-in-page beat clicking through pages, and with no page boundary there is
+ * no boundary for a sort tie to straddle — none of the three sort keys is
+ * unique, so LIMIT/OFFSET paging can otherwise duplicate and drop rows.
  *
- * It also removes a whole class of bug rather than patching it. None of the
- * three sort keys is unique — 174 opportunities share one deadline — so under
- * LIMIT/OFFSET a tie straddling a page boundary can show some rows twice and
- * hide others. With one page there is no boundary to straddle.
- *
- * The cap matches the query layer's own MAX_LIMIT. Passing it is not silent:
- * the screen says so, because a list that quietly stops short is worse than one
- * that admits it.
+ * But the list must still reach everything. The database holds 406
+ * opportunities only because no full-coverage crawl has run yet; jobs.ge
+ * carries ~5,647 listings and hr.ge ~3,265, so a fixed cap would hide most of
+ * the corpus the day a real crawl completes. Instead the view starts at one
+ * chunk and a link at the bottom grows it by another, carrying the depth in the
+ * URL — no page numbers, no client JavaScript, and nothing unreachable.
  */
-export const ROW_CAP = 500;
+export const ROW_CHUNK = 500;
+
+/**
+ * There is deliberately NO maximum depth.
+ *
+ * A fixed ceiling — 500, then 10,000 — is the bug this screen has now had
+ * twice: past it, "show more" renders a link that parses back to the ceiling
+ * and does nothing, which is worse than stopping honestly. The only bound that
+ * is not arbitrary is the number of rows that actually match, so the page
+ * clamps against the real total and the control disappears exactly when there
+ * is nothing left to show.
+ */
 
 /** Raw `searchParams`, exactly as Next hands it over. */
 export type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -52,6 +61,8 @@ export interface OpportunityQuery {
   /** Ready to hand to `searchOpportunities` / `countOpportunities`. */
   filters: Omit<SearchOpportunitiesFilters, 'limit' | 'offset' | 'sort'>;
   sort: Sort;
+  /** How many rows this view renders. Grows by ROW_CHUNK via the bottom link. */
+  show: number;
   /** The values the form should show — always the accepted ones, never the raw input. */
   form: {
     q: string;
@@ -123,6 +134,14 @@ export function parseOpportunityQuery(
   const rawSort = one(raw.sort);
   const sort: Sort = (SORTS as readonly string[]).includes(rawSort) ? (rawSort as Sort) : 'recent';
 
+  // Rounded UP to a whole chunk so a hand-edited ?show=723 cannot produce a
+  // 'show more' link that would return fewer rows than are already on screen.
+  const parsedShow = Number.parseInt(one(raw.show), 10);
+  const show =
+    Number.isInteger(parsedShow) && parsedShow > ROW_CHUNK
+      ? Math.ceil(parsedShow / ROW_CHUNK) * ROW_CHUNK
+      : ROW_CHUNK;
+
   return {
     filters: {
       text: q === '' ? undefined : q,
@@ -135,12 +154,22 @@ export function parseOpportunityQuery(
           : new Date(now - since.days * 24 * 60 * 60 * 1000).toISOString(),
     },
     sort,
+    show,
     form: { q, source, status, since: since.value, crossPosted },
   };
 }
 
-/** A link to the same view with the sort changed. */
-export function buildHref(query: OpportunityQuery, changes: Partial<{ sort: Sort }>): string {
+/**
+ * A link to the same view with the sort or the depth changed.
+ *
+ * The depth rides along on a sort change: someone who has grown the list to
+ * 2,000 rows and then re-sorts means to re-sort what they are looking at, not
+ * to be dropped back to the first 500.
+ */
+export function buildHref(
+  query: OpportunityQuery,
+  changes: Partial<{ sort: Sort; show: number }>,
+): string {
   const params = new URLSearchParams();
   if (query.form.q !== '') params.set('q', query.form.q);
   if (query.form.source !== '') params.set('source', query.form.source);
@@ -150,6 +179,9 @@ export function buildHref(query: OpportunityQuery, changes: Partial<{ sort: Sort
 
   const sort = changes.sort ?? query.sort;
   if (sort !== 'recent') params.set('sort', sort);
+
+  const show = changes.show ?? query.show;
+  if (show > ROW_CHUNK) params.set('show', String(show));
 
   const search = params.toString();
   return search === '' ? '/opportunities' : `/opportunities?${search}`;

@@ -56,9 +56,34 @@ The deduplicated list, and the screen a person opens daily. Consumes
 `searchOpportunities` + `countOpportunities`. Filters in the URL (so a view is
 linkable and the back button works), server-rendered, no client state.
 
-**Done when:** filters, sort and pagination all round-trip through the URL; a
-cross-posted cluster renders as one row naming both sources; totals agree with the CLI;
-Georgian search works in a real browser.
+**Done when:** filters and sort round-trip through the URL; a cross-posted cluster
+renders as one row naming both sources; totals agree with the CLI; Georgian search works
+in a real browser.
+
+**Numbered pagination was dropped in favour of one growing list** (decided 2026-09-07,
+revised the same day). A scanning tool wants one continuous scroll and the browser's own
+find-in-page, not clicks through pages; and with no page boundary there is no boundary
+for a sort tie to straddle, which otherwise duplicates and drops rows because none of
+the three sort keys is unique.
+
+The first version of this capped the list at 500 rows outright, and that was wrong — the
+Codex review caught it. The database holds 406 opportunities only because **no
+full-coverage crawl has ever run**; jobs.ge carries ~5,647 listings and hr.ge ~3,265, so
+a fixed 500 cap would have hidden roughly 95% of the corpus the day a real crawl
+finished, with no way to reach it. "Narrow your filters" is not an answer when you cannot
+see what was omitted.
+
+The list therefore starts at one 500-row chunk, and a link at the bottom grows it by
+another — no page numbers, no client JavaScript, nothing unreachable. The depth rides in
+the URL like the rest of this screen's state, and the link is anchored at the first newly
+revealed row so growing the list opens where the reader left off.
+
+**There is no maximum depth**, deliberately. A first attempt set one at 10,000, which is
+the same defect at a different number: past it the control renders a link that parses
+back to the ceiling and does nothing. The only non-arbitrary bound is how many rows match,
+so the page clamps against the real total. Rows are read in 500-row batches, so the query
+layer keeps its original `MAX_LIMIT` of 500 — batching is safe under OFFSET only because
+every ordering ends in `opportunities.id`.
 
 ### 6. Opportunity detail
 

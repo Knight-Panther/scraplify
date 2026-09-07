@@ -12,7 +12,7 @@ import {
   buildHref,
   type OpportunityQuery,
   type RawSearchParams,
-  ROW_CAP,
+  ROW_CHUNK,
   SINCE_OPTIONS,
   SORTS,
   parseOpportunityQuery,
@@ -64,17 +64,16 @@ export default async function OpportunitiesPage({
 
   const query = parseOpportunityQuery(raw, slugs);
 
-  const [opportunities, total] = await Promise.all([
-    searchOpportunities(db, { ...query.filters, sort: query.sort, limit: ROW_CAP }),
-    countOpportunities(db, query.filters),
-  ]);
+  const total = await countOpportunities(db, query.filters);
+  // Clamped to what actually matches, so "how deep can this list go" has no
+  // arbitrary answer — it goes as deep as there are rows.
+  const opportunities = await fetchRows(query, Math.min(query.show, total));
 
   const rows = opportunities.map(toRow);
   const filtered = Object.values(query.form).some((value) => value !== '' && value !== false);
-  // Only reachable once the corpus outgrows ROW_CAP. Stated rather than
-  // silently truncated: a list that quietly stops at 500 of 700 is worse than
-  // one that says so.
-  const capped = total > rows.length;
+  // More matches exist than are rendered. Never silent: the bottom of the list
+  // says so and offers the next chunk.
+  const more = total - rows.length;
 
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
@@ -101,20 +100,45 @@ export default async function OpportunitiesPage({
         <SortControl query={query} />
       </div>
 
-      {capped && (
-        <p className="mt-2 text-sm text-status-unconfirmed">
-          Showing the first <span className="numeric">{count(rows.length)}</span>. Narrow the
-          filters to see the rest.
-        </p>
-      )}
-
       {rows.length === 0 ? (
         <EmptyState filtered={filtered} />
       ) : (
-        <ResultsTable rows={rows} sort={query.sort} />
+        <>
+          <ResultsTable rows={rows} sort={query.sort} />
+          <ShowMore query={query} shown={rows.length} more={more} />
+        </>
       )}
     </main>
   );
+}
+
+/**
+ * Reads `count` rows in ROW_CHUNK-sized queries.
+ *
+ * Batched rather than one big query so the shared query layer keeps its
+ * original 500-row bound: raising that guard to suit one screen was the wrong
+ * direction, and it only moved the ceiling rather than removing it. Sequential
+ * because the batches are cheap and only a user who has clicked "show more"
+ * repeatedly pays for more than one.
+ *
+ * Safe under OFFSET only because every ordering ends in `opportunities.id`.
+ * Without that tie-breaker Postgres may order tied rows differently per query,
+ * and adjacent batches would overlap and skip — the corpus has 174
+ * opportunities sharing a single deadline.
+ */
+async function fetchRows(query: OpportunityQuery, count: number) {
+  const collected = [];
+  for (let offset = 0; offset < count; offset += ROW_CHUNK) {
+    const batch = await searchOpportunities(db, {
+      ...query.filters,
+      sort: query.sort,
+      limit: Math.min(ROW_CHUNK, count - offset),
+      offset,
+    });
+    collected.push(...batch);
+    if (batch.length === 0) break;
+  }
+  return collected;
 }
 
 /**
@@ -338,8 +362,8 @@ function ResultsTable({ rows, sort }: { rows: OpportunityRow[]; sort: Opportunit
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <Row key={row.opportunityId} row={row} />
+          {rows.map((row, index) => (
+            <Row key={row.opportunityId} row={row} position={index + 1} />
           ))}
         </tbody>
       </table>
@@ -355,11 +379,13 @@ function Th({ children, className, ...rest }: React.ThHTMLAttributes<HTMLTableCe
   );
 }
 
-function Row({ row }: { row: OpportunityRow }) {
+function Row({ row, position }: { row: OpportunityRow; position: number }) {
   const type = row.type === 'job' ? null : opportunityTypeLabel(row.type);
 
   return (
-    <tr className="border-b border-border align-baseline hover:bg-surface">
+    // The id is what "show more" targets, so a longer list opens where the
+    // reader left off rather than back at the top.
+    <tr id={`row-${position}`} className="border-b border-border align-baseline hover:bg-surface">
       <td className="py-1.5 pr-4">
         <span className="block truncate" title={row.title}>
           {row.title}
@@ -546,5 +572,44 @@ function EmptyState({ filtered }: { filtered: boolean }) {
         'There are no opportunities yet. They appear once a crawl has run and listings have been grouped.'
       )}
     </p>
+  );
+}
+
+/**
+ * The bottom of the list: what is on screen, what is not, and a link to more.
+ *
+ * A link rather than a button, so it works without JavaScript, opens in a new
+ * tab on middle-click, and leaves the depth in the URL where the rest of this
+ * screen's state already lives. Nothing here is a page number — the next chunk
+ * is appended to the same continuous list.
+ */
+function ShowMore({
+  query,
+  shown,
+  more,
+}: {
+  query: OpportunityQuery;
+  shown: number;
+  more: number;
+}) {
+  if (more <= 0) return null;
+  const next = Math.min(query.show + ROW_CHUNK, shown + more);
+
+  return (
+    <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-sm">
+      {/* Anchored at the first newly revealed row. A plain link would return
+          the reader to the top of a list they had just scrolled to the bottom
+          of, which on a scanning screen makes the control nearly useless. */}
+      <a
+        className="rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-1.5 hover:bg-surface-active"
+        href={`${buildHref(query, { show: next })}#row-${shown + 1}`}
+      >
+        Show <span className="numeric">{count(Math.min(ROW_CHUNK, more))}</span> more
+      </a>
+      <p className="text-faint">
+        <span className="numeric">{count(shown)}</span> of{' '}
+        <span className="numeric">{count(shown + more)}</span> shown
+      </p>
+    </div>
   );
 }
