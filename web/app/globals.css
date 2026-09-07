@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 /**
  * Design tokens. Derived from the SynapseX reference — see
@@ -24,18 +24,18 @@
   /* Text ladder. Contrast measured against both #000 and #1c191e.
      faint is #ffffff8c, NOT the reference's #ffffff66: that composites to #666
      and gives 3.66:1, under WCAG AA's 4.5:1 for normal text. */
-  --color-foreground: #ffffff;      /* 21.00:1 */
-  --color-muted: #ffffff99;         /*  7.37:1 */
-  --color-faint: #ffffff8c;         /*  6.25:1 */
-  --color-nontext: #ffffff40;       /*  dividers and disabled controls only */
+  --color-foreground: #ffffff; /* 21.00:1 */
+  --color-muted: #ffffff99; /*  7.37:1 */
+  --color-faint: #ffffff8c; /*  6.25:1 */
+  --color-nontext: #ffffff40; /*  dividers and disabled controls only */
 
   --color-border: #ffffff26;
   --color-border-strong: #ffffff40;
 
   /* One accent. */
-  --color-accent: #d88bd2;          /*  8.54:1 on black */
+  --color-accent: #d88bd2; /*  8.54:1 on black */
   --color-accent-strong: #b841ad;
-  --color-ring: #f0a9ea;            /* 11.57:1 on black */
+  --color-ring: #f0a9ea; /* 11.57:1 on black */
 
   /* §13 lifecycle. Paired with a SHAPE in the status chip, never hue alone. */
   --color-status-open: #7ee787;
@@ -54,7 +54,7 @@
   /* Under 80 characters, per frontend-design. Descriptions reach 6,657 chars. */
   --measure: 68ch;
 
-  --font-sans: var(--font-noto-georgian), 'Noto Sans', system-ui, sans-serif;
+  --font-sans: var(--font-noto-georgian), "Noto Sans", system-ui, sans-serif;
   --font-mono: var(--font-space-mono), ui-monospace, monospace;
 }
 
@@ -73,6 +73,9 @@ body {
   color: var(--color-foreground);
   font-family: var(--font-sans);
   line-height: var(--leading-body);
+  /* No double-tap-to-zoom delay on the ~300ms touch timer. This is a dense
+     table people tap through on a phone; pinch zoom is unaffected. */
+  touch-action: manipulation;
 }
 
 /* Georgian must never be letter-spaced (georgian-typography.md rule 6), and any
@@ -104,7 +107,9 @@ th {
   *,
   *::before,
   *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: overriding every author animation is the entire point of this block, and a user who asked the operating system for reduced motion outranks any component's own declaration */
     animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: as above */
     transition-duration: 0.01ms !important;
   }
 }

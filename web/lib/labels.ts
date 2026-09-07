@@ -1,3 +1,4 @@
+import type { opportunityTypeEnum } from '../../src/db/schema/opportunities.js';
 import type { crawlRunStatusEnum } from '../../src/db/schema/runs.js';
 import type { sourceListingStatusEnum } from '../../src/db/schema/source-listings.js';
 
@@ -80,6 +81,41 @@ export const crawlRunStatusLabels: Record<CrawlRunStatus, Label> = {
     explanation: 'The crawl looked anomalous enough that its results were not trusted.',
   },
 };
+
+type OpportunityType = (typeof opportunityTypeEnum.enumValues)[number];
+
+/**
+ * §12.3 opportunity types.
+ *
+ * Every one of the 406 canonical opportunities is currently a `job`, and the
+ * screens deliberately do NOT print that label 406 times — a column whose every
+ * cell reads the same word is noise in a scanning tool. The map exists because
+ * the other four types are real schema values that will appear the moment a
+ * source carrying scholarships or grants is added, and an unlabelled enum
+ * reaching the screen then is exactly the failure this file exists to prevent.
+ */
+export const opportunityTypeLabels: Record<OpportunityType, Label> = {
+  job: { short: 'job', explanation: 'A paid vacancy.' },
+  summer_school: {
+    short: 'summer school',
+    explanation: 'A fixed-term educational programme rather than employment.',
+  },
+  scholarship: {
+    short: 'scholarship',
+    explanation: 'Funding for study, awarded to a person rather than a project.',
+  },
+  grant: { short: 'grant', explanation: 'Funding awarded for a project or activity.' },
+  event: { short: 'event', explanation: 'A one-off event, such as a conference or competition.' },
+};
+
+export function opportunityTypeLabel(type: string): Label {
+  return (
+    opportunityTypeLabels[type as OpportunityType] ?? {
+      short: 'unrecognised kind',
+      explanation: `This build has no label for the opportunity kind "${type}".`,
+    }
+  );
+}
 
 /** Human-facing source names. Slugs are internal identifiers. */
 export const sourceLabels: Record<string, string> = {

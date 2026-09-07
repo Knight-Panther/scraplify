@@ -46,7 +46,7 @@ export default async function HealthPage() {
 
 function EmptyState() {
   return (
-    <p className="mt-8 rounded-[--radius] border border-border bg-surface px-4 py-6 text-sm text-muted">
+    <p className="mt-8 rounded-[var(--radius)] border border-border bg-surface px-4 py-6 text-sm text-muted">
       No sources are configured yet. A source appears here once its first crawl has run.
     </p>
   );
@@ -57,7 +57,7 @@ function SourceCard({ source }: { source: SourceHealthView }) {
   const total = statuses.reduce((sum, [, n]) => sum + n, 0);
 
   return (
-    <section className="rounded-[--radius] border border-border bg-surface">
+    <section className="rounded-[var(--radius)] border border-border bg-surface">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-border px-4 py-3">
         <h2 className="font-medium">{sourceLabel(source.sourceSlug)}</h2>
         <p className="text-sm text-faint">

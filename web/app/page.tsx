@@ -73,7 +73,7 @@ export default async function Page() {
       </Section>
 
       <Section title="Longest title" note={`${longest.title.length} characters, truncated by CSS.`}>
-        <p className="max-w-sm truncate rounded-[--radius] border border-border bg-surface px-3 py-2">
+        <p className="max-w-sm truncate rounded-[var(--radius)] border border-border bg-surface px-3 py-2">
           {longest.title}
         </p>
       </Section>
@@ -99,7 +99,7 @@ export default async function Page() {
       <Section title="Focus ring" note="Tab to it. Taken verbatim from the reference.">
         <button
           type="button"
-          className="rounded-[--radius] border border-border bg-surface px-4 py-2 text-sm hover:bg-surface-raised"
+          className="rounded-[var(--radius)] border border-border bg-surface px-4 py-2 text-sm hover:bg-surface-raised"
         >
           Focusable control
         </button>
@@ -138,7 +138,7 @@ function Section({
 function Swatch({ name, className }: { name: string; className: string }) {
   return (
     <div className="text-xs">
-      <div className={`h-12 w-24 rounded-[--radius] border border-border ${className}`} />
+      <div className={`h-12 w-24 rounded-[var(--radius)] border border-border ${className}`} />
       <div className="mt-1 text-faint">{name}</div>
     </div>
   );

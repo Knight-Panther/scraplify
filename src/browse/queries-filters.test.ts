@@ -90,6 +90,8 @@ describe('opportunity filters, counts and ordering', () => {
     sourceCount: number;
     status?: 'active' | 'missing_suspected' | 'closed';
     firstSeenAt?: string;
+    /** Per-member first-seen, for the case where the members disagree. */
+    firstSeenAts?: readonly string[];
   }): Promise<{ opportunityId: string; listingIds: string[]; slugs: string[] }> {
     const created: string[] = [];
     const slugs: string[] = [];
@@ -98,11 +100,12 @@ describe('opportunity filters, counts and ordering', () => {
       sourceIds.push(sourceId);
       const [row] = await db.select().from(sources).where(eq(sources.id, sourceId));
       if (row !== undefined) slugs.push(row.slug);
+      const firstSeenAt = spec.firstSeenAts?.[i] ?? spec.firstSeenAt;
       created.push(
         await addListing(sourceId, {
           title: spec.title,
           ...(spec.status === undefined ? {} : { status: spec.status }),
-          ...(spec.firstSeenAt === undefined ? {} : { firstSeenAt: spec.firstSeenAt }),
+          ...(firstSeenAt === undefined ? {} : { firstSeenAt }),
         }),
       );
     }
@@ -247,6 +250,88 @@ describe('opportunity filters, counts and ordering', () => {
       newer.opportunityId,
       older.opportunityId,
     ]);
+  });
+
+  it('excludes an opportunity whose last live membership was retired', async () => {
+    // `detachListing` and reassignment keep the opportunity row after emptying
+    // it, so the audit trail survives. Browsing must not: a cluster with no
+    // live member has no route to any source, and counting it would make a
+    // total that claims to be one row per vacancy wrong.
+    const marker = `Shell ${randomUUID().slice(0, 8)}`;
+    const shell = await makeCluster({ title: `${marker} emptied`, sourceCount: 1 });
+    await makeCluster({ title: `${marker} intact`, sourceCount: 1 });
+
+    expect(await countOpportunities(db, { text: marker })).toBe(2);
+
+    await db
+      .update(opportunitySourceMemberships)
+      .set({ supersededAt: '2026-09-07T00:00:00Z' })
+      .where(eq(opportunitySourceMemberships.opportunityId, shell.opportunityId));
+
+    const rows = await searchOpportunities(db, { text: marker, limit: 10 });
+    expect(rows.map((row) => row.canonicalTitle)).toEqual([`${marker} intact`]);
+    expect(await countOpportunities(db, { text: marker })).toBe(1);
+  });
+
+  it('judges firstSeenFrom by the earliest member, not by any member', async () => {
+    // A months-old vacancy that a second board picked up yesterday is not new.
+    // An any-member EXISTS said it was — while the row itself displayed, and
+    // the 'recent' sort ordered by, the earliest member. The filter has to
+    // agree with the value the screen shows or "last 24 hours" lies.
+    const marker = `FirstSeen ${randomUUID().slice(0, 8)}`;
+    const old = await makeCluster({
+      title: `${marker} long-standing`,
+      sourceCount: 2,
+      firstSeenAts: ['2026-01-01T00:00:00Z', '2026-09-06T00:00:00Z'],
+    });
+    const fresh = await makeCluster({
+      title: `${marker} genuinely new`,
+      sourceCount: 1,
+      firstSeenAt: '2026-09-06T00:00:00Z',
+    });
+
+    const rows = await searchOpportunities(db, {
+      text: marker,
+      firstSeenFrom: '2026-09-05T00:00:00Z',
+      limit: 10,
+    });
+    expect(rows.map((row) => row.opportunityId)).toEqual([fresh.opportunityId]);
+    expect(
+      await countOpportunities(db, { text: marker, firstSeenFrom: '2026-09-05T00:00:00Z' }),
+    ).toBe(1);
+
+    // Both are in range when the cutoff genuinely precedes both.
+    expect(
+      await countOpportunities(db, { text: marker, firstSeenFrom: '2025-12-01T00:00:00Z' }),
+    ).toBe(2);
+    expect(old.opportunityId).not.toBe(fresh.opportunityId);
+  });
+
+  it('paginates tied rows without duplicating or dropping any', async () => {
+    // None of the three sort keys is unique — the corpus has 174 opportunities
+    // sharing one deadline. Without a tie-breaker Postgres may order tied rows
+    // differently per query, so a tie straddling a page boundary shows some
+    // rows twice and hides others completely.
+    // Every listing `addListing` makes carries the same deadline, so these six
+    // are a genuine tie under the 'deadline' ordering.
+    const marker = `Tie ${randomUUID().slice(0, 8)}`;
+    for (let i = 0; i < 6; i++) {
+      await makeCluster({ title: `${marker} same`, sourceCount: 1 });
+    }
+
+    const seen: string[] = [];
+    for (let offset = 0; offset < 6; offset += 2) {
+      const page = await searchOpportunities(db, {
+        text: marker,
+        sort: 'deadline',
+        limit: 2,
+        offset,
+      });
+      seen.push(...page.map((row) => row.opportunityId));
+    }
+
+    expect(seen).toHaveLength(6);
+    expect(new Set(seen).size).toBe(6);
   });
 
   it('sorts by title when asked', async () => {

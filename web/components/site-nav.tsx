@@ -18,13 +18,14 @@ import { databaseLabel, writesEnabled } from '../lib/writes.js';
 
 const LINKS = [
   { href: '/', label: 'Overview' },
+  { href: '/opportunities', label: 'Opportunities' },
   { href: '/health', label: 'Source health' },
 ];
 
 export function SiteNav() {
   return (
     <nav aria-label="Main" className="border-b border-border">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-3">
+      <div className="flex w-full flex-wrap items-center gap-x-6 gap-y-2 px-6 py-3">
         <span className="font-semibold">Xtelo</span>
         <ul className="flex gap-x-5 text-sm">
           {LINKS.map((link) => (
@@ -40,8 +41,8 @@ export function SiteNav() {
           <span
             className={
               writesEnabled()
-                ? 'rounded-[--radius] border border-status-held px-2 py-0.5 text-status-held'
-                : 'rounded-[--radius] border border-border px-2 py-0.5 text-faint'
+                ? 'rounded-[var(--radius)] border border-status-held px-2 py-0.5 text-status-held'
+                : 'rounded-[var(--radius)] border border-border px-2 py-0.5 text-faint'
             }
             title={
               writesEnabled()

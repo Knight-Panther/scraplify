@@ -24,30 +24,33 @@ const SHAPE_BY_STATUS: Record<string, { shape: Shape; className: string }> = {
 
 function Glyph({ shape }: { shape: Shape }) {
   // aria-hidden throughout: the adjacent text already says what this means, so
-  // announcing the shape would be noise for a screen reader.
-  const common = { width: 8, height: 8, viewBox: '0 0 8 8', 'aria-hidden': true } as const;
+  // announcing the shape would be noise for a screen reader. It is written out
+  // on each element rather than folded into `common` because a linter cannot
+  // see an accessibility attribute through a spread — and reported four
+  // untitled SVGs when it was.
+  const common = { width: 8, height: 8, viewBox: '0 0 8 8' } as const;
   switch (shape) {
     case 'filled':
       return (
-        <svg {...common}>
+        <svg {...common} aria-hidden="true">
           <circle cx="4" cy="4" r="3.5" fill="currentColor" />
         </svg>
       );
     case 'hollow':
       return (
-        <svg {...common}>
+        <svg {...common} aria-hidden="true">
           <circle cx="4" cy="4" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       );
     case 'bar':
       return (
-        <svg {...common}>
+        <svg {...common} aria-hidden="true">
           <rect x="0.5" y="3" width="7" height="2" fill="currentColor" />
         </svg>
       );
     case 'square':
       return (
-        <svg {...common}>
+        <svg {...common} aria-hidden="true">
           <rect x="0.5" y="0.5" width="7" height="7" fill="currentColor" />
         </svg>
       );

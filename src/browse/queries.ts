@@ -186,7 +186,8 @@ export interface OpportunityView {
  *
  * Only LIVE memberships are followed (`supersededAt is null`), so a listing
  * detached by review disappears from its old cluster immediately while its
- * retired membership row survives for audit.
+ * retired membership row survives for audit. An opportunity left with NO live
+ * member is excluded entirely — see `opportunityConditions`.
  */
 export interface SearchOpportunitiesFilters {
   /** Case-insensitive substring over the canonical title. */
@@ -201,7 +202,12 @@ export interface SearchOpportunitiesFilters {
   deadlineFrom?: string | undefined;
   /** Any live member's deadline on or before this — the "closing soon" view. */
   deadlineTo?: string | undefined;
-  /** Any live member first seen on or after this — the "new" view. */
+  /**
+   * The vacancy first appeared on or after this instant — the "new" view.
+   *
+   * Compared against the EARLIEST live member, the same value the 'recent' sort
+   * orders by, so this agrees with what a row displays.
+   */
   firstSeenFrom?: string | undefined;
   /** Default 'recent'. See ORDER_BY below for why that is not updatedAt. */
   sort?: 'recent' | 'deadline' | 'title' | undefined;
@@ -251,7 +257,13 @@ const LATEST_OPEN_MEMBER_DEADLINE = sql`(
  * for the same reason `listingConditions` is shared.
  */
 function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
-  const conditions: SQL[] = [];
+  // Unconditional, not a filter: an opportunity with no LIVE member is a
+  // retained shell, not a browsable vacancy. `detachListing` and reassignment
+  // deliberately keep the row for audit after emptying it, so without this the
+  // list shows a record with no route to any source and counts it toward a
+  // total that claims to be one row per vacancy. Its history stays reachable
+  // through the membership tombstones, which is where audit belongs.
+  const conditions: SQL[] = [liveMemberExists(sql`true`)];
   if (filters.text !== undefined && filters.text.trim().length > 0) {
     conditions.push(ilike(opportunities.canonicalTitle, searchPattern(filters.text)));
   }
@@ -273,7 +285,13 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
     conditions.push(liveMemberExists(sql`sl.source_deadline_at <= ${filters.deadlineTo}`));
   }
   if (filters.firstSeenFrom !== undefined) {
-    conditions.push(liveMemberExists(sql`sl.first_seen_at >= ${filters.firstSeenFrom}`));
+    // Against the EARLIEST live member, not "any member" as this used to be.
+    // An any-member EXISTS made a months-old vacancy match "first seen in the
+    // last day" as soon as a second board picked it up — while the row itself
+    // displayed, and the 'recent' sort ordered by, the earliest member. Filter,
+    // sort and displayed value now all mean the same thing: when this vacancy
+    // first appeared anywhere.
+    conditions.push(sql`${EARLIEST_MEMBER_FIRST_SEEN} >= ${filters.firstSeenFrom}`);
   }
   if (filters.crossPostedOnly === true) {
     conditions.push(sql`(
@@ -297,12 +315,18 @@ export async function searchOpportunities(
   // crawl and never meant "newest job". The earliest instant any live member
   // was first seen is what a triager actually means by recent: when this
   // vacancy first appeared anywhere.
+  // Every ordering ends in the primary key, and that is a correctness
+  // requirement rather than tidiness. None of the three sort keys is unique —
+  // 174 opportunities in the corpus share one deadline, and titles repeat — and
+  // Postgres is free to return tied rows in a different order on each query.
+  // With LIMIT/OFFSET on top, a tie straddling a page boundary silently
+  // duplicates some opportunities onto page 2 and drops others entirely.
   const orderBy =
     filters.sort === 'title'
-      ? sql`${opportunities.canonicalTitle} asc`
+      ? sql`${opportunities.canonicalTitle} asc, ${opportunities.id} asc`
       : filters.sort === 'deadline'
-        ? sql`${LATEST_OPEN_MEMBER_DEADLINE} asc nulls last`
-        : sql`${EARLIEST_MEMBER_FIRST_SEEN} desc nulls last`;
+        ? sql`${LATEST_OPEN_MEMBER_DEADLINE} asc nulls last, ${opportunities.id} asc`
+        : sql`${EARLIEST_MEMBER_FIRST_SEEN} desc nulls last, ${opportunities.id} asc`;
 
   const opportunityRows = await db
     .select({

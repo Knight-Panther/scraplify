@@ -13,12 +13,25 @@ export const metadata = {
   description: 'Job listings from jobs.ge and hr.ge, deduplicated and ranked.',
 };
 
+// Matches --color-background, so the browser's own chrome does not flash a
+// light band above a black page.
+export const viewport = { themeColor: '#000000' };
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${notoGeorgian.variable} ${spaceMono.variable}`}>
       <body>
+        {/* The first stop for a keyboard user. The opportunities screen puts
+            three filters and a sort control ahead of the table, so tabbing to
+            the results is otherwise a dozen stops every visit. */}
+        <a
+          href="#content"
+          className="sr-only focus:not-sr-only focus:absolute focus:z-10 focus:m-3 focus:rounded-[var(--radius)] focus:border focus:border-border-strong focus:bg-surface-raised focus:px-4 focus:py-2 focus:text-sm"
+        >
+          Skip to content
+        </a>
         <SiteNav />
-        {children}
+        <div id="content">{children}</div>
       </body>
     </html>
   );

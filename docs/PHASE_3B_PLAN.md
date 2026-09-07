@@ -50,7 +50,7 @@ three sort orders, real totals via `countOpportunities`, and a corrected default
 earliest live-member `firstSeenAt`, not `opportunities.updatedAt`, which a dedupe pass
 restamps on every cluster it touches.
 
-### 5. Opportunities list — the main screen
+### 5. Opportunities list — the main screen (done 2026-09-07)
 
 The deduplicated list, and the screen a person opens daily. Consumes
 `searchOpportunities` + `countOpportunities`. Filters in the URL (so a view is
