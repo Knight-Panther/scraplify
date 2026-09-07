@@ -182,6 +182,56 @@ describe('opportunity filters, counts and ordering', () => {
     expect(await countOpportunities(db, { text: marker, crossPostedOnly: true })).toBe(1);
   });
 
+  it('does not call two listings from the SAME board cross-posted', async () => {
+    // "On both boards" must mean more than one BOARD, not more than one
+    // membership. The schema only enforces one live membership per listing, so
+    // a cluster can legitimately hold two live listings from one source —
+    // transitive linking and manual reassignment both produce it. Counting
+    // memberships returned such a cluster under the filter while the row, which
+    // collapses members to distinct sources, showed a single board.
+    const marker = `Same board ${randomUUID().slice(0, 8)}`;
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+
+    const first = await addListing(sourceId, { title: marker });
+    const second = await addListing(sourceId, { title: marker });
+
+    const opportunityId = randomUUID();
+    opportunityIds.push(opportunityId);
+    await db.insert(opportunities).values({
+      id: opportunityId,
+      type: 'job',
+      canonicalTitle: marker,
+      organizationId: null,
+      canonicalStatus: 'active',
+      currentCanonicalRevisionId: null,
+      createdAt: '2026-09-06T12:00:00Z',
+      updatedAt: '2026-09-06T12:00:00Z',
+    });
+    for (const sourceListingId of [first, second]) {
+      await db.insert(opportunitySourceMemberships).values({
+        id: randomUUID(),
+        opportunityId,
+        sourceListingId,
+        decision: 'confirmed_same',
+        confidence: 0.97,
+        evidence: {},
+        decidedBy: 'ruleset',
+        decidedAt: '2026-09-06T12:00:00Z',
+        dedupeModelOrRulesetVersion: 'v1',
+        supersededAt: null,
+      });
+    }
+
+    // Two live memberships, one board: present in the list, absent from the
+    // cross-posted view.
+    expect(await countOpportunities(db, { text: marker })).toBe(1);
+    expect(await countOpportunities(db, { text: marker, crossPostedOnly: true })).toBe(0);
+
+    const [row] = await searchOpportunities(db, { text: marker });
+    expect(row?.members).toHaveLength(2);
+  });
+
   it('excludes a single-source opportunity from the cross-posted view', async () => {
     const marker = `Single source ${randomUUID().slice(0, 8)}`;
     await makeCluster({ title: marker, sourceCount: 1 });

@@ -294,9 +294,17 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
     conditions.push(sql`${EARLIEST_MEMBER_FIRST_SEEN} >= ${filters.firstSeenFrom}`);
   }
   if (filters.crossPostedOnly === true) {
+    // DISTINCT source, not membership count. "Cross-posted" means more than one
+    // BOARD carries the vacancy, and the schema permits a cluster to hold two
+    // live memberships from the same board — transitive linking and manual
+    // reassignment both produce it, since the only uniqueness is one live
+    // membership per listing. Counting memberships would return such a cluster
+    // under a filter labelled "on both boards" while the row itself, which
+    // collapses members to distinct sources, showed a single board.
     conditions.push(sql`(
-      select count(*)
+      select count(distinct sl.source_id)
       from ${opportunitySourceMemberships} m
+      join ${sourceListings} sl on sl.id = m.source_listing_id
       where m.opportunity_id = ${opportunities.id} and m.superseded_at is null
     ) > 1`);
   }

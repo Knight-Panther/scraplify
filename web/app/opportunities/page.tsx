@@ -170,7 +170,7 @@ function Filters({ query, slugs }: { query: OpportunityQuery; slugs: readonly st
             spellCheck={false}
             autoComplete="off"
             placeholder="Search titles…"
-            className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-nontext"
+            className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-faint"
           />
         </Field>
 

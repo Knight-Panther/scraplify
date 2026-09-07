@@ -19,8 +19,13 @@ driven by two constraints, not by screen importance:
 
 1. **Every read-only screen ships before any writing screen.** The write gate
    (`XTELO_WRITES_ENABLED`) exists because this project has twice corrupted real data
-   during QA. Stages 5–7 cannot write by construction, so they can be QA'd against the
-   live corpus. Stage 8 is where that stops being true.
+   during QA. Stages 5–8 cannot write by construction, so they can be QA'd against the
+   live corpus. Stage 9 is where that stops being true.
+
+   Ranked results moved from tenth to eighth on 2026-09-07 for exactly this reason: it
+   is read-only and has no blocker, so leaving it behind a writing screen and a blocked
+   one contradicted both constraints below and let duplicate review's missing
+   `evidence` column stall a screen that was ready.
 2. **Two screens have known backend blockers** (duplicate review, taxonomy review).
    They are scheduled after the screens that have none, so a blocker cannot stall the
    stages that are ready.
@@ -92,6 +97,15 @@ lifecycle state, and the description. The first screen where `--measure` and the
 description case matter. Needs a `getOpportunity(id)` query — `searchOpportunities`
 returns list-shaped rows and should not grow a detail mode.
 
+**Done when:** each source's description is shown **separately and attributed**, never
+merged into one block; every field the sources disagree about is visible as a
+disagreement rather than resolved silently; and every live member links back to its own
+listing. This is a completion criterion, not a nicety — the concept requires the
+canonical view to surface disagreements, `anti-patterns.md` classes merged descriptions
+as lost provenance, and the ranking layer concatenates them internally precisely so the
+UI does not have to. The list screen already sets the precedent: all four cross-posted
+clusters disagree about their closing date, and the row says so.
+
 ### 7. Listings — the raw per-source view
 
 `searchListings`, undeduplicated, with the concept's named views: **new, closing,
@@ -100,14 +114,22 @@ reconstructable — `source_listings.status` is updated in place and no history 
 exists). This is the view that answers "what did the source actually say", which the
 canonical list deliberately hides.
 
-### 8. Saved items and dismissals — the first writing screen
+### 8. Ranked results
+
+`src/ranking/` already produces explainable, component-wise scores against a versioned
+profile. The screen's job is to show *why* a score is what it is, not just the number —
+a rank with no visible reasoning is the thing the deterministic scorer was chosen to
+avoid. `listLiveMembersByOpportunity` exists so this screen attaches members without
+repeating the join.
+
+### 9. Saved items and dismissals — the first writing screen
 
 The shortlist half of "browse and shortlist". Needs a new table, and it is where
 `.env.qa` and the disposable QA database arrive, because it is the first screen that can
 write. Every earlier stage is read-only by construction; from here the write gate is
 load-bearing rather than precautionary.
 
-### 9. Duplicate review
+### 10. Duplicate review
 
 **Blocked on two backend defects, both recorded in STATUS.md and neither trivial:**
 
@@ -121,14 +143,6 @@ load-bearing rather than precautionary.
   each opening its own transaction — so a crash between them leaves a merged cluster
   with an unsettled candidate that the next dedupe pass re-queues. Needs a transactional
   wrapper before the screen is built.
-
-### 10. Ranked results
-
-`src/ranking/` already produces explainable, component-wise scores against a versioned
-profile. The screen's job is to show *why* a score is what it is, not just the number —
-a rank with no visible reasoning is the thing the deterministic scorer was chosen to
-avoid. `listLiveMembersByOpportunity` exists so this screen attaches members without
-repeating the join.
 
 ### 11. Taxonomy review — blocked, but in scope
 
