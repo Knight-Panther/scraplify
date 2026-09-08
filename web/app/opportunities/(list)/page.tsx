@@ -2,24 +2,34 @@ import {
   countOpportunities,
   getSourceHealth,
   searchOpportunities,
-} from '../../../src/browse/queries.js';
-import { db } from '../../../src/db/client.js';
-import { StatusChip } from '../../components/status-chip.js';
-import { absoluteTime, count, relativeTime } from '../../lib/format.js';
-import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../lib/labels.js';
-import { type OpportunityRow, toRow } from '../../lib/opportunity-row.js';
+} from '../../../../src/browse/queries.js';
+import { db } from '../../../../src/db/client.js';
+import { StatusChip } from '../../../components/status-chip.js';
+import { absoluteTime, count, relativeTime, sourceDateTime } from '../../../lib/format.js';
+import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../../lib/labels.js';
+import { type OpportunityRow, toRow } from '../../../lib/opportunity-row.js';
 import {
   buildHref,
+  buildQueryString,
   type OpportunityQuery,
   type RawSearchParams,
   ROW_CHUNK,
   SINCE_OPTIONS,
   SORTS,
   parseOpportunityQuery,
-} from '../../lib/search-params.js';
+} from '../../../lib/search-params.js';
 
 /**
  * The deduplicated list — the screen someone opens daily and scans.
+ *
+ * It lives in a `(list)` route group, which changes no URL and exists for one
+ * reason: `loading.tsx` applies to a segment AND everything nested under it,
+ * so while this file sat directly in `opportunities/`, its loading fallback
+ * wrapped `opportunities/[id]` too. That fallback starts streaming the
+ * response, and once streaming starts the status code is already sent — so the
+ * detail screen's `notFound()` rendered its page under a 200, telling every
+ * client that a stale link had resolved fine. The group scopes this screen's
+ * loading UI to this screen. (next/docs: "Status Codes", loading.mdx.)
  *
  * Two decisions shape everything here.
  *
@@ -74,6 +84,9 @@ export default async function OpportunitiesPage({
   // More matches exist than are rendered. Never silent: the bottom of the list
   // says so and offers the next chunk.
   const more = total - rows.length;
+  // Built once and handed to every row: the filters and sort a reader is
+  // looking at, so the detail screen can bring them back here unchanged.
+  const back = buildQueryString(query);
 
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
@@ -104,7 +117,7 @@ export default async function OpportunitiesPage({
         <EmptyState filtered={filtered} />
       ) : (
         <>
-          <ResultsTable rows={rows} sort={query.sort} />
+          <ResultsTable rows={rows} sort={query.sort} back={back} />
           <ShowMore query={query} shown={rows.length} more={more} />
         </>
       )}
@@ -316,7 +329,15 @@ function SortControl({ query }: { query: OpportunityQuery }) {
  * The widths change at each breakpoint because the visible columns do, and they
  * are declared on the header cells so the whole table follows one source.
  */
-function ResultsTable({ rows, sort }: { rows: OpportunityRow[]; sort: OpportunityQuery['sort'] }) {
+function ResultsTable({
+  rows,
+  sort,
+  back,
+}: {
+  rows: OpportunityRow[];
+  sort: OpportunityQuery['sort'];
+  back: string;
+}) {
   return (
     <div className="mt-3 overflow-x-auto">
       <table className="w-full table-fixed border-collapse text-sm leading-[var(--leading-body)]">
@@ -363,7 +384,7 @@ function ResultsTable({ rows, sort }: { rows: OpportunityRow[]; sort: Opportunit
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <Row key={row.opportunityId} row={row} position={index + 1} />
+            <Row key={row.opportunityId} row={row} position={index + 1} back={back} />
           ))}
         </tbody>
       </table>
@@ -379,17 +400,46 @@ function Th({ children, className, ...rest }: React.ThHTMLAttributes<HTMLTableCe
   );
 }
 
-function Row({ row, position }: { row: OpportunityRow; position: number }) {
+function Row({
+  row,
+  position,
+  back,
+}: {
+  row: OpportunityRow;
+  position: number;
+  /** This view's query string, so the detail screen can link back to it. */
+  back: string;
+}) {
   const type = row.type === 'job' ? null : opportunityTypeLabel(row.type);
+  // Only the view's state travels. Where to land on the way back is the
+  // opportunity's own id, which the detail screen already knows — see its
+  // BackLink for why a position could not be trusted.
+  const href = `/opportunities/${row.opportunityId}?${new URLSearchParams({ back })}`;
 
   return (
-    // The id is what "show more" targets, so a longer list opens where the
-    // reader left off rather than back at the top.
-    <tr id={`row-${position}`} className="border-b border-border align-baseline hover:bg-surface">
+    // Two anchors, because they answer different questions. The opportunity
+    // id is stable across crawls and is where the detail screen returns a
+    // reader to. The positional one is what "show more" targets: it is
+    // computed against the very page it lands on, where position is exactly
+    // what is meant.
+    <tr
+      id={`opp-${row.opportunityId}`}
+      className="border-b border-border align-baseline hover:bg-surface"
+    >
       <td className="py-1.5 pr-4">
-        <span className="block truncate" title={row.title}>
+        <span id={`row-${position}`} />
+        {/* The title is the link, not a separate "view" affordance: it is the
+            largest target in the row and the thing a reader is already aiming
+            at. A plain <a> for the reason site-nav.tsx gives — <Link> would
+            prefetch on hover, turning idle pointer movement across a list of
+            several thousand rows into that many database queries. */}
+        <a
+          href={href}
+          className="block truncate text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-accent"
+          title={row.title}
+        >
           {row.title}
-        </span>
+        </a>
         {/* Everything the narrower breakpoints drop reappears here, so nothing
             a triager needs is unreachable on a phone. Each piece hides at the
             width where its own column comes back. */}
@@ -455,7 +505,7 @@ function NarrowMetaText({ row }: { row: OpportunityRow }) {
   if (row.deadline !== null) {
     parts.push(
       <span key="deadline">
-        <time dateTime={row.deadline} title={absoluteTime(row.deadline)}>
+        <time dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
           closes {relativeTime(row.deadline)}
         </time>
         {/* The conflict marker belongs here too. Every cross-posted cluster in
@@ -542,7 +592,7 @@ function Deadline({ row }: { row: OpportunityRow }) {
   if (row.deadline === null) return null;
   return (
     <>
-      <time dateTime={row.deadline} title={absoluteTime(row.deadline)}>
+      <time dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
         {relativeTime(row.deadline)}
       </time>
       {row.deadlinesDisagree && (

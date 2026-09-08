@@ -1,3 +1,4 @@
+import { sourceDayKey } from './format.js';
 import type { ListingView, OpportunityView } from '../../src/browse/queries.js';
 
 /**
@@ -33,7 +34,14 @@ export interface OpportunityRow {
   sources: SourceRef[];
   /** Latest deadline any live member states; null when none states one. */
   deadline: string | null;
-  /** Whether the members state different deadlines — a real source conflict. */
+  /**
+   * Whether the members state different closing DATES — a real source conflict.
+   *
+   * Compared by Georgian calendar day, not by stored instant. The boards
+   * record the same day at different precisions (jobs.ge as local midnight,
+   * hr.ge as an end-of-day minute), so an instant comparison marked all four
+   * cross-posted clusters as disagreeing when only two do.
+   */
   deadlinesDisagree: boolean;
   /** Earliest instant any live member was first seen: when this first appeared. */
   firstSeen: string | null;
@@ -47,9 +55,14 @@ function distinct(values: readonly string[]): string[] {
 export function toRow(opportunity: OpportunityView): OpportunityRow {
   const members: readonly ListingView[] = opportunity.members;
 
-  const deadlines = distinct(
-    members.flatMap((member) => (member.deadlineAt === null ? [] : [member.deadlineAt])),
-  ).sort();
+  const statedDeadlines = members.flatMap((member) =>
+    member.deadlineAt === null ? [] : [member.deadlineAt],
+  );
+  // Sorted as instants, because the LATEST is what gets displayed and what
+  // LATEST_OPEN_MEMBER_DEADLINE sorts by. Disagreement is judged separately,
+  // on the calendar day, because that is what the boards actually stated.
+  const deadlines = distinct(statedDeadlines).sort();
+  const deadlineDays = distinct(statedDeadlines.map(sourceDayKey));
   const firstSeens = members.map((member) => member.firstSeenAt).sort();
 
   // One entry per SOURCE, not per member: a source that listed the same
@@ -78,7 +91,7 @@ export function toRow(opportunity: OpportunityView): OpportunityRow {
     ),
     sources,
     deadline: deadlines.at(-1) ?? null,
-    deadlinesDisagree: deadlines.length > 1,
+    deadlinesDisagree: deadlineDays.length > 1,
     firstSeen: firstSeens[0] ?? null,
     crossPosted: sources.length > 1,
   };

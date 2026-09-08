@@ -1,6 +1,13 @@
-import type { opportunityTypeEnum } from '../../src/db/schema/opportunities.js';
+import type {
+  dedupeDecidedByEnum,
+  dedupeDecisionEnum,
+  opportunityTypeEnum,
+} from '../../src/db/schema/opportunities.js';
 import type { crawlRunStatusEnum } from '../../src/db/schema/runs.js';
-import type { sourceListingStatusEnum } from '../../src/db/schema/source-listings.js';
+import type {
+  extractionMethodEnum,
+  sourceListingStatusEnum,
+} from '../../src/db/schema/source-listings.js';
 
 /**
  * The single place a database enum becomes something a person reads.
@@ -148,6 +155,99 @@ export function crawlRunStatusLabel(status: string): Label {
     crawlRunStatusLabels[status as CrawlRunStatus] ?? {
       short: 'unrecognised state',
       explanation: `This build has no label for the crawl state "${status}".`,
+    }
+  );
+}
+
+type DedupeDecision = (typeof dedupeDecisionEnum.enumValues)[number];
+type DedupeDecidedBy = (typeof dedupeDecidedByEnum.enumValues)[number];
+type ExtractionMethod = (typeof extractionMethodEnum.enumValues)[number];
+
+/**
+ * Why a listing sits in a cluster (§14.1 stage 5).
+ *
+ * The wording keeps the confidence honest. `probable_same` is not a weaker way
+ * of saying yes — it is the system declining to be certain, and the detail
+ * screen is where a reader decides whether to trust the grouping. Every one of
+ * the four live memberships in the corpus is `confirmed_same`, so the other
+ * three exist here for the moment they do not.
+ *
+ * None of these explanations names the evidence behind a decision, and that is
+ * deliberate. `confirmed_same` used to say the match rested on "a shared
+ * application link or address", which is how the ruleset reaches it today and
+ * not how a human reassignment does — so the label asserted a basis that the
+ * stored evidence rendered beside it could flatly contradict. The enum says
+ * what was decided; `evidence` says why.
+ */
+export const dedupeDecisionLabels: Record<DedupeDecision, Label> = {
+  confirmed_same: {
+    short: 'the same vacancy',
+    explanation:
+      'Judged to be one vacancy carried by both boards. The evidence behind that judgement is shown with it.',
+  },
+  probable_same: {
+    short: 'probably the same vacancy',
+    explanation:
+      'The evidence points the same way but is not conclusive. Worth checking both listings before relying on the grouping.',
+  },
+  needs_review: {
+    short: 'awaiting a decision',
+    explanation: 'Proposed as the same vacancy, but nobody has judged it yet.',
+  },
+  distinct: {
+    short: 'judged different',
+    explanation: 'Considered as a possible duplicate and ruled out.',
+  },
+};
+
+/** Who or what made the grouping decision. */
+export const dedupeDecidedByLabels: Record<DedupeDecidedBy, Label> = {
+  ruleset: {
+    short: 'matched automatically',
+    explanation: 'Decided by the scoring rules, with no person involved.',
+  },
+  model: {
+    short: 'matched by a model',
+    explanation: 'Decided by a model rather than the deterministic rules.',
+  },
+  human: {
+    short: 'decided by a person',
+    explanation: 'Someone reviewed this pair and decided it.',
+  },
+};
+
+/** How the page behind a listing was retrieved. */
+export const extractionMethodLabels: Record<ExtractionMethod, Label> = {
+  http: { short: 'plain fetch', explanation: 'The page was read directly, without a browser.' },
+  browser: {
+    short: 'browser',
+    explanation: 'The page needed a real browser to render before it could be read.',
+  },
+};
+
+export function dedupeDecisionLabel(decision: string): Label {
+  return (
+    dedupeDecisionLabels[decision as DedupeDecision] ?? {
+      short: 'unrecognised decision',
+      explanation: `This build has no label for the decision "${decision}".`,
+    }
+  );
+}
+
+export function dedupeDecidedByLabel(decidedBy: string): Label {
+  return (
+    dedupeDecidedByLabels[decidedBy as DedupeDecidedBy] ?? {
+      short: 'unrecognised source',
+      explanation: `This build has no label for the decision-maker "${decidedBy}".`,
+    }
+  );
+}
+
+export function extractionMethodLabel(method: string): Label {
+  return (
+    extractionMethodLabels[method as ExtractionMethod] ?? {
+      short: 'unrecognised method',
+      explanation: `This build has no label for the extraction method "${method}".`,
     }
   );
 }

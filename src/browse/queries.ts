@@ -3,6 +3,7 @@ import {
   crawlRuns,
   duplicateCandidates,
   opportunities,
+  opportunityRevisions,
   opportunitySourceMemberships,
   parserIncidents,
   sourceListingRevisions,
@@ -461,6 +462,311 @@ export async function countOpportunities(
     .from(opportunities)
     .where(conditions.length > 0 ? and(...conditions) : undefined);
   return row?.total ?? 0;
+}
+
+/**
+ * A cluster member with the fields a detail screen needs and a list row does
+ * not — the description above all, which is the reason this query exists
+ * rather than a "detail mode" on `searchOpportunities`.
+ */
+export interface OpportunityMemberDetail extends ListingView {
+  /**
+   * The membership row's own id.
+   *
+   * Needed because a listing can legitimately hold SEVERAL retired
+   * memberships in one opportunity — detached, restored, detached again is a
+   * supported reversible workflow — so `sourceListingId` does not identify a
+   * history entry. Keying a list on it collapses siblings.
+   */
+  membershipId: string;
+  /**
+   * This source's own description, exactly as parsed. Kept per member and
+   * never concatenated: each board may carry facts the other lacks, and
+   * merging them loses which board said what. The ranking layer joins them
+   * internally precisely so the UI does not have to.
+   */
+  description: string;
+  locations: unknown;
+  salaryRaw: string | null;
+  sourceCategories: unknown;
+  structuredAttributes: unknown;
+  /** The parse these values came from, and when its page was fetched. */
+  revisionId: string;
+  parserVersion: string;
+  extractionMethod: string;
+  fetchedAt: string;
+  /** Why this listing is in this cluster — the live membership's own record. */
+  decision: string;
+  confidence: number;
+  decidedBy: string;
+  decidedAt: string;
+  dedupeRulesetVersion: string;
+  /**
+   * The signals and reasons that produced the decision (§14.1 stage 4), as
+   * they were stored.
+   *
+   * Carried rather than dropped because the decision enum alone cannot
+   * explain a grouping: a membership written by a human reassignment or by an
+   * older ruleset can rest on entirely different evidence from the one a
+   * label implies. Dropping it leaves the detail screen able to state a
+   * conclusion and not its grounds, which is the lost-provenance failure
+   * §14.2 exists to prevent.
+   */
+  evidence: unknown;
+  /**
+   * When this membership was retired, or null while it is live.
+   *
+   * Carried so a detached listing stays visible as history rather than
+   * vanishing: §12.5 makes cluster moves reversible and audited precisely so
+   * the decision that removed a listing can still be read afterwards.
+   */
+  supersededAt: string | null;
+}
+
+export interface OpportunityDetailView {
+  opportunityId: string;
+  canonicalTitle: string;
+  canonicalStatus: string;
+  type: string;
+  createdAt: string;
+  updatedAt: string;
+  /**
+   * The canonical revision currently in force. Null when an opportunity has
+   * never been resolved, and also when its last live member was detached —
+   * `resolveCanonicalOpportunity` keeps the old revision rather than writing
+   * an empty one, so this being non-null does not imply the members below.
+   */
+  revision: {
+    id: string;
+    /** Per-field values WITH provenance (§14.2), not a flattened winner. */
+    resolvedFields: unknown;
+    resolutionRulesetVersion: string;
+    createdAt: string;
+  } | null;
+  members: OpportunityMemberDetail[];
+  /**
+   * Listings that WERE in this cluster and were detached, newest first.
+   *
+   * Not decoration. An opportunity whose last live member is detached is kept
+   * deliberately — `resolveCanonicalOpportunity` keeps its final revision
+   * rather than writing an empty one — and the detail screen goes on
+   * rendering it as the record of what was seen. With live members alone that
+   * record contained no source link, no description and no evidence, which is
+   * a page claiming to be an audit trail while showing nothing: the
+   * lost-provenance failure, not a cosmetic gap. The retired rows are the
+   * audit trail, so they are returned.
+   */
+  formerMembers: OpportunityMemberDetail[];
+  /**
+   * True when the canonical fields were resolved from source revisions the
+   * live members have since moved past.
+   *
+   * Not a warning about correctness so much as about currency: the title and
+   * state shown at the top of the screen come from the last dedupe pass, and
+   * a crawl since then may have changed what the boards say. Surfacing it is
+   * §12.4's requirement that a stale canonical view be distinguishable from a
+   * current one.
+   */
+  canonicalIsStale: boolean;
+}
+
+/** Postgres rejects a malformed uuid with an error, not an empty result. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * One opportunity in full: canonical fields, the revision that resolved them,
+ * and every live member with its own description and lifecycle state.
+ *
+ * Returns null both for "no such opportunity" and for an id that is not a
+ * uuid at all. The second case is not defensive padding — this id arrives
+ * from a URL path, and passing `/opportunities/nonsense` straight to Postgres
+ * raises `invalid input syntax for type uuid`, which is a 500 for what is
+ * plainly a 404.
+ *
+ * Members are read as a second query rather than a join, for the
+ * row-multiplication reason `liveMemberExists` documents, and ordered by
+ * source then listing id so the sections do not swap places between loads.
+ *
+ * `organizations` is deliberately not joined: `resolveCanonicalOpportunity`
+ * writes `organizationId: null` on every revision it creates, so the column
+ * holds nothing to show. Employer names come from the members, where they are
+ * real — and where a disagreement between boards is visible rather than
+ * resolved away.
+ */
+/**
+ * Which revision a membership row should be read against.
+ *
+ * A LIVE membership takes the listing's current revision: it is in the cluster
+ * now, so the cluster contains what the listing says now.
+ *
+ * A RETIRED one takes the newest revision created at or before
+ * `supersededAt`, because a detached listing goes on being crawled. Following
+ * its current pointer would let its entry in this opportunity's history
+ * silently rewrite itself to a title the cluster never contained — an audit
+ * trail describing something that was never detached.
+ *
+ * **This is a reconstruction, not a binding, and the difference is real.** A
+ * detail fetch that starts before a detachment and commits after it produces a
+ * revision whose `created_at` precedes `superseded_at` even though the
+ * cluster never held it, and no timestamp comparison can tell the two apart.
+ * Making the history immutable needs the retiring code to record the exact
+ * revision id — a column on `opportunity_source_memberships` and a change to
+ * `membership-review.ts` — which belongs with the review screen that writes
+ * those rows (Stage 10), not with a read-only screen. Recorded rather than
+ * quietly approximated.
+ */
+const HISTORICALLY_CORRECT_REVISION = sql`${sourceListingRevisions.id} = case
+  when ${opportunitySourceMemberships.supersededAt} is null
+    then ${sourceListings.currentRevisionId}
+  else (
+    select r.id
+    from ${sourceListingRevisions} r
+    where r.source_listing_id = ${sourceListings.id}
+    order by (r.created_at <= ${opportunitySourceMemberships.supersededAt}) desc,
+             r.created_at desc,
+             r.id desc
+    limit 1
+  )
+end`;
+
+/**
+ * Whether the canonical fields were resolved from revisions the members have
+ * since moved past.
+ *
+ * `resolveCanonicalOpportunity` runs during a dedupe pass, not after every
+ * crawl, so a listing can gain a new revision while `opportunities.canonicalTitle`
+ * and `canonicalStatus` still describe the previous one. The screen would then
+ * present a stale title or availability as current with nothing to indicate it.
+ *
+ * `sourceMembershipVersions` exists for exactly this comparison — §12.4
+ * requires "stale inputs" and "changed ruleset" to be distinguishable — and
+ * was being stored and never read.
+ */
+function isStale(
+  sourceMembershipVersions: unknown,
+  liveMembers: readonly { sourceListingId: string; revisionId: string }[],
+): boolean {
+  if (typeof sourceMembershipVersions !== 'object' || sourceMembershipVersions === null) {
+    return false;
+  }
+  const resolvedFrom = sourceMembershipVersions as Record<string, unknown>;
+  return liveMembers.some((member) => {
+    const at = resolvedFrom[member.sourceListingId];
+    // A member absent from the record is one the canonical fields were never
+    // resolved from at all, which is staleness of the same kind.
+    return at !== member.revisionId;
+  });
+}
+
+export async function getOpportunity(
+  db: DatabaseOrTransaction,
+  opportunityId: string,
+): Promise<OpportunityDetailView | null> {
+  if (!UUID.test(opportunityId)) return null;
+
+  const [opportunity] = await db
+    .select({
+      opportunityId: opportunities.id,
+      canonicalTitle: opportunities.canonicalTitle,
+      canonicalStatus: opportunities.canonicalStatus,
+      type: opportunities.type,
+      createdAt: opportunities.createdAt,
+      updatedAt: opportunities.updatedAt,
+      revisionId: opportunityRevisions.id,
+      resolvedFields: opportunityRevisions.resolvedFields,
+      resolutionRulesetVersion: opportunityRevisions.resolutionRulesetVersion,
+      revisionCreatedAt: opportunityRevisions.createdAt,
+      sourceMembershipVersions: opportunityRevisions.sourceMembershipVersions,
+    })
+    .from(opportunities)
+    .leftJoin(
+      opportunityRevisions,
+      eq(opportunityRevisions.id, opportunities.currentCanonicalRevisionId),
+    )
+    .where(eq(opportunities.id, opportunityId));
+
+  if (opportunity === undefined) return null;
+
+  const allMembers = await db
+    .select({
+      sourceListingId: sourceListings.id,
+      sourceSlug: sources.slug,
+      status: sourceListings.status,
+      title: sourceListingRevisions.titleRaw,
+      organization: sourceListingRevisions.organizationRaw,
+      canonicalUrl: sourceListings.canonicalSourceUrl,
+      publishedAt: sourceListings.sourcePublishedAt,
+      deadlineAt: sourceListings.sourceDeadlineAt,
+      firstSeenAt: sourceListings.firstSeenAt,
+      lastSeenAt: sourceListings.lastSeenAt,
+      applicationMethod: sourceListingRevisions.applicationMethod,
+      description: sourceListingRevisions.description,
+      locations: sourceListingRevisions.locations,
+      salaryRaw: sourceListingRevisions.salaryRaw,
+      sourceCategories: sourceListingRevisions.sourceCategories,
+      structuredAttributes: sourceListingRevisions.structuredAttributes,
+      revisionId: sourceListingRevisions.id,
+      parserVersion: sourceListingRevisions.parserVersion,
+      extractionMethod: sourceListingRevisions.extractionMethod,
+      fetchedAt: sourceListingRevisions.provenanceFetchedAt,
+      membershipId: opportunitySourceMemberships.id,
+      decision: opportunitySourceMemberships.decision,
+      confidence: opportunitySourceMemberships.confidence,
+      decidedBy: opportunitySourceMemberships.decidedBy,
+      decidedAt: opportunitySourceMemberships.decidedAt,
+      dedupeRulesetVersion: opportunitySourceMemberships.dedupeModelOrRulesetVersion,
+      evidence: opportunitySourceMemberships.evidence,
+      supersededAt: opportunitySourceMemberships.supersededAt,
+    })
+    .from(opportunitySourceMemberships)
+    .innerJoin(sourceListings, eq(sourceListings.id, opportunitySourceMemberships.sourceListingId))
+    .innerJoin(sources, eq(sources.id, sourceListings.sourceId))
+    .innerJoin(sourceListingRevisions, HISTORICALLY_CORRECT_REVISION)
+    // Live AND retired in ONE statement, which is a correctness requirement
+    // rather than an optimisation. Read as two queries, a membership retired
+    // between them came back as both live and former at once — the audit
+    // screen contradicting itself precisely during the review operation it
+    // exists to explain.
+    .where(eq(opportunitySourceMemberships.opportunityId, opportunityId))
+    .orderBy(sources.slug, sourceListings.id);
+
+  const live = allMembers.filter((member) => member.supersededAt === null);
+  // Newest detachment first: the most recent correction is the one a reader
+  // is usually trying to understand.
+  const formerMembers = allMembers
+    .filter((member) => member.supersededAt !== null)
+    .sort((a, b) => (b.supersededAt ?? '').localeCompare(a.supersededAt ?? ''));
+
+  const {
+    revisionId,
+    resolvedFields,
+    resolutionRulesetVersion,
+    revisionCreatedAt,
+    sourceMembershipVersions,
+    ...canonical
+  } = opportunity;
+
+  return {
+    ...canonical,
+    // All three come from the same left-joined row and are NOT NULL
+    // columns, so they are null together or not at all. Narrowing on all of
+    // them rather than coalescing keeps an empty ruleset version — a value no
+    // revision has ever carried — out of the return type.
+    revision:
+      revisionId === null || resolutionRulesetVersion === null || revisionCreatedAt === null
+        ? null
+        : {
+            id: revisionId,
+            resolvedFields,
+            resolutionRulesetVersion,
+            createdAt: revisionCreatedAt,
+          },
+    members: live,
+    formerMembers,
+    // Compared here rather than in the page, because it is a fact about the
+    // data rather than a presentation choice. See the field's own docs.
+    canonicalIsStale: isStale(sourceMembershipVersions, live),
+  };
 }
 
 export interface ReviewQueueEntry {

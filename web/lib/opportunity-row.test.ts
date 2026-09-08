@@ -140,3 +140,39 @@ describe('toRow', () => {
     expect(row.crossPosted).toBe(false);
   });
 });
+
+describe('toRow — closing dates are compared by Georgian calendar day', () => {
+  /**
+   * The list screen had the same defect the detail screen was blocked for.
+   *
+   * jobs.ge states a calendar date, stored as Tbilisi local midnight — 20:00
+   * UTC the previous day — while hr.ge states an end-of-day minute. Both of
+   * these say 20 September. Compared as instants, the marker fired on all four
+   * cross-posted clusters in the corpus when only two genuinely differ, so the
+   * row asserted a source conflict that did not exist.
+   */
+  it('does not flag two precisions of the same day as a conflict', () => {
+    const row = toRow(
+      opportunity([
+        member({ sourceSlug: 'jobs-ge', deadlineAt: '2026-09-19T20:00:00.000Z' }),
+        member({ sourceSlug: 'hr-ge', deadlineAt: '2026-09-20T15:59:00.000Z' }),
+      ]),
+    );
+
+    expect(row.deadlinesDisagree).toBe(false);
+    // The displayed value is still the LATEST instant, matching what
+    // LATEST_OPEN_MEMBER_DEADLINE sorts by.
+    expect(row.deadline).toBe('2026-09-20T15:59:00.000Z');
+  });
+
+  it('still flags genuinely different days', () => {
+    const row = toRow(
+      opportunity([
+        member({ sourceSlug: 'jobs-ge', deadlineAt: '2026-09-13T20:00:00.000Z' }),
+        member({ sourceSlug: 'hr-ge', deadlineAt: '2026-10-03T15:59:00.000Z' }),
+      ]),
+    );
+
+    expect(row.deadlinesDisagree).toBe(true);
+  });
+});

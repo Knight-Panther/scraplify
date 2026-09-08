@@ -90,21 +90,34 @@ so the page clamps against the real total. Rows are read in 500-row batches, so 
 layer keeps its original `MAX_LIMIT` of 500 — batching is safe under OFFSET only because
 every ordering ends in `opportunities.id`.
 
-### 6. Opportunity detail
+### 6. Opportunity detail — done (2026-09-08)
 
 One cluster in full: canonical fields, every live member with its own source link and
-lifecycle state, and the description. The first screen where `--measure` and the long-
-description case matter. Needs a `getOpportunity(id)` query — `searchOpportunities`
-returns list-shaped rows and should not grow a detail mode.
+lifecycle state, and the description. `web/app/opportunities/[id]/`, on a new
+`getOpportunity(id)` query — `searchOpportunities` returns list-shaped rows and did not
+grow a detail mode.
 
-**Done when:** each source's description is shown **separately and attributed**, never
-merged into one block; every field the sources disagree about is visible as a
-disagreement rather than resolved silently; and every live member links back to its own
-listing. This is a completion criterion, not a nicety — the concept requires the
-canonical view to surface disagreements, `anti-patterns.md` classes merged descriptions
-as lost provenance, and the ranking layer concatenates them internally precisely so the
-UI does not have to. The list screen already sets the precedent: all four cross-posted
-clusters disagree about their closing date, and the row says so.
+**All three completion criteria met**, and they were criteria rather than niceties: each
+board's description is its own attributed section and never merged; every field the
+boards state differently is marked as a disagreement in a field-by-field comparison; and
+every live member links back to its own listing. See `docs/STATUS.md` for the full
+record.
+
+Three things the stage decided that this plan had not:
+
+- **Disagreement and absence are different, and only the first is marked.** jobs.ge
+  records no location and no pay on any listing, so "hr.ge states a location, jobs.ge
+  states none" is the normal case, not a conflict. Marking it would have flagged every
+  cross-posted cluster as contradictory.
+- **Dates a source stated are rendered and compared in `Asia/Tbilisi`, not UTC.** jobs.ge
+  stores a calendar date as local midnight, so a UTC render named the wrong day and a
+  UTC comparison invented a disagreement on every cross-posted cluster. This changed the
+  shipped Stage 5 list screen too — see `docs/STATUS.md`.
+- **This route has no `loading.tsx`, and the list moved into a `(list)` route group.**
+  A loading fallback is a Suspense boundary, and once streaming starts the status code
+  has already been sent — so `notFound()` was rendering the not-found page under an HTTP
+  200. The group scopes the list's fallback to the list; the detail route waits ~60ms
+  and returns a real 404.
 
 ### 7. Listings — the raw per-source view
 

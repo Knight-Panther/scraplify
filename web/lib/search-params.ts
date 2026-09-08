@@ -160,15 +160,16 @@ export function parseOpportunityQuery(
 }
 
 /**
- * A link to the same view with the sort or the depth changed.
+ * The view's state as a query string, with no leading '?'.
  *
- * The depth rides along on a sort change: someone who has grown the list to
- * 2,000 rows and then re-sorts means to re-sort what they are looking at, not
- * to be dropped back to the first 500.
+ * Extracted from buildHref because the detail screen needs the same string for
+ * a different purpose: a row links to /opportunities/{id}?back={this}, so the
+ * back link returns to the filtered, sorted, grown list the reader came from
+ * rather than to a bare /opportunities that silently drops all of it.
  */
-export function buildHref(
+export function buildQueryString(
   query: OpportunityQuery,
-  changes: Partial<{ sort: Sort; show: number }>,
+  changes: Partial<{ sort: Sort; show: number }> = {},
 ): string {
   const params = new URLSearchParams();
   if (query.form.q !== '') params.set('q', query.form.q);
@@ -183,6 +184,20 @@ export function buildHref(
   const show = changes.show ?? query.show;
   if (show > ROW_CHUNK) params.set('show', String(show));
 
-  const search = params.toString();
+  return params.toString();
+}
+
+/**
+ * A link to the same view with the sort or the depth changed.
+ *
+ * The depth rides along on a sort change: someone who has grown the list to
+ * 2,000 rows and then re-sorts means to re-sort what they are looking at, not
+ * to be dropped back to the first 500.
+ */
+export function buildHref(
+  query: OpportunityQuery,
+  changes: Partial<{ sort: Sort; show: number }>,
+): string {
+  const search = buildQueryString(query, changes);
   return search === '' ? '/opportunities' : `/opportunities?${search}`;
 }
