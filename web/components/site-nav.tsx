@@ -21,6 +21,7 @@ const LINKS = [
   { href: '/opportunities', label: 'Opportunities' },
   { href: '/listings', label: 'Listings' },
   { href: '/ranked', label: 'Ranked' },
+  { href: '/saved', label: 'Shortlist' },
   { href: '/health', label: 'Source health' },
 ];
 

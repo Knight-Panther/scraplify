@@ -6,6 +6,8 @@
 import { notFound } from 'next/navigation.js';
 import { getOpportunity } from '../../../../src/browse/queries.js';
 import { db } from '../../../../src/db/client.js';
+import { decisionsByOpportunity } from '../../../../src/shortlist/decisions.js';
+import { DecisionControl } from '../../../components/decision-control.js';
 import { StatusChip } from '../../../components/status-chip.js';
 import {
   absoluteTime,
@@ -74,10 +76,23 @@ export default async function OpportunityPage({
   const detail = toDetail(view);
   const query = await searchParams;
 
+  // The one screen with enough context to decide from: the boards compared,
+  // the descriptions, and what the grouping rests on are all on this page.
+  const decisions = await decisionsByOpportunity(db, [detail.opportunityId]);
+  const decision = decisions.get(detail.opportunityId) ?? null;
+
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
       <BackLink back={query.back} opportunityId={detail.opportunityId} />
       <Header detail={detail} />
+      <section className="mt-4">
+        <DecisionControl
+          opportunityId={detail.opportunityId}
+          decision={decision?.decision ?? null}
+          note={decision?.note ?? null}
+          withNote
+        />
+      </section>
       <Comparison detail={detail} />
       <Apply detail={detail} />
       <Descriptions detail={detail} />

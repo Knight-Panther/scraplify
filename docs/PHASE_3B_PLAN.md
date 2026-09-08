@@ -153,12 +153,21 @@ opportunity revision they scored, so a dedupe pass since the last run leaves the
 behind and the screen legitimately shows nothing. `npm run rank -- rank` scores the
 corpus as it stands. See `docs/STATUS.md`.
 
-### 9. Saved items and dismissals — the first writing screen
+### 9. Saved items and dismissals — the first writing screen — done (2026-09-08)
 
 The shortlist half of "browse and shortlist". Needs a new table, and it is where
 `.env.qa` and the disposable QA database arrive, because it is the first screen that can
 write. Every earlier stage is read-only by construction; from here the write gate is
 load-bearing rather than precautionary.
+
+`web/app/saved/` on `src/shortlist/decisions.ts` and migration 0018. The disposable
+database (`scraplify_qa`) now exists and `.env.qa.example` records how it is made. The
+gate was exercised on both instances: the QA one wrote and cleared decisions, the live
+one ended with zero rows and renders no submit buttons at all.
+
+**Left for a later pass, deliberately:** the browse screens do not yet show or set a
+decision per row, nor hide dismissed opportunities. The queries for both exist and are
+tested; fitting them into a 406-row table is a density question of its own.
 
 ### 10. Duplicate review
 

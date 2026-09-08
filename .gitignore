@@ -1,6 +1,9 @@
 # Secrets and local environment
 .env
 .env.*
+# ...but the QA profile TEMPLATE is committed: it carries no real credential
+# and it is the only written record of how the disposable database is made.
+!.env.qa.example
 !.env.example
 .mcp.json
 
