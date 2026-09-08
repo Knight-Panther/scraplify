@@ -119,13 +119,22 @@ Three things the stage decided that this plan had not:
   200. The group scopes the list's fallback to the list; the detail route waits ~60ms
   and returns a real 404.
 
-### 7. Listings — the raw per-source view
+### 7. Listings — the raw per-source view — done (2026-09-08)
 
 `searchListings`, undeduplicated, with the concept's named views: **new, closing,
 missing, quarantined**, and **changed as content-changes only** (status history is not
 reconstructable — `source_listings.status` is updated in place and no history table
 exists). This is the view that answers "what did the source actually say", which the
 canonical list deliberately hides.
+
+`web/app/listings/`, on `web/lib/listing-params.ts`. The query layer gained a
+`changedOnly` filter and the `sourceListings.id` tie-breaker its ordering lacked.
+
+Two of the five views match nothing against the current corpus — nothing is
+quarantined, and all 412 listings have exactly one revision — so each empty view
+states its own reason rather than rendering a blank table. That is a fact about
+elapsed crawl time, not about the filters, and the screen says which. See
+`docs/STATUS.md` for the full record.
 
 ### 8. Ranked results
 

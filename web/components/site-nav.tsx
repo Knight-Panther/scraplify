@@ -19,6 +19,7 @@ import { databaseLabel, writesEnabled } from '../lib/writes.js';
 const LINKS = [
   { href: '/', label: 'Overview' },
   { href: '/opportunities', label: 'Opportunities' },
+  { href: '/listings', label: 'Listings' },
   { href: '/health', label: 'Source health' },
 ];
 

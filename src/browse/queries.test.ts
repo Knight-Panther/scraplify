@@ -217,6 +217,98 @@ describe('browse queries', () => {
     expect(ids).not.toContain(old);
   });
 
+  /**
+   * The "changed" view, and the reason it is defined by revision count.
+   *
+   * A revision is written only when the MEANINGFUL content hash changes — ads,
+   * timestamps and tracking markup vary on every fetch and deliberately do not
+   * produce one — so a second revision is by construction a real change to the
+   * vacancy rather than noise.
+   *
+   * Worth recording: every one of the 412 listings in the corpus currently has
+   * exactly one revision, so this view is honestly empty until a re-crawl
+   * finds a difference. That is a fact about elapsed crawl time, not about the
+   * filter, which is why it is tested with rows this test creates itself.
+   */
+  it('finds only listings whose content has been revised', async () => {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const marker = randomUUID().slice(0, 8);
+    const unchanged = await addListing(sourceId, { title: `Unchanged ${marker}` });
+    const changed = await addListing(sourceId, { title: `Changed ${marker}` });
+
+    // A second revision, exactly as a re-crawl producing different meaningful
+    // content would write one. The listing keeps pointing at the newer.
+    const resourceId = await createTestResource(sourceId);
+    const secondRevisionId = randomUUID();
+    await db.insert(sourceListingRevisions).values({
+      id: secondRevisionId,
+      sourceListingId: changed,
+      parserVersion: 'test-v2',
+      extractionMethod: 'http',
+      rawResourceHash: 'f'.repeat(64),
+      meaningfulContentHash: randomUUID().replace(/-/g, '').padEnd(64, '0'),
+      titleRaw: `Changed ${marker}`,
+      titleNormalized: `changed ${marker}`,
+      organizationRaw: 'Browse Test Org',
+      description: 'the description the board changed',
+      locations: [],
+      publishedDate: { raw: '', parsed: '2026-09-01T00:00:00Z' },
+      deadlineDate: { raw: '', parsed: '2026-12-01T00:00:00Z' },
+      applicationMethod: { type: 'email', value: 'apply@example.invalid' },
+      sourceCategories: [],
+      structuredAttributes: {},
+      createdAt: '2026-09-08T00:00:00Z',
+      provenanceResourceId: resourceId,
+      provenanceFetchedAt: '2026-09-08T00:00:00Z',
+      provenanceNotes: null,
+    });
+    await db
+      .update(sourceListings)
+      .set({ currentRevisionId: secondRevisionId })
+      .where(eq(sourceListings.id, changed));
+
+    const rows = await searchListings(db, { changedOnly: true, limit: 500 });
+    const ids = rows.map((row) => row.sourceListingId);
+    expect(ids).toContain(changed);
+    expect(ids).not.toContain(unchanged);
+
+    // And the filter composes rather than replacing the others.
+    const scoped = await searchListings(db, {
+      changedOnly: true,
+      text: `Unchanged ${marker}`,
+      limit: 500,
+    });
+    expect(scoped).toHaveLength(0);
+  });
+
+  /**
+   * Not a live defect — 411 of the 412 first-seen values in the corpus are
+   * distinct, because listings are inserted one at a time — but it stops being
+   * latent the first time a crawl stamps one run timestamp across a batch, and
+   * this screen pages the query. Same reasoning as `searchOpportunities`,
+   * where 174 rows sharing one deadline made it live.
+   */
+  it('orders by a unique key so paging cannot duplicate or drop a tied row', async () => {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const sharedInstant = '2026-09-05T12:00:00Z';
+    const created: string[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      created.push(
+        await addListing(sourceId, { title: `Tied ${index}`, firstSeenAt: sharedInstant }),
+      );
+    }
+
+    const first = await searchListings(db, { limit: 3, offset: 0 });
+    const second = await searchListings(db, { limit: 3, offset: 3 });
+    const paged = [...first, ...second].map((row) => row.sourceListingId);
+
+    // No listing appears on both pages, which is what a missing tie-breaker
+    // silently breaks.
+    expect(new Set(paged).size).toBe(paged.length);
+  });
+
   it('clamps an absurd limit instead of returning the whole corpus', async () => {
     const rows = await searchListings(db, { limit: 100_000 });
     expect(rows.length).toBeLessThanOrEqual(500);

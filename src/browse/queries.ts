@@ -55,6 +55,21 @@ export interface SearchListingsFilters {
   deadlineTo?: string | undefined;
   /** First seen on or after this instant — powers the "new" view. */
   firstSeenFrom?: string | undefined;
+  /**
+   * Only listings whose content has changed since it was first captured —
+   * the concept's "changed" view.
+   *
+   * Defined as "has more than one revision", because a revision is only
+   * written when the MEANINGFUL content hash changes: ads, timestamps and
+   * tracking markup vary on every fetch and deliberately do not produce one.
+   * So a second revision is by construction a real change to the vacancy.
+   *
+   * This is content changes only, and that limit is structural rather than an
+   * omission. `source_listings.status` is updated in place with no history
+   * table, so "this listing went from active to missing" is not
+   * reconstructable from anything stored — see `docs/PHASE_3B_PLAN.md`.
+   */
+  changedOnly?: boolean | undefined;
   limit?: number | undefined;
   offset?: number | undefined;
 }
@@ -92,6 +107,21 @@ function searchPattern(text: string): string {
  * with a hand-copied filter set is the classic pagination bug — page 3 of a
  * 2-page result — and the only reliable fix is one builder with two callers.
  */
+/**
+ * More than one revision exists for this listing.
+ *
+ * An EXISTS over a second revision rather than `count(*) > 1`: it stops at
+ * the first match instead of walking every revision a long-lived listing has
+ * accumulated, and it needs no GROUP BY, so it composes with the other
+ * filters as a plain condition.
+ */
+const HAS_BEEN_REVISED = sql`exists (
+  select 1
+  from ${sourceListingRevisions} other
+  where other.source_listing_id = ${sourceListings.id}
+    and other.id <> ${sourceListings.currentRevisionId}
+)`;
+
 function listingConditions(filters: SearchListingsFilters): SQL[] {
   const conditions: SQL[] = [];
   if (filters.text !== undefined && filters.text.trim().length > 0) {
@@ -117,6 +147,7 @@ function listingConditions(filters: SearchListingsFilters): SQL[] {
     conditions.push(lte(sourceListings.sourceDeadlineAt, filters.deadlineTo));
   if (filters.firstSeenFrom !== undefined)
     conditions.push(gte(sourceListings.firstSeenAt, filters.firstSeenFrom));
+  if (filters.changedOnly === true) conditions.push(HAS_BEEN_REVISED);
   return conditions;
 }
 
@@ -147,7 +178,14 @@ export async function searchListings(
       eq(sourceListingRevisions.id, sourceListings.currentRevisionId),
     )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(sourceListings.firstSeenAt))
+    // Ends in the primary key for the reason `searchOpportunities` documents
+    // at length: `firstSeenAt` is not unique, and Postgres may return tied
+    // rows in a different order per query, so a tie straddling an OFFSET
+    // boundary silently shows some listings twice and hides others. Currently
+    // 411 of 412 first-seen values are distinct because listings are inserted
+    // one at a time — this is latent rather than live, and stops being latent
+    // the first time a crawl stamps one run timestamp across a batch.
+    .orderBy(desc(sourceListings.firstSeenAt), sourceListings.id)
     .limit(clampLimit(filters.limit))
     .offset(filters.offset ?? 0);
 

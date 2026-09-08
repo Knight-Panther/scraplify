@@ -73,7 +73,13 @@ export interface OpportunityQuery {
   };
 }
 
-function one(value: string | string[] | undefined): string {
+/**
+ * Shared with the listings screen, which holds its state in the URL the same
+ * way. Exported rather than copied so the two screens cannot drift apart on
+ * what counts as a valid parameter — the grapheme cap in particular is a rule
+ * about this corpus, not about one screen.
+ */
+export function one(value: string | string[] | undefined): string {
   if (value === undefined) return '';
   return (Array.isArray(value) ? (value[0] ?? '') : value).trim();
 }
@@ -87,7 +93,7 @@ const STATUSES: readonly string[] = sourceListingStatusEnum.enumValues;
  * an unbounded string from a URL is a free way to make the database work hard.
  * 120 characters is well past the longest title in the corpus (105).
  */
-const MAX_TEXT = 120;
+export const MAX_TEXT = 120;
 
 /**
  * Caps the query at MAX_TEXT *graphemes*.
@@ -99,7 +105,7 @@ const MAX_TEXT = 120;
  */
 const SEGMENTER = new Intl.Segmenter('ka', { granularity: 'grapheme' });
 
-function capGraphemes(text: string, max: number): string {
+export function capGraphemes(text: string, max: number): string {
   if (text.length <= max) return text; // Code units are an upper bound on graphemes.
   let out = '';
   let taken = 0;
