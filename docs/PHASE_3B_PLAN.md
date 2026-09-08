@@ -169,9 +169,15 @@ one ended with zero rows and renders no submit buttons at all.
 decision per row, nor hide dismissed opportunities. The queries for both exist and are
 tested; fitting them into a 406-row table is a density question of its own.
 
-### 10. Duplicate review
+### 10. Duplicate review — unblocked 2026-09-08, screen not yet built
 
-**Blocked on two backend defects, both recorded in STATUS.md and neither trivial:**
+**Both backend defects are fixed** (migration 0019, `acceptDuplicateCandidate`, and the
+widened `listReviewQueue`); see `docs/STATUS.md`. The screen itself remains to build,
+and it is the hardest one in the app: `data-density.md` calls surfacing the evidence
+behind a suggestion the single most important design problem here, and the decision
+paths are the first genuinely destructive ones in the UI.
+
+They were, before that work:
 
 - `duplicate_candidates` has **no `evidence` column at all**. `scorePair`'s signals and
   reasons are computed and discarded for `needs_review` pairs, so the pairs a human must

@@ -13,6 +13,7 @@ import {
   createTestSourceListing,
 } from '../db/test-support.js';
 import {
+  acceptDuplicateCandidate,
   detachListing,
   getLiveMembership,
   getMembershipHistory,
@@ -309,6 +310,91 @@ describe('membership review', () => {
     const history = await getMembershipHistory(db, listingId);
     expect(history.filter((row) => row.supersededAt === null)).toHaveLength(1);
     expect(history.length).toBeGreaterThanOrEqual(3);
+  });
+
+  /**
+   * "Accept" is a composite verb — move the listing AND settle the candidate —
+   * and it used to be two public calls, each opening its own transaction. A
+   * crash between them left the merge applied and the pair still pending, so
+   * the next dedupe pass re-queued a decision the reviewer had already made,
+   * with the cluster changed underneath them.
+   */
+  it('accepts a candidate as one atomic act', async () => {
+    const target = await makeOpportunity('Accept target');
+    const listingA = await makeListing();
+    const listingB = await makeListing();
+    const [a, b] = [listingA, listingB].sort() as [string, string];
+    const candidateId = randomUUID();
+    await db.insert(duplicateCandidates).values({
+      id: candidateId,
+      sourceListingIdA: a,
+      sourceListingIdB: b,
+      generatedAt: '2026-09-08T12:00:00Z',
+      generationMethod: 'deterministic_match',
+      similarityScore: 0.9,
+      status: 'pending',
+      resultingDecision: 'needs_review',
+      evidence: { reasons: ['shared application value'], signals: { titleSimilarity: 1 } },
+    });
+
+    await acceptDuplicateCandidate(db, {
+      candidateId,
+      sourceListingId: a,
+      toOpportunityId: target,
+      decision: 'confirmed_same',
+      confidence: 0.95,
+      evidence: { reasons: ['reviewer accepted the pair'] },
+      actor: ACTOR,
+      at: '2026-09-08T13:00:00Z',
+    });
+
+    // Both facts, together: the listing moved...
+    const membership = await getLiveMembership(db, a);
+    expect(membership?.opportunityId).toBe(target);
+    expect(membership?.decidedBy).toBe('human');
+
+    // ...and the candidate is settled, so the next pass will not re-queue it.
+    const [candidate] = await db
+      .select()
+      .from(duplicateCandidates)
+      .where(eq(duplicateCandidates.id, candidateId));
+    expect(candidate?.resultingDecision).toBe('confirmed_same');
+    expect(candidate?.decidedBy).toBe('human');
+    expect(candidate?.status).toBe('evaluated');
+  });
+
+  /**
+   * The failure the transaction actually exists for: one that happens BETWEEN
+   * the two halves.
+   *
+   * A first version of this test used a missing target opportunity, and
+   * mutation-checking showed it proved nothing — that failure happens before
+   * any write, so two separate transactions roll back exactly as one does.
+   * The discriminating case is a move that SUCCEEDS followed by a resolution
+   * that fails: with one transaction the move is undone, with two it survives
+   * and the reviewer is left with a merged cluster and a pair still pending.
+   */
+  it('undoes the move when the resolution fails', async () => {
+    const target = await makeOpportunity('Rollback target');
+    const listingA = await makeListing();
+
+    await expect(
+      acceptDuplicateCandidate(db, {
+        // No such candidate, so the resolution throws AFTER the membership
+        // has been written inside the same transaction.
+        candidateId: randomUUID(),
+        sourceListingId: listingA,
+        toOpportunityId: target,
+        decision: 'confirmed_same',
+        confidence: 0.95,
+        evidence: {},
+        actor: ACTOR,
+        at: '2026-09-08T13:00:00Z',
+      }),
+    ).rejects.toThrow(/no candidate with id/);
+
+    // The move is gone. Under two transactions it would still be here.
+    expect(await getLiveMembership(db, listingA)).toBeNull();
   });
 
   it('resolves a duplicate candidate without touching membership', async () => {

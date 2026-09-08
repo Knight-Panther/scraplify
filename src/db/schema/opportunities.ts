@@ -197,6 +197,26 @@ export const duplicateCandidates = pgTable(
      * a human.
      */
     decidedBy: dedupeDecidedByEnum('decided_by'),
+    /**
+     * The weighted signals and reasons behind `resultingDecision` (§14.1
+     * stage 4), as they were computed.
+     *
+     * **This column's absence was the blocker on the whole review screen.**
+     * `scorePair` produces signals and reasons for every pair it evaluates,
+     * and they were written only to `opportunity_source_memberships` — which
+     * exist solely once a merge happens. So the pairs a human must actually
+     * judge, the `needs_review` ones, were precisely the pairs with nothing
+     * recorded, and a review screen could show a verdict with no grounds.
+     * `data-density.md` calls surfacing that evidence the single most
+     * important design problem in the app, and `AGENTS.md` classes an
+     * evidence-free review UI as a P1 defect.
+     *
+     * Nullable rather than `notNull`, and deliberately: rows written before
+     * this column existed have no evidence and never will. A default of `{}`
+     * would make "nothing was recorded" indistinguishable from "the scorer
+     * found nothing", and the screen must be able to say which.
+     */
+    evidence: jsonb('evidence'),
   },
   (table) => [
     unique('duplicate_candidates_pair_unique').on(table.sourceListingIdA, table.sourceListingIdB),

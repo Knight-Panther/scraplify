@@ -1,0 +1,1 @@
+ALTER TABLE "duplicate_candidates" ADD COLUMN "evidence" jsonb;

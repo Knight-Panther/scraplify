@@ -365,6 +365,12 @@ export async function runDedupe(
           status: 'evaluated',
           resultingDecision: score.decision,
           decidedBy: 'ruleset',
+          // Written at BOTH sites — values and the conflict update — because
+          // every candidate row already existed before this column did, so an
+          // insert-only write would have left the whole backlog empty and the
+          // review screen with nothing to show for exactly the pairs it exists
+          // to judge.
+          evidence: { reasons: score.reasons, signals: score.signals },
         })
         .onConflictDoUpdate({
           target: [duplicateCandidates.sourceListingIdA, duplicateCandidates.sourceListingIdB],
@@ -374,6 +380,7 @@ export async function runDedupe(
             status: 'evaluated',
             resultingDecision: score.decision,
             decidedBy: 'ruleset',
+            evidence: { reasons: score.reasons, signals: score.signals },
           },
           // A human's verdict outranks the ruleset's. Without this guard the
           // pass overwrites an operator's `distinct` with its own
@@ -525,6 +532,15 @@ export async function runDedupe(
         status: 'evaluated',
         resultingDecision: 'needs_review',
         decidedBy: 'ruleset',
+        // A different KIND of reason from site 1, and the distinction matters
+        // to a reviewer: this pair is queued because a link that already
+        // exists no longer scores as one, not because fresh evidence proposed
+        // it. The scorer's signals are carried too, since they are what
+        // changed.
+        evidence: {
+          reasons: ['existing link no longer supported by the current ruleset', ...score.reasons],
+          signals: score.signals,
+        },
       })
       .onConflictDoUpdate({
         target: [duplicateCandidates.sourceListingIdA, duplicateCandidates.sourceListingIdB],
@@ -534,6 +550,10 @@ export async function runDedupe(
           status: 'evaluated',
           resultingDecision: 'needs_review',
           decidedBy: 'ruleset',
+          evidence: {
+            reasons: ['existing link no longer supported by the current ruleset', ...score.reasons],
+            signals: score.signals,
+          },
         },
         setWhere: sql`${duplicateCandidates.decidedBy} is distinct from 'human'`,
       });

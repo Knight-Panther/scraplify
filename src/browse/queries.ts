@@ -811,6 +811,20 @@ export interface ReviewQueueEntry {
   candidateId: string;
   similarityScore: number;
   decision: string | null;
+  /**
+   * The weighted signals and reasons behind the suggestion (§14.1 stage 4).
+   *
+   * The query already read the whole row and the mapped result dropped this,
+   * which meant the review queue could show a proposal with no grounds — and
+   * for a long time there was nothing to show, because `duplicate_candidates`
+   * had no `evidence` column at all and `scorePair`'s output was discarded
+   * for exactly the `needs_review` pairs a human has to judge. Both halves
+   * are fixed; this is the half that reaches a screen.
+   *
+   * Null for a row written before the column existed. That is distinct from
+   * "the scorer found nothing", and a reviewer must be able to tell which.
+   */
+  evidence: unknown;
   a: ListingView;
   b: ListingView;
 }
@@ -854,6 +868,7 @@ export async function listReviewQueue(
         candidateId: candidate.id,
         similarityScore: candidate.similarityScore,
         decision: candidate.resultingDecision,
+        evidence: candidate.evidence,
         a,
         b,
       },

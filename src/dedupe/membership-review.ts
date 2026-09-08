@@ -132,19 +132,38 @@ export async function detachListing(
  * one, so a typo in an id fails loudly instead of silently spawning an
  * orphan cluster.
  */
+export interface ReassignInput {
+  sourceListingId: string;
+  toOpportunityId: string;
+  decision: DedupeDecision;
+  confidence: number;
+  evidence: Record<string, unknown>;
+  actor: ReviewActor;
+  at: string;
+}
+
 export async function reassignListing(
   db: Database,
-  input: {
-    sourceListingId: string;
-    toOpportunityId: string;
-    decision: DedupeDecision;
-    confidence: number;
-    evidence: Record<string, unknown>;
-    actor: ReviewActor;
-    at: string;
-  },
+  input: ReassignInput,
 ): Promise<{ previousOpportunityId: string | null }> {
-  return db.transaction(async (tx) => {
+  return db.transaction(async (tx) => reassignListingWithin(tx, input));
+}
+
+/**
+ * The body of `reassignListing`, callable inside a transaction the caller
+ * already owns.
+ *
+ * Extracted so `acceptDuplicateCandidate` can do the move and the resolution
+ * in ONE transaction. Composing the two public functions instead opened two,
+ * and a crash between them left a merged cluster with an unsettled candidate —
+ * which the next dedupe pass then re-queued, asking a reviewer to decide again
+ * something they had already decided, with the merge already applied.
+ */
+async function reassignListingWithin(
+  tx: DatabaseOrTransaction,
+  input: ReassignInput,
+): Promise<{ previousOpportunityId: string | null }> {
+  {
     const [target] = await tx
       .select({ id: opportunities.id })
       .from(opportunities)
@@ -189,6 +208,37 @@ export async function reassignListing(
     await resolveCanonicalOpportunity(tx, input.toOpportunityId, input.at);
 
     return { previousOpportunityId };
+  }
+}
+
+/**
+ * Accepting a `needs_review` pair: move the listing and settle the candidate,
+ * atomically.
+ *
+ * "Accept" is a composite verb — a membership change plus a resolution — and
+ * composing the two public functions ran each in its own transaction. A crash
+ * between them left the merge applied and the candidate still pending, so the
+ * next dedupe pass re-queued a pair the reviewer had already judged, with the
+ * cluster already changed underneath it. One transaction makes the pair of
+ * facts land together or not at all.
+ *
+ * The evidence recorded on the new membership is the REVIEWER's, not the
+ * ruleset's: a human accepting a pair is a different kind of claim from a
+ * score crossing a threshold, and `decidedBy: 'human'` is what stops the next
+ * automated pass overwriting it.
+ */
+export async function acceptDuplicateCandidate(
+  db: Database,
+  input: ReassignInput & { candidateId: string },
+): Promise<{ previousOpportunityId: string | null }> {
+  return db.transaction(async (tx) => {
+    const result = await reassignListingWithin(tx, input);
+    await resolveDuplicateCandidate(tx, {
+      candidateId: input.candidateId,
+      decision: input.decision,
+      decidedBy: input.actor.decidedBy === 'human' ? 'human' : 'ruleset',
+    });
+    return result;
   });
 }
 
