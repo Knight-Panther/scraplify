@@ -136,13 +136,22 @@ states its own reason rather than rendering a blank table. That is a fact about
 elapsed crawl time, not about the filters, and the screen says which. See
 `docs/STATUS.md` for the full record.
 
-### 8. Ranked results
+### 8. Ranked results — done (2026-09-08)
 
 `src/ranking/` already produces explainable, component-wise scores against a versioned
 profile. The screen's job is to show *why* a score is what it is, not just the number —
 a rank with no visible reasoning is the thing the deterministic scorer was chosen to
 avoid. `listLiveMembersByOpportunity` exists so this screen attaches members without
 repeating the join.
+
+`web/app/ranked/`, on `web/lib/ranked-row.ts`. `listRankedOpportunities` was widened
+(canonical status, offset, a clamped limit replacing a hard 200 ceiling) and gained
+`countRankedOpportunities`; both share one condition builder.
+
+**One prerequisite is operational and will recur:** rankings are pinned to the
+opportunity revision they scored, so a dedupe pass since the last run leaves them
+behind and the screen legitimately shows nothing. `npm run rank -- rank` scores the
+corpus as it stands. See `docs/STATUS.md`.
 
 ### 9. Saved items and dismissals — the first writing screen
 

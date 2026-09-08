@@ -283,13 +283,27 @@ describe('browse queries', () => {
   });
 
   /**
-   * Not a live defect — 411 of the 412 first-seen values in the corpus are
-   * distinct, because listings are inserted one at a time — but it stops being
-   * latent the first time a crawl stamps one run timestamp across a batch, and
-   * this screen pages the query. Same reasoning as `searchOpportunities`,
-   * where 174 rows sharing one deadline made it live.
+   * Pages a fully tied result set and checks nothing is duplicated or lost.
+   *
+   * **Mutation-checked on 2026-09-08, and it does NOT discriminate**: removing
+   * the `sourceListings.id` tie-breaker leaves this green. Postgres returns a
+   * small heap scan in a stable order, so the nondeterminism the tie-breaker
+   * exists for cannot be provoked at this size — it depends on plan choice and
+   * physical row order, neither of which a test controls.
+   *
+   * The tie-breaker stays because the guarantee is structural rather than
+   * observed: an ORDER BY that is not total permits the database to return
+   * tied rows in any order, and LIMIT/OFFSET over that duplicates some rows
+   * onto the next batch and drops others. Not a live defect today — 411 of the
+   * 412 first-seen values are distinct, because listings are inserted one at a
+   * time — but it stops being latent the first time a crawl stamps one run
+   * timestamp across a batch, and the listings screen pages this query.
+   *
+   * Kept rather than deleted: the paging check is still worth having, and a
+   * test that quietly proves less than its name claims is worse than one that
+   * says so out loud.
    */
-  it('orders by a unique key so paging cannot duplicate or drop a tied row', async () => {
+  it('pages a tied result set without duplicating or dropping a row', async () => {
     const sourceId = await createTestSource();
     sourceIds.push(sourceId);
     const sharedInstant = '2026-09-05T12:00:00Z';

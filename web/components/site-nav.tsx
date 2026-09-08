@@ -20,6 +20,7 @@ const LINKS = [
   { href: '/', label: 'Overview' },
   { href: '/opportunities', label: 'Opportunities' },
   { href: '/listings', label: 'Listings' },
+  { href: '/ranked', label: 'Ranked' },
   { href: '/health', label: 'Source health' },
 ];
 
@@ -28,7 +29,12 @@ export function SiteNav() {
     <nav aria-label="Main" className="border-b border-border">
       <div className="flex w-full flex-wrap items-center gap-x-6 gap-y-2 px-6 py-3">
         <span className="font-semibold">Xtelo</span>
-        <ul className="flex gap-x-5 text-sm">
+        {/* Wraps, and the gap tightens on narrow screens. Five links no
+            longer fit a 375px viewport on one line: measured at 401px against
+            a 375px window, which scrolled EVERY screen sideways, not just the
+            one being worked on. Adding a nav item is exactly the change that
+            gets tested on the screen it was added for. */}
+        <ul className="flex flex-wrap gap-x-3 gap-y-1 text-sm sm:gap-x-5">
           {LINKS.map((link) => (
             <li key={link.href}>
               <a className="text-muted hover:text-foreground" href={link.href}>
