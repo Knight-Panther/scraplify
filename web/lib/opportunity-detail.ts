@@ -247,6 +247,39 @@ function asStrings(value: unknown): string[] {
 }
 
 /**
+ * `specialty`/`industry` display names, tolerant of both the shape hr.ge
+ * revisions carry today and the shape a re-crawl on the corrected parser
+ * (Phase 3C-2) produces.
+ *
+ * Pre-`v3` revisions still hold a flat array of strings (`asStrings` alone
+ * handles that). `v3` revisions hold real nested taxonomy nodes —
+ * `{ sourceTermId, code, name, children }` — so `asStrings` alone would
+ * silently filter every one of them out as "not a string" and this field
+ * would go blank on every re-crawled hr.ge listing (caught by the commit
+ * gate, 2026-09-15, before any re-crawl had actually run). Flattening node
+ * names (parent and child both) here reproduces the exact same display text
+ * the old flattened-string storage shape used to show directly — this is a
+ * DISPLAY fallback only; the real tree is what `structuredAttributes` stores
+ * and what the taxonomy tables (Phase 3C-2) are built from.
+ */
+function asTaxonomyNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  // A revision's structuredAttributes is written by exactly one parser
+  // version, so specialty/industry are homogeneous within a revision —
+  // either every element is a v2 string or every element is a v3 node,
+  // never a mix. Checking the first element decides which shape to read.
+  if (typeof value[0] === 'string') return asStrings(value);
+  const names: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+    const node = item as Record<string, unknown>;
+    if (typeof node.name === 'string' && node.name.trim() !== '') names.push(node.name.trim());
+    names.push(...asTaxonomyNames(node.children));
+  }
+  return names;
+}
+
+/**
  * The `reasons` array out of a membership's stored evidence.
  *
  * jsonb, so every level is checked. An evidence object with no readable
@@ -392,7 +425,12 @@ function extraFields(attributes: unknown): ExtraField[] {
     }
   }
   for (const { key, label } of EXTRA_LIST_FIELDS) {
-    const values = asStrings(record[key]);
+    // specialty/industry read through asTaxonomyNames, not asStrings — see
+    // that function's own comment for why (Phase 3C-2's tree-shaped revisions).
+    const values =
+      key === 'specialty' || key === 'industry'
+        ? asTaxonomyNames(record[key])
+        : asStrings(record[key]);
     if (values.length > 0) fields.push({ label, values });
   }
   for (const { key, label, value } of EXTRA_TRUE_FLAGS) {

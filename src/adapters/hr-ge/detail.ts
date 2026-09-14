@@ -3,7 +3,7 @@ import * as cheerio from 'cheerio';
 import type { SourceListingRevisionContent } from '../../db/write-source-listing-revision.js';
 import { extractNgState, findNgStateEntry } from './ng-state.js';
 
-export const HR_GE_DETAIL_PARSER_VERSION = 'v2';
+export const HR_GE_DETAIL_PARSER_VERSION = 'v3';
 
 export interface ParseHrGeDetailPageInput {
   html: string;
@@ -55,27 +55,54 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
+/** One node of hr.ge's specialty/industry taxonomy, with its real source id and nesting preserved. */
+export interface HrGeTaxonomyNode {
+  /** hr.ge's own stable id for this node (`specializationId` or `advancedIndustryId`). */
+  sourceTermId: string;
+  /** hr.ge's own numeric code, as a string — present for specialty nodes, absent for industry ones. */
+  code: string | null;
+  name: string;
+  children: HrGeTaxonomyNode[];
+}
+
 /**
- * Flattens hr.ge's nested specialty/industry taxonomy (each entry has a
- * `name` plus an optional `children[]` of the same shape) into a flat list
- * of names, parent and child both. A deliberate simplification, not a loss
- * of the real structure: this project's own Phase 2 taxonomy-mapping work
- * maps SOURCE categories to a canonical taxonomy from scratch regardless,
- * so a flat list of hr.ge's own labels is exactly what
- * structuredAttributes' role as a documented escape hatch calls for here —
- * preserving the parent/child tree is not needed until something actually
- * consumes it.
+ * Parses hr.ge's nested specialty/industry taxonomy (each entry has an id
+ * field — `specializationId` for specialty, `advancedIndustryId` for
+ * industry — plus `name`, an optional `code`, and `children` which is either
+ * an array of the same shape or `null`) into real nested nodes.
+ *
+ * Previously flattened into a bare list of names (`flattenNamedTree`),
+ * discarding both the tree structure and hr.ge's own ids — defensible only
+ * as long as nothing consumed the structure. Phase 3C-2's taxonomy work is
+ * exactly that consumer, and §15.2 step 1 of the concept requires preserving
+ * source category IDs and labels *exactly* — a bare name string cannot do
+ * that (confirmed live: the same name can appear at different positions
+ * across listings, so position/nesting in the OLD flattened array never
+ * reliably encoded hierarchy in the first place). `idField` differs by axis
+ * because hr.ge itself uses a different id key per axis, confirmed against
+ * real fixtures (`RECON_NOTES.md`).
  */
-function flattenNamedTree(value: unknown): string[] {
+function extractTaxonomyTree(
+  value: unknown,
+  idField: 'specializationId' | 'advancedIndustryId',
+): HrGeTaxonomyNode[] {
   if (!Array.isArray(value)) return [];
-  const names: string[] = [];
-  for (const node of value) {
-    const record = asRecord(node);
+  const nodes: HrGeTaxonomyNode[] = [];
+  for (const raw of value) {
+    const record = asRecord(raw);
     if (record === null) continue;
-    if (typeof record.name === 'string') names.push(record.name);
-    names.push(...flattenNamedTree(record.children));
+    const sourceTermId = record[idField];
+    const name = record.name;
+    if (typeof sourceTermId !== 'string' || typeof name !== 'string') continue;
+    const code = typeof record.code === 'string' ? record.code : null;
+    nodes.push({
+      sourceTermId,
+      code,
+      name,
+      children: extractTaxonomyTree(record.children, idField),
+    });
   }
-  return names;
+  return nodes;
 }
 
 /** Converts hr.ge's entity-encoded HTML description into normalized plain text, the same treatment jobs-ge's own detail.ts applies. */
@@ -232,8 +259,11 @@ export function parseHrGeDetailPage(input: ParseHrGeDetailPageInput): SourceList
   const hideContactPerson = a.hideContactPerson === true;
 
   const structuredAttributes: Record<string, unknown> = {
-    specialty: flattenNamedTree(announcementRequirements?.specializationList),
-    industry: flattenNamedTree(announcementRequirements?.industryList),
+    specialty: extractTaxonomyTree(
+      announcementRequirements?.specializationList,
+      'specializationId',
+    ),
+    industry: extractTaxonomyTree(announcementRequirements?.industryList, 'advancedIndustryId'),
     seniorityLevels: asStringArray(announcementRequirements?.seniorityLevels),
     employmentTypeName:
       typeof announcementRequirements?.employmentTypeName === 'string'
