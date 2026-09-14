@@ -24,6 +24,7 @@ const LINKS = [
   { href: '/listings', label: 'Listings' },
   { href: '/ranked', label: 'Ranked' },
   { href: '/saved', label: 'Shortlist' },
+  { href: '/review', label: 'Duplicate review' },
   { href: '/health', label: 'Source health' },
 ];
 
