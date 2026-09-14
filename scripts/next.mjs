@@ -57,6 +57,25 @@ function readEnvFile(file) {
 // The repo-root .env, the same file every other script reads.
 nextEnv.loadEnvConfig(repoRoot);
 
+/**
+ * The database a connection string points at, for comparing two of them.
+ *
+ * Compared by host, port and database name rather than by raw string, because
+ * the same database is reachable by several spellings — localhost against
+ * 127.0.0.1, a different password, a trailing parameter — and a string compare
+ * would call those different and let the guard below pass.
+ */
+function databaseIdentity(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname === 'localhost' ? '127.0.0.1' : parsed.hostname;
+    const port = parsed.port === '' ? '5432' : parsed.port;
+    return `${host}:${port}${parsed.pathname}`;
+  } catch {
+    return null;
+  }
+}
+
 if (profile === 'qa') {
   // The disposable-copy profile, overlaid on .env so it only states what
   // differs: DATABASE_URL and the write gate. Writes are never enabled against
@@ -66,7 +85,44 @@ if (profile === 'qa') {
     console.error(`scripts/next.mjs: --profile qa requires ${file}, which does not exist.`);
     process.exit(1);
   }
-  Object.assign(process.env, readEnvFile(file));
+
+  // The live target, captured BEFORE the overlay replaces it.
+  const liveUrl = process.env.DATABASE_URL;
+  const overlay = readEnvFile(file);
+  const qaUrl = overlay.DATABASE_URL;
+
+  // Fail closed. This profile's entire purpose is that writes happen against a
+  // copy nobody minds losing, and until now nothing checked that the copy was
+  // one: an .env.qa that omitted DATABASE_URL inherited the live corpus from
+  // .env and then opened the write gate on it — the exact accident this
+  // profile exists to prevent, arrived at by editing the file that prevents
+  // it. The launcher claimed "writes are never enabled against the live
+  // corpus" while enforcing nothing (whole-branch review, 2026-09-08).
+  if (!qaUrl) {
+    console.error(
+      `scripts/next.mjs: ${file} must set DATABASE_URL. Without it the QA profile would enable ` +
+        'writes against the database in .env, which is the live corpus.',
+    );
+    process.exit(1);
+  }
+
+  const qaIdentity = databaseIdentity(qaUrl);
+  if (qaIdentity === null) {
+    console.error(
+      `scripts/next.mjs: DATABASE_URL in ${file} is not a parseable connection string.`,
+    );
+    process.exit(1);
+  }
+  if (liveUrl !== undefined && qaIdentity === databaseIdentity(liveUrl)) {
+    console.error(
+      `scripts/next.mjs: ${file} points at the same database as .env (${qaIdentity}). ` +
+        'The QA profile enables writes, so it must target a disposable copy — see ' +
+        '.env.qa.example for how to make one.',
+    );
+    process.exit(1);
+  }
+
+  Object.assign(process.env, overlay);
 }
 
 const bin = path.join(repoRoot, 'node_modules', 'next', 'dist', 'bin', 'next');

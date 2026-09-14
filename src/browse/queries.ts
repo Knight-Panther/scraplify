@@ -317,10 +317,24 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
   if (filters.sourceSlug !== undefined) {
     conditions.push(liveMemberExists(sql`s.slug = ${filters.sourceSlug}`));
   }
-  if (filters.deadlineFrom !== undefined) {
+  // ONE predicate over ONE member, not two independent EXISTS clauses.
+  //
+  // Separate clauses can be satisfied by DIFFERENT listings: a cross-posted
+  // opportunity whose boards state deadlines either side of the window — one
+  // in September, one in November — matched a query for October, because the
+  // September member satisfied "<= end" and the November one satisfied
+  // ">= start" and nothing required them to be the same listing. The result is
+  // a "closing in October" view containing a vacancy no board says closes in
+  // October (whole-branch review, 2026-09-08).
+  if (filters.deadlineFrom !== undefined && filters.deadlineTo !== undefined) {
+    conditions.push(
+      liveMemberExists(
+        sql`sl.source_deadline_at >= ${filters.deadlineFrom} and sl.source_deadline_at <= ${filters.deadlineTo}`,
+      ),
+    );
+  } else if (filters.deadlineFrom !== undefined) {
     conditions.push(liveMemberExists(sql`sl.source_deadline_at >= ${filters.deadlineFrom}`));
-  }
-  if (filters.deadlineTo !== undefined) {
+  } else if (filters.deadlineTo !== undefined) {
     conditions.push(liveMemberExists(sql`sl.source_deadline_at <= ${filters.deadlineTo}`));
   }
   if (filters.firstSeenFrom !== undefined) {

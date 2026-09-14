@@ -81,6 +81,23 @@ describe('membership review', () => {
     return id;
   }
 
+  /** A pair waiting to be judged, which is the only state accept works on. */
+  async function pendingCandidate(a: string, b: string): Promise<string> {
+    const candidateId = randomUUID();
+    await db.insert(duplicateCandidates).values({
+      id: candidateId,
+      sourceListingIdA: a,
+      sourceListingIdB: b,
+      generatedAt: '2026-09-08T12:00:00Z',
+      generationMethod: 'deterministic_match',
+      similarityScore: 0.9,
+      status: 'pending',
+      resultingDecision: 'needs_review',
+      evidence: {},
+    });
+    return candidateId;
+  }
+
   afterEach(async () => {
     if (listingIds.length > 0) {
       await db
@@ -324,6 +341,9 @@ describe('membership review', () => {
     const listingA = await makeListing();
     const listingB = await makeListing();
     const [a, b] = [listingA, listingB].sort() as [string, string];
+    // The OTHER side already lives in the target — that is what makes this
+    // opportunity the right place to accept the pair into.
+    await addMembership(target, b, '2026-09-08T12:00:00Z');
     const candidateId = randomUUID();
     await db.insert(duplicateCandidates).values({
       id: candidateId,
@@ -341,7 +361,6 @@ describe('membership review', () => {
       candidateId,
       sourceListingId: a,
       toOpportunityId: target,
-      decision: 'confirmed_same',
       confidence: 0.95,
       evidence: { reasons: ['reviewer accepted the pair'] },
       actor: ACTOR,
@@ -361,6 +380,127 @@ describe('membership review', () => {
     expect(candidate?.resultingDecision).toBe('confirmed_same');
     expect(candidate?.decidedBy).toBe('human');
     expect(candidate?.status).toBe('evaluated');
+  });
+
+  /**
+   * The arguments used to be trusted. A stale form or a mistaken caller could
+   * accept candidate X while moving a listing that had nothing to do with it,
+   * leaving the cluster and the candidate row describing different facts —
+   * each internally consistent and jointly wrong.
+   */
+  it('refuses a listing that is not part of the candidate', async () => {
+    const target = await makeOpportunity('Identity target');
+    const inPair = await makeListing();
+    const alsoInPair = await makeListing();
+    const unrelated = await makeListing();
+    const [a, b] = [inPair, alsoInPair].sort() as [string, string];
+    await addMembership(target, b, '2026-09-08T12:00:00Z');
+    const candidateId = await pendingCandidate(a, b);
+
+    await expect(
+      acceptDuplicateCandidate(db, {
+        candidateId,
+        sourceListingId: unrelated,
+        toOpportunityId: target,
+        confidence: 0.95,
+        evidence: {},
+        actor: ACTOR,
+        at: '2026-09-08T13:00:00Z',
+      }),
+    ).rejects.toThrow(/is not part of candidate/);
+
+    expect(await getLiveMembership(db, unrelated)).toBeNull();
+  });
+
+  /**
+   * "Accept" means "into the cluster the other side is already in". Merging
+   * the pair somewhere neither of them lives is a different act, and not one
+   * this verb should quietly perform.
+   */
+  it('refuses a target that does not hold the other side', async () => {
+    const wrongTarget = await makeOpportunity('Wrong target');
+    const first = await makeListing();
+    const second = await makeListing();
+    const [a, b] = [first, second].sort() as [string, string];
+    const candidateId = await pendingCandidate(a, b);
+
+    await expect(
+      acceptDuplicateCandidate(db, {
+        candidateId,
+        sourceListingId: a,
+        toOpportunityId: wrongTarget,
+        confidence: 0.95,
+        evidence: {},
+        actor: ACTOR,
+        at: '2026-09-08T13:00:00Z',
+      }),
+    ).rejects.toThrow(/does not hold the other side/);
+  });
+
+  /**
+   * Accepting an already-settled pair is not a no-op — it is a second opinion
+   * overwriting a first, and for one judged `distinct` it would merge
+   * listings a reviewer had explicitly separated.
+   */
+  it('refuses a candidate that is already settled', async () => {
+    const target = await makeOpportunity('Settled target');
+    const first = await makeListing();
+    const second = await makeListing();
+    const [a, b] = [first, second].sort() as [string, string];
+    await addMembership(target, b, '2026-09-08T12:00:00Z');
+    const candidateId = await pendingCandidate(a, b);
+    await resolveDuplicateCandidate(db, { candidateId, decision: 'distinct' });
+
+    await expect(
+      acceptDuplicateCandidate(db, {
+        candidateId,
+        sourceListingId: a,
+        toOpportunityId: target,
+        confidence: 0.95,
+        evidence: {},
+        actor: ACTOR,
+        at: '2026-09-08T13:00:00Z',
+      }),
+    ).rejects.toThrow(/not awaiting review/);
+
+    expect(await getLiveMembership(db, a)).toBeNull();
+  });
+
+  /**
+   * The stale-link case, and the one that hid a human decision.
+   *
+   * Both listings are already in the cluster, so `reassignListingWithin`
+   * short-circuits: it restores the previous AUTOMATIC membership and returns
+   * without recording the reviewer at all. Only the candidate said 'human',
+   * while the detail screen — which reads membership evidence — showed the
+   * ruleset's original reasoning as though nobody had looked.
+   */
+  it('records the reviewer even when both listings are already clustered', async () => {
+    const target = await makeOpportunity('Reaffirm target');
+    const first = await makeListing();
+    const second = await makeListing();
+    const [a, b] = [first, second].sort() as [string, string];
+    await addMembership(target, a, '2026-09-08T12:00:00Z');
+    await addMembership(target, b, '2026-09-08T12:00:00Z');
+    const candidateId = await pendingCandidate(a, b);
+
+    await acceptDuplicateCandidate(db, {
+      candidateId,
+      sourceListingId: a,
+      toOpportunityId: target,
+      confidence: 0.99,
+      evidence: { reasons: ['reviewer reaffirmed the existing link'] },
+      actor: ACTOR,
+      at: '2026-09-08T13:00:00Z',
+    });
+
+    const membership = await getLiveMembership(db, a);
+    expect(membership?.opportunityId).toBe(target);
+    // The reviewer's record, not the ruleset's.
+    expect(membership?.decidedBy).toBe('human');
+    // Stored as Postgres renders it, space-separated, not ISO.
+    expect(membership?.decidedAt).toContain('2026-09-08 13:00');
+    expect(membership?.evidence).toEqual({ reasons: ['reviewer reaffirmed the existing link'] });
   });
 
   /**
@@ -385,7 +525,6 @@ describe('membership review', () => {
         candidateId: randomUUID(),
         sourceListingId: listingA,
         toOpportunityId: target,
-        decision: 'confirmed_same',
         confidence: 0.95,
         evidence: {},
         actor: ACTOR,

@@ -229,13 +229,101 @@ async function reassignListingWithin(
  */
 export async function acceptDuplicateCandidate(
   db: Database,
-  input: ReassignInput & { candidateId: string },
+  input: Omit<ReassignInput, 'decision'> & { candidateId: string },
 ): Promise<{ previousOpportunityId: string | null }> {
   return db.transaction(async (tx) => {
-    const result = await reassignListingWithin(tx, input);
+    // The candidate FIRST, and locked, before anything moves.
+    //
+    // Two things went wrong without this. The arguments were trusted, so a
+    // stale form or a mistaken caller could accept candidate X while moving a
+    // listing that had nothing to do with it — leaving the cluster and the
+    // candidate row describing different facts, each internally consistent and
+    // jointly wrong. And the row was read after the move, so two reviewers
+    // acting at once could both pass their checks before either wrote.
+    // `for update` serialises them; the second waits and then finds the pair
+    // already settled.
+    const [candidate] = await tx
+      .select({
+        id: duplicateCandidates.id,
+        a: duplicateCandidates.sourceListingIdA,
+        b: duplicateCandidates.sourceListingIdB,
+        decision: duplicateCandidates.resultingDecision,
+      })
+      .from(duplicateCandidates)
+      .where(eq(duplicateCandidates.id, input.candidateId))
+      .for('update');
+
+    if (candidate === undefined) {
+      throw new Error(`acceptDuplicateCandidate: no candidate with id ${input.candidateId}`);
+    }
+    // Accepting something already settled is not a no-op, it is a second
+    // opinion overwriting a first — and for a pair judged `distinct` it would
+    // merge listings a reviewer had explicitly separated.
+    if (candidate.decision !== 'needs_review') {
+      throw new Error(
+        `acceptDuplicateCandidate: candidate ${input.candidateId} is not awaiting review ` +
+          `(decision: ${candidate.decision ?? 'none'})`,
+      );
+    }
+
+    // The listing being moved must be one side of THIS pair.
+    if (input.sourceListingId !== candidate.a && input.sourceListingId !== candidate.b) {
+      throw new Error(
+        `acceptDuplicateCandidate: listing ${input.sourceListingId} is not part of candidate ` +
+          `${input.candidateId}`,
+      );
+    }
+
+    // ...and the target must be where the OTHER side already lives. Otherwise
+    // "accept" would merge the pair into a cluster neither of them is in,
+    // which is a different act entirely and not one this verb should perform.
+    const otherListingId = input.sourceListingId === candidate.a ? candidate.b : candidate.a;
+    const otherMembership = await getLiveMembership(tx, otherListingId);
+    if (otherMembership === null || otherMembership.opportunityId !== input.toOpportunityId) {
+      throw new Error(
+        `acceptDuplicateCandidate: opportunity ${input.toOpportunityId} does not hold the other ` +
+          `side of candidate ${input.candidateId}`,
+      );
+    }
+
+    // The decision is fixed by the verb rather than taken from the caller.
+    // "Accept" means these are the same vacancy; a caller passing 'distinct'
+    // here was previously able to merge two listings while recording that they
+    // are different.
+    const decision: DedupeDecision = 'confirmed_same';
+
+    const result = await reassignListingWithin(tx, { ...input, decision });
+
+    // The reviewer's own membership record, written unconditionally.
+    //
+    // `reassignListingWithin` short-circuits when the listing is ALREADY in
+    // the target — the stale-link case, where both sides are in the cluster
+    // and the candidate was queued because the link no longer scores. It
+    // restores the previous automatic membership and returns, so the
+    // reviewer's evidence, identity and timestamp were never recorded, while
+    // the candidate said 'human'. The detail screen reads membership evidence,
+    // so a human reaffirmation was invisible exactly where provenance is the
+    // point.
+    await tx
+      .update(opportunitySourceMemberships)
+      .set({
+        decision,
+        confidence: input.confidence,
+        evidence: input.evidence,
+        decidedBy: input.actor.decidedBy,
+        decidedAt: input.at,
+        dedupeModelOrRulesetVersion: input.actor.version,
+      })
+      .where(
+        and(
+          eq(opportunitySourceMemberships.sourceListingId, input.sourceListingId),
+          isNull(opportunitySourceMemberships.supersededAt),
+        ),
+      );
+
     await resolveDuplicateCandidate(tx, {
       candidateId: input.candidateId,
-      decision: input.decision,
+      decision,
       decidedBy: input.actor.decidedBy === 'human' ? 'human' : 'ruleset',
     });
     return result;

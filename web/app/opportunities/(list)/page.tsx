@@ -5,7 +5,13 @@ import {
 } from '../../../../src/browse/queries.js';
 import { db } from '../../../../src/db/client.js';
 import { StatusChip } from '../../../components/status-chip.js';
-import { absoluteTime, count, relativeTime, sourceDateTime } from '../../../lib/format.js';
+import {
+  absoluteTime,
+  count,
+  relativeTime,
+  sourceDate,
+  sourceDateTime,
+} from '../../../lib/format.js';
 import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../../lib/labels.js';
 import { type OpportunityRow, toRow } from '../../../lib/opportunity-row.js';
 import {
@@ -505,8 +511,8 @@ function NarrowMetaText({ row }: { row: OpportunityRow }) {
   if (row.deadline !== null) {
     parts.push(
       <span key="deadline">
-        <time dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
-          closes {relativeTime(row.deadline)}
+        <time className="numeric" dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
+          closes {sourceDate(row.deadline)}
         </time>
         {/* The conflict marker belongs here too. Every cross-posted cluster in
             the corpus disagrees about its closing date, so a narrow screen
@@ -592,8 +598,14 @@ function Deadline({ row }: { row: OpportunityRow }) {
   if (row.deadline === null) return null;
   return (
     <>
-      <time dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
-        {relativeTime(row.deadline)}
+      {/* The board's calendar date, not "in 3 hours". jobs.ge states a date
+          with no time and the adapter stores it as Tbilisi local midnight, so
+          a relative rendering counts down within the very day the board named
+          as the deadline — asserting a precision the source never gave, and
+          making a still-actionable listing read as nearly gone. The detail
+          screen was fixed for this; the list kept the old rendering. */}
+      <time className="numeric" dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
+        {sourceDate(row.deadline)}
       </time>
       {row.deadlinesDisagree && (
         <span

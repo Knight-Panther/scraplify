@@ -1,5 +1,6 @@
 import { getSourceHealth, searchListings } from '../../src/browse/queries.js';
 import { db } from '../../src/db/client.js';
+import { sourceDate } from '../lib/format.js';
 import { databaseLabel, writesEnabled } from '../lib/writes.js';
 
 /**
@@ -34,11 +35,25 @@ export default async function Page() {
     listings[0] ?? { title: '', sourceListingId: '' },
   );
 
+  // Two real listings that state a deadline, for the numeral specimen below.
+  // Tabular figures are checked against the values this app actually renders,
+  // which is the only reason a numeral specimen is worth having.
+  const numeralSamples = listings
+    .filter((listing) => listing.deadlineAt !== null)
+    .slice(0, 2)
+    .map((listing) => ({
+      sourceListingId: listing.sourceListingId,
+      deadline: sourceDate(listing.deadlineAt as string),
+      firstSeen: sourceDate(listing.firstSeenAt),
+    }));
+
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
       <header className="border-b border-border pb-6">
         <h1 className="text-2xl font-semibold">Xtelo</h1>
-        <p className="mt-1 text-faint">Design system — no screens built yet.</p>
+        <p className="mt-1 text-faint">
+          The design system, checked against real data. The screens themselves are in the nav above.
+        </p>
       </header>
 
       <dl className="mt-8 flex flex-wrap gap-x-8 gap-y-2 text-sm">
@@ -89,10 +104,31 @@ export default async function Page() {
         </div>
       </Section>
 
-      <Section title="Numerals" note="Space Mono, tabular. Latin and digits only.">
+      {/* Real deadlines and real counts, not invented ones.
+          This block used to print three hard-coded triples — a date, a score
+          and a count — which read exactly like a listing and a ranking because
+          that is what they were shaped as. Inventing data anywhere is the
+          failure `anti-patterns.md` puts first, and scaffolding is not an
+          exemption: the numbers are on screen either way, and this page is
+          reachable from the nav. Caught by the whole-branch review, having
+          survived every browser-QA pass because nobody opened '/'. */}
+      <Section
+        title="Numerals"
+        note="Space Mono, tabular. Latin and digits only. Every value below is read from the corpus."
+      >
         <div className="numeric space-y-1 text-sm">
-          <div>2026-09-13 &nbsp; 0.8241 &nbsp; 310</div>
-          <div>2026-10-03 &nbsp; 0.1109 &nbsp; 100</div>
+          {numeralSamples.length === 0 ? (
+            <div className="text-faint">No listing states a deadline yet.</div>
+          ) : (
+            numeralSamples.map((sample) => (
+              <div key={sample.sourceListingId}>
+                {sample.deadline} &nbsp; {sample.firstSeen}
+              </div>
+            ))
+          )}
+          <div>
+            {total} listings &nbsp; {mixed.length} mixed-script titles
+          </div>
         </div>
       </Section>
 

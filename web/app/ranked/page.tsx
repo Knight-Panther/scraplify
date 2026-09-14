@@ -111,7 +111,13 @@ export default async function RankedPage({
         </ol>
       )}
 
-      <ShowMore shown={rows.length} more={more} includeFiltered={includeFiltered} show={show} />
+      <ShowMore
+        shown={rows.length}
+        more={more}
+        includeFiltered={includeFiltered}
+        show={show}
+        profileId={profile.id}
+      />
     </main>
   );
 }
@@ -367,11 +373,14 @@ function ShowMore({
   more,
   includeFiltered,
   show,
+  profileId,
 }: {
   shown: number;
   more: number;
   includeFiltered: boolean;
   show: number;
+  /** Carried explicitly: the page falls back to profiles[0] without it. */
+  profileId: string;
 }) {
   if (more <= 0) return null;
   const next = Math.min(show + 25, ROW_CHUNK);
@@ -387,7 +396,10 @@ function ShowMore({
     );
   }
 
-  const params = new URLSearchParams({ show: String(next) });
+  // The profile rides along. Without it the next request fell back to
+  // profiles[0], so growing the list silently swapped which profile you were
+  // looking at — a different ranking under the same heading.
+  const params = new URLSearchParams({ show: String(next), profile: profileId });
   if (includeFiltered) params.set('filtered', '1');
 
   return (

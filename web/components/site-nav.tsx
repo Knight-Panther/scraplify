@@ -17,7 +17,9 @@ import { databaseLabel, writesEnabled } from '../lib/writes.js';
  */
 
 const LINKS = [
-  { href: '/', label: 'Overview' },
+  // "Design system", not "Overview". Calling a token specimen the product's
+  // overview is what let its sample numbers read as real listings.
+  { href: '/', label: 'Design system' },
   { href: '/opportunities', label: 'Opportunities' },
   { href: '/listings', label: 'Listings' },
   { href: '/ranked', label: 'Ranked' },
