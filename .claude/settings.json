@@ -1,19 +1,43 @@
 {
   "permissions": {
-    "defaultMode": "acceptEdits",
     "deny": [
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(./secrets/**)",
-      "Bash(gh repo delete *)"
+      "Bash(gh repo delete *)",
+      "Edit(./package-lock.json)",
+      "Write(./package-lock.json)"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "enabledMcpjsonServers": [
+    "context7",
+    "postgres"
+  ],
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; [ -n \"$f\" ] && npx biome format --write \"$f\"; } 2>/dev/null || true",
+            "statusMessage": "Formatting with biome..."
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
-    "codex@openai-codex": true
+    "codex@openai-codex": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true
   },
-  "enabledMcpjsonServers": [
-    "context7"
-  ],
   "extraKnownMarketplaces": {
     "openai-codex": {
       "source": {
