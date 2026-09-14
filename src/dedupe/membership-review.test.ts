@@ -501,6 +501,21 @@ describe('membership review', () => {
     // Stored as Postgres renders it, space-separated, not ISO.
     expect(membership?.decidedAt).toContain('2026-09-08 13:00');
     expect(membership?.evidence).toEqual({ reasons: ['reviewer reaffirmed the existing link'] });
+
+    // And the RULESET's original decision survives, retired rather than
+    // overwritten. This half is what the first version of this test was
+    // missing: it asserted the reviewer was recorded and never that the
+    // automatic decision still was, so it passed just as happily against a
+    // fix that wrote the reviewer's fields over the existing row — destroying
+    // the provenance this table is append-only to keep (§12.5). Two rows, not
+    // one, is the whole point.
+    const history = await getMembershipHistory(db, a);
+    expect(history).toHaveLength(2);
+    const retired = history.filter((row) => row.supersededAt !== null);
+    expect(retired).toHaveLength(1);
+    expect(retired[0]?.decidedBy).toBe('ruleset');
+    expect(retired[0]?.evidence).toEqual({ reasons: ['original automatic merge'] });
+    expect(retired[0]?.decidedAt).toContain('2026-09-08 12:00');
   });
 
   /**

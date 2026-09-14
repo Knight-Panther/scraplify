@@ -59,18 +59,33 @@ nextEnv.loadEnvConfig(repoRoot);
 
 /**
  * The database a connection string points at, for comparing two of them.
+ * Returns null when the URL does not state one, which callers must treat as
+ * "cannot prove anything" rather than as a distinct value.
  *
  * Compared by host, port and database name rather than by raw string, because
  * the same database is reachable by several spellings — localhost against
  * 127.0.0.1, a different password, a trailing parameter — and a string compare
  * would call those different and let the guard below pass.
+ *
+ * A URL with no database path is REJECTED rather than treated as its own
+ * identity, and that distinction is the whole finding: an omitted path does
+ * not mean "no database". node-postgres falls back to the user name, so
+ * `postgres://scraplify@host` silently opens the LIVE `scraplify` database
+ * while comparing as `127.0.0.1:5432` against the live `127.0.0.1:5432/
+ * scraplify` — different strings, same database, write gate open. Verified
+ * against this machine's own Postgres, not reasoned about. The first version
+ * of this guard (whole-branch review, 2026-09-08) closed the "omitted
+ * DATABASE_URL" door and left this one open, which is why the check now fails
+ * closed on anything it cannot read rather than on the one case that was found.
  */
 function databaseIdentity(url) {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname === 'localhost' ? '127.0.0.1' : parsed.hostname;
     const port = parsed.port === '' ? '5432' : parsed.port;
-    return `${host}:${port}${parsed.pathname}`;
+    const database = parsed.pathname.replace(/^\//, '');
+    if (database === '') return null;
+    return `${host}:${port}/${database}`;
   } catch {
     return null;
   }
@@ -109,17 +124,36 @@ if (profile === 'qa') {
   const qaIdentity = databaseIdentity(qaUrl);
   if (qaIdentity === null) {
     console.error(
-      `scripts/next.mjs: DATABASE_URL in ${file} is not a parseable connection string.`,
+      `scripts/next.mjs: DATABASE_URL in ${file} must be a connection string that names its ` +
+        'database explicitly, as postgres://user:password@host:5432/scraplify_qa. A URL with no ' +
+        'database path does not mean "no database": node-postgres falls back to the user name, ' +
+        'so it can silently open the live corpus while looking different from .env.',
     );
     process.exit(1);
   }
-  if (liveUrl !== undefined && qaIdentity === databaseIdentity(liveUrl)) {
-    console.error(
-      `scripts/next.mjs: ${file} points at the same database as .env (${qaIdentity}). ` +
-        'The QA profile enables writes, so it must target a disposable copy — see ' +
-        '.env.qa.example for how to make one.',
-    );
-    process.exit(1);
+
+  // Fail closed on the LIVE side too. If .env's URL does not name its database
+  // either, this guard cannot prove the two differ — and "cannot prove" must
+  // not read as "they differ", which is exactly how a null identity would
+  // behave in the comparison below if it were left to it.
+  if (liveUrl !== undefined) {
+    const liveIdentity = databaseIdentity(liveUrl);
+    if (liveIdentity === null) {
+      console.error(
+        "scripts/next.mjs: .env's DATABASE_URL does not name its database explicitly, so there " +
+          `is no way to prove ${file} points at a different one. Name the database in .env's ` +
+          'URL before using the QA profile, which enables writes.',
+      );
+      process.exit(1);
+    }
+    if (qaIdentity === liveIdentity) {
+      console.error(
+        `scripts/next.mjs: ${file} points at the same database as .env (${qaIdentity}). ` +
+          'The QA profile enables writes, so it must target a disposable copy — see ' +
+          '.env.qa.example for how to make one.',
+      );
+      process.exit(1);
+    }
   }
 
   Object.assign(process.env, overlay);

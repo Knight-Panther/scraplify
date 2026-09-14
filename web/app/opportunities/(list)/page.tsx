@@ -279,12 +279,21 @@ function Field({
  * A native select, with both colours stated explicitly — Windows dark mode
  * otherwise paints the popup list with its own foreground colour and leaves the
  * options unreadable against ours.
+ *
+ * `w-full max-w-52` is load-bearing, not cosmetic: a native select sizes itself
+ * to its widest OPTION and ignores the flex container it sits in, so the board
+ * filter grew to 392px on the widest slug and pushed the whole page 69px past a
+ * 375px viewport. The listings screen was capped for this in Stage 7; this one
+ * was not, which is the same defect one screen over. The cap is deliberately on
+ * the control rather than on unknown slugs — hiding those would paper over the
+ * stranded test sources with a UI change, and any genuinely long board name
+ * would reintroduce this.
  */
 function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className="rounded-[var(--radius)] border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+      className="w-full max-w-52 rounded-[var(--radius)] border border-border bg-background px-2 py-1.5 text-sm text-foreground"
     />
   );
 }

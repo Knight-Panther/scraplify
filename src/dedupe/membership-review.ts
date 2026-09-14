@@ -162,7 +162,7 @@ export async function reassignListing(
 async function reassignListingWithin(
   tx: DatabaseOrTransaction,
   input: ReassignInput,
-): Promise<{ previousOpportunityId: string | null }> {
+): Promise<{ previousOpportunityId: string | null; alreadyInTarget: boolean }> {
   {
     const [target] = await tx
       .select({ id: opportunities.id })
@@ -186,7 +186,7 @@ async function reassignListingWithin(
             eq(opportunitySourceMemberships.supersededAt, input.at),
           ),
         );
-      return { previousOpportunityId };
+      return { previousOpportunityId, alreadyInTarget: true };
     }
 
     await tx.insert(opportunitySourceMemberships).values({
@@ -207,7 +207,7 @@ async function reassignListingWithin(
     }
     await resolveCanonicalOpportunity(tx, input.toOpportunityId, input.at);
 
-    return { previousOpportunityId };
+    return { previousOpportunityId, alreadyInTarget: false };
   }
 }
 
@@ -294,7 +294,8 @@ export async function acceptDuplicateCandidate(
 
     const result = await reassignListingWithin(tx, { ...input, decision });
 
-    // The reviewer's own membership record, written unconditionally.
+    // The reviewer's own membership record, in the one case that would
+    // otherwise have none.
     //
     // `reassignListingWithin` short-circuits when the listing is ALREADY in
     // the target — the stale-link case, where both sides are in the cluster
@@ -303,23 +304,38 @@ export async function acceptDuplicateCandidate(
     // reviewer's evidence, identity and timestamp were never recorded, while
     // the candidate said 'human'. The detail screen reads membership evidence,
     // so a human reaffirmation was invisible exactly where provenance is the
-    // point.
-    await tx
-      .update(opportunitySourceMemberships)
-      .set({
+    // point. When the listing DID move, that same function has already
+    // inserted a live membership carrying this reviewer's evidence and
+    // identity, so there is nothing to add here.
+    //
+    // Written as retire-then-append, NOT as an update in place. The first fix
+    // for this (whole-branch review, 2026-09-08) updated the restored row's
+    // decision, evidence, decider and timestamp — which silently overwrote the
+    // RULESET's original decision, the exact provenance
+    // `opportunity_source_memberships` is append-only to protect (§12.5, and
+    // the schema comment says so in as many words). It traded an invisible
+    // reviewer for a destroyed automatic decision. Retiring the automatic row
+    // and appending a human one keeps both: the history shows the ruleset
+    // linked these, and then a person confirmed it.
+    if (result.alreadyInTarget) {
+      await retireLiveMembership(tx, input.sourceListingId, input.at);
+      await tx.insert(opportunitySourceMemberships).values({
+        id: randomUUID(),
+        opportunityId: input.toOpportunityId,
+        sourceListingId: input.sourceListingId,
         decision,
         confidence: input.confidence,
         evidence: input.evidence,
         decidedBy: input.actor.decidedBy,
         decidedAt: input.at,
         dedupeModelOrRulesetVersion: input.actor.version,
-      })
-      .where(
-        and(
-          eq(opportunitySourceMemberships.sourceListingId, input.sourceListingId),
-          isNull(opportunitySourceMemberships.supersededAt),
-        ),
-      );
+        supersededAt: null,
+      });
+      // Deliberately no `resolveCanonicalOpportunity` call: the cluster's live
+      // MEMBER SET is unchanged by a reaffirmation — the same listing, the same
+      // opportunity — so re-resolving could only produce the revision it
+      // already points at.
+    }
 
     await resolveDuplicateCandidate(tx, {
       candidateId: input.candidateId,
