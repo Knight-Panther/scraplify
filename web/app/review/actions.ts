@@ -9,11 +9,7 @@ import {
   getLiveMembership,
   rejectDuplicateCandidate,
 } from '../../../src/dedupe/membership-review.js';
-import {
-  opportunities,
-  sourceListingRevisions,
-  sourceListings,
-} from '../../../src/db/schema/index.js';
+import { sourceListingRevisions, sourceListings } from '../../../src/db/schema/index.js';
 import {
   readCandidateId,
   readMovingListingId,
@@ -202,14 +198,6 @@ export async function rejectReviewPair(form: FormData): Promise<void> {
     )
     .where(eq(sourceListings.id, movingListingId));
 
-  const currentMembership = await getLiveMembership(db, movingListingId);
-  const [currentOpportunity] = currentMembership
-    ? await db
-        .select({ type: opportunities.type })
-        .from(opportunities)
-        .where(eq(opportunities.id, currentMembership.opportunityId))
-    : [];
-
   // Refused, not fabricated. `sourceListings.currentRevisionId` is nullable
   // (a listing that never successfully parsed has none), so `listing` can
   // genuinely come back empty — and the first version of this action filled
@@ -218,21 +206,20 @@ export async function rejectReviewPair(form: FormData): Promise<void> {
   // if a split happened to be needed (commit gate, 2026-09-14) — exactly the
   // fabricated-data failure this project treats as P1 everywhere else. A
   // clear refusal here is the honest alternative: there is no reliable value
-  // to use, so none is invented. The same reasoning covers `type`: it is
-  // only ever consulted in the stale-link branch, which requires a live
-  // membership, so a live membership with no readable opportunity type is
-  // equally a state nothing should guess through.
+  // to use, so none is invented.
+  //
+  // `type` is deliberately NOT read or passed here at all (it was, until a
+  // supplementary review after commit gate round 4 caught it): pre-fetching
+  // it outside this action's transaction let a concurrent reassignment move
+  // the listing between this read and `rejectDuplicateCandidate`'s own
+  // locked check, so the split — if one happened — could store a type read
+  // from a DIFFERENT opportunity than the one actually being split from.
+  // `rejectDuplicateCandidate` now resolves it itself, inside the same
+  // locked transaction that decides whether a split happens at all.
   if (listing === undefined) {
     throw new Error(
       `rejectReviewPair: listing ${movingListingId} has no readable title — its current ` +
         'revision could not be found. Resolve this pair directly (npm run browse) instead.',
-    );
-  }
-  if (currentMembership !== null && currentOpportunity === undefined) {
-    throw new Error(
-      `rejectReviewPair: listing ${movingListingId}'s current opportunity ` +
-        `(${currentMembership.opportunityId}) could not be read. Resolve this pair directly ` +
-        '(npm run browse) instead.',
     );
   }
 
@@ -246,16 +233,7 @@ export async function rejectReviewPair(form: FormData): Promise<void> {
     const result = await rejectDuplicateCandidate(db, {
       candidateId,
       splitOutListingId: movingListingId,
-      // Only used if this turns out to be a stale-link pair; see the
-      // function's own doc comment for why most rejections never reach this
-      // at all. `canonicalTitle` is a real value, checked above. `type`'s
-      // `?? 'job'` looks like a fallback but is provably never exercised
-      // where it would matter: the guard above already refused whenever
-      // `currentMembership` exists without a readable `currentOpportunity`,
-      // and `type` is only ever consulted by the stale-link branch, which
-      // requires exactly that membership to exist.
       canonicalTitle: listing.title,
-      type: currentOpportunity?.type ?? 'job',
       actor: { decidedBy: 'human', version: 'operator:web' },
       at: new Date().toISOString(),
     });

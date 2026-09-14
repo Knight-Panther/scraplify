@@ -39,11 +39,14 @@ describe('membership review', () => {
   const opportunityIds: string[] = [];
   const listingIds: string[] = [];
 
-  async function makeOpportunity(title: string): Promise<string> {
+  async function makeOpportunity(
+    title: string,
+    type: 'job' | 'summer_school' | 'scholarship' | 'grant' | 'event' = 'job',
+  ): Promise<string> {
     const id = randomUUID();
     await db.insert(opportunities).values({
       id,
-      type: 'job',
+      type,
       canonicalTitle: title,
       organizationId: null,
       canonicalStatus: 'active',
@@ -733,7 +736,6 @@ describe('membership review', () => {
       candidateId,
       splitOutListingId: a,
       canonicalTitle: 'unused for a non-stale pair',
-      type: 'job',
       actor: ACTOR,
       at: '2026-09-14T14:00:00Z',
     });
@@ -772,7 +774,6 @@ describe('membership review', () => {
       candidateId,
       splitOutListingId: b,
       canonicalTitle: 'Split out on rejection',
-      type: 'job',
       actor: ACTOR,
       at: '2026-09-14T14:05:00Z',
     });
@@ -804,6 +805,45 @@ describe('membership review', () => {
     expect(aMembership?.opportunityId).not.toBe(bMembership?.opportunityId);
   });
 
+  /**
+   * `type` used to arrive as a caller-supplied argument, pre-fetched by the
+   * web action BEFORE this function's own transaction opened — a window in
+   * which a concurrent reassignment could move the listing into a different
+   * opportunity than the one this split actually acts on, storing whichever
+   * type the caller happened to read rather than the one truly being split
+   * from (supplementary correctness review, 2026-09-14). It is now resolved
+   * inside the same locked transaction that decides `isStaleLink`, so this
+   * proves it reads the shared opportunity's REAL type (deliberately not
+   * `'job'`, `makeOpportunity`'s default) rather than trusting a caller value.
+   */
+  it("inherits the split's type from the shared opportunity it actually splits from", async () => {
+    const shared = await makeOpportunity(
+      'a scholarship merged with a stray listing',
+      'scholarship',
+    );
+    const a = await makeListing();
+    const b = await makeListing();
+    await addMembership(shared, a);
+    await addMembership(shared, b, '2026-09-06T12:00:01Z');
+    const candidateId = await pendingCandidate(a, b);
+
+    const result = await rejectDuplicateCandidate(db, {
+      candidateId,
+      splitOutListingId: b,
+      canonicalTitle: 'Split out with the correct inherited type',
+      actor: ACTOR,
+      at: '2026-09-14T14:06:00Z',
+    });
+    if (result.splitOpportunityId !== null) opportunityIds.push(result.splitOpportunityId);
+
+    expect(result.splitOpportunityId).not.toBeNull();
+    const [split] = await db
+      .select({ type: opportunities.type })
+      .from(opportunities)
+      .where(eq(opportunities.id, result.splitOpportunityId as string));
+    expect(split?.type).toBe('scholarship');
+  });
+
   it('refuses to reject a candidate that is not awaiting review', async () => {
     const oppA = await makeOpportunity('a singleton');
     const oppB = await makeOpportunity('b singleton');
@@ -819,7 +859,6 @@ describe('membership review', () => {
         candidateId,
         splitOutListingId: a,
         canonicalTitle: 'unused',
-        type: 'job',
         actor: ACTOR,
         at: '2026-09-14T14:10:00Z',
       }),
@@ -843,7 +882,6 @@ describe('membership review', () => {
         candidateId,
         splitOutListingId: c,
         canonicalTitle: 'unused',
-        type: 'job',
         actor: ACTOR,
         at: '2026-09-14T14:15:00Z',
       }),
@@ -872,7 +910,6 @@ describe('membership review', () => {
         candidateId,
         splitOutListingId: b,
         canonicalTitle: 'unused',
-        type: 'job',
         actor: ACTOR,
         at: '2026-09-14T14:20:00Z',
       }),

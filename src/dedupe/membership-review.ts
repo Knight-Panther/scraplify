@@ -825,7 +825,6 @@ export async function rejectDuplicateCandidate(
     splitOutListingId: string;
     /** For the new opportunity, if a split happens. Unused otherwise. */
     canonicalTitle: string;
-    type: 'job' | 'summer_school' | 'scholarship' | 'grant' | 'event';
     actor: ReviewActor;
     at: string;
   },
@@ -922,10 +921,28 @@ export async function rejectDuplicateCandidate(
     let splitOpportunityId: string | null = null;
     let previousOpportunityId: string | null = null;
     if (isStaleLink) {
+      // Read fresh, inside this transaction, rather than accepted as a
+      // caller-supplied argument: the caller's own read happens before this
+      // transaction opens, so a concurrent reassignment between that read and
+      // this one could move the listing into a DIFFERENT shared opportunity
+      // than the one this split actually acts on, storing the wrong type on
+      // the new opportunity while `isStaleLink` itself (computed from the
+      // locked membership rows above) stays correct — a caller argument could
+      // silently drift from the state the split decision was actually made
+      // against (commit gate finding, 2026-09-14).
+      const [sharedOpportunity] = await tx
+        .select({ type: opportunities.type })
+        .from(opportunities)
+        .where(eq(opportunities.id, membershipA.opportunityId));
+      if (sharedOpportunity === undefined) {
+        throw new Error(
+          `rejectDuplicateCandidate: opportunity ${membershipA.opportunityId} could not be read`,
+        );
+      }
       const split = await splitListingIntoNewOpportunityWithin(tx, {
         sourceListingId: input.splitOutListingId,
         canonicalTitle: input.canonicalTitle,
-        type: input.type,
+        type: sharedOpportunity.type,
         evidence: { reasons: ['split from a stale automatic link, rejected by a human reviewer'] },
         actor: input.actor,
         at: input.at,
