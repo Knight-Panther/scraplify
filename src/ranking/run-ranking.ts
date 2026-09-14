@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   candidateProfiles,
   opportunities,
@@ -254,6 +254,13 @@ export async function runRanking(
 export interface RankedOpportunityView {
   opportunityId: string;
   canonicalTitle: string;
+  /**
+   * The cluster's §13 state, carried so a screen can say when a well-matched
+   * vacancy may already be gone. A ranking says how well something fits, not
+   * whether it is still there, and presenting a top score without that is how
+   * a reader spends their attention on a listing nobody can apply to.
+   */
+  canonicalStatus: string;
   score: number | null;
   eligible: boolean;
   hardFilterReasons: unknown;
@@ -266,24 +273,36 @@ export interface RankedOpportunityView {
  * filtering as a separate stage, and a filtered-out opportunity has no score
  * to compare at all.
  */
-export async function listRankedOpportunities(
+/**
+ * Everything that makes a stored ranking row the CURRENT one for a profile.
+ *
+ * Historical rankings are deliberately never overwritten (§17.2), so this
+ * table accumulates rows for superseded profile versions, older evaluation
+ * versions and previous opportunity revisions. Filtering on profile id alone
+ * therefore returned all of them at once — the same opportunity appearing
+ * several times, and stale high scores able to push current results out of the
+ * limit (adversarial review, 2026-09-06). The view must name the current
+ * inputs explicitly.
+ *
+ * Shared by the list and the count so the two cannot disagree about what they
+ * are describing: a count built from different conditions than the rows is a
+ * screen that says "399 matches" above 12 of them and is wrong about both.
+ *
+ * Returns null when the profile does not exist, which is not the same as
+ * matching nothing — the caller turns it into an empty result rather than a
+ * query against a version that was never read.
+ */
+async function rankedConditions(
   db: DatabaseOrTransaction,
-  input: { profileId: string; includeIneligible?: boolean; limit?: number },
-): Promise<RankedOpportunityView[]> {
-  // Historical rankings are deliberately never overwritten (§17.2), so this
-  // table accumulates rows for superseded profile versions, older evaluation
-  // versions, and previous opportunity revisions. Filtering on profile id
-  // alone therefore returned all of them at once — the same opportunity
-  // appearing several times, and stale high scores able to push current
-  // results out of the limit (adversarial review, 2026-09-06). The view must
-  // name the CURRENT inputs explicitly.
+  input: { profileId: string; includeIneligible?: boolean },
+): Promise<SQL[] | null> {
   const [profile] = await db
     .select({ version: candidateProfiles.version })
     .from(candidateProfiles)
     .where(and(eq(candidateProfiles.id, input.profileId), isNull(candidateProfiles.deletedAt)));
-  if (profile === undefined) return [];
+  if (profile === undefined) return null;
 
-  const conditions = [
+  const conditions: SQL[] = [
     eq(rankings.profileId, input.profileId),
     eq(rankings.profileVersion, profile.version),
     eq(rankings.evaluationVersion, RANKING_EVALUATION_VERSION),
@@ -291,21 +310,79 @@ export async function listRankedOpportunities(
     // revision. A row pinned to a superseded revision described different
     // content and must not be presented as this opportunity's score.
     eq(rankings.opportunityRevisionId, opportunities.currentCanonicalRevisionId),
-  ];
-  if (input.includeIneligible !== true) conditions.push(eq(rankings.eligible, true));
+  ].filter((condition): condition is SQL => condition !== undefined);
+  if (input.includeIneligible !== true) {
+    const eligible = eq(rankings.eligible, true);
+    if (eligible !== undefined) conditions.push(eligible);
+  }
+  return conditions;
+}
 
-  return db
-    .select({
-      opportunityId: rankings.opportunityId,
-      canonicalTitle: opportunities.canonicalTitle,
-      score: rankings.score,
-      eligible: rankings.eligible,
-      hardFilterReasons: rankings.hardFilterReasons,
-      componentScores: rankings.componentScores,
-    })
+/** The ranked list pages, so it needs a bound the caller cannot exceed. */
+const RANKED_DEFAULT_LIMIT = 25;
+const RANKED_MAX_LIMIT = 500;
+
+function clampRankedLimit(limit: number | undefined): number {
+  if (limit === undefined) return RANKED_DEFAULT_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1) return RANKED_DEFAULT_LIMIT;
+  return Math.min(limit, RANKED_MAX_LIMIT);
+}
+
+export async function listRankedOpportunities(
+  db: DatabaseOrTransaction,
+  input: { profileId: string; includeIneligible?: boolean; limit?: number; offset?: number },
+): Promise<RankedOpportunityView[]> {
+  const conditions = await rankedConditions(db, input);
+  if (conditions === null) return [];
+
+  return (
+    db
+      .select({
+        opportunityId: rankings.opportunityId,
+        canonicalTitle: opportunities.canonicalTitle,
+        canonicalStatus: opportunities.canonicalStatus,
+        score: rankings.score,
+        eligible: rankings.eligible,
+        hardFilterReasons: rankings.hardFilterReasons,
+        componentScores: rankings.componentScores,
+      })
+      .from(rankings)
+      .innerJoin(opportunities, eq(opportunities.id, rankings.opportunityId))
+      .where(and(...conditions))
+      // NULLS LAST, and it is not a nicety. A hard-filtered opportunity has a
+      // null score because §17.2 treats filtering as a separate stage — and
+      // Postgres sorts DESC with NULLS FIRST by default, so asking to include
+      // the excluded results put all eight of them at ranks 1-8, above every
+      // match the scorer actually rated. The screen numbers these rows, so it
+      // was presenting "your best result" as an opportunity that had been
+      // rejected before scoring. Found in browser QA, 2026-09-08.
+      //
+      // Ending in the opportunity id is a separate requirement: scores tie
+      // constantly — a component set that matches nothing scores exactly 0 for
+      // every listing it applies to — and an ORDER BY that is not total lets
+      // the database return tied rows in any order, which under LIMIT/OFFSET
+      // duplicates some rows onto the next batch and drops others.
+      .orderBy(sql`${rankings.score} desc nulls last`, rankings.opportunityId)
+      .limit(clampRankedLimit(input.limit))
+      .offset(input.offset ?? 0)
+  );
+}
+
+/**
+ * How many opportunities the ranked view matches. Same conditions, same
+ * builder, so the count and the rows cannot disagree.
+ */
+export async function countRankedOpportunities(
+  db: DatabaseOrTransaction,
+  input: { profileId: string; includeIneligible?: boolean },
+): Promise<number> {
+  const conditions = await rankedConditions(db, input);
+  if (conditions === null) return 0;
+
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
     .from(rankings)
     .innerJoin(opportunities, eq(opportunities.id, rankings.opportunityId))
-    .where(and(...conditions))
-    .orderBy(desc(rankings.score))
-    .limit(Math.min(input.limit ?? 25, 200));
+    .where(and(...conditions));
+  return row?.total ?? 0;
 }

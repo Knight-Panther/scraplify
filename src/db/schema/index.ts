@@ -5,5 +5,6 @@ export * from './opportunities.js';
 export * from './organizations.js';
 export * from './resources.js';
 export * from './runs.js';
+export * from './shortlist.js';
 export * from './source-listings.js';
 export * from './sources.js';

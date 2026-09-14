@@ -91,9 +91,21 @@ export interface DetachResult {
  * An opportunity left with no live members is deliberately NOT deleted. Its
  * revisions and the retired memberships that pointed at it are the evidence of
  * a merge that happened and was undone; deleting the row would erase that and
- * break the FKs the retired memberships still hold. An empty opportunity is
- * inert — nothing surfaces it — and callers are told when they have created
- * one so it can be reported rather than silently accumulated.
+ * break the FKs the retired memberships still hold. Callers are told when they
+ * have created one so it can be reported rather than silently accumulated.
+ *
+ * **An emptied opportunity is not as inert as this comment used to claim.** It
+ * said "nothing surfaces it", and that is false for ranking: `runRanking`
+ * enumerates `opportunities` with no join requiring a live member, so an empty
+ * cluster can still be scored and rendered under its last canonical title
+ * (found via the test-debris sweep, 2026-09-14). It is harmless for a cluster
+ * emptied by a genuine detach — the title describes a real vacancy that was
+ * un-merged, and a stale ranking is a stale ranking. It is NOT harmless for a
+ * cluster whose listings never existed, which is why `cleanupTestSource`
+ * deletes test-only clusters outright rather than merely unlinking them.
+ * Whether ranking should require a live member is a real question and is
+ * deliberately left open here rather than changed as a side effect of a
+ * cleanup fix.
  */
 export async function detachListing(
   db: Database,
@@ -132,19 +144,38 @@ export async function detachListing(
  * one, so a typo in an id fails loudly instead of silently spawning an
  * orphan cluster.
  */
+export interface ReassignInput {
+  sourceListingId: string;
+  toOpportunityId: string;
+  decision: DedupeDecision;
+  confidence: number;
+  evidence: Record<string, unknown>;
+  actor: ReviewActor;
+  at: string;
+}
+
 export async function reassignListing(
   db: Database,
-  input: {
-    sourceListingId: string;
-    toOpportunityId: string;
-    decision: DedupeDecision;
-    confidence: number;
-    evidence: Record<string, unknown>;
-    actor: ReviewActor;
-    at: string;
-  },
+  input: ReassignInput,
 ): Promise<{ previousOpportunityId: string | null }> {
-  return db.transaction(async (tx) => {
+  return db.transaction(async (tx) => reassignListingWithin(tx, input));
+}
+
+/**
+ * The body of `reassignListing`, callable inside a transaction the caller
+ * already owns.
+ *
+ * Extracted so `acceptDuplicateCandidate` can do the move and the resolution
+ * in ONE transaction. Composing the two public functions instead opened two,
+ * and a crash between them left a merged cluster with an unsettled candidate —
+ * which the next dedupe pass then re-queued, asking a reviewer to decide again
+ * something they had already decided, with the merge already applied.
+ */
+async function reassignListingWithin(
+  tx: DatabaseOrTransaction,
+  input: ReassignInput,
+): Promise<{ previousOpportunityId: string | null; alreadyInTarget: boolean }> {
+  {
     const [target] = await tx
       .select({ id: opportunities.id })
       .from(opportunities)
@@ -167,7 +198,7 @@ export async function reassignListing(
             eq(opportunitySourceMemberships.supersededAt, input.at),
           ),
         );
-      return { previousOpportunityId };
+      return { previousOpportunityId, alreadyInTarget: true };
     }
 
     await tx.insert(opportunitySourceMemberships).values({
@@ -188,7 +219,142 @@ export async function reassignListing(
     }
     await resolveCanonicalOpportunity(tx, input.toOpportunityId, input.at);
 
-    return { previousOpportunityId };
+    return { previousOpportunityId, alreadyInTarget: false };
+  }
+}
+
+/**
+ * Accepting a `needs_review` pair: move the listing and settle the candidate,
+ * atomically.
+ *
+ * "Accept" is a composite verb — a membership change plus a resolution — and
+ * composing the two public functions ran each in its own transaction. A crash
+ * between them left the merge applied and the candidate still pending, so the
+ * next dedupe pass re-queued a pair the reviewer had already judged, with the
+ * cluster already changed underneath it. One transaction makes the pair of
+ * facts land together or not at all.
+ *
+ * The evidence recorded on the new membership is the REVIEWER's, not the
+ * ruleset's: a human accepting a pair is a different kind of claim from a
+ * score crossing a threshold, and `decidedBy: 'human'` is what stops the next
+ * automated pass overwriting it.
+ */
+export async function acceptDuplicateCandidate(
+  db: Database,
+  input: Omit<ReassignInput, 'decision'> & { candidateId: string },
+): Promise<{ previousOpportunityId: string | null }> {
+  return db.transaction(async (tx) => {
+    // The candidate FIRST, and locked, before anything moves.
+    //
+    // Two things went wrong without this. The arguments were trusted, so a
+    // stale form or a mistaken caller could accept candidate X while moving a
+    // listing that had nothing to do with it — leaving the cluster and the
+    // candidate row describing different facts, each internally consistent and
+    // jointly wrong. And the row was read after the move, so two reviewers
+    // acting at once could both pass their checks before either wrote.
+    // `for update` serialises them; the second waits and then finds the pair
+    // already settled.
+    const [candidate] = await tx
+      .select({
+        id: duplicateCandidates.id,
+        a: duplicateCandidates.sourceListingIdA,
+        b: duplicateCandidates.sourceListingIdB,
+        decision: duplicateCandidates.resultingDecision,
+      })
+      .from(duplicateCandidates)
+      .where(eq(duplicateCandidates.id, input.candidateId))
+      .for('update');
+
+    if (candidate === undefined) {
+      throw new Error(`acceptDuplicateCandidate: no candidate with id ${input.candidateId}`);
+    }
+    // Accepting something already settled is not a no-op, it is a second
+    // opinion overwriting a first — and for a pair judged `distinct` it would
+    // merge listings a reviewer had explicitly separated.
+    if (candidate.decision !== 'needs_review') {
+      throw new Error(
+        `acceptDuplicateCandidate: candidate ${input.candidateId} is not awaiting review ` +
+          `(decision: ${candidate.decision ?? 'none'})`,
+      );
+    }
+
+    // The listing being moved must be one side of THIS pair.
+    if (input.sourceListingId !== candidate.a && input.sourceListingId !== candidate.b) {
+      throw new Error(
+        `acceptDuplicateCandidate: listing ${input.sourceListingId} is not part of candidate ` +
+          `${input.candidateId}`,
+      );
+    }
+
+    // ...and the target must be where the OTHER side already lives. Otherwise
+    // "accept" would merge the pair into a cluster neither of them is in,
+    // which is a different act entirely and not one this verb should perform.
+    const otherListingId = input.sourceListingId === candidate.a ? candidate.b : candidate.a;
+    const otherMembership = await getLiveMembership(tx, otherListingId);
+    if (otherMembership === null || otherMembership.opportunityId !== input.toOpportunityId) {
+      throw new Error(
+        `acceptDuplicateCandidate: opportunity ${input.toOpportunityId} does not hold the other ` +
+          `side of candidate ${input.candidateId}`,
+      );
+    }
+
+    // The decision is fixed by the verb rather than taken from the caller.
+    // "Accept" means these are the same vacancy; a caller passing 'distinct'
+    // here was previously able to merge two listings while recording that they
+    // are different.
+    const decision: DedupeDecision = 'confirmed_same';
+
+    const result = await reassignListingWithin(tx, { ...input, decision });
+
+    // The reviewer's own membership record, in the one case that would
+    // otherwise have none.
+    //
+    // `reassignListingWithin` short-circuits when the listing is ALREADY in
+    // the target — the stale-link case, where both sides are in the cluster
+    // and the candidate was queued because the link no longer scores. It
+    // restores the previous automatic membership and returns, so the
+    // reviewer's evidence, identity and timestamp were never recorded, while
+    // the candidate said 'human'. The detail screen reads membership evidence,
+    // so a human reaffirmation was invisible exactly where provenance is the
+    // point. When the listing DID move, that same function has already
+    // inserted a live membership carrying this reviewer's evidence and
+    // identity, so there is nothing to add here.
+    //
+    // Written as retire-then-append, NOT as an update in place. The first fix
+    // for this (whole-branch review, 2026-09-08) updated the restored row's
+    // decision, evidence, decider and timestamp — which silently overwrote the
+    // RULESET's original decision, the exact provenance
+    // `opportunity_source_memberships` is append-only to protect (§12.5, and
+    // the schema comment says so in as many words). It traded an invisible
+    // reviewer for a destroyed automatic decision. Retiring the automatic row
+    // and appending a human one keeps both: the history shows the ruleset
+    // linked these, and then a person confirmed it.
+    if (result.alreadyInTarget) {
+      await retireLiveMembership(tx, input.sourceListingId, input.at);
+      await tx.insert(opportunitySourceMemberships).values({
+        id: randomUUID(),
+        opportunityId: input.toOpportunityId,
+        sourceListingId: input.sourceListingId,
+        decision,
+        confidence: input.confidence,
+        evidence: input.evidence,
+        decidedBy: input.actor.decidedBy,
+        decidedAt: input.at,
+        dedupeModelOrRulesetVersion: input.actor.version,
+        supersededAt: null,
+      });
+      // Deliberately no `resolveCanonicalOpportunity` call: the cluster's live
+      // MEMBER SET is unchanged by a reaffirmation — the same listing, the same
+      // opportunity — so re-resolving could only produce the revision it
+      // already points at.
+    }
+
+    await resolveDuplicateCandidate(tx, {
+      candidateId: input.candidateId,
+      decision,
+      decidedBy: input.actor.decidedBy === 'human' ? 'human' : 'ruleset',
+    });
+    return result;
   });
 }
 

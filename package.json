@@ -8,8 +8,12 @@
     "node": ">=24"
   },
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit",
+    "build:web": "node scripts/next.mjs build web",
+    "dev:web": "node scripts/next.mjs dev web -H 127.0.0.1",
+    "start:web": "node scripts/next.mjs start web -H 127.0.0.1",
+    "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
@@ -22,7 +26,8 @@
     "crawl:hr-ge": "node --env-file-if-exists=.env dist/cli/run-hr-ge-crawl.js",
     "dedupe": "node --env-file-if-exists=.env dist/cli/run-dedupe.js",
     "browse": "node --env-file-if-exists=.env dist/cli/browse.js",
-    "rank": "node --env-file-if-exists=.env dist/cli/rank.js"
+    "rank": "node --env-file-if-exists=.env dist/cli/rank.js",
+    "dev:web:qa": "node scripts/next.mjs dev web --profile qa -H 127.0.0.1 -p 3001"
   },
   "repository": {
     "type": "git",
@@ -35,9 +40,14 @@
   "homepage": "https://github.com/Knight-Panther/scraplify#readme",
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.23.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
     "drizzle-kit": "^0.31.10",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
@@ -49,8 +59,11 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.2",
+    "next": "^16.3.4",
     "pg": "^8.23.0",
     "pino": "^10.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "undici": "^8.10.1",
     "zod": "^4.5.4"
   }

@@ -21,3 +21,11 @@ Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a 
 - After local setup with `scripts/setup-git-hooks.ps1`, every normal `git commit` is gated by the version-controlled `.githooks/pre-commit` Git hook. It runs `codex review --uncommitted` and blocks the commit if Codex reports P0/P1 findings, cannot be found, or fails. Non-blocking suggestions are surfaced but don't stop the commit.
 - `codex review --uncommitted` reviews staged, unstaged, and untracked changes, not only the pending commit. Keep unrelated work out of the working tree while committing.
 - If a commit is blocked, fix the reported issue, re-stage, and commit again — don't bypass the hook.
+
+## Frontend
+
+Never treat a successful build, a passing typecheck, or a green test run as completion of frontend work. UI work is complete only after it has been rendered in a real browser and inspected — Playwright MCP is connected, so this costs nothing.
+
+Three skills cover this, with no overlap between them: **`frontend-design`** (global) for aesthetic direction, **`web-design-guidelines`** (global) for interface and accessibility review, and **`professional-frontend`** (this repo) for what those cannot know — Xtelo's product context, its Georgian-script typography constraints, its data-density patterns, and the browser QA gate. Invoke `professional-frontend` before writing UI components and again before calling the work done; it points to the reference files rather than restating them.
+
+Two rules deserve stating here because they are correctness issues, not taste: **never render invented data** (listings, employers, logos, metrics, scores, statuses) — Xtelo's value is that its data is real and traceable; and **never uppercase text that may be Georgian**, which has no capital letters.

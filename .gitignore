@@ -1,6 +1,9 @@
 # Secrets and local environment
 .env
 .env.*
+# ...but the QA profile TEMPLATE is committed: it carries no real credential
+# and it is the only written record of how the disposable database is made.
+!.env.qa.example
 !.env.example
 .mcp.json
 
@@ -35,3 +38,10 @@ Thumbs.db
 
 # Machine-local Claude settings
 .claude/settings.local.json
+
+# Next.js build output and caches (web/)
+web/.next/
+web/out/
+web/.turbo/
+next-env.d.ts
+web/tsconfig.tsbuildinfo

@@ -127,6 +127,20 @@
       "when": 1788701496844,
       "tag": "0017_duplicate_candidate_decided_by",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788884253547,
+      "tag": "0018_opportunity_decisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788896347489,
+      "tag": "0019_duplicate_candidate_evidence",
+      "breakpoints": true
     }
   ]
 }

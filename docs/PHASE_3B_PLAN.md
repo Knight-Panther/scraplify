@@ -1,0 +1,214 @@
+# Phase 3B — UI: the stage plan
+
+**Reconstructed 2026-09-07**, after the planning session that produced the original
+eleven-stage breakdown was cleared. `docs/STATUS.md` referenced "the phase plan" for
+several days while no such file existed — the list lived only in a conversation. This
+file is that list, rebuilt from what STATUS.md, the concept's Phase 3, and the shipped
+code actually record. Stages 1–4 are described by their commits, so those are recovered
+rather than guessed; 5–11 are a reconstruction of scope and ordering, and where the
+original ordering cannot be recovered the rationale below is the current one, not a
+transcript of the old one.
+
+The authority for *what* is in scope remains `docs/scraplify-concept.md` §Phase 3 and
+the scope decision recorded in STATUS.md (2026-09-06). This file only sequences it.
+
+## Why eleven stages and not one branch of work
+
+Each stage is a commit that leaves the app runnable and browser-QA'd. The ordering is
+driven by two constraints, not by screen importance:
+
+1. **Every read-only screen ships before any writing screen.** The write gate
+   (`XTELO_WRITES_ENABLED`) exists because this project has twice corrupted real data
+   during QA. Stages 5–8 cannot write by construction, so they can be QA'd against the
+   live corpus. Stage 9 is where that stops being true.
+
+   Ranked results moved from tenth to eighth on 2026-09-07 for exactly this reason: it
+   is read-only and has no blocker, so leaving it behind a writing screen and a blocked
+   one contradicted both constraints below and let duplicate review's missing
+   `evidence` column stall a screen that was ready.
+2. **Two screens have known backend blockers** (duplicate review, taxonomy review).
+   They are scheduled after the screens that have none, so a blocker cannot stall the
+   stages that are ready.
+
+## Stages
+
+### 1. Next.js integration — done (2026-09-07)
+
+`web/` inside the same npm package, server components importing `src/browse/queries.js`
+directly. See STATUS.md for the four unanticipated fixes and for the **owed Codex
+review** of this commit, which was landed with `--no-verify`.
+
+### 2. Design system — done (2026-09-07)
+
+Tokens in `web/app/globals.css`, the Georgian/mono typeface split, `npm run dev`.
+Four defects found only in a real browser; see STATUS.md.
+
+### 3. Source health — done (2026-09-07)
+
+`web/app/health/page.tsx` plus `web/lib/labels.ts`, the enum-to-English map. Needed no
+backend change.
+
+### 4. Query-layer widening — done (2026-09-07)
+
+`searchOpportunities` gained text/status/source/cross-posted/deadline/first-seen filters,
+three sort orders, real totals via `countOpportunities`, and a corrected default sort:
+earliest live-member `firstSeenAt`, not `opportunities.updatedAt`, which a dedupe pass
+restamps on every cluster it touches.
+
+### 5. Opportunities list — the main screen (done 2026-09-07)
+
+The deduplicated list, and the screen a person opens daily. Consumes
+`searchOpportunities` + `countOpportunities`. Filters in the URL (so a view is
+linkable and the back button works), server-rendered, no client state.
+
+**Done when:** filters and sort round-trip through the URL; a cross-posted cluster
+renders as one row naming both sources; totals agree with the CLI; Georgian search works
+in a real browser.
+
+**Numbered pagination was dropped in favour of one growing list** (decided 2026-09-07,
+revised the same day). A scanning tool wants one continuous scroll and the browser's own
+find-in-page, not clicks through pages; and with no page boundary there is no boundary
+for a sort tie to straddle, which otherwise duplicates and drops rows because none of
+the three sort keys is unique.
+
+The first version of this capped the list at 500 rows outright, and that was wrong — the
+Codex review caught it. The database holds 406 opportunities only because **no
+full-coverage crawl has ever run**; jobs.ge carries ~5,647 listings and hr.ge ~3,265, so
+a fixed 500 cap would have hidden roughly 95% of the corpus the day a real crawl
+finished, with no way to reach it. "Narrow your filters" is not an answer when you cannot
+see what was omitted.
+
+The list therefore starts at one 500-row chunk, and a link at the bottom grows it by
+another — no page numbers, no client JavaScript, nothing unreachable. The depth rides in
+the URL like the rest of this screen's state, and the link is anchored at the first newly
+revealed row so growing the list opens where the reader left off.
+
+**There is no maximum depth**, deliberately. A first attempt set one at 10,000, which is
+the same defect at a different number: past it the control renders a link that parses
+back to the ceiling and does nothing. The only non-arbitrary bound is how many rows match,
+so the page clamps against the real total. Rows are read in 500-row batches, so the query
+layer keeps its original `MAX_LIMIT` of 500 — batching is safe under OFFSET only because
+every ordering ends in `opportunities.id`.
+
+### 6. Opportunity detail — done (2026-09-08)
+
+One cluster in full: canonical fields, every live member with its own source link and
+lifecycle state, and the description. `web/app/opportunities/[id]/`, on a new
+`getOpportunity(id)` query — `searchOpportunities` returns list-shaped rows and did not
+grow a detail mode.
+
+**All three completion criteria met**, and they were criteria rather than niceties: each
+board's description is its own attributed section and never merged; every field the
+boards state differently is marked as a disagreement in a field-by-field comparison; and
+every live member links back to its own listing. See `docs/STATUS.md` for the full
+record.
+
+Three things the stage decided that this plan had not:
+
+- **Disagreement and absence are different, and only the first is marked.** jobs.ge
+  records no location and no pay on any listing, so "hr.ge states a location, jobs.ge
+  states none" is the normal case, not a conflict. Marking it would have flagged every
+  cross-posted cluster as contradictory.
+- **Dates a source stated are rendered and compared in `Asia/Tbilisi`, not UTC.** jobs.ge
+  stores a calendar date as local midnight, so a UTC render named the wrong day and a
+  UTC comparison invented a disagreement on every cross-posted cluster. This changed the
+  shipped Stage 5 list screen too — see `docs/STATUS.md`.
+- **This route has no `loading.tsx`, and the list moved into a `(list)` route group.**
+  A loading fallback is a Suspense boundary, and once streaming starts the status code
+  has already been sent — so `notFound()` was rendering the not-found page under an HTTP
+  200. The group scopes the list's fallback to the list; the detail route waits ~60ms
+  and returns a real 404.
+
+### 7. Listings — the raw per-source view — done (2026-09-08)
+
+`searchListings`, undeduplicated, with the concept's named views: **new, closing,
+missing, quarantined**, and **changed as content-changes only** (status history is not
+reconstructable — `source_listings.status` is updated in place and no history table
+exists). This is the view that answers "what did the source actually say", which the
+canonical list deliberately hides.
+
+`web/app/listings/`, on `web/lib/listing-params.ts`. The query layer gained a
+`changedOnly` filter and the `sourceListings.id` tie-breaker its ordering lacked.
+
+Two of the five views match nothing against the current corpus — nothing is
+quarantined, and all 412 listings have exactly one revision — so each empty view
+states its own reason rather than rendering a blank table. That is a fact about
+elapsed crawl time, not about the filters, and the screen says which. See
+`docs/STATUS.md` for the full record.
+
+### 8. Ranked results — done (2026-09-08)
+
+`src/ranking/` already produces explainable, component-wise scores against a versioned
+profile. The screen's job is to show *why* a score is what it is, not just the number —
+a rank with no visible reasoning is the thing the deterministic scorer was chosen to
+avoid. `listLiveMembersByOpportunity` exists so this screen attaches members without
+repeating the join.
+
+`web/app/ranked/`, on `web/lib/ranked-row.ts`. `listRankedOpportunities` was widened
+(canonical status, offset, a clamped limit replacing a hard 200 ceiling) and gained
+`countRankedOpportunities`; both share one condition builder.
+
+**One prerequisite is operational and will recur:** rankings are pinned to the
+opportunity revision they scored, so a dedupe pass since the last run leaves them
+behind and the screen legitimately shows nothing. `npm run rank -- rank` scores the
+corpus as it stands. See `docs/STATUS.md`.
+
+### 9. Saved items and dismissals — the first writing screen — done (2026-09-08)
+
+The shortlist half of "browse and shortlist". Needs a new table, and it is where
+`.env.qa` and the disposable QA database arrive, because it is the first screen that can
+write. Every earlier stage is read-only by construction; from here the write gate is
+load-bearing rather than precautionary.
+
+`web/app/saved/` on `src/shortlist/decisions.ts` and migration 0018. The disposable
+database (`scraplify_qa`) now exists and `.env.qa.example` records how it is made. The
+gate was exercised on both instances: the QA one wrote and cleared decisions, the live
+one ended with zero rows and renders no submit buttons at all.
+
+**Left for a later pass, deliberately:** the browse screens do not yet show or set a
+decision per row, nor hide dismissed opportunities. The queries for both exist and are
+tested; fitting them into a 406-row table is a density question of its own.
+
+### 10. Duplicate review — unblocked 2026-09-08, screen not yet built
+
+**Both backend defects are fixed** (migration 0019, `acceptDuplicateCandidate`, and the
+widened `listReviewQueue`); see `docs/STATUS.md`. The screen itself remains to build,
+and it is the hardest one in the app: `data-density.md` calls surfacing the evidence
+behind a suggestion the single most important design problem here, and the decision
+paths are the first genuinely destructive ones in the UI.
+
+They were, before that work:
+
+- `duplicate_candidates` has **no `evidence` column at all**. `scorePair`'s signals and
+  reasons are computed and discarded for `needs_review` pairs, so the pairs a human must
+  judge are exactly the ones with nothing stored. Fixing it needs a migration, a write
+  change at both `run-dedupe.ts` candidate-insert sites (in `values` **and**
+  `onConflictDoUpdate.set`, since all 15 rows already exist), a dedupe re-run to
+  backfill, and only then the query widening.
+- The "accept" verb is a composite — `reassignListing` plus `resolveDuplicateCandidate`,
+  each opening its own transaction — so a crash between them leaves a merged cluster
+  with an unsettled candidate that the next dedupe pass re-queues. Needs a transactional
+  wrapper before the screen is built.
+
+### 11. Taxonomy review — blocked, but in scope
+
+`sourceCategories` is empty on both sources, but **hr.ge persists `specialty` and
+`industry` in `structuredAttributes` for all 100 of its listings** — 90 distinct Georgian
+specialty values (`src/adapters/hr-ge/detail.ts:234-236`). So one source has real input
+and jobs.ge has none. What is missing is the schema: no `taxonomy_terms`,
+`source_taxonomy_mappings` or `listing_classifications` table exists in any migration,
+though §12.6 specifies all three.
+
+The concept is authoritative and requires Phase 3 to expose taxonomy review, so this
+stays a deliverable in **blocked** state rather than being dropped. **Phase 3B cannot be
+declared complete while it is unbuilt** — closing it needs either those tables plus a
+jobs.ge category-capture change, or an explicit amendment to the concept.
+
+## Before this branch merges
+
+- The **owed Codex review of the Stage 1 commit** must run. It was bypassed when Codex
+  ran out of credits mid-review, having already found one P1.
+- `/codex:adversarial-review --base main` over the whole branch, per `CLAUDE.md` — the
+  per-commit gate only ever sees one commit's diff, so cross-stage issues are invisible
+  to it.
+- Phase 3B's exit-gate checklist in `docs/STATUS.md` checked off honestly, in the same PR.

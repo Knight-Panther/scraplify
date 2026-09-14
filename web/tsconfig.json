@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "jsx": "preserve",
+    "noEmit": true,
+    // The root config sets rootDir: ./src for the CLI build. This program spans
+    // web/ AND src/, so it must widen to the repo root — inherited rootDir is
+    // NOT inert under noEmit (TS6059).
+    "rootDir": "..",
+    "allowJs": true,
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "../src/**/*.ts", ".next/types/**/*.ts", "next-env.d.ts"],
+  "exclude": ["../src/**/*.test.ts", "node_modules", ".next"]
+}

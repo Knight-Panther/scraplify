@@ -67,3 +67,10 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Separate from Build so a failure says which one broke. This compiles the
+      # web app only; typechecking it is already covered by the Typecheck step,
+      # since next.config.ts sets typescript.ignoreBuildErrors (TypeScript 7's
+      # native port is unproven as Next's programmatic checker).
+      - name: Build web
+        run: npm run build:web

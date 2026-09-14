@@ -10,7 +10,8 @@
       "!!.agents",
       "!!.codex",
       "!!drizzle/migrations",
-      "!!src/adapters/**/fixtures"
+      "!!src/adapters/**/fixtures",
+      "!**/*.svg"
     ]
   },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
@@ -19,5 +20,6 @@
     "formatter": { "quoteStyle": "single", "semicolons": "always", "trailingCommas": "all" }
   },
   "json": { "formatter": { "trailingCommas": "none" } },
+  "css": { "parser": { "tailwindDirectives": true } },
   "assist": { "enabled": true, "actions": { "source": { "organizeImports": "on" } } }
 }
