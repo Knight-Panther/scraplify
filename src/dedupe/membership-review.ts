@@ -91,9 +91,21 @@ export interface DetachResult {
  * An opportunity left with no live members is deliberately NOT deleted. Its
  * revisions and the retired memberships that pointed at it are the evidence of
  * a merge that happened and was undone; deleting the row would erase that and
- * break the FKs the retired memberships still hold. An empty opportunity is
- * inert — nothing surfaces it — and callers are told when they have created
- * one so it can be reported rather than silently accumulated.
+ * break the FKs the retired memberships still hold. Callers are told when they
+ * have created one so it can be reported rather than silently accumulated.
+ *
+ * **An emptied opportunity is not as inert as this comment used to claim.** It
+ * said "nothing surfaces it", and that is false for ranking: `runRanking`
+ * enumerates `opportunities` with no join requiring a live member, so an empty
+ * cluster can still be scored and rendered under its last canonical title
+ * (found via the test-debris sweep, 2026-09-14). It is harmless for a cluster
+ * emptied by a genuine detach — the title describes a real vacancy that was
+ * un-merged, and a stale ranking is a stale ranking. It is NOT harmless for a
+ * cluster whose listings never existed, which is why `cleanupTestSource`
+ * deletes test-only clusters outright rather than merely unlinking them.
+ * Whether ranking should require a live member is a real question and is
+ * deliberately left open here rather than changed as a side effect of a
+ * cleanup fix.
  */
 export async function detachListing(
   db: Database,

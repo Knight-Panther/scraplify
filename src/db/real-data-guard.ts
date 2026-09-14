@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 
 /**
  * Fails the whole test run if the suite changed any REAL source's stored
@@ -161,10 +161,183 @@ async function fingerprintRealData(): Promise<string> {
   }
 }
 
+/**
+ * Deletes `test-source-*` rows left behind by an EARLIER run, before this one
+ * starts.
+ *
+ * Every test file that calls `createTestSource` also calls `cleanupTestSource`,
+ * and a run that finishes normally leaves nothing — verified by counting
+ * sources after a full green run. But `afterEach` does not run when a run is
+ * interrupted, when setup throws before the hook is registered, or when the
+ * process is killed, and that debris then outlives the run that made it.
+ *
+ * It is not cosmetic, which is the reason this is code and not a note. The
+ * residue was recorded twice in `docs/STATUS.md` as "harmless" and was not:
+ * `sourceLabel` falls back to the raw slug, so every leftover source appeared
+ * in the product's board filter as a raw UUID, and dedupe generated candidate
+ * pairs from the leftover listings that surfaced in the human review queue as
+ * fake duplicates. It was cleaned by hand on 2026-09-06 and had come back by
+ * 2026-09-14. A sweep at setup rather than at teardown is what makes it stop
+ * recurring: teardown is exactly what an interrupted run skips.
+ *
+ * Scoped to the slug prefix `createTestSource` generates and nothing else. It
+ * runs BEFORE the fingerprint is taken, so the deletions are not themselves
+ * mistaken for the suite modifying data — and it can never touch a real source,
+ * since `jobs-ge` and `hr-ge` do not match the prefix.
+ */
+/**
+ * Advisory-lock key identifying "a scraplify test run is active on this
+ * database". Arbitrary but fixed; advisory locks share one namespace per
+ * database, so it only has to avoid colliding with another application's key.
+ */
+const TEST_RUN_LOCK_KEY = 0x5c2a_f1f7;
+
+/**
+ * Holds the run lock for the lifetime of the suite. Null when this run did not
+ * get the lock (another run has it), in which case the sweep is skipped.
+ */
+let runLock: { pool: Pool; client: PoolClient; holdsExclusive: boolean } | null = null;
+
+/**
+ * Registers this run as active and reports whether it may sweep.
+ *
+ * The lock is what makes the sweep safe at all. Test sources are named
+ * `test-source-<uuid>` with no timestamp, so a prefix query cannot tell debris
+ * left by a dead run from fixtures a CONCURRENTLY RUNNING suite is using right
+ * now — and deleting the latter breaks that run in a way that looks random
+ * (commit gate, 2026-09-14).
+ *
+ * **Shared for the run, exclusive for the sweep**, which is the part a first
+ * version got wrong. It only took an exclusive lock around the sweep and let a
+ * losing run proceed holding nothing — so a run that started second was
+ * unprotected, and a third run starting after the first exited could take the
+ * lock and sweep the second run's live fixtures. Every run now holds a SHARED
+ * lock for its whole duration, and sweeping additionally requires the EXCLUSIVE
+ * one, which Postgres grants only when no OTHER session holds either. A session
+ * does not conflict with itself, so holding shared does not block this run's own
+ * exclusive attempt — verified against this Postgres, not assumed.
+ *
+ * Both are session-scoped, so they are released by the teardown below and also,
+ * for free, if this process dies — a crashed run cannot wedge the lock.
+ */
+async function acquireRunLock(): Promise<{ active: boolean; maySweep: boolean }> {
+  const url = process.env.DATABASE_URL;
+  if (!url) return { active: false, maySweep: false };
+
+  const pool = new Pool({ connectionString: url, max: 1 });
+  const client = await pool.connect();
+  try {
+    // Blocking, not `try`: a run must never proceed unregistered, or it
+    // becomes invisible to some later run's sweep. It waits only while a
+    // sweep holds the exclusive lock, which is milliseconds.
+    await client.query('select pg_advisory_lock_shared($1)', [TEST_RUN_LOCK_KEY]);
+    runLock = { pool, client, holdsExclusive: false };
+
+    const { rows } = await client.query<{ got: boolean }>(
+      'select pg_try_advisory_lock($1) as got',
+      [TEST_RUN_LOCK_KEY],
+    );
+    const maySweep = rows[0]?.got === true;
+    if (maySweep) runLock.holdsExclusive = true;
+    return { active: true, maySweep };
+  } catch (err) {
+    client.release();
+    await pool.end();
+    runLock = null;
+    throw err;
+  }
+}
+
+/**
+ * Drops the exclusive lock as soon as the sweep is done, so a run waiting to
+ * register is held up for the sweep only rather than for the whole suite.
+ */
+async function releaseSweepLock(): Promise<void> {
+  if (runLock === null || !runLock.holdsExclusive) return;
+  await runLock.client.query('select pg_advisory_unlock($1)', [TEST_RUN_LOCK_KEY]);
+  runLock.holdsExclusive = false;
+}
+
+async function releaseRunLock(): Promise<void> {
+  if (runLock === null) return;
+  const { pool, client } = runLock;
+  runLock = null;
+  try {
+    // Releases every advisory lock this session holds — the shared one always,
+    // and the exclusive one too if the sweep somehow left it. Simpler than
+    // unwinding them individually, and it cannot leave one behind.
+    await client.query('select pg_advisory_unlock_all()');
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
+async function sweepOrphanTestSources(): Promise<number> {
+  const url = process.env.DATABASE_URL;
+  if (!url) return 0;
+
+  const pool = new Pool({ connectionString: url });
+  try {
+    // Reuses the project's own cleanup path rather than open-coding the
+    // delete order, so the FK sequence stays defined in one place — and so a
+    // table added to one is never forgotten in the other. The prefix list
+    // comes from the same module for the same reason: this query matched only
+    // `test-source-%` at first and silently left behind the `crawl-test-*`,
+    // `isolation-test-*` and `reliability-*` sources the adapter tests create,
+    // which is most of the debris an interrupted run can leave.
+    const { cleanupTestSource, DISPOSABLE_SOURCE_SLUG_PREFIXES } = await import(
+      './test-support.js'
+    );
+
+    const { rows } = await pool.query<{ id: string }>(
+      'select id from sources where slug like any($1)',
+      [DISPOSABLE_SOURCE_SLUG_PREFIXES.map((prefix) => `${prefix}%`)],
+    );
+    if (rows.length === 0) return 0;
+    for (const row of rows) {
+      await cleanupTestSource(row.id);
+    }
+    console.warn(
+      `real-data guard: swept ${rows.length} orphan test source(s) left by an earlier interrupted run.`,
+    );
+    return rows.length;
+  } catch (err) {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      (err as { code?: string }).code === UNDEFINED_TABLE
+    ) {
+      return 0;
+    }
+    throw err;
+  } finally {
+    await pool.end();
+  }
+}
+
 export async function setup(): Promise<() => Promise<void>> {
+  const { active, maySweep } = await acquireRunLock();
+  if (maySweep) {
+    try {
+      await sweepOrphanTestSources();
+    } finally {
+      await releaseSweepLock();
+    }
+  } else if (active) {
+    console.warn(
+      'real-data guard: another test run is active; skipping the orphan sweep so its fixtures are left alone.',
+    );
+  }
+
   const before = await fingerprintRealData();
 
   return async () => {
+    // Before the comparison below, which can throw: the run lock must not
+    // outlive the run just because the run failed. It is session-scoped, so a
+    // killed process releases it anyway — this covers the ordinary exit.
+    await releaseRunLock();
+
     const after = await fingerprintRealData();
     if (before !== after) {
       // Vitest reports a globalSetup teardown rejection as "error during
