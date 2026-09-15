@@ -119,13 +119,14 @@ export async function classifyListings(
             sourceListingRevisionId: listingClassifications.sourceListingRevisionId,
             taxonomyTermId: listingClassifications.taxonomyTermId,
             taxonomyVersion: listingClassifications.taxonomyVersion,
+            method: listingClassifications.method,
           })
           .from(listingClassifications)
           .where(inArray(listingClassifications.sourceListingRevisionId, revisionIds));
   const existingByPair = new Map(
     alreadyClassified.map((row) => [
       `${row.sourceListingRevisionId}:${row.taxonomyTermId}`,
-      { id: row.id, version: row.taxonomyVersion },
+      { id: row.id, version: row.taxonomyVersion, method: row.method },
     ]),
   );
 
@@ -159,6 +160,18 @@ export async function classifyListings(
 
         if (existing !== undefined && existing.version === TAXONOMY_VERSION) continue;
 
+        // A pair already classified by a DIFFERENT method (human_review,
+        // keyword, llm_classification — none of which this function has
+        // ever produced, but the enum permits) is left untouched rather
+        // than re-derived: this function's only authority is hr.ge's own
+        // structured field, so overwriting a human's or a smarter method's
+        // judgment with a mechanical backfill would silently downgrade it
+        // while still claiming its original method — the exact audit-trail
+        // corruption `run-dedupe.ts`'s own "never overwrite a human verdict"
+        // rule exists to prevent elsewhere in this codebase (commit gate
+        // finding, 2026-09-15).
+        if (existing !== undefined && existing.method !== 'deterministic_rule') continue;
+
         if (existing !== undefined) {
           // §15.2's "versioned deterministic mappings" means a
           // TAXONOMY_VERSION bump reprocesses already-classified pairs, not
@@ -175,7 +188,11 @@ export async function classifyListings(
               createdAt: now,
             })
             .where(eq(listingClassifications.id, existing.id));
-          existingByPair.set(pairKey, { id: existing.id, version: TAXONOMY_VERSION });
+          existingByPair.set(pairKey, {
+            id: existing.id,
+            version: TAXONOMY_VERSION,
+            method: 'deterministic_rule',
+          });
           classificationsUpdated++;
           continue;
         }
@@ -192,7 +209,11 @@ export async function classifyListings(
           taxonomyVersion: TAXONOMY_VERSION,
           createdAt: now,
         });
-        existingByPair.set(pairKey, { id: newId, version: TAXONOMY_VERSION });
+        existingByPair.set(pairKey, {
+          id: newId,
+          version: TAXONOMY_VERSION,
+          method: 'deterministic_rule',
+        });
         classificationsCreated++;
       }
     }

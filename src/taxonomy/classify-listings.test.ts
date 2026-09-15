@@ -251,4 +251,53 @@ describe('classifyListings', () => {
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.taxonomyVersion !== 'v0-fake-older')).toBe(true);
   });
+
+  /**
+   * A pair classified by a DIFFERENT method (human_review here, though this
+   * function has never produced one itself — the enum permits it) must
+   * survive an older-version rerun untouched, not be silently overwritten
+   * with deterministic backfill values while still claiming its original
+   * method. A first version of the version-bump fix above re-derived every
+   * old-version row unconditionally, which would have corrupted a human
+   * reviewer's classification into one that LOOKS human-reviewed but
+   * actually carries this function's own mechanical confidence/evidence —
+   * the same audit-trail corruption `run-dedupe.ts`'s "never overwrite a
+   * human verdict" rule exists to prevent elsewhere (commit gate finding,
+   * 2026-09-15).
+   */
+  it('leaves a classification made by a different method untouched, even under an older taxonomy version', async () => {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const sourceSlug = `test-source-${sourceId}`;
+    const { revisionId } = await addListing(sourceId, { specialty: specialtyTree(), industry: [] });
+    await seedTaxonomyTerms(db, { sourceSlug });
+    await trackTermIds(sourceId);
+    await classifyListings(db, { sourceSlug });
+    await db
+      .update(listingClassifications)
+      .set({
+        method: 'human_review',
+        confidence: 0.5,
+        evidence: { reasons: ['a reviewer judged this by hand'] },
+        taxonomyVersion: 'v0-fake-older',
+      })
+      .where(eq(listingClassifications.sourceListingRevisionId, revisionId));
+
+    const result = await classifyListings(db, { sourceSlug });
+
+    expect(result).toEqual({
+      listingsScanned: 1,
+      classificationsCreated: 0,
+      unmappedNodes: 0,
+      classificationsUpdated: 0,
+    });
+    const rows = await db
+      .select()
+      .from(listingClassifications)
+      .where(eq(listingClassifications.sourceListingRevisionId, revisionId));
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.method === 'human_review')).toBe(true);
+    expect(rows.every((row) => row.confidence === 0.5)).toBe(true);
+    expect(rows.every((row) => row.taxonomyVersion === 'v0-fake-older')).toBe(true);
+  });
 });

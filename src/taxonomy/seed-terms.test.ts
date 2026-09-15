@@ -38,12 +38,14 @@ function fakeSourceTermId(): string {
  * not user-facing content, so synthesizing them is consistent with how every
  * other row id in this test suite is already a `randomUUID()`.
  */
-function specialtyTree(): Array<{
+interface FakeTaxonomyNode {
   sourceTermId: string;
   code: string | null;
   name: string;
-  children: unknown;
-}> {
+  children: FakeTaxonomyNode[] | null;
+}
+
+function specialtyTree(): FakeTaxonomyNode[] {
   return [
     {
       sourceTermId: fakeSourceTermId(),
@@ -61,12 +63,7 @@ function specialtyTree(): Array<{
   ];
 }
 
-function industryTree(): Array<{
-  sourceTermId: string;
-  code: string | null;
-  name: string;
-  children: unknown;
-}> {
+function industryTree(): FakeTaxonomyNode[] {
   return [
     {
       sourceTermId: fakeSourceTermId(),
@@ -87,10 +84,20 @@ function industryTree(): Array<{
 describe('seedTaxonomyTerms', () => {
   const sourceIds: string[] = [];
   const termIds: string[] = [];
+  let addListingCallCount = 0;
 
   async function addListing(
     sourceId: string,
     structuredAttributes: Record<string, unknown>,
+    // Distinct per call by default (not a single hardcoded constant) —
+    // seedTaxonomyTerms picks its authoritative observation of a raw node
+    // by comparing provenanceFetchedAt across listings, so two listings
+    // sharing one fixed timestamp can never prove which one is "newer",
+    // exactly the ambiguity a relabeling test needs to avoid (commit gate
+    // finding, 2026-09-15).
+    provenanceFetchedAt: string = new Date(
+      Date.parse('2026-09-01T00:00:00Z') + addListingCallCount++ * 1000,
+    ).toISOString(),
   ): Promise<void> {
     const listing = await createTestSourceListing(sourceId, { status: 'active' });
     const resourceId = await createTestResource(sourceId);
@@ -114,7 +121,7 @@ describe('seedTaxonomyTerms', () => {
       structuredAttributes,
       createdAt: '2026-09-01T00:00:00Z',
       provenanceResourceId: resourceId,
-      provenanceFetchedAt: '2026-09-01T00:00:00Z',
+      provenanceFetchedAt,
       provenanceNotes: null,
     });
     await db
@@ -279,5 +286,107 @@ describe('seedTaxonomyTerms', () => {
     // Re-derivation must not create a second term for the same raw id.
     const rows = await db.select().from(taxonomyTerms).where(inArray(taxonomyTerms.id, termIds));
     expect(rows).toHaveLength(2);
+  });
+
+  /**
+   * A DIFFERENT gap from the version-bump one above, found in the same
+   * commit gate round: the fast path originally skipped re-derivation on
+   * version match ALONE, so hr.ge renaming a category (or moving it under a
+   * different parent) while keeping the same node id — an ordinary source
+   * edit, no code change or version bump involved — would never be picked
+   * up on a later rerun, leaving the canonical label permanently stale
+   * despite §15.2 step 1's "preserve source labels exactly" (commit gate,
+   * 2026-09-15). This never touches TAXONOMY_VERSION; only the source data
+   * changes between the two seed calls.
+   */
+  it("re-derives a term's label when hr.ge renamed it, even at the same taxonomy version", async () => {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const sourceSlug = `test-source-${sourceId}`;
+    const originalTree = specialtyTree();
+    const [originalParent] = originalTree;
+    if (originalParent === undefined || originalParent.children === null) {
+      throw new Error('specialtyTree() fixture shape changed — expected one parent with one child');
+    }
+    const [originalChild] = originalParent.children;
+    if (originalChild === undefined) {
+      throw new Error('specialtyTree() fixture shape changed — expected one parent with one child');
+    }
+    await addListing(sourceId, { specialty: originalTree, industry: [] });
+
+    await seedTaxonomyTerms(db, { sourceSlug });
+    await trackTermIds(sourceId);
+
+    // Same sourceTermId, same code, but hr.ge has since renamed the label —
+    // the shape a real re-crawl would produce for an edited category.
+    const renamedTree: FakeTaxonomyNode[] = [
+      {
+        ...originalParent,
+        name: 'ახალი გაყიდვების სახელი',
+        children: [{ ...originalChild, name: 'ახალი ქვეკატეგორია' }],
+      },
+    ];
+    await addListing(sourceId, { specialty: renamedTree, industry: [] });
+
+    const result = await seedTaxonomyTerms(db, { sourceSlug });
+
+    expect(result).toEqual({
+      listingsScanned: 2,
+      termsCreated: 0,
+      mappingsCreated: 0,
+      termsUpdated: 2,
+    });
+    const rows = await db
+      .select({ label: taxonomyTerms.label, taxonomyVersion: taxonomyTerms.taxonomyVersion })
+      .from(taxonomyTerms)
+      .where(inArray(taxonomyTerms.id, termIds));
+    const labels = rows.map((row) => row.label).sort();
+    expect(labels).toEqual(['ახალი გაყიდვების სახელი', 'ახალი ქვეკატეგორია'].sort());
+    // Confirms this genuinely reran under the SAME version, not a version
+    // bump — the whole point of this test is the same-version case.
+    expect(rows.every((row) => row.taxonomyVersion === TAXONOMY_VERSION)).toBe(true);
+  });
+
+  /**
+   * The scenario the commit gate actually named: two listings disagree
+   * about the SAME node's label WITHIN one `seedTaxonomyTerms` call (a
+   * revision crawled before hr.ge's rename sitting alongside one crawled
+   * after, both still "current" for their own listing at the same moment).
+   * A version that applied whichever observation it encountered last in
+   * scan order would make the final label depend on the database's
+   * unordered row order — this proves the NEWER `provenanceFetchedAt`
+   * always wins, deterministically, regardless of which row the scan
+   * visits first.
+   */
+  it('picks the newer observation when two listings disagree about the same node in one run', async () => {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const sourceSlug = `test-source-${sourceId}`;
+    // A single node, no child — this test is scoped to the conflicting-
+    // observation resolution itself, not the parent/child mechanics
+    // already covered by the tests above.
+    const rawId = fakeSourceTermId();
+    const originalTree: FakeTaxonomyNode[] = [
+      { sourceTermId: rawId, code: '1', name: 'ძველი სახელი', children: null },
+    ];
+    const renamedTree: FakeTaxonomyNode[] = [
+      { sourceTermId: rawId, code: '1', name: 'ახალი სახელი', children: null },
+    ];
+
+    // The OLDER observation is added SECOND (later database row), so a
+    // scan-order-dependent implementation would be tempted to let it win —
+    // it must not. provenanceFetchedAt, not insertion order, decides.
+    await addListing(sourceId, { specialty: renamedTree, industry: [] }, '2026-09-05T00:00:00Z');
+    await addListing(sourceId, { specialty: originalTree, industry: [] }, '2026-09-01T00:00:00Z');
+
+    const result = await seedTaxonomyTerms(db, { sourceSlug });
+    await trackTermIds(sourceId);
+
+    expect(result.termsCreated).toBe(1);
+    const [term] = await db
+      .select({ label: taxonomyTerms.label })
+      .from(taxonomyTerms)
+      .where(inArray(taxonomyTerms.id, termIds));
+    expect(term?.label).toBe('ახალი სახელი');
   });
 });

@@ -296,6 +296,25 @@ async function sweepOrphanTestSources(): Promise<number> {
     );
     if (rows.length === 0) return 0;
     for (const row of rows) {
+      // Deliberately NOT passing taxonomyTermIds here. A first version of
+      // this sweep derived them from "every term this disposable source
+      // currently maps to" — sounds safe (the source IS confirmed
+      // disposable by its slug) but isn't: a disposable source mapping to a
+      // term it did NOT create (e.g. a shared or pre-existing canonical
+      // term, hypothetically) would pass that term along as if this sweep
+      // owned it, and cleanupTestSource would delete a legitimate,
+      // source-independent taxonomy_terms row the moment nothing else
+      // happened to reference it (commit gate, 2026-09-15) — "confirmed
+      // disposable source" proves the MAPPING is disposable, not that the
+      // TERM behind it is. `taxonomy_terms` carries no durable
+      // creator/provenance column (the domain contract keeps it
+      // source-independent, src/domain/taxonomy.ts), so there is no safe
+      // way for this sweep to name real ownership; a crashed taxonomy
+      // test's term may therefore survive as harmless, unmapped debris
+      // until swept by hand — an accepted, narrow gap, the same kind of
+      // tradeoff this project already made for stale-lock auto-recovery
+      // (see the crawl_runs recovery note elsewhere in docs/STATUS.md)
+      // rather than inventing unsound ownership-inference to close it.
       await cleanupTestSource(row.id);
     }
     console.warn(
