@@ -19,6 +19,14 @@ export const metadata = {
 export const viewport = { themeColor: '#000000' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // Always "en", NOT the `lib/locale.ts` cookie: that cookie is read by
+  // `/` alone to switch its own copy, and the root layout has no reliable,
+  // Next-App-Router-supported way to know the CURRENT route (only
+  // middleware injecting a header would give that) — reading it here would
+  // put `lang="ka"` on `/opportunities`, `/listings` and every other
+  // still-English screen the cookie also applies to, which is actively
+  // wrong (a Codex review, 2026-09-16, caught screen readers and browser
+  // language services then processing mostly-English pages as Georgian).
   return (
     <html
       lang="en"

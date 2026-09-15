@@ -1,6 +1,8 @@
 'use client';
 
 import { usePathname } from 'next/navigation.js';
+import { toggleLocale } from '../app/actions.js';
+import type { Locale } from '../lib/locale.js';
 
 /**
  * The site's nav links, one list shared by the desktop bar and the mobile
@@ -9,11 +11,17 @@ import { usePathname } from 'next/navigation.js';
  *
  * No entry for `/` itself (Phase 3E, 2026-09-15) — it is the landing page
  * now, not a "Design system" reference screen, and the wordmark link
- * (`XTELO`, below) already goes there; a second link to the same
+ * (the logo image, below) already goes there; a second link to the same
  * destination in the nav proper would be redundant, not a real page in
  * its own right the way every other entry here is.
+ *
+ * Labels only — this cookie (`lib/locale.ts`) is still read by `/` alone,
+ * so a Georgian nav label currently points at a screen whose own body is
+ * still English (a known, scoped-down gap: translating those seven screens'
+ * actual content — data tables, filters, `labels.ts`'s enum copy — is a
+ * separate, much larger effort than this nav strip).
  */
-const NAV = [
+const NAV_EN = [
   { href: '/opportunities', label: 'Browse' },
   { href: '/listings', label: 'Listings' },
   { href: '/ranked', label: 'Ranked' },
@@ -21,6 +29,16 @@ const NAV = [
   { href: '/review', label: 'Duplicate review' },
   { href: '/taxonomy-review', label: 'Taxonomy review' },
   { href: '/health', label: 'Source health' },
+] as const;
+
+const NAV_KA = [
+  { href: '/opportunities', label: 'ვაკანსიები' },
+  { href: '/listings', label: 'განცხადებები' },
+  { href: '/ranked', label: 'რანჟირება' },
+  { href: '/saved', label: 'შენახულები' },
+  { href: '/review', label: 'დუბლიკატების შემოწმება' },
+  { href: '/taxonomy-review', label: 'კატეგორიების შემოწმება' },
+  { href: '/health', label: 'წყაროების მდგომარეობა' },
 ] as const;
 
 /**
@@ -35,24 +53,59 @@ const NAV = [
  * database". Passing the already-resolved strings down avoids that class of
  * bug entirely rather than working around its symptom.
  */
-export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn: boolean }) {
+export function SiteHeaderNav({
+  dbLabel,
+  writesOn,
+  locale,
+}: {
+  dbLabel: string;
+  writesOn: boolean;
+  locale: Locale;
+}) {
   const pathname = usePathname();
   const isActive = (href: string) =>
     href === '/' ? pathname === '/' : (pathname?.startsWith(href) ?? false);
+  const nav = locale === 'ka' ? NAV_KA : NAV_EN;
+  // Per-locale, not one shared value: Georgian's longer nav words need
+  // more room than English's (see the desktop-nav comment below), and a
+  // single breakpoint sized for Georgian would needlessly drop English
+  // users at 1360-1599px into the mobile popover when their content
+  // actually fits there. Each variant below is a complete literal class
+  // name (`min-[1360px]:flex`, `min-[1600px]:flex`, ...) so Tailwind's
+  // source scanner — which matches raw text, not evaluated JS — still
+  // finds and generates both.
+  const deskFlex = locale === 'ka' ? 'min-[1600px]:flex' : 'min-[1360px]:flex';
+  const deskHidden = locale === 'ka' ? 'min-[1600px]:hidden' : 'min-[1360px]:hidden';
 
   return (
     <header className="flex h-[58px] items-stretch bg-[var(--color-browse-nav-yellow)] lg:h-[78px]">
-      <a
-        href="/"
-        className="flex items-center pl-4 font-[family-name:var(--font-display)] text-[22px] text-[var(--color-browse-ink)] lg:pl-8 lg:text-[30px]"
-      >
-        XTELO
+      {/* Plain `<img>`, not `next/image`: a small fixed-size static header
+          logo doesn't need Next's optimization pipeline, and `next/image`'s
+          own shipped types don't resolve cleanly under this repo's
+          `nodenext` module resolution (shared with the CLI build) — the
+          same class of problem `types.d.ts`'s `next/font/google` shim
+          exists to patch, not worth a second shim for one `<img>` tag.
+          Explicit width/height (the real 2172×724 asset, scaled by the
+          `h-*`/`w-auto` classes) avoid layout shift the way `next/image`
+          would have handled automatically. */}
+      <a href="/" className="flex items-center pl-4 lg:pl-8">
+        {/* biome-ignore lint/performance/noImgElement: next/image doesn't
+            type-check under this repo's nodenext resolution (see comment
+            above); a fixed-size static logo has no LCP/bandwidth case for
+            it anyway. */}
+        <img
+          src="/logo.png"
+          alt="Xtelo"
+          width={2172}
+          height={724}
+          className="h-[34px] w-auto lg:h-[44px]"
+        />
       </a>
 
       {/* Desktop: every link inline, in the handoff's clipped-corner blocks.
-          `min-[1360px]:flex`, not `xl:flex` (1280px) — the original
-          threshold, chosen when this bar had 6 then 8 links and claimed to
-          fit "at xl" in isolation. It didn't: measured via real
+          `min-[1360px]:flex` in English, not `xl:flex` (1280px) — the
+          original threshold, chosen when this bar had 6 then 8 links and
+          claimed to fit "at xl" in isolation. It didn't: measured via real
           `header.scrollWidth` at exactly 1280px CSS width (Phase 3E's own
           browser-QA sweep, 2026-09-15, found only because it tested the
           true boundary rather than a devicePixelRatio-skewed approximation
@@ -61,18 +114,32 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
           threshold) by 155px. Dropping the redundant `/` ("Design system")
           entry the same day (it's the landing page now, already reachable
           via the wordmark link) took the count back to 7 — measured natural
-          width (wordmark + nav + badge, unclipped) is ~1270px, so 1360px is
-          used for real margin without the first fix's much wider 1500px,
-          which stopped being necessary once the link count dropped. The
-          mobile popover below still covers the 1024–1359px gap. */}
-      <nav aria-label="Main" className="ml-auto hidden items-stretch min-[1360px]:flex">
+          width (wordmark + nav + badge, unclipped) is ~1270px in English, so
+          1360px is used there for real margin without the first fix's much
+          wider 1500px.
+
+          `min-[1600px]:flex` in Georgian (this bilingual change) — its nav
+          labels are longer words, not the short English ones the 1360px
+          number was tuned for: measured natural width in `ka` is ~1505px
+          (`getBoundingClientRect` summed across the wordmark, nav `<ul>`,
+          language toggle and badge at an unconstrained 2000px viewport) —
+          already past 1360px itself, which is how a shared-breakpoint
+          version of this first shipped with a visible horizontal scrollbar
+          at 1440px before being caught in browser QA. Kept per-locale
+          rather than raising the English breakpoint too, so English users
+          at 1360-1599px keep the desktop bar their content actually fits
+          in — see `deskFlex`/`deskHidden` above. The mobile popover below
+          still covers the gap under whichever threshold is active. */}
+      <nav aria-label="Main" className={`ml-auto hidden items-stretch ${deskFlex}`}>
         <ul className="flex items-stretch">
-          {NAV.map((item, index) => (
+          {nav.map((item, index) => (
             <li key={item.href}>
               <a
                 href={item.href}
                 aria-current={isActive(item.href) ? 'page' : undefined}
-                className={`flex h-11 items-center text-[13px] font-semibold whitespace-nowrap text-white uppercase [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)] ${
+                className={`flex h-11 items-center text-[13px] font-semibold whitespace-nowrap text-white hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)] ${
+                  locale === 'en' ? 'uppercase [letter-spacing:0.1em]' : ''
+                } ${
                   isActive(item.href)
                     ? 'bg-[var(--color-browse-nav-yellow)] text-[var(--color-browse-ink)]'
                     : 'bg-[var(--color-browse-nav-olive)]'
@@ -89,25 +156,51 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
             </li>
           ))}
         </ul>
-        {/* Static — this app has no language switch. A plain label rather
-            than a dropdown so it doesn't imply a control that isn't there. */}
-        <span
-          className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white uppercase [letter-spacing:0.1em]"
-          style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%)' }}
-        >
-          KA
-        </span>
+        {/* Switches the landing page's (`/`) language — see `lib/locale.ts`.
+            Every other screen ignores this cookie and stays English, so the
+            action always redirects to `/` rather than the current path;
+            clicking it elsewhere would otherwise flip the cookie with no
+            visible effect. A real `<form>` submit, not a client `onClick`,
+            so it works with scripting off like the rest of this app's
+            controls (`saved/actions.ts`'s own note). Label shows the
+            language a click switches INTO, not the current one — "EN"/"KA"
+            are language codes, never translated. */}
+        <form action={toggleLocale}>
+          <button
+            type="submit"
+            className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]"
+            style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%)' }}
+            aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
+          >
+            {locale === 'ka' ? 'EN' : 'KA'}
+          </button>
+        </form>
       </nav>
 
-      {/* Mobile: a popover menu, no client handler needed to open it. */}
-      <button
-        type="button"
-        popoverTarget="site-nav-mobile"
-        aria-label="Menu"
-        className="ml-auto flex items-center px-4 text-[var(--color-browse-ink)] min-[1360px]:hidden"
-      >
-        <MenuIcon />
-      </button>
+      {/* Mobile: language toggle + popover trigger, both visible in the bar
+          itself rather than the toggle only living inside the popover —
+          a control a visitor needs in order to even read the rest of the
+          page (the nav labels are already in whichever language it picks)
+          shouldn't require opening the menu first to reach. */}
+      <div className={`ml-auto flex items-center ${deskHidden}`}>
+        <form action={toggleLocale}>
+          <button
+            type="submit"
+            className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]"
+            aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
+          >
+            {locale === 'ka' ? 'EN' : 'KA'}
+          </button>
+        </form>
+        <button
+          type="button"
+          popoverTarget="site-nav-mobile"
+          aria-label="Menu"
+          className="flex items-center px-4 text-[var(--color-browse-ink)]"
+        >
+          <MenuIcon />
+        </button>
+      </div>
       <div
         id="site-nav-mobile"
         popover="auto"
@@ -119,10 +212,10 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
         // the taller header instead of sitting below it (Codex, 2026-09-15).
         // lg: variants below mirror the header's own threshold exactly
         // rather than introducing a third breakpoint value to keep in sync.
-        className="m-0 mt-[58px] ml-auto h-[calc(100vh-58px)] w-64 max-h-none rounded-none border-0 border-l border-border bg-surface p-5 text-foreground lg:mt-[78px] lg:h-[calc(100vh-78px)] min-[1360px]:hidden"
+        className={`m-0 mt-[58px] ml-auto h-[calc(100vh-58px)] w-64 max-h-none rounded-none border-0 border-l border-border bg-surface p-5 text-foreground lg:mt-[78px] lg:h-[calc(100vh-78px)] ${deskHidden}`}
       >
         <ul className="flex flex-col gap-1">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <li key={item.href}>
               <a
                 href={item.href}
@@ -146,7 +239,9 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
           dev/env indicator, not something a real page depends on seeing, so
           it simply doesn't render at all below the shared threshold rather
           than needing its own separate fit budget. */}
-      <span className="my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 min-[1360px]:flex">
+      <span
+        className={`my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 ${deskFlex}`}
+      >
         <span>{dbLabel}</span>
         <span
           title={
