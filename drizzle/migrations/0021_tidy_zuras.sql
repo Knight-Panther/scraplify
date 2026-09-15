@@ -1,0 +1,5 @@
+ALTER TABLE "listing_classifications" DROP CONSTRAINT "listing_classifications_revision_term_unique";--> statement-breakpoint
+ALTER TABLE "listing_classifications" ADD COLUMN "superseded_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "listing_classifications" ADD COLUMN "previous_classification_id" uuid;--> statement-breakpoint
+ALTER TABLE "listing_classifications" ADD CONSTRAINT "listing_classifications_previous_classification_id_listing_classifications_id_fk" FOREIGN KEY ("previous_classification_id") REFERENCES "public"."listing_classifications"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "listing_classifications_one_live_per_pair_idx" ON "listing_classifications" USING btree ("source_listing_revision_id","taxonomy_term_id") WHERE "listing_classifications"."superseded_at" is null;

@@ -307,6 +307,61 @@ describe('toDetail — what a board also records', () => {
   });
 
   /**
+   * Phase 3C-2's corrected hr.ge parser (v3) stores specialty/industry as
+   * real nested nodes — `{ sourceTermId, code, name, children }` — instead
+   * of the flat string array v2 revisions still carry (HR_GE_ATTRIBUTES
+   * above). A first version of this screen read both fields with the plain
+   * string-array reader, which silently returned an empty list for every
+   * node object and made these fields disappear the moment a listing was
+   * re-crawled (caught by the commit gate before any re-crawl had run).
+   * This proves both shapes render the same flattened names.
+   */
+  it('shows specialty/industry from the v3 tree shape too, not only the old flat strings', () => {
+    const detail = toDetail(
+      view([
+        member({
+          sourceSlug: 'hr-ge',
+          structuredAttributes: {
+            ...HR_GE_ATTRIBUTES,
+            specialty: [
+              {
+                sourceTermId: '674ef639d86ecbd541ca78f2',
+                code: '739',
+                name: 'გაყიდვები',
+                children: [
+                  {
+                    sourceTermId: '674ef639d86ecbd541ca7db8',
+                    code: '1961',
+                    name: 'გაყიდვების კონსულტაცია და რჩევა',
+                    children: null,
+                  },
+                ],
+              },
+            ],
+            industry: [
+              {
+                advancedIndustryId: '671a2a5cce45a6eaf88cad7c',
+                code: null,
+                name: 'საცალო ვაჭრობა',
+                children: null,
+              },
+            ],
+          },
+        }),
+      ]),
+    );
+
+    const specialtyField = detail.extras[0]?.fields.find(
+      (field) => field.label === 'Filed by the board under',
+    );
+    expect(specialtyField?.values).toEqual(['გაყიდვები', 'გაყიდვების კონსულტაცია და რჩევა']);
+    const industryField = detail.extras[0]?.fields.find(
+      (field) => field.label === 'Board’s industry',
+    );
+    expect(industryField?.values).toEqual(['საცალო ვაჭრობა']);
+  });
+
+  /**
    * `listingSection: -1`, `isAnonymous` and `hideContactPerson` describe how
    * hr.ge runs its own site. Printing them would put raw internals on screen,
    * which `anti-patterns.md` forbids alongside raw enums.

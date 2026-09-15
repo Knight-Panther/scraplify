@@ -7,6 +7,7 @@ import {
   crawlRuns,
   duplicateCandidates,
   fetchAttempts,
+  listingClassifications,
   type NewCrawlRunRow,
   type NewSourceListingRow,
   opportunities,
@@ -22,6 +23,8 @@ import {
   sourceListings,
   sourcePolicies,
   sources,
+  sourceTaxonomyMappings,
+  taxonomyTerms,
 } from './schema/index.js';
 
 /**
@@ -156,8 +159,27 @@ export async function createTestCrawlRun(
  * dependency order — no ON DELETE CASCADE is declared on any of these
  * tables (deliberately: see src/db/schema/source-listings.ts), so cleanup
  * has to unwind the same references the write path builds up.
+ *
+ * `taxonomyTermIds` is EXPLICIT ownership, not inferred: `taxonomy_terms`
+ * carries no FK to `sources` (the domain contract keeps it
+ * source-independent, `src/domain/taxonomy.ts`), so nothing about a term
+ * itself proves a given test created it. A first version of this function
+ * inferred ownership from "this source's mapping was the last one pointing
+ * at it" — real-sounding, but wrong: a term with zero CURRENT references is
+ * not the same claim as "this test created it", and treating them as
+ * equivalent could delete a term this test never touched (commit gate,
+ * 2026-09-15). The caller passes the exact ids it created (this suite's
+ * tests already track them via `sourceTaxonomyMappings.sourceId` before
+ * calling this); this function only ever deletes one of those NAMED ids,
+ * and even then only if nothing else still depends on it — a mapping, a
+ * classification, or another live term's `parentId` (the self-referencing
+ * FK a term-only reference check missed, which would otherwise abort the
+ * whole cleanup transaction rather than merely leave debris).
  */
-export async function cleanupTestSource(sourceId: string): Promise<void> {
+export async function cleanupTestSource(
+  sourceId: string,
+  options: { taxonomyTermIds?: readonly string[] } = {},
+): Promise<void> {
   // ONE transaction for the whole unwind.
   //
   // It was a sequence of autocommitted statements, and that failure mode is
@@ -368,6 +390,23 @@ export async function cleanupTestSource(sourceId: string): Promise<void> {
         .delete(organizationAliases)
         .where(inArray(organizationAliases.sourceListingId, listingIds));
 
+      // listing_classifications FKs into source_listing_revisions (Phase
+      // 3C-2, migration 0020), NO ACTION like every other FK this helper
+      // already unwinds by hand — a classification test that leaves a row
+      // behind would abort the revision delete below with exactly the
+      // failure class every comment in this function already documents for
+      // the other tables.
+      const revisionRows = await tx
+        .select({ id: sourceListingRevisions.id })
+        .from(sourceListingRevisions)
+        .where(inArray(sourceListingRevisions.sourceListingId, listingIds));
+      const revisionIds = revisionRows.map((row) => row.id);
+      if (revisionIds.length > 0) {
+        await tx
+          .delete(listingClassifications)
+          .where(inArray(listingClassifications.sourceListingRevisionId, revisionIds));
+      }
+
       // Null out currentRevisionId first — the ownership FK forbids deleting
       // a revision a listing still points at.
       await tx
@@ -390,6 +429,66 @@ export async function cleanupTestSource(sourceId: string): Promise<void> {
     // an adapter that uses cursor-based resumption (hr.ge), a no-op delete
     // for every other test using this helper.
     await tx.delete(crawlCursors).where(eq(crawlCursors.sourceId, sourceId));
+    // source_taxonomy_mappings.source_id FKs into sources.id too (Phase
+    // 3C-2, migration 0020), NO ACTION — a no-op delete for every test that
+    // never seeds taxonomy data, but without it a taxonomy test's disposable
+    // source would abort the sources delete below on the same FK-violation
+    // class this function already unwinds by hand for every other table.
+    await tx.delete(sourceTaxonomyMappings).where(eq(sourceTaxonomyMappings.sourceId, sourceId));
+
+    // Only ever deletes a term the CALLER named — see this function's own
+    // doc comment for why inferring ownership from "nothing currently
+    // references it" was rejected. Even a named term is refused if
+    // something still needs it: another mapping, a classification, or
+    // (missed by an earlier version of this check, commit gate 2026-09-15)
+    // another live term's parentId — deleting a parent out from under a
+    // still-referenced child would violate taxonomy_terms' own
+    // self-referencing FK and abort this entire transaction, turning a
+    // debris-avoidance feature into a cleanup-breaking one.
+    //
+    // Iterative, not one pass: the ordinary caller here is a source that
+    // seeded a whole tree and names EVERY node it created in one array —
+    // exactly `seedTaxonomyTerms`'s own shape, parent and child both. A
+    // single pass checking parentId against that same candidate set finds
+    // the child's row still present (nothing has deleted it yet within
+    // that pass) and protects the parent every time, leaking it forever —
+    // a real bug this caught on real test runs, not a hypothetical
+    // (confirmed via `docker exec psql`: seven leaked top-level terms, each
+    // missing exactly the child that should have unblocked it). Looping
+    // deletes leaves first, then re-checks what's left with the leaves
+    // actually gone, the same way a real topological deletion would.
+    if (options.taxonomyTermIds !== undefined && options.taxonomyTermIds.length > 0) {
+      let remainingIds = [...new Set(options.taxonomyTermIds)];
+      while (remainingIds.length > 0) {
+        const stillMapped = await tx
+          .select({ taxonomyTermId: sourceTaxonomyMappings.taxonomyTermId })
+          .from(sourceTaxonomyMappings)
+          .where(inArray(sourceTaxonomyMappings.taxonomyTermId, remainingIds));
+        const stillClassified = await tx
+          .select({ taxonomyTermId: listingClassifications.taxonomyTermId })
+          .from(listingClassifications)
+          .where(inArray(listingClassifications.taxonomyTermId, remainingIds));
+        const stillParent = await tx
+          .select({ parentId: taxonomyTerms.parentId })
+          .from(taxonomyTerms)
+          .where(inArray(taxonomyTerms.parentId, remainingIds));
+        const stillReferenced = new Set([
+          ...stillMapped.map((row) => row.taxonomyTermId),
+          ...stillClassified.map((row) => row.taxonomyTermId),
+          ...stillParent.map((row) => row.parentId),
+        ]);
+        const safeToDeleteIds = remainingIds.filter((id) => !stillReferenced.has(id));
+        // No progress possible this pass — whatever remains is genuinely
+        // still needed by something outside this candidate set (or forms a
+        // cycle, which the schema doesn't allow a self-referencing FK to
+        // produce in practice). Stop rather than loop forever.
+        if (safeToDeleteIds.length === 0) break;
+        await tx.delete(taxonomyTerms).where(inArray(taxonomyTerms.id, safeToDeleteIds));
+        const deleted = new Set(safeToDeleteIds);
+        remainingIds = remainingIds.filter((id) => !deleted.has(id));
+      }
+    }
+
     await tx.delete(sources).where(eq(sources.id, sourceId));
 
     return entangledIds;

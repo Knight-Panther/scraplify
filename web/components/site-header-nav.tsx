@@ -17,6 +17,7 @@ const NAV = [
   { href: '/ranked', label: 'Ranked' },
   { href: '/saved', label: 'Shortlist' },
   { href: '/review', label: 'Duplicate review' },
+  { href: '/taxonomy-review', label: 'Taxonomy review' },
   { href: '/health', label: 'Source health' },
 ] as const;
 

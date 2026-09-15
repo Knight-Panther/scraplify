@@ -131,6 +131,77 @@ describe('parseHrGeDetailPage — real fixtures', () => {
     }
   });
 
+  /**
+   * `Array.isArray` above would pass just as well against the old
+   * name-only-string flattening this replaced — it says nothing about
+   * whether hr.ge's real ids and nesting survived. This asserts the actual
+   * shape Phase 3C-2's taxonomy tables are built on: a listing's own real
+   * `specializationId`/`advancedIndustryId` values (verified directly
+   * against the raw fixture HTML, not invented), a `code` on the specialty
+   * node (present for specialty, absent for industry — confirmed against the
+   * raw JSON, not assumed symmetric), and one real level of nesting
+   * preserved rather than flattened into the parent array.
+   */
+  it('preserves real hr.ge ids and nesting in specialty/industry, not just flattened names', () => {
+    const content = parseFixture('detail-492368-email-application.html', '492368');
+    const specialty = content.structuredAttributes.specialty as Array<{
+      sourceTermId: string;
+      code: string | null;
+      name: string;
+      children: unknown[];
+    }>;
+    expect(specialty).toEqual([
+      {
+        sourceTermId: '674ef639d86ecbd541ca78f2',
+        code: '739',
+        name: 'გაყიდვები',
+        children: [
+          {
+            sourceTermId: '674ef639d86ecbd541ca7db8',
+            code: '1961',
+            name: 'გაყიდვების კონსულტაცია და რჩევა',
+            children: [],
+          },
+        ],
+      },
+    ]);
+
+    const industry = content.structuredAttributes.industry as Array<{
+      sourceTermId: string;
+      code: string | null;
+      name: string;
+      children: unknown[];
+    }>;
+    expect(industry).toEqual([
+      {
+        sourceTermId: '671a2a5cce45a6eaf88cad7c',
+        code: null,
+        name: 'საცალო ვაჭრობა',
+        children: [
+          {
+            sourceTermId: '671a2a5cce45a6eaf88cad98',
+            code: null,
+            name: 'საცალო ვაჭრობა',
+            children: [],
+          },
+        ],
+      },
+      {
+        sourceTermId: '671a2a5cce45a6eaf88cad6b',
+        code: null,
+        name: 'სამომხმარებლო პროდუქტები და სერვისები',
+        children: [
+          {
+            sourceTermId: '671a2a5cce45a6eaf88cadd3',
+            code: null,
+            name: 'ტანსაცმელი, აქსესუარები და მოდა',
+            children: [],
+          },
+        ],
+      },
+    ]);
+  });
+
   it('description is decoded to readable plain text, not left as raw entity-encoded HTML', () => {
     const content = parseFixture('detail-492368-email-application.html', '492368');
     expect(content.description).not.toContain('&#');

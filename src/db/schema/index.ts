@@ -8,3 +8,4 @@ export * from './runs.js';
 export * from './shortlist.js';
 export * from './source-listings.js';
 export * from './sources.js';
+export * from './taxonomy.js';
