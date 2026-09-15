@@ -4,12 +4,24 @@ A job aggregator for the Georgian market. It crawls jobs.ge and hr.ge, dedupes
 listings across both, and ranks them against a candidate profile.
 
 **Audience: one serious job seeker, not a marketplace of visitors.** There is no
-signup funnel, no marketing surface, no pricing page, no anonymous traffic. Every
-screen is a working surface for someone who returns daily to triage new listings.
-Design for repeat use and speed, not for first impressions.
+signup funnel, no pricing page, no account system at all — every working screen
+(browse, detail, review, ranked, shortlist, source health) is a tool for someone
+who returns daily to triage new listings. Design those for repeat use and speed,
+not for first impressions, and none of them carries a hero.
 
-That single fact invalidates most generic "web design" advice. Nobody needs to be
-persuaded to scroll. There is no hero. The user already knows what the product does.
+That single fact invalidates most generic "web design" advice for the working
+screens. Nobody scanning `/opportunities` needs to be persuaded to scroll.
+
+**One deliberate, named exception: the root landing page (`/`).** It is the one
+entry point anyone actually lands on before reaching the working screens — there
+being no accounts means every visit starts here, whether it is someone's first
+time or their hundredth — and it carries a hero — full-bleed video background, a
+motion-led headline, live proof (open-vacancy count, newest listings, a ticker) —
+by explicit project-owner decision (`docs/STATUS.md`, Phase 3D and the Phase 3E
+landing-hero redesign). This does not reopen the rule for any other screen: a
+triager who has already clicked past `/` into `/opportunities` still wants the
+list to stop where they put it, with no persuasion surface
+anywhere in the working tool.
 
 ## The screens already exist
 

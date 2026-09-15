@@ -31,6 +31,11 @@ if (-not (Test-Path -LiteralPath $entryPoint -PathType Leaf)) {
     throw "Build output not found: $entryPoint. Run 'npm run build' in $repositoryRoot first."
 }
 
+$dedupeEntryPoint = Join-Path $repositoryRoot 'dist/cli/run-dedupe.js'
+if (-not (Test-Path -LiteralPath $dedupeEntryPoint -PathType Leaf)) {
+    throw "Build output not found: $dedupeEntryPoint. Run 'npm run build' in $repositoryRoot first."
+}
+
 $envFile = Join-Path $repositoryRoot '.env'
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     throw "Expected $envFile (see README.md's Database section) - refusing to run without it rather than silently using an unconfigured environment."
@@ -45,7 +50,34 @@ try {
     "----- $(Get-Date -Format o) -----" | Add-Content -LiteralPath $logFile
     & $NodePath '--env-file=.env' 'dist/cli/run-jobs-ge-crawl.js' *>> $logFile
     $exitCode = $LASTEXITCODE
-    "----- exit code $exitCode -----" | Add-Content -LiteralPath $logFile
+    "----- crawl exit code $exitCode -----" | Add-Content -LiteralPath $logFile
+
+    # Run cross-source dedupe after every crawl attempt, not only a
+    # successful one: even a run that ends in failure or a partial sweep can
+    # still have written new listings before it stopped, and those need
+    # canonicalizing same as any other. Found necessary 2026-09-15 (see
+    # docs/STATUS.md's "Incident: runDedupe had not run since 2026-09-06"):
+    # this wrapper is the one automated path a Task Scheduler registration
+    # actually drives (register-jobs-ge-schedule.ps1), and with dedupe
+    # calling into `--auto-link` off it does not merge or canonicalize
+    # anything, leaving every listing a crawl adds invisible outside the
+    # raw /listings view until someone remembers to run it by hand. `--auto-link`
+    # is what actually closes that gap: `confirmed_same` pairs auto-merge
+    # under scorePair's own high-confidence, multi-signal restriction (the
+    # project's designed production behaviour, not a shortcut), and
+    # everything less certain (`needs_review`/`probable_same`) is still only
+    # ever queued for a human via the /review screen, never auto-decided.
+    "----- $(Get-Date -Format o) -----" | Add-Content -LiteralPath $logFile
+    & $NodePath '--env-file=.env' 'dist/cli/run-dedupe.js' '--auto-link' *>> $logFile
+    $dedupeExitCode = $LASTEXITCODE
+    "----- dedupe exit code $dedupeExitCode -----" | Add-Content -LiteralPath $logFile
+
+    # concept section 19.1: a failed or skipped run must never pass
+    # silently. A crawl that itself succeeded but left a failed dedupe pass
+    # behind is not a clean run either, so it must not exit 0.
+    if ($exitCode -eq 0 -and $dedupeExitCode -ne 0) {
+        $exitCode = $dedupeExitCode
+    }
 } finally {
     Pop-Location
 }

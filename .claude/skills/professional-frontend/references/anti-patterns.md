@@ -59,7 +59,15 @@ any of it in the UI is not a cosmetic problem, it is a correctness problem.
 None is installed, and that is deliberate. React Bits was evaluated as a
 component source and rejected: it is an animation and effects library
 (`Dither`, `BlurText`, `SplitText`, `ClickSpark`), and its components belong on
-landing pages, which this product does not have.
+landing pages. The root page (`/`) is now the one landing-style exception to
+"this product does not have one" (see `product-context.md` and
+`design-direction.md`), but the rejection still stands there too — its hero
+is built from plain CSS `@keyframes` and Tailwind utilities, the same as
+every working screen, not a component library. Character-splitting text
+effects specifically remain unsafe on any screen carrying real content,
+since they operate per character on a multi-byte script; `/`'s own headline
+avoids this because its two lines of copy are hardcoded Latin UI strings,
+never real data.
 
 If one is ever added, the boundary is: **never on the working surfaces.** The
 opportunities list, the review queue and the listing detail are used repeatedly,

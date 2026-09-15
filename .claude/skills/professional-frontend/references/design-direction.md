@@ -79,8 +79,13 @@ used — it has no Georgian either, and the watermark itself is out (below).
 
 Each of these is either on `anti-patterns.md` or blocked by the corpus:
 
-- **Video backgrounds** and the mouse-scrubbed hero. Decorative motion on a
-  surface re-scanned several times a day.
+- **Video backgrounds and a hero, on every working screen** — browse, detail,
+  review, ranked, shortlist, source health. Decorative motion on a surface
+  re-scanned several times a day. **Named exception: the root landing page
+  (`/`)** carries a video-background hero by explicit project-owner decision
+  (`docs/STATUS.md`, Phase 3D and Phase 3E) — it is the one screen a visitor
+  is not yet re-scanning, so the "no persuasion surface" reasoning does not
+  apply there. The mouse-scrubbed variant stays out everywhere, including `/`.
 - **Glassmorphism** (`backdrop-filter: blur(16px)` on the nav).
 - **Scrambled entrance and hover text.** Also incompatible with Georgian — it
   operates per character on a multi-byte script.
@@ -89,8 +94,10 @@ Each of these is either on `anti-patterns.md` or blocked by the corpus:
 - **ALL-CAPS tracked eyebrows** (`.eyebrow`). Georgian is unicase; the pattern is
   meaningless on any label that touches data, and `frontend-design` lists it as a
   generated-page tell regardless.
-- **The 521px watermark** and `clamp(40px, 10vw, 100px)` hero type. There is no
-  hero; the densest screen is the first screen.
+- **The 521px watermark**, on any screen, `/` included. `/`'s own hero type
+  (`clamp(46px, 7.4vw, 104px)`, Bebas Neue) is the named exception above's
+  headline, not this watermark treatment — the densest working screen is
+  still the first *working* screen, `/opportunities`, not `/` itself.
 - **Pill buttons** (`border-radius: 100px`) as the default control shape. Use the
   `0.75rem` radius consistently instead.
 
