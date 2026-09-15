@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 
-/** 70% of native speed (a 30% slowdown, by explicit project-owner request,
- * 2026-09-15 — the source clip read as too fast at its native rate). Only
- * `playbackRate` achieves this; there is no HTML attribute or CSS property
- * for video speed, so it has to be set imperatively once the element
- * exists. */
-const PLAYBACK_RATE = 0.7;
+/** 56% of native speed — a 30% slowdown (0.7x, the clip read as too fast
+ * natively), then another 20% slower on top of that (0.7 * 0.8 = 0.56),
+ * both by explicit project-owner request, 2026-09-15. Only `playbackRate`
+ * achieves this; there is no HTML attribute or CSS property for video
+ * speed, so it has to be set imperatively once the element exists. */
+const PLAYBACK_RATE = 0.56;
 
 /**
  * The hero's motion background — client-only because whether it renders at
