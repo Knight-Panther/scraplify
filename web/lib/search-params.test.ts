@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHref, parseOpportunityQuery, ROW_CHUNK } from './search-params.js';
+import { appliedFilters, buildHref, parseOpportunityQuery, ROW_CHUNK } from './search-params.js';
 
 const SLUGS = ['jobs-ge', 'hr-ge'];
 const NOW = Date.parse('2026-09-07T12:00:00.000Z');
@@ -25,12 +25,28 @@ describe('parseOpportunityQuery', () => {
   it('drops a status the schema does not define', () => {
     const query = parseOpportunityQuery({ status: 'definitely_not_a_status' }, SLUGS, NOW);
     expect(query.filters.statuses).toBeUndefined();
-    expect(query.form.status).toBe('');
+    expect(query.form.statuses).toEqual([]);
   });
 
   it('keeps a status the schema does define', () => {
     const query = parseOpportunityQuery({ status: 'missing_suspected' }, SLUGS, NOW);
     expect(query.filters.statuses).toEqual(['missing_suspected']);
+  });
+
+  it('accepts more than one status — a real filter, not "first wins"', () => {
+    const query = parseOpportunityQuery({ status: ['active', 'closed'] }, SLUGS, NOW);
+    expect(query.filters.statuses).toEqual(['active', 'closed']);
+    expect(query.form.statuses).toEqual(['active', 'closed']);
+  });
+
+  it('drops only the unrecognised status out of a mixed set', () => {
+    const query = parseOpportunityQuery({ status: ['active', 'not_a_status'] }, SLUGS, NOW);
+    expect(query.filters.statuses).toEqual(['active']);
+  });
+
+  it('de-duplicates a repeated status', () => {
+    const query = parseOpportunityQuery({ status: ['active', 'active'] }, SLUGS, NOW);
+    expect(query.filters.statuses).toEqual(['active']);
   });
 
   it('drops a source slug that no source uses', () => {
@@ -68,9 +84,22 @@ describe('parseOpportunityQuery', () => {
     expect(parseOpportunityQuery({ q: 'მენეჯერი' }, SLUGS, NOW).filters.text).toBe('მენეჯერი');
   });
 
-  it('treats a repeated parameter as its first value', () => {
-    const query = parseOpportunityQuery({ status: ['active', 'closed'] }, SLUGS, NOW);
-    expect(query.filters.statuses).toEqual(['active']);
+  it('treats a repeated single-value parameter as its first value', () => {
+    // Unlike `status`, `source` is still single-select.
+    const query = parseOpportunityQuery({ source: ['hr-ge', 'jobs-ge'] }, SLUGS, NOW);
+    expect(query.filters.sourceSlug).toBe('hr-ge');
+  });
+
+  it('resolves "closing" against the supplied instant, not the wall clock', () => {
+    const query = parseOpportunityQuery({ closing: '7' }, SLUGS, NOW);
+    expect(query.filters.deadlineFrom).toBe('2026-09-07T12:00:00.000Z');
+    expect(query.filters.deadlineTo).toBe('2026-09-14T12:00:00.000Z');
+  });
+
+  it('ignores a "closing" value that is not one of the offered options', () => {
+    const query = parseOpportunityQuery({ closing: '9999' }, SLUGS, NOW);
+    expect(query.filters.deadlineFrom).toBeUndefined();
+    expect(query.filters.deadlineTo).toBeUndefined();
   });
 
   it('resolves "since" against the supplied instant, not the wall clock', () => {
@@ -182,5 +211,41 @@ describe('show depth', () => {
     const deep = parseOpportunityQuery({ show: '2000' }, SLUGS, NOW);
     const href = buildHref(deep, { sort: 'title' });
     expect(new URLSearchParams(href.split('?')[1]).get('show')).toBe('2000');
+  });
+});
+
+describe('appliedFilters', () => {
+  const sourceSlugLabel = (slug: string) => (slug === 'hr-ge' ? 'hr.ge' : slug);
+  const statusLabel = (status: string) => status;
+  const typeLabel = (type: string) => type;
+
+  it('is empty for an unfiltered view', () => {
+    const query = parseOpportunityQuery({}, SLUGS, NOW);
+    expect(appliedFilters(query, sourceSlugLabel, statusLabel, typeLabel)).toEqual([]);
+  });
+
+  it('emits one chip per active filter, each clearing only itself', () => {
+    const query = parseOpportunityQuery(
+      { q: 'მენეჯერი', source: 'hr-ge', status: ['active', 'closed'], cross: '1' },
+      SLUGS,
+      NOW,
+    );
+    const chips = appliedFilters(query, sourceSlugLabel, statusLabel, typeLabel);
+    expect(chips.map((c) => c.key)).toEqual([
+      'q',
+      'source',
+      'status:active',
+      'status:closed',
+      'cross',
+    ]);
+
+    const statusChip = chips.find((c) => c.key === 'status:active');
+    const params = new URLSearchParams(statusChip?.href.split('?')[1]);
+    // Removing one status leaves the query text, source, other status, and
+    // cross-posted flag all in place.
+    expect(params.getAll('status')).toEqual(['closed']);
+    expect(params.get('q')).toBe('მენეჯერი');
+    expect(params.get('source')).toBe('hr-ge');
+    expect(params.get('cross')).toBe('1');
   });
 });

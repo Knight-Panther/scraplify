@@ -1,4 +1,5 @@
 import type { SearchOpportunitiesFilters } from '../../src/browse/queries.js';
+import { opportunityTypeEnum } from '../../src/db/schema/opportunities.js';
 import { sourceListingStatusEnum } from '../../src/db/schema/source-listings.js';
 
 /**
@@ -25,6 +26,26 @@ export const SINCE_OPTIONS = [
   { value: '7', label: 'last 7 days', days: 7 },
   { value: '30', label: 'last 30 days', days: 30 },
 ] as const;
+
+/** The "closing soon" window — deadline within the next N days from now. */
+export const DEADLINE_OPTIONS = [
+  { value: '', label: 'any time', days: null },
+  { value: '7', label: 'closing in 7 days', days: 7 },
+  { value: '30', label: 'closing in 30 days', days: 30 },
+] as const;
+
+/** §13 canonical states offered as facet checkboxes, in display order. */
+export const STATUS_OPTIONS = [
+  'active',
+  'missing_suspected',
+  'closed',
+  'expired',
+  'quarantined',
+  'discovered',
+] as const;
+
+/** §12.3 opportunity types offered as facet checkboxes, in display order. */
+export const TYPE_OPTIONS = opportunityTypeEnum.enumValues;
 
 /**
  * One growing list rather than numbered pages.
@@ -67,8 +88,10 @@ export interface OpportunityQuery {
   form: {
     q: string;
     source: string;
-    status: string;
+    statuses: string[];
+    types: string[];
     since: string;
+    closing: string;
     crossPosted: boolean;
   };
 }
@@ -84,7 +107,19 @@ export function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? (value[0] ?? '') : value).trim();
 }
 
+/**
+ * Every value of a repeatable param (`?status=a&status=b`), trimmed and
+ * de-duplicated. A single non-array value is treated as one entry, so
+ * `?status=a` and `?status=a&status=a` behave the same.
+ */
+function many(value: string | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  const values = Array.isArray(value) ? value : [value];
+  return [...new Set(values.map((v) => v.trim()).filter((v) => v !== ''))];
+}
+
 const STATUSES: readonly string[] = sourceListingStatusEnum.enumValues;
+const TYPES: readonly string[] = opportunityTypeEnum.enumValues;
 
 /**
  * Text is capped rather than passed through at any length.
@@ -129,11 +164,18 @@ export function parseOpportunityQuery(
   const rawSource = one(raw.source);
   const source = knownSourceSlugs.includes(rawSource) ? rawSource : '';
 
-  const rawStatus = one(raw.status);
-  const status = STATUSES.includes(rawStatus) ? rawStatus : '';
+  // An unrecognised status is dropped rather than forwarded — it would
+  // otherwise reach `inArray` against a Postgres enum column, where an
+  // unrecognised value is a query ERROR rather than an empty result.
+  const statuses = many(raw.status).filter((status) => STATUSES.includes(status));
+  const types = many(raw.type).filter((type) => TYPES.includes(type));
 
   const rawSince = one(raw.since);
   const since = SINCE_OPTIONS.find((option) => option.value === rawSince) ?? SINCE_OPTIONS[0];
+
+  const rawClosing = one(raw.closing);
+  const closing =
+    DEADLINE_OPTIONS.find((option) => option.value === rawClosing) ?? DEADLINE_OPTIONS[0];
 
   const crossPosted = one(raw.cross) === '1';
 
@@ -152,16 +194,23 @@ export function parseOpportunityQuery(
     filters: {
       text: q === '' ? undefined : q,
       sourceSlug: source === '' ? undefined : source,
-      statuses: status === '' ? undefined : [status],
+      statuses: statuses.length === 0 ? undefined : statuses,
+      types: types.length === 0 ? undefined : types,
       crossPostedOnly: crossPosted ? true : undefined,
       firstSeenFrom:
         since.days === null
           ? undefined
           : new Date(now - since.days * 24 * 60 * 60 * 1000).toISOString(),
+      ...(closing.days === null
+        ? {}
+        : {
+            deadlineFrom: new Date(now).toISOString(),
+            deadlineTo: new Date(now + closing.days * 24 * 60 * 60 * 1000).toISOString(),
+          }),
     },
     sort,
     show,
-    form: { q, source, status, since: since.value, crossPosted },
+    form: { q, source, statuses, types, since: since.value, closing: closing.value, crossPosted },
   };
 }
 
@@ -173,16 +222,24 @@ export function parseOpportunityQuery(
  * back link returns to the filtered, sorted, grown list the reader came from
  * rather than to a bare /opportunities that silently drops all of it.
  */
-export function buildQueryString(
-  query: OpportunityQuery,
-  changes: Partial<{ sort: Sort; show: number }> = {},
-): string {
+export interface QueryChanges {
+  sort?: Sort;
+  show?: number;
+  /** Overrides individual fields of `query.form` — used to drop one filter. */
+  form?: Partial<OpportunityQuery['form']>;
+}
+
+export function buildQueryString(query: OpportunityQuery, changes: QueryChanges = {}): string {
+  const form = { ...query.form, ...changes.form };
+
   const params = new URLSearchParams();
-  if (query.form.q !== '') params.set('q', query.form.q);
-  if (query.form.source !== '') params.set('source', query.form.source);
-  if (query.form.status !== '') params.set('status', query.form.status);
-  if (query.form.since !== '') params.set('since', query.form.since);
-  if (query.form.crossPosted) params.set('cross', '1');
+  if (form.q !== '') params.set('q', form.q);
+  if (form.source !== '') params.set('source', form.source);
+  for (const status of form.statuses) params.append('status', status);
+  for (const type of form.types) params.append('type', type);
+  if (form.since !== '') params.set('since', form.since);
+  if (form.closing !== '') params.set('closing', form.closing);
+  if (form.crossPosted) params.set('cross', '1');
 
   const sort = changes.sort ?? query.sort;
   if (sort !== 'recent') params.set('sort', sort);
@@ -194,16 +251,88 @@ export function buildQueryString(
 }
 
 /**
- * A link to the same view with the sort or the depth changed.
+ * A link to the same view with the sort, depth, or one filter field changed.
  *
  * The depth rides along on a sort change: someone who has grown the list to
  * 2,000 rows and then re-sorts means to re-sort what they are looking at, not
  * to be dropped back to the first 500.
  */
-export function buildHref(
-  query: OpportunityQuery,
-  changes: Partial<{ sort: Sort; show: number }>,
-): string {
+export function buildHref(query: OpportunityQuery, changes: QueryChanges): string {
   const search = buildQueryString(query, changes);
   return search === '' ? '/opportunities' : `/opportunities?${search}`;
+}
+
+export interface AppliedFilter {
+  key: string;
+  label: string;
+  /** This view with exactly this filter cleared — everything else survives. */
+  href: string;
+}
+
+/**
+ * One removable chip per active filter, for the sticky bar's applied-filter
+ * row. `sourceSlugLabel` and `statusLabel` are injected rather than imported
+ * from `labels.ts` here, so this file stays free of a dependency on the
+ * schema-derived label maps.
+ */
+export function appliedFilters(
+  query: OpportunityQuery,
+  sourceSlugLabel: (slug: string) => string,
+  statusLabel: (status: string) => string,
+  typeLabel: (type: string) => string,
+): AppliedFilter[] {
+  const { form } = query;
+  const chips: AppliedFilter[] = [];
+
+  if (form.q !== '') {
+    chips.push({ key: 'q', label: `"${form.q}"`, href: buildHref(query, { form: { q: '' } }) });
+  }
+  if (form.source !== '') {
+    chips.push({
+      key: 'source',
+      label: sourceSlugLabel(form.source),
+      href: buildHref(query, { form: { source: '' } }),
+    });
+  }
+  for (const status of form.statuses) {
+    chips.push({
+      key: `status:${status}`,
+      label: statusLabel(status),
+      href: buildHref(query, {
+        form: { statuses: form.statuses.filter((s) => s !== status) },
+      }),
+    });
+  }
+  for (const type of form.types) {
+    chips.push({
+      key: `type:${type}`,
+      label: typeLabel(type),
+      href: buildHref(query, { form: { types: form.types.filter((t) => t !== type) } }),
+    });
+  }
+  if (form.since !== '') {
+    const option = SINCE_OPTIONS.find((o) => o.value === form.since);
+    chips.push({
+      key: 'since',
+      label: `first seen: ${option?.label ?? form.since}`,
+      href: buildHref(query, { form: { since: '' } }),
+    });
+  }
+  if (form.closing !== '') {
+    const option = DEADLINE_OPTIONS.find((o) => o.value === form.closing);
+    chips.push({
+      key: 'closing',
+      label: option?.label ?? form.closing,
+      href: buildHref(query, { form: { closing: '' } }),
+    });
+  }
+  if (form.crossPosted) {
+    chips.push({
+      key: 'cross',
+      label: 'on both boards',
+      href: buildHref(query, { form: { crossPosted: false } }),
+    });
+  }
+
+  return chips;
 }

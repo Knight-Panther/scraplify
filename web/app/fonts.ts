@@ -1,4 +1,4 @@
-import { Noto_Sans_Georgian, Space_Mono } from 'next/font/google';
+import { Bebas_Neue, Noto_Sans_Georgian, Space_Mono } from 'next/font/google';
 
 /**
  * Two faces, with a hard split of responsibilities.
@@ -34,5 +34,19 @@ export const spaceMono = Space_Mono({
   subsets: ['latin'],
   weight: ['400'],
   variable: '--font-space-mono',
+  display: 'swap',
+});
+
+/**
+ * Display face for the browse screen's wordmark and "Browse" heading —
+ * static English chrome only, never job titles or employer names. Bebas
+ * Neue's Google metadata lists no Georgian subset, so it must never reach
+ * content; the two words it renders here are hardcoded UI strings, not data,
+ * so that constraint can't be violated by anything the corpus contains.
+ */
+export const bebasNeue = Bebas_Neue({
+  subsets: ['latin'],
+  weight: ['400'],
+  variable: '--font-bebas-neue',
   display: 'swap',
 });

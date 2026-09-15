@@ -56,6 +56,16 @@
 
   --font-sans: var(--font-noto-georgian), "Noto Sans", system-ui, sans-serif;
   --font-mono: var(--font-space-mono), ui-monospace, monospace;
+
+  /* Browse screen only (design handoff `1b`/`1c`) — the rest of the app
+     stays on the palette above. Named separately rather than overriding
+     --color-accent so the other five screens are untouched. */
+  --color-browse-accent: #d6ff3f;
+  --color-browse-accent-hover: #eaffa0;
+  --color-browse-nav-yellow: #f2ee00;
+  --color-browse-nav-olive: #5c5a06;
+  --color-browse-ink: #0b0d10;
+  --font-display: var(--font-bebas-neue), "Arial Narrow", sans-serif;
 }
 
 /* The reference's focus ring, taken verbatim — stronger than most defaults. */

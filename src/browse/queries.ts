@@ -233,6 +233,8 @@ export interface SearchOpportunitiesFilters {
   text?: string | undefined;
   /** §13 canonical states; omitted means every state. */
   statuses?: readonly string[] | undefined;
+  /** §12.3 opportunity types (job, summer_school, …); omitted means every type. */
+  types?: readonly string[] | undefined;
   /** Has at least one LIVE member from this source. */
   sourceSlug?: string | undefined;
   /** Only clusters with more than one live member — the cross-posted ones. */
@@ -312,6 +314,11 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
         opportunities.canonicalStatus,
         filters.statuses as unknown as typeof opportunities.canonicalStatus.enumValues,
       ),
+    );
+  }
+  if (filters.types !== undefined && filters.types.length > 0) {
+    conditions.push(
+      inArray(opportunities.type, filters.types as unknown as typeof opportunities.type.enumValues),
     );
   }
   if (filters.sourceSlug !== undefined) {
