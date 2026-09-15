@@ -1,6 +1,7 @@
 import { CandidateClaimKind } from '../../../../src/domain/candidate.js';
 import { db } from '../../../../src/db/client.js';
 import { loadCandidateProfile, type LoadedProfile } from '../../../../src/ranking/profile-store.js';
+import { SubmitButton } from '../../../components/submit-button.js';
 import { claimKindLabel } from '../../../lib/labels.js';
 import { UUID } from '../../../lib/profile-input.js';
 import type { RawSearchParams } from '../../../lib/search-params.js';
@@ -52,7 +53,11 @@ export default async function ProfileDetailPage({
       </header>
 
       {error !== '' && <ErrorNotice message={error} />}
-      {saved && <p className="mt-4 text-sm text-status-open">Saved.</p>}
+      {saved && (
+        <p className="mt-4 text-sm text-status-open" aria-live="polite">
+          Saved.
+        </p>
+      )}
 
       {writesEnabled() ? (
         <CorrectionForm profile={profile} />
@@ -105,12 +110,12 @@ function CorrectionForm({ profile }: { profile: LoadedProfile }) {
         ))}
       </fieldset>
 
-      <button
-        type="submit"
-        className="self-start rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-1.5 text-sm hover:bg-surface-active"
+      <SubmitButton
+        pendingLabel="Saving…"
+        className="self-start rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-1.5 text-sm hover:bg-surface-active disabled:cursor-not-allowed disabled:opacity-60"
       >
         Save corrections
-      </button>
+      </SubmitButton>
     </form>
   );
 }

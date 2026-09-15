@@ -1,3 +1,4 @@
+import { SubmitButton } from '../../components/submit-button.js';
 import type { RawSearchParams } from '../../lib/search-params.js';
 import { one } from '../../lib/search-params.js';
 import { writesEnabled } from '../../lib/writes.js';
@@ -39,17 +40,14 @@ export default async function ProfilePage({
 
 function UploadForm() {
   return (
-    <form
-      action={uploadCv}
-      encType="multipart/form-data"
-      className="mt-6 flex max-w-[var(--measure)] flex-col gap-4"
-    >
+    <form action={uploadCv} className="mt-6 flex max-w-[var(--measure)] flex-col gap-4">
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted">Label</span>
         <input
           type="text"
           name="label"
           required
+          autoComplete="off"
           placeholder="e.g. my 2026 CV"
           className="rounded-[var(--radius)] border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-faint"
         />
@@ -78,12 +76,12 @@ function UploadForm() {
         </span>
       </label>
 
-      <button
-        type="submit"
-        className="self-start rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-1.5 text-sm hover:bg-surface-active"
+      <SubmitButton
+        pendingLabel="Uploading and parsing…"
+        className="self-start rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-1.5 text-sm hover:bg-surface-active disabled:cursor-not-allowed disabled:opacity-60"
       >
         Upload and parse
-      </button>
+      </SubmitButton>
     </form>
   );
 }

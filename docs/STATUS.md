@@ -423,6 +423,20 @@ Phase 5A (`src/ranking/`, below) built the scoring/ranking engine but deliberate
 
 **WAIVED: the plan-level `codex exec --sandbox read-only` review of this stage plan, by explicit project-owner decision (2026-09-15).** Codex's usage-limit cooldown (recorded above, until 00:20) had ~23 minutes left when this plan was approved; rather than wait, the project owner directed implementation to start now. The per-commit gate still reviews every commit once the cooldown clears — only the upfront whole-plan review that Phase 3C-2's Stage 7 and Phase 3E both got is skipped here.
 
+### Phase 5 — built and browser-QA'd (2026-09-15/16)
+
+`src/cv-parsing/` (`read-document.ts`, `extract-claims.ts`) and the `/profile`, `/profile/[id]` screens built per the stage plan above, on `phase-5-cv-parsing`. Merged `main` in partway through to pick up the unrelated `front-page-bilingual-ka` branch (PR #13 — EN/KA switch, footer links, nav logo), which landed on `main` while this branch was in progress; clean merge, no overlapping files.
+
+**Real, live end-to-end verification — not just structural.** Against `dev:web:qa`: uploaded a real (fixture) `.docx` CV, got back 5 correctly extracted claims (one role with years, two skills, two languages) each carrying its real verbatim evidence quote, corrected the set (edited the role title, deleted a language, added a manual skill), saved, and confirmed the version bumped 1→2 with exactly the expected 5 claims remaining. Confirmed via `grep` against the actual dev-server log output — not assumed — that no CV content (name, sentences, extracted text) appears anywhere in it; the one log line the pipeline emits is exactly `{claimCount, durationMs}`. Both the unsupported-format and missing-consent error paths were exercised live and correctly short-circuit before any API call, so a bad request costs nothing. Zero horizontal overflow at 390/768/1280/1920 on both screens. A manually-entered Georgian value (`თბილისი`) round-tripped and rendered in Noto Sans Georgian with `text-transform: none`, confirmed via computed style, not eyeballed.
+
+**Two real bugs found by the browser QA pass itself, both fixed:**
+- React warned "Cannot specify a[n] encType or method for a form that specifies a function as the action" — an explicit `encType="multipart/form-data"` on `/profile`'s upload form was redundant and silently overridden; React/Next already handle multipart encoding for a function `action`. Removed.
+- **Neither submit button had a pending state.** `uploadCv` makes a real, several-second, billed Claude API call — with no visual feedback and the button still clickable, a second click during that window would start a second billed extraction rather than just feeling unresponsive, which is a real cost bug, not only a UX one. Fixed with a small new client component, `web/components/submit-button.tsx` (`useFormStatus`, disables and relabels the button while its form's action is in flight), used by both `/profile` and `/profile/[id]`.
+
+Also added while reviewing against `web-design-guidelines`: `aria-live="polite"` on `/profile/[id]`'s "Saved." confirmation, and `autoComplete="off"` on the label field (matching `decision-control.tsx`'s own note-field convention for free-text input). The consent checkbox's first-person phrasing ("I understand…") was checked against the guideline's "second person" rule and kept deliberately — it is a consent affirmation, the same register every real-world consent checkbox uses, not general body copy.
+
+**Not yet done:** per-commit and whole-branch Codex review (cooldown-gated, see above — will run once Codex is back), and the exit gate's own checklist has not been formally checked off pending that review.
+
 ### The record below
 
 Everything from here down is the record of work that has landed, oldest context first. It is not part of the current phase's own sections above.
