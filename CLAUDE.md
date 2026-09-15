@@ -9,6 +9,10 @@ Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a 
 - Before merging a phase branch into `main`: push it, open a PR (`gh pr create`), and run `/codex:adversarial-review --base main` for a whole-branch review — this catches cross-commit issues the per-commit gate can't see, since it only ever looks at one commit's diff at a time.
 - Merge only when that review is clean (no P0/P1) and the phase's exit-gate checklist in `docs/STATUS.md` is actually checked off, updated in the same PR. Delete the branch after merging.
 
+## Local databases
+
+Two Postgres databases exist locally: `scraplify` (the real crawled corpus) and `scraplify_qa` (a frozen, disposable snapshot — a few hundred listings, not kept in sync with crawls or anything else). `npm run dev` / `dev:web` always points at `scraplify` with writes permanently disabled — a hard rule, not a temporary or togglable state, because a session has accidentally mutated the real corpus twice before this existed. `npm run dev:web:qa` points at `scraplify_qa` with writes enabled, for testing anything that mutates data (Save/Dismiss, duplicate-review actions, etc.) without any risk to real data. See `web/lib/writes.ts` for the full rationale.
+
 ## Roles
 
 - **Claude (Claude Code): implementer.** Writes and edits all code in this repo.

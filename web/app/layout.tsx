@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { SiteNav } from '../components/site-nav.js';
-import { notoGeorgian, spaceMono } from './fonts.js';
+import { SiteFooter } from '../components/site-footer.js';
+import { SiteHeader } from '../components/site-header.js';
+import { bebasNeue, notoGeorgian, spaceMono } from './fonts.js';
 import './globals.css';
 
 // Every DB-reading segment is dynamic: `next build` must not prerender against
@@ -19,8 +20,11 @@ export const viewport = { themeColor: '#000000' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${notoGeorgian.variable} ${spaceMono.variable}`}>
-      <body>
+    <html
+      lang="en"
+      className={`${notoGeorgian.variable} ${spaceMono.variable} ${bebasNeue.variable}`}
+    >
+      <body className="flex min-h-screen flex-col">
         {/* The first stop for a keyboard user. The opportunities screen puts
             three filters and a sort control ahead of the table, so tabbing to
             the results is otherwise a dozen stops every visit. */}
@@ -30,8 +34,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         >
           Skip to content
         </a>
-        <SiteNav />
-        <div id="content">{children}</div>
+        <SiteHeader />
+        <div id="content" className="flex-1">
+          {children}
+        </div>
+        <SiteFooter />
       </body>
     </html>
   );

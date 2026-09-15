@@ -4,6 +4,8 @@ import {
   searchOpportunities,
 } from '../../../../src/browse/queries.js';
 import { db } from '../../../../src/db/client.js';
+import { decisionsByOpportunity } from '../../../../src/shortlist/decisions.js';
+import { DecisionControl } from '../../../components/decision-control.js';
 import { StatusChip } from '../../../components/status-chip.js';
 import {
   absoluteTime,
@@ -15,15 +17,17 @@ import {
 import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../../lib/labels.js';
 import { type OpportunityRow, toRow } from '../../../lib/opportunity-row.js';
 import {
+  appliedFilters,
   buildHref,
   buildQueryString,
   type OpportunityQuery,
+  parseOpportunityQuery,
   type RawSearchParams,
   ROW_CHUNK,
-  SINCE_OPTIONS,
   SORTS,
-  parseOpportunityQuery,
 } from '../../../lib/search-params.js';
+import { FacetRail } from './facet-rail.js';
+import { StickyFilterBar } from './sticky-filter-bar.js';
 
 /**
  * The deduplicated list — the screen someone opens daily and scans.
@@ -31,26 +35,23 @@ import {
  * It lives in a `(list)` route group, which changes no URL and exists for one
  * reason: `loading.tsx` applies to a segment AND everything nested under it,
  * so while this file sat directly in `opportunities/`, its loading fallback
- * wrapped `opportunities/[id]` too. That fallback starts streaming the
- * response, and once streaming starts the status code is already sent — so the
- * detail screen's `notFound()` rendered its page under a 200, telling every
- * client that a stale link had resolved fine. The group scopes this screen's
- * loading UI to this screen. (next/docs: "Status Codes", loading.mdx.)
+ * wrapped `opportunities/[id]` too. See the detail screen's `notFound()` note
+ * in git history for why that matters. The group scopes this screen's loading
+ * UI to this screen. (next/docs: "Status Codes", loading.mdx.)
  *
- * Two decisions shape everything here.
+ * **State lives in the URL, not in React.** Every filter — search text,
+ * board, state, first-seen window, deadline window, cross-posted — is one
+ * `<form method="get">` covering the sticky search row and the facet rail
+ * together, so a filtered view is still a plain link, the back button still
+ * works, and every render is one straight server query. The only client
+ * JavaScript on this screen is presentational: the sticky bar's scroll
+ * collapse (`sticky-filter-bar.tsx`) and the mobile filter sheet, which uses
+ * the native Popover API and needs none at all.
  *
- * **A table, not cards.** 406 rows are scanned repeatedly; cards cost vertical
- * space and destroy the column alignment that makes scanning work. Titles are
- * short (median 22 characters), so the title column is narrow rather than a
- * display heading.
- *
- * **State lives in the URL, not in React.** No client component, no hydration:
- * a filtered view is a link, the back button works, and every render is one
- * straight server query. See `search-params.ts`.
- *
- * Absent fields are simply absent. jobs.ge states no employer on many listings
- * and no salary on any, so a row must never show an empty slot or a column of
- * dashes — "this source does not have that field" is the normal case here.
+ * Absent fields are simply absent. jobs.ge states no employer on many
+ * listings and no salary on any, so a row must never show an empty slot or a
+ * column of dashes — "this source does not have that field" is the normal
+ * case here.
  */
 
 export const dynamic = 'force-dynamic';
@@ -86,47 +87,158 @@ export default async function OpportunitiesPage({
   const opportunities = await fetchRows(query, Math.min(query.show, total));
 
   const rows = opportunities.map(toRow);
-  const filtered = Object.values(query.form).some((value) => value !== '' && value !== false);
-  // More matches exist than are rendered. Never silent: the bottom of the list
-  // says so and offers the next chunk.
+  const decisions = await decisionsByOpportunity(
+    db,
+    rows.map((row) => row.opportunityId),
+  );
+
+  // More matches exist than are rendered. Never silent: the bottom of the
+  // list says so and offers the next chunk.
   const more = total - rows.length;
   // Built once and handed to every row: the filters and sort a reader is
   // looking at, so the detail screen can bring them back here unchanged.
   const back = buildQueryString(query);
 
+  const chips = appliedFilters(
+    query,
+    sourceLabel,
+    (status) => listingStatusLabel(status).short,
+    (type) => opportunityTypeLabel(type).short,
+  );
+  const activeFacetCount =
+    (query.form.source === '' ? 0 : 1) +
+    query.form.statuses.length +
+    query.form.types.length +
+    (query.form.since === '' ? 0 : 1) +
+    (query.form.closing === '' ? 0 : 1) +
+    (query.form.crossPosted ? 1 : 0);
+
+  // The oldest of each source's last CONFIRMED-complete crawl — never a
+  // fabricated "synced just now", and never the newest source's timestamp
+  // either. `lastRunAt` is a run's start time regardless of outcome, so a
+  // source that is mid-crawl (or whose last attempt failed) would otherwise
+  // print as "synced" just because it started recently. The oldest completed
+  // run, not the newest of any run, is the honest bound on "as of when can
+  // every listed board's content be trusted" — and only shown when every
+  // source actually has one, rather than silently ignoring the ones that
+  // don't.
+  const completedRuns = health.map((source) => source.lastFullCoverageRunAt);
+  const lastSync = completedRuns.every((value): value is string => value !== null)
+    ? completedRuns.slice().sort()[0]
+    : undefined;
+
+  // A real id rather than a nested <form>: the results table below contains
+  // its own per-row write forms (DecisionControl's Save/Dismiss/Undo), and
+  // nesting a form inside a form is invalid HTML — a browser may reparent or
+  // discard the inner one, which would make Save/Dismiss submit this GET
+  // form instead of invoking their server action. FacetRail's own inputs
+  // live inside the grid below, outside this form's DOM subtree, and
+  // associate with it via `form={FILTER_FORM_ID}` on each one instead.
+  const FILTER_FORM_ID = 'opportunities-filters';
+
   return (
-    <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
-      <header>
-        <h1 className="text-xl font-semibold">Opportunities</h1>
-        <p className="mt-1 max-w-[var(--measure)] text-sm text-faint">
-          One row per vacancy, with the boards that carry it. A vacancy posted to both appears once.
-        </p>
-      </header>
+    <main className="w-full">
+      <form id={FILTER_FORM_ID} method="get" action="/opportunities">
+        <input type="hidden" name="sort" value={query.sort} />
 
-      <Filters query={query} slugs={slugs} />
+        <StickyFilterBar
+          title={
+            <div className="px-4 sm:px-0">
+              <p className="numeric text-xs tracking-[0.1em] text-[var(--color-browse-accent)] uppercase">
+                {slugs.map(sourceLabel).join(' + ')}
+                {lastSync !== undefined && <> · synced {relativeTime(lastSync)}</>}
+              </p>
+              <h1 className="mt-1 font-[family-name:var(--font-display)] text-6xl leading-[0.9] text-white uppercase">
+                Browse
+              </h1>
+              <p className="mt-2 max-w-[var(--measure)] text-sm text-faint">
+                One row per vacancy with the boards that carry it. A vacancy posted to both appears
+                once.
+              </p>
+            </div>
+          }
+          search={
+            <div className="flex flex-wrap items-center gap-3 px-4 sm:px-0">
+              <label className="relative min-w-[12rem] flex-1">
+                <span className="sr-only">Search</span>
+                <input
+                  name="q"
+                  type="search"
+                  defaultValue={query.form.q}
+                  // Deliberately no maxLength: the attribute counts UTF-16
+                  // code units, so it would cut a multi-unit character in
+                  // half. The cap is applied server-side by grapheme instead.
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder="title or employer…"
+                  className="h-[46px] w-full rounded-[var(--radius)] border border-border bg-surface px-3 text-sm text-foreground placeholder:text-faint"
+                />
+              </label>
 
-      <div className="mt-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-        <p className="text-sm text-muted">
-          {total === 0 ? (
-            'Nothing matches.'
+              <button
+                type="submit"
+                className="h-[46px] rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-5 text-sm font-bold text-[var(--color-browse-ink)] hover:bg-[var(--color-browse-accent-hover)]"
+              >
+                Apply
+              </button>
+
+              <button
+                type="button"
+                popoverTarget="mobile-filters"
+                className="h-[46px] min-w-[92px] rounded-[var(--radius)] border border-border bg-surface px-4 text-sm hover:bg-surface-raised lg:hidden"
+              >
+                Filters{activeFacetCount > 0 && ` ${activeFacetCount}`}
+              </button>
+
+              <SortControl query={query} />
+            </div>
+          }
+          chips={
+            <div className="flex flex-wrap items-center gap-3 px-4 sm:px-0">
+              {chips.length > 0 && (
+                <>
+                  <span className="text-xs text-faint">Applied</span>
+                  {chips.map((chip) => (
+                    <a
+                      key={chip.key}
+                      href={chip.href}
+                      className="flex items-center gap-1.5 rounded-full border border-border-control px-3 py-1 text-xs text-muted hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+                    >
+                      {chip.label}
+                      <XIcon />
+                    </a>
+                  ))}
+                  <a
+                    href="/opportunities"
+                    className="text-xs text-[var(--color-browse-accent)] hover:underline"
+                  >
+                    Clear all
+                  </a>
+                </>
+              )}
+              <p className="numeric ml-auto text-xs text-faint">
+                <span className="text-[var(--color-browse-accent)]">{count(total)}</span>{' '}
+                {total === 1 ? 'match' : 'matches'}
+              </p>
+            </div>
+          }
+        />
+      </form>
+
+      <div className="grid lg:grid-cols-[276px_minmax(0,1fr)]">
+        <FacetRail query={query} slugs={slugs} formId={FILTER_FORM_ID} />
+
+        <div className="min-w-0 px-4 py-6 sm:px-6">
+          {rows.length === 0 ? (
+            <EmptyState filtered={chips.length > 0 || query.form.q !== ''} />
           ) : (
             <>
-              <span className="numeric text-foreground">{count(total)}</span>{' '}
-              {total === 1 ? 'opportunity' : 'opportunities'}
+              <ResultsTable rows={rows} decisions={decisions} back={back} />
+              <ShowMore query={query} shown={rows.length} more={more} />
             </>
           )}
-        </p>
-        <SortControl query={query} />
+        </div>
       </div>
-
-      {rows.length === 0 ? (
-        <EmptyState filtered={filtered} />
-      ) : (
-        <>
-          <ResultsTable rows={rows} sort={query.sort} back={back} />
-          <ShowMore query={query} shown={rows.length} more={more} />
-        </>
-      )}
     </main>
   );
 }
@@ -135,15 +247,9 @@ export default async function OpportunitiesPage({
  * Reads `count` rows in ROW_CHUNK-sized queries.
  *
  * Batched rather than one big query so the shared query layer keeps its
- * original 500-row bound: raising that guard to suit one screen was the wrong
- * direction, and it only moved the ceiling rather than removing it. Sequential
- * because the batches are cheap and only a user who has clicked "show more"
- * repeatedly pays for more than one.
- *
- * Safe under OFFSET only because every ordering ends in `opportunities.id`.
- * Without that tie-breaker Postgres may order tied rows differently per query,
- * and adjacent batches would overlap and skip — the corpus has 174
- * opportunities sharing a single deadline.
+ * original 500-row bound. Safe under OFFSET only because every ordering ends
+ * in `opportunities.id` — without that tie-breaker Postgres may order tied
+ * rows differently per query, and adjacent batches would overlap and skip.
  */
 async function fetchRows(query: OpportunityQuery, count: number) {
   const collected = [];
@@ -161,153 +267,13 @@ async function fetchRows(query: OpportunityQuery, count: number) {
 }
 
 /**
- * A plain GET form. Submitting rewrites the URL, which is the whole state of
- * the screen — so there is nothing to keep in sync and no JavaScript involved.
- * `sort` rides along as a hidden field because it belongs to the view rather
- * than to the filter set, and losing it on every search would be surprising.
- */
-function Filters({ query, slugs }: { query: OpportunityQuery; slugs: readonly string[] }) {
-  return (
-    <form
-      method="get"
-      action="/opportunities"
-      className="mt-6 rounded-[var(--radius)] border border-border bg-surface px-4 py-4"
-    >
-      <input type="hidden" name="sort" value={query.sort} />
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-        <Field label="Search" htmlFor="q" className="min-w-[14rem] flex-1">
-          <input
-            id="q"
-            name="q"
-            type="search"
-            defaultValue={query.form.q}
-            // Deliberately no maxLength: the attribute counts UTF-16 code
-            // units, so it would cut a multi-unit character in half. The cap
-            // is applied server-side by grapheme instead.
-            // Spellcheck off because the corpus is Georgian: an English
-            // dictionary underlines every real query as a mistake.
-            spellCheck={false}
-            autoComplete="off"
-            placeholder="Search titles…"
-            className="w-full rounded-[var(--radius)] border border-border bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-faint"
-          />
-        </Field>
-
-        <Field label="Board" htmlFor="source">
-          <Select id="source" name="source" defaultValue={query.form.source}>
-            <option value="">any</option>
-            {slugs.map((slug) => (
-              <option key={slug} value={slug}>
-                {sourceLabel(slug)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label="State" htmlFor="status">
-          <Select id="status" name="status" defaultValue={query.form.status}>
-            <option value="">any</option>
-            {['active', 'missing_suspected', 'closed', 'expired', 'quarantined', 'discovered'].map(
-              (status) => (
-                <option key={status} value={status}>
-                  {listingStatusLabel(status).short}
-                </option>
-              ),
-            )}
-          </Select>
-        </Field>
-
-        <Field label="First seen" htmlFor="since">
-          <Select id="since" name="since" defaultValue={query.form.since}>
-            {SINCE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <label className="flex items-center gap-2 pb-1.5 text-sm">
-          <input
-            type="checkbox"
-            name="cross"
-            value="1"
-            defaultChecked={query.form.crossPosted}
-            className="size-4 accent-[var(--color-accent-strong)]"
-          />
-          <span title="Only vacancies that more than one board carries.">On both boards</span>
-        </label>
-
-        <div className="flex items-center gap-3 pb-0.5">
-          <button
-            type="submit"
-            className="rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-1.5 text-sm hover:bg-surface-active"
-          >
-            Apply
-          </button>
-          <a className="text-sm text-faint hover:text-foreground" href="/opportunities">
-            Clear
-          </a>
-        </div>
-      </div>
-    </form>
-  );
-}
-
-function Field({
-  label,
-  htmlFor,
-  className,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={className}>
-      <label className="block text-xs text-faint" htmlFor={htmlFor}>
-        {label}
-      </label>
-      <div className="mt-1">{children}</div>
-    </div>
-  );
-}
-
-/**
- * A native select, with both colours stated explicitly — Windows dark mode
- * otherwise paints the popup list with its own foreground colour and leaves the
- * options unreadable against ours.
- *
- * `w-full max-w-52` is load-bearing, not cosmetic: a native select sizes itself
- * to its widest OPTION and ignores the flex container it sits in, so the board
- * filter grew to 392px on the widest slug and pushed the whole page 69px past a
- * 375px viewport. The listings screen was capped for this in Stage 7; this one
- * was not, which is the same defect one screen over. The cap is deliberately on
- * the control rather than on unknown slugs — hiding those would paper over the
- * stranded test sources with a UI change, and any genuinely long board name
- * would reintroduce this.
- */
-function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className="w-full max-w-52 rounded-[var(--radius)] border border-border bg-background px-2 py-1.5 text-sm text-foreground"
-    />
-  );
-}
-
-/**
- * Sort as links rather than as clickable column headers.
- *
- * Two of the three orderings are columns hidden on a narrow screen, so header
- * links would make sorting unreachable there. Links also keep the whole screen
- * navigable without JavaScript.
+ * Sort as links rather than a submitted control, so choosing one applies
+ * immediately without a round trip through the Apply button — and keeps the
+ * whole screen navigable without JavaScript.
  */
 function SortControl({ query }: { query: OpportunityQuery }) {
   return (
-    <nav aria-label="Sort" className="flex flex-wrap items-baseline gap-x-1 text-sm">
+    <nav aria-label="Sort" className="flex items-baseline gap-x-1 text-sm">
       <span className="text-faint">Sort</span>
       {SORTS.map((sort) => {
         const active = sort === query.sort;
@@ -319,8 +285,8 @@ function SortControl({ query }: { query: OpportunityQuery }) {
             title={SORT_LABELS[sort].hint}
             className={
               active
-                ? 'rounded-[var(--radius)] bg-surface-active px-2 py-0.5 text-foreground'
-                : 'rounded-[var(--radius)] px-2 py-0.5 text-muted hover:bg-surface hover:text-foreground'
+                ? 'rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-2 py-1 font-semibold text-[var(--color-browse-ink)]'
+                : 'rounded-[var(--radius)] px-2 py-1 text-muted hover:bg-surface hover:text-foreground'
             }
           >
             {SORT_LABELS[sort].label}
@@ -332,84 +298,51 @@ function SortControl({ query }: { query: OpportunityQuery }) {
 }
 
 /**
- * `table-fixed` with a declared width per column, and both are load-bearing.
+ * Desktop rows, mobile cards, in one `<table>`.
  *
- * Auto layout sized the columns from each page's own content, so a column moved
- * as you paged through — the opposite of what a table is for. It also left the
- * title cell wider than the text inside it while truncating titles early, and
- * at 390px it simply overflowed: the board and state columns went off-screen
- * and the title ran off the edge instead of ellipsizing, because `truncate`
- * needs a definite width to act on.
- *
- * The widths change at each breakpoint because the visible columns do, and they
- * are declared on the header cells so the whole table follows one source.
+ * A real table, not styled `<div>`s: `data-density.md` asks for the row
+ * primitive here, and it is what gives the row/column semantics a screen
+ * reader needs. The card look below `lg` comes from hiding the header and
+ * letting each cell stack full-width — same DOM, no second markup to keep in
+ * sync.
  */
 function ResultsTable({
   rows,
-  sort,
+  decisions,
   back,
 }: {
   rows: OpportunityRow[];
-  sort: OpportunityQuery['sort'];
+  decisions: Map<string, { decision: 'saved' | 'dismissed'; note: string | null }>;
   back: string;
 }) {
   return (
-    <div className="mt-3 overflow-x-auto">
-      <table className="w-full table-fixed border-collapse text-sm leading-[var(--leading-body)]">
-        <thead>
-          <tr className="border-b border-border text-left text-xs text-faint">
-            {/* The visible columns must total exactly 100% at EVERY
-                breakpoint. They came to 102% at lg, which over-constrains a
-                fixed-layout full-width table and can force a scrollbar inside
-                the results wrapper. Per breakpoint, visible columns are:
-                  base  66 + 34                        = 100
-                  sm    52 + 24 + 24                   = 100
-                  md    40 + 20 + 13 + 13 + 14         = 100
-                  lg    34 + 20 + 12 + 12 + 11 + 11    = 100
-                  xl    40 + 24 + 14 +  8 +  7 +  7    = 100
-                xl exists because the table now fills the window: at 1920px the
-                short columns would otherwise be given 200px each to hold the
-                word "open", while titles truncated. */}
-            <Th
-              className="w-[66%] sm:w-[52%] md:w-[40%] lg:w-[34%] xl:w-[40%]"
-              aria-sort={sort === 'title' ? 'ascending' : 'none'}
-            >
-              Opportunity
-            </Th>
-            <Th className="hidden md:table-cell md:w-[20%] xl:w-[24%]">Employer</Th>
-            <Th className="w-[34%] sm:w-[24%] md:w-[13%] lg:w-[12%] xl:w-[14%]">Board</Th>
-            <Th className="hidden sm:table-cell sm:w-[24%] md:w-[13%] lg:w-[12%] xl:w-[8%]">
-              State
-            </Th>
-            <Th
-              // Wide enough that "in 26 days" never wraps. It did at md, and a
-              // wrapping date column added a second line to EVERY row.
-              className="hidden md:table-cell md:w-[14%] lg:w-[11%] xl:w-[7%]"
-              aria-sort={sort === 'deadline' ? 'ascending' : 'none'}
-            >
-              Closes
-            </Th>
-            <Th
-              className="hidden lg:table-cell lg:w-[11%] xl:w-[7%]"
-              aria-sort={sort === 'recent' ? 'descending' : 'none'}
-            >
-              First seen
-            </Th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <Row key={row.opportunityId} row={row} position={index + 1} back={back} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <table className="block w-full border-collapse text-sm lg:table lg:table-fixed">
+      <thead className="hidden lg:table-header-group">
+        <tr className="border-b border-border text-left text-xs text-faint">
+          <Th className="w-[46%]">Opportunity</Th>
+          <Th className="w-[18%]">Boards</Th>
+          <Th className="w-[14%]">Closes</Th>
+          <Th className="w-[22%]" />
+        </tr>
+      </thead>
+      <tbody className="block lg:table-row-group">
+        {rows.map((row, index) => (
+          <Row
+            key={row.opportunityId}
+            row={row}
+            position={index + 1}
+            decision={decisions.get(row.opportunityId) ?? null}
+            back={back}
+          />
+        ))}
+      </tbody>
+    </table>
   );
 }
 
-function Th({ children, className, ...rest }: React.ThHTMLAttributes<HTMLTableCellElement>) {
+function Th({ children, className }: { children?: React.ReactNode; className?: string }) {
   return (
-    <th scope="col" className={`py-1.5 pr-4 font-normal ${className ?? ''}`} {...rest}>
+    <th scope="col" className={`py-2 pr-4 font-normal ${className ?? ''}`}>
       {children}
     </th>
   );
@@ -418,185 +351,110 @@ function Th({ children, className, ...rest }: React.ThHTMLAttributes<HTMLTableCe
 function Row({
   row,
   position,
+  decision,
   back,
 }: {
   row: OpportunityRow;
+  /** 1-based position in the current result set, for `ShowMore`'s scroll anchor. */
   position: number;
+  decision: { decision: 'saved' | 'dismissed'; note: string | null } | null;
   /** This view's query string, so the detail screen can link back to it. */
   back: string;
 }) {
   const type = row.type === 'job' ? null : opportunityTypeLabel(row.type);
-  // Only the view's state travels. Where to land on the way back is the
-  // opportunity's own id, which the detail screen already knows — see its
-  // BackLink for why a position could not be trusted.
   const href = `/opportunities/${row.opportunityId}?${new URLSearchParams({ back })}`;
 
   return (
-    // Two anchors, because they answer different questions. The opportunity
-    // id is stable across crawls and is where the detail screen returns a
-    // reader to. The positional one is what "show more" targets: it is
-    // computed against the very page it lands on, where position is exactly
-    // what is meant.
     <tr
       id={`opp-${row.opportunityId}`}
-      className="border-b border-border align-baseline hover:bg-surface"
+      className="group block border-b border-border py-4 align-top hover:bg-surface-raised/60 lg:table-row lg:py-0"
     >
-      <td className="py-1.5 pr-4">
-        <span id={`row-${position}`} />
-        {/* The title is the link, not a separate "view" affordance: it is the
-            largest target in the row and the thing a reader is already aiming
-            at. A plain <a> for the reason site-nav.tsx gives — <Link> would
-            prefetch on hover, turning idle pointer movement across a list of
-            several thousand rows into that many database queries. */}
+      {/* A second, positional id on the first cell rather than the row's own
+          `opp-<id>` id: the detail screen's back-link depends on that one
+          (`opportunities/[id]/page.tsx`'s `#opp-<id>` anchor) and cannot be
+          repurposed, but `ShowMore` below needs to jump to "row N" before it
+          knows which opportunity will land there. */}
+      <td id={`row-${position}`} className="block py-1 pr-4 lg:table-cell lg:py-4">
+        <p className="numeric flex items-center gap-2 text-xs text-faint">
+          <StatusChip status={row.status} />
+          {row.firstSeen !== null && (
+            <time dateTime={row.firstSeen} title={absoluteTime(row.firstSeen)}>
+              first seen {relativeTime(row.firstSeen)}
+            </time>
+          )}
+        </p>
         <a
           href={href}
-          className="block truncate text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-accent"
-          title={row.title}
+          className="mt-1 block font-medium text-foreground hover:text-[var(--color-browse-accent)]"
         >
           {row.title}
         </a>
-        {/* Everything the narrower breakpoints drop reappears here, so nothing
-            a triager needs is unreachable on a phone. Each piece hides at the
-            width where its own column comes back. */}
-        <NarrowMeta row={row} />
+        {row.employers.length > 0 && (
+          <p className="mt-0.5 truncate text-muted" title={row.employers.join(' · ')}>
+            {row.employers.join(' · ')}
+          </p>
+        )}
         {type !== null && (
-          <span className="mt-0.5 inline-block text-xs text-accent" title={type.explanation}>
+          <span
+            className="mt-1 inline-block text-xs text-[var(--color-browse-accent)]"
+            title={type.explanation}
+          >
             {type.short}
           </span>
         )}
       </td>
 
-      <td className="hidden py-1.5 pr-4 text-muted md:table-cell">
-        {row.employers.length === 0 ? null : (
-          <span className="block truncate" title={row.employers.join(' · ')}>
-            {row.employers.join(' · ')}
-          </span>
-        )}
-      </td>
-
-      <td className="py-1.5 pr-4">
+      <td className="block py-1 pr-4 lg:table-cell lg:py-4 lg:align-top">
         <SourceLinks row={row} />
       </td>
 
-      <td className="hidden py-1.5 pr-4 sm:table-cell">
-        <StatusChip status={row.status} />
-      </td>
-
-      <td className="hidden py-1.5 pr-4 md:table-cell">
+      <td className="block py-1 pr-4 lg:table-cell lg:py-4 lg:align-top">
         <Deadline row={row} />
       </td>
 
-      <td className="hidden py-1.5 pr-4 text-muted lg:table-cell">
-        {row.firstSeen === null ? null : (
-          <time dateTime={row.firstSeen} title={absoluteTime(row.firstSeen)}>
-            {relativeTime(row.firstSeen)}
-          </time>
-        )}
+      <td className="block py-2 lg:table-cell lg:py-4 lg:align-top lg:opacity-35 lg:transition-[opacity,transform] lg:duration-150 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:[transform:translateX(6px)] lg:group-hover:[transform:translateX(0)] lg:group-focus-within:[transform:translateX(0)]">
+        <DecisionControl
+          opportunityId={row.opportunityId}
+          decision={decision?.decision ?? null}
+          note={decision?.note ?? null}
+        />
       </td>
     </tr>
   );
 }
 
 /**
- * State, employer and closing date, each shown only at the widths where its own
- * column is hidden. State drops out of the table earliest because it is the
- * shortest to restate here and the least tolerant of a 100px column.
- */
-function NarrowMeta({ row }: { row: OpportunityRow }) {
-  return (
-    <span className="mt-0.5 block text-xs text-faint md:hidden">
-      <span className="sm:hidden">
-        <StatusChip status={row.status} />
-        {(row.employers.length > 0 || row.deadline !== null) && ' · '}
-      </span>
-      <NarrowMetaText row={row} />
-    </span>
-  );
-}
-
-function NarrowMetaText({ row }: { row: OpportunityRow }) {
-  const parts: React.ReactNode[] = [];
-  if (row.employers.length > 0) parts.push(<span key="employer">{row.employers.join(' · ')}</span>);
-  if (row.deadline !== null) {
-    parts.push(
-      <span key="deadline">
-        <time className="numeric" dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
-          closes {sourceDate(row.deadline)}
-        </time>
-        {/* The conflict marker belongs here too. Every cross-posted cluster in
-            the corpus disagrees about its closing date, so a narrow screen
-            without this shows one board's date as if both had stated it. */}
-        {row.deadlinesDisagree && (
-          <span
-            className="text-status-unconfirmed"
-            title="The boards state different closing dates. The later one is shown."
-          >
-            {' '}
-            (boards differ)
-          </span>
-        )}
-      </span>,
-    );
-  }
-  if (parts.length === 0) return null;
-  return (
-    <>
-      {parts.map((part, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: separators, not data
-        <span key={index}>
-          {index > 0 && ' · '}
-          {part}
-        </span>
-      ))}
-    </>
-  );
-}
-
-/**
  * A link per board, which is also how cross-posting is shown: two links means
- * two boards carry this vacancy, and that is the product's whole premise.
- *
- * When a board's own listing state differs from the cluster's, that state is
- * printed next to the link as VISIBLE text rather than left in a tooltip. It
- * matters here more than it sounds: every cross-posted cluster in the corpus is
- * currently active on jobs.ge and `missing_suspected` on hr.ge, so a row whose
- * single "State" cell reads "open" is telling only half the truth — and a
- * tooltip is unavailable on touch and unreliable for keyboard users, which is
- * to say unavailable to most of the people who would need it.
+ * two boards carry this vacancy. When a board's own listing state differs
+ * from the cluster's, that state is printed next to the link as visible text
+ * rather than left in a tooltip, which is unavailable on touch.
  */
 function SourceLinks({ row }: { row: OpportunityRow }) {
   if (row.sources.length === 0) {
-    return <span className="text-faint">no live listing</span>;
+    return <span className="text-xs text-faint">no live listing</span>;
   }
   return (
-    <span className="flex flex-col gap-y-1">
+    <span className="flex flex-wrap gap-1.5">
       {row.sources.map((source) => {
         const differs = source.status !== row.status;
         return (
-          <span key={source.sourceSlug} className="flex flex-wrap items-baseline gap-x-1.5">
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noreferrer"
-              // A board name is an identifier, not prose; machine translation
-              // mangles "jobs.ge" into something that no longer names anything.
-              translate="no"
-              aria-label={`${row.title} on ${sourceLabel(source.sourceSlug)}${
-                differs ? `, ${listingStatusLabel(source.status).short} on this board` : ''
-              } (opens in a new tab)`}
-              className="text-accent underline underline-offset-2 hover:text-foreground"
-            >
-              {sourceLabel(source.sourceSlug)}
-            </a>
-            {differs && (
-              <span
-                className="text-xs text-status-unconfirmed"
-                title={listingStatusLabel(source.status).explanation}
-              >
-                {listingStatusLabel(source.status).short}
-              </span>
-            )}
-          </span>
+          <a
+            key={source.sourceSlug}
+            href={source.url}
+            target="_blank"
+            rel="noreferrer"
+            // A board name is an identifier, not prose; machine translation
+            // mangles "jobs.ge" into something that no longer names anything.
+            translate="no"
+            aria-label={`${row.title} on ${sourceLabel(source.sourceSlug)}${
+              differs ? `, ${listingStatusLabel(source.status).short} on this board` : ''
+            } (opens in a new tab)`}
+            title={differs ? listingStatusLabel(source.status).explanation : undefined}
+            className="numeric rounded-full border border-border-control px-2.5 py-1 text-xs text-muted hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+          >
+            {sourceLabel(source.sourceSlug)}
+            {differs && ` · ${listingStatusLabel(source.status).short}`}
+          </a>
         );
       })}
     </span>
@@ -604,15 +462,12 @@ function SourceLinks({ row }: { row: OpportunityRow }) {
 }
 
 function Deadline({ row }: { row: OpportunityRow }) {
-  if (row.deadline === null) return null;
+  if (row.deadline === null) return <span className="text-faint">—</span>;
   return (
     <>
-      {/* The board's calendar date, not "in 3 hours". jobs.ge states a date
-          with no time and the adapter stores it as Tbilisi local midnight, so
-          a relative rendering counts down within the very day the board named
-          as the deadline — asserting a precision the source never gave, and
-          making a still-actionable listing read as nearly gone. The detail
-          screen was fixed for this; the list kept the old rendering. */}
+      {/* The board's calendar date, not "in 3 hours" — jobs.ge states a date
+          with no time, so a relative rendering would assert a precision the
+          source never gave. */}
       <time className="numeric" dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
         {sourceDate(row.deadline)}
       </time>
@@ -630,11 +485,14 @@ function Deadline({ row }: { row: OpportunityRow }) {
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   return (
-    <p className="mt-3 rounded-[var(--radius)] border border-border bg-surface px-4 py-6 text-sm text-muted">
+    <p className="rounded-[var(--radius)] border border-border bg-surface px-4 py-6 text-sm text-muted">
       {filtered ? (
         <>
           No opportunity matches these filters.{' '}
-          <a className="text-accent underline underline-offset-2" href="/opportunities">
+          <a
+            className="text-[var(--color-browse-accent)] underline underline-offset-2"
+            href="/opportunities"
+          >
             Clear them
           </a>{' '}
           to see everything.
@@ -651,8 +509,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
  *
  * A link rather than a button, so it works without JavaScript, opens in a new
  * tab on middle-click, and leaves the depth in the URL where the rest of this
- * screen's state already lives. Nothing here is a page number — the next chunk
- * is appended to the same continuous list.
+ * screen's state already lives.
  */
 function ShowMore({
   query,
@@ -668,11 +525,8 @@ function ShowMore({
 
   return (
     <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-sm">
-      {/* Anchored at the first newly revealed row. A plain link would return
-          the reader to the top of a list they had just scrolled to the bottom
-          of, which on a scanning screen makes the control nearly useless. */}
       <a
-        className="rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-1.5 hover:bg-surface-active"
+        className="block rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-2.5 text-center hover:bg-surface-active sm:inline-block"
         href={`${buildHref(query, { show: next })}#row-${shown + 1}`}
       >
         Show <span className="numeric">{count(Math.min(ROW_CHUNK, more))}</span> more
@@ -682,5 +536,19 @@ function ShowMore({
         <span className="numeric">{count(shown + more)}</span> shown
       </p>
     </div>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
+      <path
+        d="M1 1l9 9M10 1l-9 9"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
   );
 }

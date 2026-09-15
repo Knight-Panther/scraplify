@@ -24,6 +24,8 @@ import {
   opportunityTypeLabel,
   sourceLabel,
 } from '../../../lib/labels.js';
+import { writesEnabled } from '../../../lib/writes.js';
+import { detachFromOpportunity } from './actions.js';
 import {
   type BoardColumn,
   type Cell,
@@ -65,7 +67,7 @@ export default async function OpportunityPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ back?: string | string[] }>;
+  searchParams: Promise<{ back?: string | string[]; conflict?: string | string[] }>;
 }) {
   const { id } = await params;
   const view = await getOpportunity(db, id);
@@ -75,6 +77,7 @@ export default async function OpportunityPage({
 
   const detail = toDetail(view);
   const query = await searchParams;
+  const conflict = Array.isArray(query.conflict) ? query.conflict[0] : query.conflict;
 
   // The one screen with enough context to decide from: the boards compared,
   // the descriptions, and what the grouping rests on are all on this page.
@@ -84,6 +87,7 @@ export default async function OpportunityPage({
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
       <BackLink back={query.back} opportunityId={detail.opportunityId} />
+      {conflict !== undefined && conflict !== '' && <ConflictNotice message={conflict} />}
       <Header detail={detail} />
       <section className="mt-4">
         <DecisionControl
@@ -117,6 +121,22 @@ export default async function OpportunityPage({
  * anywhere else. The fragment is this opportunity's id, which comes from the
  * database rather than the URL and so needs no validation at all.
  */
+
+/**
+ * An expected refusal from `detachFromOpportunity`, shown inline where it
+ * happened rather than sent to the generic error boundary — the same reason
+ * and the same pattern as the review screen's own `ConflictNotice`. Most
+ * often: the listing moved since this page was loaded, so undoing it here
+ * would have touched a cluster nobody reviewed.
+ */
+function ConflictNotice({ message }: { message: string }) {
+  return (
+    <p className="mt-4 max-w-[var(--measure)] rounded-[var(--radius)] border border-status-held bg-surface px-4 py-3 text-sm">
+      {message}
+    </p>
+  );
+}
+
 function BackLink({
   back,
   opportunityId,
@@ -565,6 +585,46 @@ function FormerBoards({ detail }: { detail: OpportunityDetail }) {
  * because this is the only screen where a reader can judge whether two
  * listings should have been put together at all.
  */
+/**
+ * The undo for a merge, next to the decision it undoes.
+ *
+ * One click, no confirmation dialog — matching `DecisionControl`'s own
+ * reasoning: `anti-patterns.md` forbids a scary confirmation for a reversible
+ * action, and a detach is exactly that. Nothing is destroyed: `detachListing`
+ * retires the membership rather than deleting it, so the record of the
+ * original merge — its evidence, its confidence, who made it — survives in
+ * "No longer part of this record" below.
+ */
+function DetachControl({
+  sourceListingId,
+  opportunityId,
+}: {
+  sourceListingId: string;
+  opportunityId: string;
+}) {
+  if (!writesEnabled()) {
+    return (
+      <p className="mt-1 text-xs text-faint">This instance is read-only, so it cannot undo this.</p>
+    );
+  }
+  return (
+    <form action={detachFromOpportunity} className="mt-1">
+      <input type="hidden" name="sourceListingId" value={sourceListingId} />
+      {/* The opportunity THIS PAGE is showing, checked against the listing's
+          current one before anything moves — a stale page left open while
+          something else moved the listing must not detach it from a cluster
+          the reviewer never looked at. */}
+      <input type="hidden" name="expectedOpportunityId" value={opportunityId} />
+      <button
+        type="submit"
+        className="text-xs text-muted underline underline-offset-2 hover:text-foreground"
+      >
+        Undo this merge
+      </button>
+    </form>
+  );
+}
+
 function Provenance({
   detail,
   revision,
@@ -643,6 +703,17 @@ function Provenance({
                   </li>
                 )}
               </ul>
+              {/* The undo for whatever grouped this listing here — a review-
+                  screen merge above all, since accepting a pair had no way
+                  back until this button existed. Gated on `detail.grouped`
+                  like the decision it undoes, so it never shows on a
+                  single-member opportunity with nothing to detach FROM. */}
+              {detail.grouped && (
+                <DetachControl
+                  sourceListingId={observation.column.sourceListingId}
+                  opportunityId={detail.opportunityId}
+                />
+              )}
             </div>
           );
         })}
