@@ -8,6 +8,7 @@ import type {
   extractionMethodEnum,
   sourceListingStatusEnum,
 } from '../../src/db/schema/source-listings.js';
+import type { classificationMethodEnum, taxonomyAxisEnum } from '../../src/db/schema/taxonomy.js';
 
 /**
  * The single place a database enum becomes something a person reads.
@@ -248,6 +249,90 @@ export function extractionMethodLabel(method: string): Label {
     extractionMethodLabels[method as ExtractionMethod] ?? {
       short: 'unrecognised method',
       explanation: `This build has no label for the extraction method "${method}".`,
+    }
+  );
+}
+
+type TaxonomyAxis = (typeof taxonomyAxisEnum.enumValues)[number];
+type ClassificationMethod = (typeof classificationMethodEnum.enumValues)[number];
+
+/**
+ * §15.1's taxonomy axes. Only `profession` and `industry` are populated by
+ * anything today (hr.ge's own two structured fields, Phase 3C-2) — the rest
+ * are labelled anyway so a future source adding one is a typecheck failure
+ * here rather than a raw enum value reaching the screen the day it ships.
+ */
+export const taxonomyAxisLabels: Record<TaxonomyAxis, Label> = {
+  opportunity_type: {
+    short: 'opportunity type',
+    explanation: 'What kind of opportunity this is — a job, a scholarship, and so on.',
+  },
+  profession: {
+    short: 'profession',
+    explanation: "The role or specialty this vacancy is filed under, in the board's own words.",
+  },
+  functional_area: {
+    short: 'functional area',
+    explanation: 'The broader function this role sits within.',
+  },
+  industry: {
+    short: 'industry',
+    explanation: "The employer's industry, in the board's own words.",
+  },
+  seniority: {
+    short: 'seniority',
+    explanation: 'The experience level this vacancy is filed under.',
+  },
+  employment_type: {
+    short: 'employment type',
+    explanation: 'Full-time, part-time, contract, and so on.',
+  },
+  schedule: { short: 'schedule', explanation: 'The working hours this vacancy is filed under.' },
+  work_mode: { short: 'work mode', explanation: 'On-site, hybrid, remote, or field-based.' },
+  skill: { short: 'skill', explanation: 'A specific skill or tool this vacancy is filed under.' },
+  language: { short: 'language', explanation: 'A language this vacancy is filed under.' },
+  education: { short: 'education', explanation: 'An education or certification requirement.' },
+  location: {
+    short: 'location',
+    explanation: 'A geographic location this vacancy is filed under.',
+  },
+};
+
+/** §15.2's classification methods — how a taxonomy assignment was decided. */
+export const classificationMethodLabels: Record<ClassificationMethod, Label> = {
+  deterministic_rule: {
+    short: "the board's own field",
+    explanation:
+      "Read directly from the board's own structured category field — the board's own stated category, not a guess.",
+  },
+  keyword: {
+    short: 'matched by keyword',
+    explanation: 'Inferred from keywords in the listing text, not a field the board itself stated.',
+  },
+  llm_classification: {
+    short: 'classified by a model',
+    explanation: 'Assigned by a constrained model classification pass.',
+  },
+  human_review: {
+    short: 'decided by a person',
+    explanation: 'Someone reviewed this assignment and decided it.',
+  },
+};
+
+export function taxonomyAxisLabel(axis: string): Label {
+  return (
+    taxonomyAxisLabels[axis as TaxonomyAxis] ?? {
+      short: 'unrecognised axis',
+      explanation: `This build has no label for the taxonomy axis "${axis}".`,
+    }
+  );
+}
+
+export function classificationMethodLabel(method: string): Label {
+  return (
+    classificationMethodLabels[method as ClassificationMethod] ?? {
+      short: 'unrecognised method',
+      explanation: `This build has no label for the classification method "${method}".`,
     }
   );
 }
