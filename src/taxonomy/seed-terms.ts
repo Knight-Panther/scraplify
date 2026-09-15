@@ -121,6 +121,7 @@ export async function seedTaxonomyTerms(
       sourceCategoryRaw: sourceTaxonomyMappings.sourceCategoryRaw,
       taxonomyTermId: sourceTaxonomyMappings.taxonomyTermId,
       taxonomyVersion: sourceTaxonomyMappings.taxonomyVersion,
+      method: sourceTaxonomyMappings.method,
       termLabel: taxonomyTerms.label,
       termParentId: taxonomyTerms.parentId,
     })
@@ -134,6 +135,7 @@ export async function seedTaxonomyTerms(
         mappingId: row.id,
         termId: row.taxonomyTermId,
         version: row.taxonomyVersion,
+        method: row.method,
         label: row.termLabel,
         parentId: row.termParentId,
       },
@@ -208,6 +210,20 @@ export async function seedTaxonomyTerms(
       return existing.termId;
     }
 
+    // A mapping curated by a DIFFERENT method (human_review here — this
+    // function has never produced one itself, but the enum permits it) is
+    // left untouched even when the fresh source observation disagrees:
+    // this function's only authority is hr.ge's own structured field, so
+    // re-deriving the canonical term from it would silently overwrite a
+    // human's correction to the source-independent taxonomyTerms row while
+    // the mapping keeps claiming its original, now-inaccurate method —
+    // the same principle `classifyListings` already applies on its own
+    // side of this pipeline, and `run-dedupe.ts` applies to human verdicts
+    // elsewhere in this codebase (commit gate finding, 2026-09-15).
+    if (existing !== undefined && existing.method !== 'deterministic_rule') {
+      return existing.termId;
+    }
+
     if (existing !== undefined) {
       // Same reasoning as the insert path below for why this is one
       // transaction: a crash between the two updates must not leave the
@@ -264,6 +280,7 @@ export async function seedTaxonomyTerms(
       mappingId,
       termId,
       version: TAXONOMY_VERSION,
+      method: 'deterministic_rule',
       label: name,
       parentId,
     });

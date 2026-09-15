@@ -389,4 +389,47 @@ describe('seedTaxonomyTerms', () => {
       .where(inArray(taxonomyTerms.id, termIds));
     expect(term?.label).toBe('ახალი სახელი');
   });
+
+  /**
+   * The other half of the same fix `classifyListings` already has on its
+   * own side: a mapping curated by a DIFFERENT method (human_review here,
+   * though this function never produces one itself) must not have its
+   * canonical taxonomyTerms row silently rewritten by a later hr.ge source
+   * observation, even when the label/parent genuinely differ — that would
+   * destroy a human's correction to the source-independent canonical term
+   * while the mapping keeps claiming its original method (commit gate
+   * finding, 2026-09-15).
+   */
+  it('leaves a human_review-mapped term untouched, even when the fresh source observation disagrees', async () => {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const sourceSlug = `test-source-${sourceId}`;
+    const rawId = fakeSourceTermId();
+    const originalTree: FakeTaxonomyNode[] = [
+      { sourceTermId: rawId, code: '1', name: 'ორიგინალი სახელი', children: null },
+    ];
+    await addListing(sourceId, { specialty: originalTree, industry: [] }, '2026-09-01T00:00:00Z');
+    await seedTaxonomyTerms(db, { sourceSlug });
+    await trackTermIds(sourceId);
+    await db
+      .update(sourceTaxonomyMappings)
+      .set({ method: 'human_review' })
+      .where(eq(sourceTaxonomyMappings.sourceId, sourceId));
+
+    // A LATER, differently-named observation of the SAME raw node — if this
+    // were treated as an ordinary rename, it would overwrite the
+    // human-reviewed term.
+    const renamedTree: FakeTaxonomyNode[] = [
+      { sourceTermId: rawId, code: '1', name: 'შეცვლილი სახელი', children: null },
+    ];
+    await addListing(sourceId, { specialty: renamedTree, industry: [] }, '2026-09-10T00:00:00Z');
+    const result = await seedTaxonomyTerms(db, { sourceSlug });
+
+    expect(result.termsUpdated).toBe(0);
+    const [term] = await db
+      .select({ label: taxonomyTerms.label })
+      .from(taxonomyTerms)
+      .where(inArray(taxonomyTerms.id, termIds));
+    expect(term?.label).toBe('ორიგინალი სახელი');
+  });
 });
