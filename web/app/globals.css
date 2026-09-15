@@ -74,6 +74,20 @@
   --color-browse-ink: #0b0d10;
   --font-display: var(--font-bebas-neue), "Arial Narrow", sans-serif;
 
+  /* Georgian hero headline only (Phase 3E follow-up) — NOT a body font. TBC
+     Contractica and BPG Nino Mtavruli are not self-hosted (no license on
+     file to redistribute the files, per georgian-typography.md's "acceptable
+     if licensing is checked"): this is a plain fallback chain that only
+     resolves to something if the visitor's OS already has one installed,
+     never a network font request. BPG Nino Mtavruli in particular renders
+     Georgian in Mtavruli (capitals-style) forms regardless of the source
+     text's case — Georgian is unicase, so this is the deliberate hero-only
+     substitute for the English hero's Bebas Neue ALL-CAPS treatment, not a
+     stack for running text. --font-noto-georgian is the real, self-hosted
+     fallback everything ultimately resolves to. */
+  --font-display-ka:
+    "TBC Contractica", "BPG Nino Mtavruli", var(--font-noto-georgian), system-ui, sans-serif;
+
   /* Landing hero (Phase 3E), same browse family. Panel/ticker ground and
      borders distinct from --color-border (#ffffff26) — a different value,
      so it needs its own name rather than reusing that one. Text-muted is a

@@ -8,7 +8,9 @@ import { db } from '../../src/db/client.js';
 import { HeroTicker } from '../components/hero-ticker.js';
 import { HeroVideo } from '../components/hero-video.js';
 import { count, relativeTime } from '../lib/format.js';
-import { listingStatusLabel, sourceLabel } from '../lib/labels.js';
+import { type HeadlineRun, type HeroCopy, heroCopy } from '../lib/hero-copy.js';
+import { sourceLabel } from '../lib/labels.js';
+import { type Locale, currentLocale } from '../lib/locale.js';
 import { type OpportunityRow, toRow } from '../lib/opportunity-row.js';
 import { lastCompletedSync } from '../lib/sync.js';
 
@@ -46,7 +48,8 @@ export const dynamic = 'force-dynamic';
  * silently glossed over.
  */
 export default async function Page() {
-  const hero = await loadHeroData();
+  const [hero, locale] = await Promise.all([loadHeroData(), currentLocale()]);
+  const copy = heroCopy(locale);
 
   return (
     <main>
@@ -85,19 +88,44 @@ export default async function Page() {
               </p>
             )}
 
-            <h1 className="mt-[18px] font-[family-name:var(--font-display)] text-[clamp(46px,7.4vw,104px)] uppercase leading-[0.86]">
-              <HeadlineLine text="DO NOT MISS" accent={false} delayClass="[animation-delay:80ms]" />
-              <HeadlineLine
-                text="YOUR CHANCE,"
-                accent={false}
-                delayClass="[animation-delay:200ms]"
-              />
-              <HeadlineLine
-                text="KEEP YOURSELF"
-                accent={true}
-                delayClass="[animation-delay:320ms]"
-              />
-              <HeadlineLine text="POSTED!" accent={true} delayClass="[animation-delay:440ms]" />
+            {/* English sets `--font-display` (Bebas Neue) with a real CSS
+                `uppercase` transform for its ALL-CAPS look. Georgian gets
+                neither: `--font-display-ka` (BPG Nino Mtavruli, falling
+                back through Noto Sans Georgian) already renders Mkhedruli
+                input in Mtavruli capitals-style forms by design, and
+                `uppercase` is a documented no-op-or-worse on Georgian
+                (georgian-typography.md rule 4) that this project avoids
+                applying near Georgian text categorically. */}
+            <h1
+              className={`mt-[18px] ${
+                locale === 'ka'
+                  ? // ~42% of the English clamp(46px,7.4vw,104px) — two
+                    // rounds of project-owner-requested reduction (60%, then
+                    // another 70% on top) after review found a straight size
+                    // match too heavy: Mtavruli-style Georgian caps read
+                    // visually wider than Latin caps at the same size.
+                    //
+                    // Leading held at 1.4, NOT reduced further on request:
+                    // georgian-typography.md rule 5 sets 1.4 as a hard floor
+                    // for Georgian headings specifically because Mkhedruli's
+                    // real descenders (ვ, ყ, წ, ჯ...) collide with the next
+                    // line's ascenders below it — the exact corruption a
+                    // browser screenshot caught earlier in this change at
+                    // the English hero's 0.86. Smaller type does shrink the
+                    // descenders in absolute px, but the rule is written as
+                    // a ratio, not a pixel budget, so it still applies.
+                    'font-[family-name:var(--font-display-ka)] text-[clamp(20px,3.1vw,43px)] leading-[1.4]'
+                  : 'font-[family-name:var(--font-display)] text-[clamp(46px,7.4vw,104px)] leading-[0.86] uppercase'
+              }`}
+            >
+              {copy.headline.map((runs, index) => (
+                <HeadlineLine
+                  key={runs.map((run) => run.text).join('')}
+                  runs={runs}
+                  delayClass={HEADLINE_DELAY_CLASSES[index] ?? ''}
+                  locale={locale}
+                />
+              ))}
             </h1>
 
             <div
@@ -106,8 +134,7 @@ export default async function Page() {
             />
 
             <p className="mt-[22px] max-w-[52ch] animate-hero-fade-up text-base text-[var(--color-browse-text-muted)] leading-[var(--leading-body)] [animation-delay:640ms] [animation-duration:700ms]">
-              Job vacancies from jobs.ge and hr.ge, deduplicated into one record — browse, filter
-              and shortlist without checking two sites separately.
+              {copy.subhead}
             </p>
 
             <div className="mt-[30px] flex animate-hero-fade-up flex-wrap items-center gap-3 [animation-delay:760ms] [animation-duration:700ms]">
@@ -115,7 +142,7 @@ export default async function Page() {
                 href="/opportunities?status=active"
                 className="inline-flex h-[50px] items-center rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-[26px] text-[15px] font-bold text-[var(--color-browse-ink)] transition-colors duration-150 hover:bg-[var(--color-browse-accent-hover)]"
               >
-                Browse openings
+                {copy.browseOpenings}
               </a>
               {/* "Get daily alerts" in the design reference has no backend
                   anywhere in this app (no route, no schema) — a disabled or
@@ -127,30 +154,44 @@ export default async function Page() {
                 href="/opportunities?status=active&closing=7"
                 className="inline-flex h-[50px] items-center rounded-[var(--radius)] border border-[var(--color-browse-border-control)] px-[22px] text-[15px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-border-control-hover)] hover:text-white"
               >
-                Closing soon
+                {copy.closingSoon}
               </a>
-              <span className="numeric text-xs text-[var(--color-browse-text-muted)]">
-                no account needed
+              {/* `.numeric` is Space Mono, which has no Georgian coverage
+                  (fonts.ts) — kept only for the English copy, which used it
+                  for SynapseX's monospace chrome look; Georgian falls back
+                  to the default `--font-sans` (Noto Sans Georgian), which
+                  actually covers it. */}
+              <span
+                className={`${locale === 'en' ? 'numeric' : ''} text-xs text-[var(--color-browse-text-muted)]`}
+              >
+                {copy.noAccountNeeded}
               </span>
             </div>
 
             {hero.ok && (
               <div className="mt-11 flex animate-hero-fade-up flex-wrap gap-x-12 gap-y-6 border-t border-[var(--color-browse-border)] pt-6 [animation-delay:880ms] [animation-duration:700ms]">
-                <Stat value={hero.openCount} label="open vacancies" />
-                <Stat value={hero.boardsCount} label="boards merged" />
-                <Stat value={hero.trackedCount} label="listings tracked" />
+                <Stat value={hero.openCount} label={copy.statOpenVacancies} locale={locale} />
+                <Stat value={hero.boardsCount} label={copy.statBoardsMerged} locale={locale} />
+                <Stat value={hero.trackedCount} label={copy.statListingsTracked} locale={locale} />
               </div>
             )}
           </div>
 
           {hero.ok && (
             <div className="animate-hero-fade-up [animation-delay:700ms] [animation-duration:800ms]">
-              <NewestPanel rows={hero.panelRows} openCount={hero.openCount} />
+              <NewestPanel
+                rows={hero.panelRows}
+                openCount={hero.openCount}
+                copy={copy}
+                locale={locale}
+              />
             </div>
           )}
         </div>
 
-        {hero.ok && <HeroTicker rows={hero.tickerRows} />}
+        {hero.ok && (
+          <HeroTicker rows={hero.tickerRows} pauseLabel={copy.pause} playLabel={copy.play} />
+        )}
       </section>
     </main>
   );
@@ -177,6 +218,15 @@ type HeroData =
 
 /** Panel (4) + ticker (10). */
 const ROWS_SHOWN = 14;
+
+/** Staggered entrance timing for each headline line — longest of either
+ * locale's `copy.headline` is 4 lines, so this covers both. */
+const HEADLINE_DELAY_CLASSES = [
+  '[animation-delay:80ms]',
+  '[animation-delay:200ms]',
+  '[animation-delay:320ms]',
+  '[animation-delay:440ms]',
+];
 
 async function loadHeroData(): Promise<HeroData> {
   try {
@@ -244,60 +294,96 @@ async function loadHeroData(): Promise<HeroData> {
 }
 
 function HeadlineLine({
-  text,
-  accent,
+  runs,
   delayClass,
+  locale,
 }: {
-  text: string;
-  accent: boolean;
+  runs: ReadonlyArray<HeadlineRun>;
   delayClass: string;
+  locale: Locale;
 }) {
   return (
     <span className="block overflow-hidden">
+      {/* tracking-[0.004em] is near-zero but still real letter-spacing, and
+          georgian-typography.md rule 6 bans letter-spacing near Georgian
+          categorically, not just above some magnitude threshold (Codex,
+          2026-09-16) — English only. */}
       <span
-        className={`block animate-hero-line-up whitespace-nowrap tracking-[0.004em] ${delayClass} ${
-          accent ? 'text-[var(--color-browse-accent)]' : 'text-white'
-        }`}
+        className={`block animate-hero-line-up whitespace-nowrap ${
+          locale === 'en' ? 'tracking-[0.004em]' : ''
+        } ${delayClass}`}
       >
-        {text}
+        {runs.map((run) => (
+          <span
+            key={run.text}
+            className={run.accent ? 'text-[var(--color-browse-accent)]' : 'text-white'}
+          >
+            {run.text}
+          </span>
+        ))}
       </span>
     </span>
   );
 }
 
-function Stat({ value, label }: { value: number; label: string }) {
+function Stat({ value, label, locale }: { value: number; label: string; locale: Locale }) {
   return (
     <div>
       <p className="numeric text-[34px] text-white leading-none">{count(value)}</p>
-      <p className="numeric mt-2 text-[11px] text-[var(--color-browse-text-muted)] uppercase">
-        <span className="tracking-[0.16em]">{label}</span>
+      {/* `.numeric` (Space Mono) covers only the count above — it has no
+          Georgian glyphs, so the label below only takes it in English. */}
+      <p
+        className={`mt-2 text-[11px] text-[var(--color-browse-text-muted)] ${
+          locale === 'en' ? 'numeric uppercase' : ''
+        }`}
+      >
+        <span className={locale === 'en' ? 'tracking-[0.16em]' : ''}>{label}</span>
       </p>
     </div>
   );
 }
 
-function NewestPanel({ rows, openCount }: { rows: PanelRow[]; openCount: number }) {
+function NewestPanel({
+  rows,
+  openCount,
+  copy,
+  locale,
+}: {
+  rows: PanelRow[];
+  openCount: number;
+  copy: HeroCopy;
+  locale: Locale;
+}) {
   return (
     <div>
-      <p className="numeric text-[11px] text-[var(--color-browse-accent)] uppercase">
-        <span className="tracking-[0.16em]">Newest listings</span>
+      {/* `.numeric` is Space Mono, no Georgian coverage — English only. */}
+      <p
+        className={`text-[11px] text-[var(--color-browse-accent)] ${
+          locale === 'en' ? 'numeric uppercase' : ''
+        }`}
+      >
+        <span className={locale === 'en' ? 'tracking-[0.16em]' : ''}>{copy.newestListings}</span>
       </p>
       <div className="mt-3.5 overflow-hidden rounded-[14px] border border-[var(--color-browse-border)] bg-[var(--color-browse-panel)]">
         {rows.length === 0 ? (
           <p className="px-[18px] py-6 text-sm text-[var(--color-browse-text-muted)]">
-            There are no opportunities yet. They appear once a crawl has run and listings have been
-            grouped.
+            {copy.emptyState}
           </p>
         ) : (
           <>
             {rows.map((panelRow) => (
-              <NewestRow key={panelRow.row.opportunityId} panelRow={panelRow} />
+              <NewestRow
+                key={panelRow.row.opportunityId}
+                panelRow={panelRow}
+                copy={copy}
+                locale={locale}
+              />
             ))}
             <a
               href="/opportunities?status=active"
               className="block px-[18px] py-3.5 text-[13px] text-[var(--color-browse-accent)] transition-colors duration-150 hover:text-[var(--color-browse-accent-hover)]"
             >
-              See all {count(openCount)} openings →
+              {copy.seeAllOpenings(count(openCount))}
             </a>
           </>
         )}
@@ -306,7 +392,15 @@ function NewestPanel({ rows, openCount }: { rows: PanelRow[]; openCount: number 
   );
 }
 
-function NewestRow({ panelRow }: { panelRow: PanelRow }) {
+function NewestRow({
+  panelRow,
+  copy,
+  locale,
+}: {
+  panelRow: PanelRow;
+  copy: HeroCopy;
+  locale: Locale;
+}) {
   const { row, openSourceSlugs } = panelRow;
   const employers = row.employers.join(' · ');
   return (
@@ -360,11 +454,10 @@ function NewestRow({ panelRow }: { panelRow: PanelRow }) {
           const label =
             inactive && source.status === 'active'
               ? {
-                  short: 'deadline passed',
-                  explanation:
-                    'This board still lists it as active, but its own stated deadline has already passed.',
+                  short: copy.deadlinePassed,
+                  explanation: copy.deadlinePassedExplanation,
                 }
-              : listingStatusLabel(source.status);
+              : copy.sourceStatusLabel(source.status);
           return (
             <a
               key={source.sourceSlug}
@@ -376,7 +469,14 @@ function NewestRow({ panelRow }: { panelRow: PanelRow }) {
                 inactive ? `, ${label.short} on this board` : ''
               } (opens in a new tab)`}
               title={inactive ? label.explanation : undefined}
-              className="numeric rounded-full border border-[var(--color-browse-border-control)] px-2.5 py-1 text-[11px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+              // `.numeric` (Space Mono, no Georgian) only in English: this
+              // pill can mix an always-Latin source name with a localized
+              // `label.short` ("deadline passed" / "ვადა გავიდა"), and in
+              // `ka` that second run has no Georgian glyph to fall back to
+              // under Space Mono. English-only keeps the split-typeface risk
+              // out; `ka` renders the whole pill in the default Noto Sans
+              // Georgian sans stack instead, which covers both scripts.
+              className={`${locale === 'en' ? 'numeric' : ''} rounded-full border border-[var(--color-browse-border-control)] px-2.5 py-1 text-[11px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]`}
             >
               {sourceLabel(source.sourceSlug)}
               {inactive && ` · ${label.short}`}
