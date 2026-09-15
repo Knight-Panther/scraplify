@@ -187,6 +187,13 @@ function Controls({
       >
         Apply
       </button>
+
+      <a
+        href="/profile"
+        className="py-1.5 text-sm text-accent underline underline-offset-2 hover:text-foreground"
+      >
+        New profile
+      </a>
     </form>
   );
 }
@@ -337,9 +344,16 @@ function NoProfile() {
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
       <h1 className="text-xl font-semibold">Ranked</h1>
       <p className="mt-4 max-w-[var(--measure)] text-sm text-muted">
-        There is no candidate profile to rank against yet. A profile is a reviewed JSON file rather
-        than an extracted CV — §17.1 asks for something the reader can correct before it is used —
-        and it is created with <span className="numeric">npm run rank -- profile create</span>.
+        There is no candidate profile to rank against yet.{' '}
+        <a
+          href="/profile"
+          className="text-accent underline underline-offset-2 hover:text-foreground"
+        >
+          Upload a CV
+        </a>{' '}
+        to draft one — §17.1 asks for something the reader can correct before it is used, and the
+        next screen is exactly that. A profile can also be built by hand with{' '}
+        <span className="numeric">npm run rank -- profile create</span>.
       </p>
     </main>
   );

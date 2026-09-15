@@ -14,6 +14,11 @@ const config: NextConfig = {
   // pg opens raw sockets, and drizzle and pino resolve modules dynamically.
   // Bundling any of them into the server chunk breaks them.
   serverExternalPackages: ['pg', 'drizzle-orm', 'pino'],
+  // Next's own default is 1MB, well under a real CV — raised to match
+  // read-document.ts's own 8MB ceiling so the two limits agree; a file
+  // between them would otherwise be rejected here with a generic 413
+  // rather than by read-document.ts's own typed, user-facing error.
+  experimental: { serverActions: { bodySizeLimit: '8mb' } },
   // This repo is on the TypeScript 7 native port, which is unproven as Next's
   // programmatic type checker. `npm run typecheck` covers web/ as its own step,
   // and CI runs it separately so a failure says which check failed.
