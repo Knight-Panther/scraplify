@@ -109,16 +109,37 @@ if [ "$review_status" -ne 0 ]; then
   # rediscover it, but this one still fails closed — recorded as owed and
   # committed --no-verify remains an explicit, visible decision, not an
   # automatic bypass on the first hit.
-  reset_time=$(grep -oE 'try again at [0-9]{1,2}:[0-9]{2} ?[AP]M' "$review_log" | head -1 | sed -E 's/try again at //')
-  if [ -n "$reset_time" ]; then
-    reset_epoch=$(date -d "today $reset_time" +%s 2>/dev/null || echo "")
+  #
+  # Codex's own message has been seen in two shapes: a bare time when the
+  # reset is later the same day ("try again at 1:26 PM"), and a full date
+  # when it crosses midnight ("try again at Sep 16th, 2026 12:20 AM") —
+  # found live, 2026-09-15, when the first shape's regex silently failed to
+  # match the second and the cooldown went unrecorded (exactly the "out of
+  # the blue" rediscovery this mechanism exists to prevent). Try the
+  # date-qualified form first, since the bare-time regex would otherwise
+  # also match the TIME portion embedded inside it and derive the wrong day.
+  reset_full=$(grep -oE "try again at [A-Za-z]{3} [0-9]{1,2}(st|nd|rd|th)?, [0-9]{4} [0-9]{1,2}:[0-9]{2} ?[AP]M" "$review_log" | head -1 | sed -E 's/try again at //')
+  if [ -n "$reset_full" ]; then
+    # GNU date rejects an ordinal day suffix ("16th") outright — strip it,
+    # keeping the day number, before parsing (confirmed by testing both
+    # forms directly, not assumed).
+    reset_epoch=$(date -d "$(echo "$reset_full" | sed -E 's/(st|nd|rd|th),/,/')" +%s 2>/dev/null || echo "")
     if [ -n "$reset_epoch" ]; then
-      if [ "$reset_epoch" -le "$now_epoch" ]; then
-        reset_epoch=$(date -d "tomorrow $reset_time" +%s 2>/dev/null || echo "")
-      fi
+      echo "$reset_epoch" >"$cooldown_file"
+      echo "pre-commit: recorded a cooldown until $reset_full — future commits will skip re-attempting Codex until then." >&2
+    fi
+  else
+    reset_time=$(grep -oE 'try again at [0-9]{1,2}:[0-9]{2} ?[AP]M' "$review_log" | head -1 | sed -E 's/try again at //')
+    if [ -n "$reset_time" ]; then
+      reset_epoch=$(date -d "today $reset_time" +%s 2>/dev/null || echo "")
       if [ -n "$reset_epoch" ]; then
-        echo "$reset_epoch" >"$cooldown_file"
-        echo "pre-commit: recorded a cooldown until $reset_time — future commits will skip re-attempting Codex until then." >&2
+        if [ "$reset_epoch" -le "$now_epoch" ]; then
+          reset_epoch=$(date -d "tomorrow $reset_time" +%s 2>/dev/null || echo "")
+        fi
+        if [ -n "$reset_epoch" ]; then
+          echo "$reset_epoch" >"$cooldown_file"
+          echo "pre-commit: recorded a cooldown until $reset_time — future commits will skip re-attempting Codex until then." >&2
+        fi
       fi
     fi
   fi
