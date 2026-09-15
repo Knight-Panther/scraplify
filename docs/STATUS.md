@@ -421,6 +421,8 @@ Phase 5A (`src/ranking/`, below) built the scoring/ranking engine but deliberate
 
 **Exit gate (proposed, same shape as prior phases'):** a real PDF and a real DOCX CV can be uploaded, parsed, corrected, and ranked against, end to end, in a real browser against a disposable database; no CV content appears anywhere in application logs on a real test upload (verified by grepping actual log output, not assumed); the write gate correctly blocks `/profile` against the real corpus; per-commit and whole-branch review both clean (or their absence recorded as owed/waived, per this file's existing convention).
 
+**WAIVED: the plan-level `codex exec --sandbox read-only` review of this stage plan, by explicit project-owner decision (2026-09-15).** Codex's usage-limit cooldown (recorded above, until 00:20) had ~23 minutes left when this plan was approved; rather than wait, the project owner directed implementation to start now. The per-commit gate still reviews every commit once the cooldown clears — only the upfront whole-plan review that Phase 3C-2's Stage 7 and Phase 3E both got is skipped here.
+
 ### The record below
 
 Everything from here down is the record of work that has landed, oldest context first. It is not part of the current phase's own sections above.
