@@ -16,6 +16,7 @@ const NAV = [
   { href: '/listings', label: 'Listings' },
   { href: '/ranked', label: 'Ranked' },
   { href: '/saved', label: 'Shortlist' },
+  { href: '/review', label: 'Duplicate review' },
   { href: '/health', label: 'Source health' },
 ] as const;
 
@@ -45,8 +46,20 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
         XTELO
       </a>
 
-      {/* Desktop: every link inline, in the handoff's clipped-corner blocks. */}
-      <nav aria-label="Main" className="ml-auto hidden items-stretch lg:flex">
+      {/* Desktop: every link inline, in the handoff's clipped-corner blocks.
+          `xl:flex`, not `lg:flex` — this bar was tuned for exactly the
+          original 6 links and fit `lg`'s 1024px with 12px to spare;
+          `/review` and `/taxonomy-review` push it to 8, which overflows at
+          1024px regardless of label length (each item's fixed padding alone
+          exceeds the old slack) — measured via `header.scrollWidth`, not
+          eyeballed. Moving the threshold to `xl` (1280px, where 8 items
+          were verified to fit) rather than trimming padding keeps every
+          item's existing visual design untouched; the mobile popover below
+          already covers the gap this opens up between 1024 and 1279,
+          exactly like the write-gate badge further down already does for
+          the same reason (commit gate finding, phase-3c1-duplicate-review
+          merge, 2026-09-15). */}
+      <nav aria-label="Main" className="ml-auto hidden items-stretch xl:flex">
         <ul className="flex items-stretch">
           {NAV.map((item, index) => (
             <li key={item.href}>
@@ -85,14 +98,14 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
         type="button"
         popoverTarget="site-nav-mobile"
         aria-label="Menu"
-        className="ml-auto flex items-center px-4 text-[var(--color-browse-ink)] lg:hidden"
+        className="ml-auto flex items-center px-4 text-[var(--color-browse-ink)] xl:hidden"
       >
         <MenuIcon />
       </button>
       <div
         id="site-nav-mobile"
         popover="auto"
-        className="m-0 mt-[58px] ml-auto h-[calc(100vh-58px)] w-64 max-h-none rounded-none border-0 border-l border-border bg-surface p-5 text-foreground lg:hidden"
+        className="m-0 mt-[58px] ml-auto h-[calc(100vh-58px)] w-64 max-h-none rounded-none border-0 border-l border-border bg-surface p-5 text-foreground xl:hidden"
       >
         <ul className="flex flex-col gap-1">
           {NAV.map((item) => (
@@ -113,12 +126,15 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
         </ul>
       </div>
 
-      {/* xl, not sm: at sm this sits alongside the full desktop nav (which
-          starts at lg), and the two together are wider than the viewport in
-          the narrow band just above 1024px — confirmed by measuring
-          scrollWidth there, not by eyeballing a screenshot. Below xl the
-          badge is not worth the overflow it causes; it is a "nice to have"
-          dev/env indicator, not something a real page depends on seeing. */}
+      {/* xl, matching the desktop nav's own threshold above (moved from lg to
+          xl once an 8-link bar stopped fitting lg's 1024px) — this badge
+          already lived only alongside the full desktop nav, so the two
+          breakpoints staying equal keeps that relationship rather than
+          reopening the narrow-band overflow this exact reasoning was
+          originally written to avoid. It is a "nice to have" dev/env
+          indicator, not something a real page depends on seeing, so it
+          simply doesn't render at all below xl rather than needing its own
+          separate fit budget. */}
       <span className="my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 xl:flex">
         <span>{dbLabel}</span>
         <span

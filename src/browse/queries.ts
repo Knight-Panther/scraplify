@@ -848,6 +848,21 @@ export interface ReviewQueueEntry {
   evidence: unknown;
   a: ListingView;
   b: ListingView;
+  /**
+   * How many LIVE members each side's current opportunity has, right now —
+   * not a property of the listing, of the cluster it currently belongs to.
+   *
+   * Exists so a caller deciding which side should survive an accept can
+   * prefer the side already anchoring an established, multi-member cluster
+   * over a naive tie-breaker like first-seen date. Picking wrong is not
+   * cosmetic: `acceptDuplicateCandidate` refuses to move a listing OUT of a
+   * cluster it shares with another member, so choosing the clustered side as
+   * the one to MOVE — which a first-seen-only rule can do once one fan-out
+   * sibling has already been accepted — makes an otherwise-safe merge
+   * permanently unacceptable through this screen (commit gate, 2026-09-14).
+   */
+  aClusterSize: number;
+  bClusterSize: number;
 }
 
 /**
@@ -876,6 +891,7 @@ export async function listReviewQueue(
   ];
   const listings = await searchListingsByIds(db, listingIds);
   const byId = new Map(listings.map((row) => [row.sourceListingId, row]));
+  const clusterSizes = await clusterSizesForListings(db, listingIds);
 
   return candidates.flatMap((candidate) => {
     const a = byId.get(candidate.sourceListingIdA);
@@ -892,9 +908,75 @@ export async function listReviewQueue(
         evidence: candidate.evidence,
         a,
         b,
+        // 0, not 1: a listing absent from `clusterSizes` has no live
+        // membership at all — `undoAcceptedMerge` leaves a listing in exactly
+        // this state — and reporting it as a size-1 singleton claims an
+        // opportunity that does not exist. A caller comparing sizes to pick a
+        // survivor (`pickSurvivor`) needs 0 to correctly lose against ANY
+        // real cluster, including a genuine singleton at size 1 (commit gate,
+        // 2026-09-14 — the first version of this fallback shipped the bug and
+        // this file's own new test passed against it anyway, because the test
+        // fixture never gave its "singleton" listing a real membership either).
+        aClusterSize: clusterSizes.get(a.sourceListingId) ?? 0,
+        bClusterSize: clusterSizes.get(b.sourceListingId) ?? 0,
       },
     ];
   });
+}
+
+/**
+ * How many LIVE members each listing's CURRENT opportunity has, right now.
+ *
+ * One query over all requested listings at once rather than one per listing —
+ * this feeds a review-queue page that renders several pairs together, and a
+ * per-pair round trip would multiply with the queue's own size.
+ */
+async function clusterSizesForListings(
+  db: DatabaseOrTransaction,
+  listingIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (listingIds.length === 0) return new Map();
+
+  // Step 1: which opportunity does each requested listing currently live in.
+  const ownMemberships = await db
+    .select({
+      sourceListingId: opportunitySourceMemberships.sourceListingId,
+      opportunityId: opportunitySourceMemberships.opportunityId,
+    })
+    .from(opportunitySourceMemberships)
+    .where(
+      and(
+        inArray(opportunitySourceMemberships.sourceListingId, [...listingIds]),
+        isNull(opportunitySourceMemberships.supersededAt),
+      ),
+    );
+  if (ownMemberships.length === 0) return new Map();
+
+  // Step 2: how many LIVE members each of those opportunities has, total —
+  // not just among the requested listings, so a cluster with a third member
+  // outside this pair still reports its real size.
+  const opportunityIds = [...new Set(ownMemberships.map((row) => row.opportunityId))];
+  const counts = await db
+    .select({
+      opportunityId: opportunitySourceMemberships.opportunityId,
+      clusterSize: sql<number>`count(*)::int`,
+    })
+    .from(opportunitySourceMemberships)
+    .where(
+      and(
+        inArray(opportunitySourceMemberships.opportunityId, opportunityIds),
+        isNull(opportunitySourceMemberships.supersededAt),
+      ),
+    )
+    .groupBy(opportunitySourceMemberships.opportunityId);
+  const sizeByOpportunity = new Map(counts.map((row) => [row.opportunityId, row.clusterSize]));
+
+  return new Map(
+    ownMemberships.map((row) => [
+      row.sourceListingId,
+      sizeByOpportunity.get(row.opportunityId) ?? 1,
+    ]),
+  );
 }
 
 async function searchListingsByIds(

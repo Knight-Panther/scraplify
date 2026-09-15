@@ -443,12 +443,48 @@ describe('browse queries', () => {
     expect(allRows).toHaveLength(2);
   });
 
+  /** A real singleton opportunity, matching what every listing gets on ingestion (§12.5). */
+  async function makeSingletonOpportunity(listingId: string, title: string): Promise<string> {
+    const opportunityId = randomUUID();
+    opportunityIds.push(opportunityId);
+    await db.insert(opportunities).values({
+      id: opportunityId,
+      type: 'job',
+      canonicalTitle: title,
+      organizationId: null,
+      canonicalStatus: 'active',
+      currentCanonicalRevisionId: null,
+      createdAt: '2026-09-06T12:00:00Z',
+      updatedAt: '2026-09-06T12:00:00Z',
+    });
+    await db.insert(opportunitySourceMemberships).values({
+      id: randomUUID(),
+      opportunityId,
+      sourceListingId: listingId,
+      decision: 'confirmed_same',
+      confidence: 1,
+      evidence: {},
+      decidedBy: 'ruleset',
+      decidedAt: '2026-09-06T12:00:00Z',
+      dedupeModelOrRulesetVersion: 'v1',
+      supersededAt: null,
+    });
+    return opportunityId;
+  }
+
   it('renders both sides of a review-queue pair', async () => {
     const sourceA = await createTestSource();
     const sourceB = await createTestSource();
     sourceIds.push(sourceA, sourceB);
     const listingA = await addListing(sourceA, { title: 'Review side A' });
     const listingB = await addListing(sourceB, { title: 'Review side B' });
+    // Every listing has its own singleton opportunity from ingestion — the
+    // ordinary shape for a fresh pending pair, matching real corpus data
+    // rather than the unrealistic "no opportunity at all" this fixture had
+    // before (commit gate, 2026-09-14: that gap let a wrong cluster-size
+    // fallback pass this very test).
+    await makeSingletonOpportunity(listingA, 'Review side A');
+    await makeSingletonOpportunity(listingB, 'Review side B');
     const [a, b] = [listingA, listingB].sort() as [string, string];
 
     const candidateId = randomUUID();
@@ -470,6 +506,124 @@ describe('browse queries', () => {
     expect(entry?.a.title).toBeTruthy();
     expect(entry?.b.title).toBeTruthy();
     expect(entry?.a.sourceListingId).not.toBe(entry?.b.sourceListingId);
+    // Each is its own singleton opportunity — neither shares a cluster.
+    expect(entry?.aClusterSize).toBe(1);
+    expect(entry?.bClusterSize).toBe(1);
+  });
+
+  /**
+   * The case the previous test's fixture accidentally exercised without
+   * meaning to, and which had a real bug behind it: a listing with NO live
+   * membership at all — exactly what `undoAcceptedMerge` leaves behind —
+   * must report 0, not 1. Reporting 1 claims a singleton opportunity that
+   * does not exist, and a caller comparing sizes to pick a merge survivor
+   * (`pickSurvivor`) would then treat it as equal to a genuine singleton
+   * rather than strictly worse than one.
+   */
+  it('reports zero cluster size for a listing with no live membership at all', async () => {
+    const sourceA = await createTestSource();
+    const sourceB = await createTestSource();
+    sourceIds.push(sourceA, sourceB);
+    const unclustered = await addListing(sourceA, { title: 'Just detached' });
+    const clustered = await addListing(sourceB, { title: 'Has a singleton' });
+    await makeSingletonOpportunity(clustered, 'Has a singleton');
+    const [a, b] = [unclustered, clustered].sort() as [string, string];
+
+    const candidateId = randomUUID();
+    await db.insert(duplicateCandidates).values({
+      id: candidateId,
+      sourceListingIdA: a,
+      sourceListingIdB: b,
+      generatedAt: '2026-09-06T12:00:00Z',
+      generationMethod: 'deterministic_match',
+      similarityScore: 0.9,
+      status: 'evaluated',
+      resultingDecision: 'needs_review',
+    });
+
+    const queue = await listReviewQueue(db, { limit: 500 });
+    const entry = queue.find((row) => row.candidateId === candidateId);
+    const unclusteredSize =
+      entry?.a.sourceListingId === unclustered ? entry.aClusterSize : entry?.bClusterSize;
+    const clusteredSize =
+      entry?.a.sourceListingId === clustered ? entry.aClusterSize : entry?.bClusterSize;
+    expect(unclusteredSize).toBe(0);
+    expect(clusteredSize).toBe(1);
+  });
+
+  /**
+   * `aClusterSize`/`bClusterSize` — added so a caller deciding which side of
+   * a pair should survive an accept can prefer an already-established
+   * cluster over a naive tie-breaker. A pair where one side already anchors
+   * a two-member cluster (real fan-out, not contrived: a listing accepted
+   * into one pending pair while a SIBLING candidate for the same listing is
+   * still awaiting review) must report that size accurately, or a caller has
+   * no way to tell the safe merge direction from the unsafe one.
+   */
+  it("reports each side's CURRENT cluster size, not just whether it has one", async () => {
+    const sourceA = await createTestSource();
+    const sourceB = await createTestSource();
+    const sourceC = await createTestSource();
+    sourceIds.push(sourceA, sourceB, sourceC);
+    const clustered = await addListing(sourceA, { title: 'Already merged' });
+    const alsoInCluster = await addListing(sourceB, { title: 'Merged with it' });
+    const singleton = await addListing(sourceC, { title: 'Still on its own' });
+    // A REAL singleton, not merely "no membership at all" — the ordinary,
+    // common case this contrast is meant to represent, distinct from the
+    // "detached entirely" case the dedicated zero-size test above covers.
+    await makeSingletonOpportunity(singleton, 'Still on its own');
+
+    const opportunityId = randomUUID();
+    opportunityIds.push(opportunityId);
+    await db.insert(opportunities).values({
+      id: opportunityId,
+      type: 'job',
+      canonicalTitle: 'Already merged',
+      organizationId: null,
+      canonicalStatus: 'active',
+      currentCanonicalRevisionId: null,
+      createdAt: '2026-09-06T12:00:00Z',
+      updatedAt: '2026-09-06T12:00:00Z',
+    });
+    for (const listingId of [clustered, alsoInCluster]) {
+      await db.insert(opportunitySourceMemberships).values({
+        id: randomUUID(),
+        opportunityId,
+        sourceListingId: listingId,
+        decision: 'confirmed_same',
+        confidence: 0.97,
+        evidence: {},
+        decidedBy: 'human',
+        decidedAt: '2026-09-06T12:00:00Z',
+        dedupeModelOrRulesetVersion: 'v1',
+        supersededAt: null,
+      });
+    }
+
+    // A sibling candidate: the already-clustered listing, still pending
+    // against a third, unclustered listing.
+    const [a, b] = [clustered, singleton].sort() as [string, string];
+    const candidateId = randomUUID();
+    await db.insert(duplicateCandidates).values({
+      id: candidateId,
+      sourceListingIdA: a,
+      sourceListingIdB: b,
+      generatedAt: '2026-09-06T12:00:00Z',
+      generationMethod: 'deterministic_match',
+      similarityScore: 0.9,
+      status: 'evaluated',
+      resultingDecision: 'needs_review',
+    });
+
+    const queue = await listReviewQueue(db, { limit: 500 });
+    const entry = queue.find((row) => row.candidateId === candidateId);
+    expect(entry).toBeDefined();
+    const clusteredSize =
+      entry?.a.sourceListingId === clustered ? entry.aClusterSize : entry?.bClusterSize;
+    const singletonSize =
+      entry?.a.sourceListingId === singleton ? entry.aClusterSize : entry?.bClusterSize;
+    expect(clusteredSize).toBe(2);
+    expect(singletonSize).toBe(1);
   });
 
   it('reports source health, separating last run from last FULL-coverage run', async () => {
