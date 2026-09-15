@@ -2,7 +2,6 @@ import { getSourceHealth } from '../../src/browse/queries.js';
 import { db } from '../../src/db/client.js';
 import { HeroVideo } from '../components/hero-video.js';
 import { count } from '../lib/format.js';
-import { databaseLabel, writesEnabled } from '../lib/writes.js';
 
 /**
  * The design system, checked against real data.
@@ -61,11 +60,11 @@ export default async function Page() {
       </section>
 
       <div className="mx-auto max-w-5xl px-6 py-12">
-        <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
-          <Fact label="Database" value={databaseLabel()} />
-          <Fact label="Writes" value={writesEnabled() ? 'enabled' : 'disabled'} />
-        </dl>
-
+        {/* The database/writes status used to duplicate the header badge here
+            as a standalone, more prominent block — which made a routine,
+            always-true "disabled" reading look like something to worry about
+            or fix. The header badge (site-header-nav.tsx) already carries
+            this for every screen; no reason for this page to repeat it. */}
         <Section title="Type scale" note="Noto Sans Georgian, one family for both scripts.">
           <div className="space-y-3">
             <p className="text-2xl font-semibold">უფროსი Android დეველოპერი</p>
@@ -88,15 +87,6 @@ export default async function Page() {
         </Section>
       </div>
     </main>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs text-faint">{label}</dt>
-      <dd>{value}</dd>
-    </div>
   );
 }
 
