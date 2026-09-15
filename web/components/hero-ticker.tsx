@@ -56,7 +56,15 @@ import type { OpportunityRow } from '../lib/opportunity-row.js';
  *    by re-running the measurement on a `ResizeObserver` firing on the
  *    wrapper, not just once when pausing begins.
  */
-export function HeroTicker({ rows }: { rows: OpportunityRow[] }) {
+export function HeroTicker({
+  rows,
+  pauseLabel,
+  playLabel,
+}: {
+  rows: OpportunityRow[];
+  pauseLabel: string;
+  playLabel: string;
+}) {
   const [paused, setPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [visibleIds, setVisibleIds] = useState<ReadonlySet<string>>(new Set());
@@ -129,7 +137,7 @@ export function HeroTicker({ rows }: { rows: OpportunityRow[] }) {
           aria-pressed={paused}
           className="absolute top-1/2 right-3 z-10 -translate-y-1/2 rounded-full border border-[var(--color-browse-border-control)] bg-[var(--color-browse-panel)] px-3 py-1.5 text-[11px] text-[var(--color-browse-text-pill)] hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
         >
-          {paused ? 'Play' : 'Pause'}
+          {paused ? playLabel : pauseLabel}
         </button>
       )}
       <div
