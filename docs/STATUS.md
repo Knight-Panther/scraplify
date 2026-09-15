@@ -390,9 +390,11 @@ UI-only redesign of the root landing page (`/`), independent of Phase 3D and of 
 
 **WAIVED: the whole-branch adversarial review CLAUDE.md's merge condition asks for, by explicit project-owner decision (2026-09-15).** PR #11's own cooldown check (`ship-phase`'s step 5, reading the same cooldown file rather than attempting the review and discovering the outage fresh) found Codex still down, not due back until 00:20. Rather than wait, the project owner directed both this and the per-commit debt above be skipped and the branch merged now — "skip it merge," the same decision already made for PR #9 and PR #10 earlier this same day. Narrower than it looks: every per-commit gate pass before the final commit ran cleanly, and all four rounds of real findings this phase produced (design review plus three per-commit rounds) were fixed and verified live, not waved through — what's missing is the cross-commit view a whole-branch pass would add, and the one commit's own review.
 
-### The record below
+### Landing hero polish, `landing-hero-polish` → PR #12 (2026-09-15)
 
-Everything from here down is the record of work that has landed, oldest context first. It is not part of Phase 3B.
+Two small follow-up tweaks to the Phase 3E hero, made after PR #11 merged: `HeroVideo`'s `playbackRate` slowed a further 20% (stacking on the existing 30%, so ~0.49x total), and the "Newest listings" panel label recolored to match the hero's accent. Both commits (`aa3836d`, `677a68d`) landed while Codex's usage-limit cooldown (recorded above, until 00:20) was still active, so the per-commit hook's own self-managing cooldown check skipped both reviews automatically rather than attempting a call already known to fail — **OWED**, same convention as above, since both touch real application code (`web/app/page.tsx`, `web/components/hero-video.tsx`).
+
+**WAIVED: the whole-branch adversarial review, by explicit project-owner decision (2026-09-15).** Same call as PR #9, #10 and #11 earlier the same day — rather than wait out the remaining cooldown, PR #12 merges now on the strength of its small, low-risk scope (a playback-rate constant and a Tailwind color class, no new logic or data path).
 
 It was built on `phase-2a-normalization-foundation`, **stacked on `phase-1c-cross-source-reconciliation`** rather than branched from `main`: stacking kept closure-adjacent code off `main` while Codex was unavailable and Phase 1C could not be reviewed. Both branches were then reviewed together, three times (see below), and merged as one in PR #5. Both branches are deleted.
 
