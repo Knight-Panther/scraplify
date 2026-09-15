@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from 'react';
 
+/** 70% of native speed (a 30% slowdown, by explicit project-owner request,
+ * 2026-09-15 — the source clip read as too fast at its native rate). Only
+ * `playbackRate` achieves this; there is no HTML attribute or CSS property
+ * for video speed, so it has to be set imperatively once the element
+ * exists. */
+const PLAYBACK_RATE = 0.7;
+
 /**
  * The hero's motion background — client-only because whether it renders at
  * all depends on `prefers-reduced-motion`, which is not knowable on the
@@ -32,6 +39,9 @@ export function HeroVideo() {
       playsInline
       tabIndex={-1}
       aria-hidden="true"
+      onLoadedMetadata={(event) => {
+        event.currentTarget.playbackRate = PLAYBACK_RATE;
+      }}
     >
       <source src="/hero-bg.mp4" type="video/mp4" />
     </video>

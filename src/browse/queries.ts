@@ -244,6 +244,28 @@ export interface SearchOpportunitiesFilters {
   /** Any live member's deadline on or before this — the "closing soon" view. */
   deadlineTo?: string | undefined;
   /**
+   * At least one live member is `active` *and*, on that same member, its
+   * own stated deadline (if any) is on or after this instant — checked
+   * together in one `liveMemberExists`, not as two independent filters
+   * (see that helper's own comment on `deadlineFrom`/`deadlineTo` for why
+   * that would be wrong: two separate EXISTS clauses can each be satisfied
+   * by a different member).
+   *
+   * Distinct from `statuses: ['active']`: that filters on the stored
+   * `canonicalStatus` column, which is refreshed only when a dedupe pass
+   * revisits the opportunity and can lag real per-member state — an
+   * opportunity can read `canonicalStatus: 'active'` while every live
+   * member is actually closed, expired, or past its own deadline (found
+   * 2026-09-15, Phase 3E's own landing-hero work: 23 of the newest 40
+   * `canonicalStatus: 'active'` opportunities already had a passed
+   * deadline). This filter checks the live truth directly instead.
+   *
+   * An explicit instant (not a bare `now()` inside the query) for the same
+   * reason every other time-based filter here is caller-supplied: a fixed,
+   * injectable instant is what makes this deterministically testable.
+   */
+  genuinelyOpenAsOf?: string | undefined;
+  /**
    * The vacancy first appeared on or after this instant — the "new" view.
    *
    * Compared against the EARLIEST live member, the same value the 'recent' sort
@@ -343,6 +365,13 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
     conditions.push(liveMemberExists(sql`sl.source_deadline_at >= ${filters.deadlineFrom}`));
   } else if (filters.deadlineTo !== undefined) {
     conditions.push(liveMemberExists(sql`sl.source_deadline_at <= ${filters.deadlineTo}`));
+  }
+  if (filters.genuinelyOpenAsOf !== undefined) {
+    conditions.push(
+      liveMemberExists(
+        sql`sl.status = 'active' and (sl.source_deadline_at is null or sl.source_deadline_at >= ${filters.genuinelyOpenAsOf})`,
+      ),
+    );
   }
   if (filters.firstSeenFrom !== undefined) {
     // Against the EARLIEST live member, not "any member" as this used to be.

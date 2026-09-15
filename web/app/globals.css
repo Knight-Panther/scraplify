@@ -31,6 +31,13 @@
 
   --color-border: #ffffff26;
   --color-border-strong: #ffffff40;
+  /* Referenced twice on the opportunities screen (`border-border-control`)
+     since Phase 3D but never defined — Tailwind silently emitted no class
+     for it, so those pills fell back to `border-color: currentColor`
+     instead of a subtle border. Found and fixed alongside the Phase 3E
+     landing hero, which needed the browse-family sibling of this same
+     token (below) and so needed this cascade actually understood first. */
+  --color-border-control: #ffffff40;
 
   /* One accent. */
   --color-accent: #d88bd2; /*  8.54:1 on black */
@@ -66,6 +73,80 @@
   --color-browse-nav-olive: #5c5a06;
   --color-browse-ink: #0b0d10;
   --font-display: var(--font-bebas-neue), "Arial Narrow", sans-serif;
+
+  /* Landing hero (Phase 3E), same browse family. Panel/ticker ground and
+     borders distinct from --color-border (#ffffff26) — a different value,
+     so it needs its own name rather than reusing that one. Text-muted is a
+     cool blue-grey, deliberately not --color-faint (#ffffff8c, neutral
+     grey) — the two read as different hues on this ink, and this family
+     was namespaced precisely so the other five screens stay untouched. */
+  --color-browse-panel: #0e1114;
+  --color-browse-border: #1c2228;
+  --color-browse-border-control: #2a323a;
+  --color-browse-border-control-hover: #55616b;
+  --color-browse-text-muted: #8b97a1; /* 6.52:1 on #0b0d10 */
+  --color-browse-text-pill: #c6d2da; /* 12.6:1 on #0b0d10 */
+
+  /* Landing hero motion. Top-level @keyframes below (not inside this block)
+     are always emitted; Tailwind v4 tree-shakes ones declared inside
+     @theme against --animate-* usage, which would silently drop one the
+     moment nothing else in the compiled output still referenced it. */
+  --animate-hero-line-up: hero-line-up 900ms cubic-bezier(0.16, 0.9, 0.24, 1) both;
+  --animate-hero-sweep: hero-sweep 1100ms cubic-bezier(0.16, 0.9, 0.24, 1) 520ms both;
+  --animate-hero-fade-up: hero-fade-up 700ms ease-out both;
+  --animate-hero-ticker: hero-ticker 38s linear infinite;
+  --animate-hero-pulse: hero-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes hero-line-up {
+  from {
+    transform: translateY(105%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes hero-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes hero-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes hero-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    /* Paired with rendering the item list twice and this track at
+       width: max-content — the duplicate run is what makes a -50% travel
+       loop seamlessly rather than jumping at the end of one copy. */
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes hero-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
 }
 
 /* The reference's focus ring, taken verbatim — stronger than most defaults. */
@@ -121,5 +202,27 @@ th {
     animation-duration: 0.01ms !important;
     /* biome-ignore lint/complexity/noImportantStyles: as above */
     transition-duration: 0.01ms !important;
+    /* Added for the Phase 3E landing hero, which is the first thing in this
+       codebase to animate with both a nonzero animation-delay and an
+       infinite iteration count — neither was reachable by the two rules
+       above, and both need closing or this hero regresses the "no
+       animation for reduced-motion users, full stop" rule those rules
+       exist to enforce:
+       - delay: with `both` fill, an element (e.g. the headline) would
+         otherwise sit invisible for up to its full authored delay before
+         snapping to its resting state — worse than no animation at all.
+       - iteration-count: without this, `0.01ms` duration + `infinite`
+         is a several-thousand-hertz loop — a strobing pulse dot and a
+         vibrating ticker, not a still one. One iteration at 0.01ms with no
+         fill mode settles a `from`-only-styled infinite animation (the
+         ticker) back at its authored starting transform; combined with the
+         "every animated element's resting CSS state is its own final
+         frame" rule this hero's own elements are authored to, an infinite
+         animation with `both` (the pulse) settles on its last keyframe
+         instead. */
+    /* biome-ignore lint/complexity/noImportantStyles: as above */
+    animation-delay: 0ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: as above */
+    animation-iteration-count: 1 !important;
   }
 }
