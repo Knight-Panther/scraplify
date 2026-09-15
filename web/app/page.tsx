@@ -279,7 +279,7 @@ function Stat({ value, label }: { value: number; label: string }) {
 function NewestPanel({ rows, openCount }: { rows: PanelRow[]; openCount: number }) {
   return (
     <div>
-      <p className="numeric text-[11px] text-[var(--color-browse-text-muted)] uppercase">
+      <p className="numeric text-[11px] text-[var(--color-browse-accent)] uppercase">
         <span className="tracking-[0.16em]">Newest listings</span>
       </p>
       <div className="mt-3.5 overflow-hidden rounded-[14px] border border-[var(--color-browse-border)] bg-[var(--color-browse-panel)]">
