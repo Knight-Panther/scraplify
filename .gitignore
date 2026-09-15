@@ -45,3 +45,8 @@ web/out/
 web/.turbo/
 next-env.d.ts
 web/tsconfig.tsbuildinfo
+
+# Playwright e2e output (traces, HTML report) — reproducible, not source
+test-results/
+playwright-report/
+blob-report/

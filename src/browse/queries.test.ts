@@ -196,7 +196,11 @@ describe('browse queries', () => {
       deadlineAt: '2026-11-30T00:00:00Z',
     });
 
-    const rows = await searchListings(db, { deadlineTo: '2026-09-15T00:00:00Z', limit: 500 });
+    const rows = await searchListings(db, {
+      sourceSlug: `test-source-${sourceId}`,
+      deadlineTo: '2026-09-15T00:00:00Z',
+      limit: 500,
+    });
     const ids = rows.map((row) => row.sourceListingId);
     expect(ids).toContain(soon);
     expect(ids).not.toContain(later);
@@ -211,7 +215,11 @@ describe('browse queries', () => {
     });
     const old = await addListing(sourceId, { title: 'Old', firstSeenAt: '2026-01-01T00:00:00Z' });
 
-    const rows = await searchListings(db, { firstSeenFrom: '2026-09-05T00:00:00Z', limit: 500 });
+    const rows = await searchListings(db, {
+      sourceSlug: `test-source-${sourceId}`,
+      firstSeenFrom: '2026-09-05T00:00:00Z',
+      limit: 500,
+    });
     const ids = rows.map((row) => row.sourceListingId);
     expect(ids).toContain(fresh);
     expect(ids).not.toContain(old);
@@ -268,13 +276,18 @@ describe('browse queries', () => {
       .set({ currentRevisionId: secondRevisionId })
       .where(eq(sourceListings.id, changed));
 
-    const rows = await searchListings(db, { changedOnly: true, limit: 500 });
+    const rows = await searchListings(db, {
+      sourceSlug: `test-source-${sourceId}`,
+      changedOnly: true,
+      limit: 500,
+    });
     const ids = rows.map((row) => row.sourceListingId);
     expect(ids).toContain(changed);
     expect(ids).not.toContain(unchanged);
 
     // And the filter composes rather than replacing the others.
     const scoped = await searchListings(db, {
+      sourceSlug: `test-source-${sourceId}`,
       changedOnly: true,
       text: `Unchanged ${marker}`,
       limit: 500,

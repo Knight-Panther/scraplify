@@ -19,6 +19,7 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "test": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run",
+    "test:e2e": "node --env-file-if-exists=.env node_modules/@playwright/test/cli.js test",
     "test:watch": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs",
     "db:generate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs migrate",
@@ -40,6 +41,7 @@
   "homepage": "https://github.com/Knight-Panther/scraplify#readme",
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.23.1",
