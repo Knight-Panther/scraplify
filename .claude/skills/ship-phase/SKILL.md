@@ -40,8 +40,9 @@ since a stray file could otherwise ride into the PR.
    not from guesswork.
 
 5. **Check for a Codex cooldown first.** `.githooks/pre-commit` records one
-   (`$(git rev-parse --git-dir)/codex-cooldown`, a local epoch-seconds
-   timestamp) the moment a per-commit review hits a usage-limit exhaustion,
+   (`$(git rev-parse --git-common-dir)/codex-cooldown`, a local epoch-seconds
+   timestamp shared across every worktree of this repo, not a per-worktree
+   one) the moment a per-commit review hits a usage-limit exhaustion,
    and the same file is the answer to "is Codex actually usable right now"
    for this step too — read it and compare against the current time rather
    than attempting the review and discovering the outage fresh. If a

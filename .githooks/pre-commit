@@ -60,7 +60,15 @@ fi
 # attempt, which is what actually confirms Codex is back — no cron job or
 # external scheduler needed, since a hook only ever needs to know "is it
 # still in the future" at the moment someone commits.
-cooldown_file="$(git rev-parse --git-dir 2>/dev/null || echo .git)/codex-cooldown"
+# --git-common-dir, NOT --git-dir: this repo works across multiple worktrees
+# (one per phase branch) simultaneously, and --git-dir resolves to each
+# worktree's own PRIVATE .git/worktrees/<name>/ directory — a cooldown
+# recorded there would only ever help future commits in that SAME worktree,
+# defeating the point the moment more than one is active at once (found by
+# testing across two worktrees in the same session that hit this exact
+# codex outage, not assumed). --git-common-dir is the one location every
+# worktree of this repo shares.
+cooldown_file="$(git rev-parse --git-common-dir 2>/dev/null || echo .git)/codex-cooldown"
 now_epoch=$(date +%s)
 
 if [ -f "$cooldown_file" ]; then
