@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   listingClassifications,
   sourceListingRevisions,
@@ -120,15 +120,42 @@ export async function classifyListings(
             taxonomyTermId: listingClassifications.taxonomyTermId,
             taxonomyVersion: listingClassifications.taxonomyVersion,
             method: listingClassifications.method,
+            supersededAt: listingClassifications.supersededAt,
           })
           .from(listingClassifications)
-          .where(inArray(listingClassifications.sourceListingRevisionId, revisionIds));
-  const existingByPair = new Map(
-    alreadyClassified.map((row) => [
-      `${row.sourceListingRevisionId}:${row.taxonomyTermId}`,
-      { id: row.id, version: row.taxonomyVersion, method: row.method },
-    ]),
-  );
+          .where(inArray(listingClassifications.sourceListingRevisionId, revisionIds))
+          // Every row for a pair, oldest first — not just the live one (a
+          // rejection leaves no live row at all, and filtering to
+          // isNull(supersededAt) would make a rejected pair look entirely
+          // unclassified, resurrecting it on the next run) and not simply
+          // "most recent by createdAt" either (an UNDO can make an OLDER row
+          // live again while a NEWER row stays retired — "most recent"
+          // alone would then pick the retired row and permanently skip a
+          // pair that is actually a plain, eligible-for-reprocessing
+          // deterministic row; commit gate finding, 2026-09-15).
+          .orderBy(asc(listingClassifications.createdAt));
+  const existingByPair = new Map<
+    string,
+    { id: string; version: string; method: string; supersededAt: string | null }
+  >();
+  for (const row of alreadyClassified) {
+    const key = `${row.sourceListingRevisionId}:${row.taxonomyTermId}`;
+    const current = existingByPair.get(key);
+    // A live row always wins, regardless of createdAt order (an undo can
+    // make an older row live again after a newer one). Between two retired
+    // rows — or when nothing has been seen yet for this pair — the later
+    // one wins, via ascending iteration order: this is the fallback that
+    // still correctly detects "this pair was rejected" when no live row
+    // exists at all.
+    if (current === undefined || row.supersededAt === null || current.supersededAt !== null) {
+      existingByPair.set(key, {
+        id: row.id,
+        version: row.taxonomyVersion,
+        method: row.method,
+        supersededAt: row.supersededAt,
+      });
+    }
+  }
 
   let classificationsCreated = 0;
   let classificationsUpdated = 0;
@@ -178,7 +205,20 @@ export async function classifyListings(
           // just new ones — a first version of this function treated an old
           // pair as permanently complete regardless of version (commit gate
           // finding, 2026-09-15).
-          await db
+          // Requires the row to still be live: a correction (Stage 7) could
+          // retire this exact row between the SELECT above and this UPDATE.
+          // Without this clause the update would still match by id alone and
+          // silently rewrite a now-retired row's supposedly-immutable
+          // evidence and version (commit gate finding, 2026-09-15) — with
+          // it, a concurrent retirement just makes this a no-op. `.returning()`
+          // (the same pattern `failUnsettledCrawlRun` already uses in
+          // `src/db/ingest.ts`) is what makes that no-op observable: only a
+          // row that genuinely updated counts as updated, and only its
+          // outcome is trusted for the in-memory lookup — recording success
+          // for a write that silently affected nothing would let the CLI
+          // report a version migration that never actually happened (commit
+          // gate finding, 2026-09-15).
+          const [updated] = await db
             .update(listingClassifications)
             .set({
               axis,
@@ -187,13 +227,22 @@ export async function classifyListings(
               taxonomyVersion: TAXONOMY_VERSION,
               createdAt: now,
             })
-            .where(eq(listingClassifications.id, existing.id));
-          existingByPair.set(pairKey, {
-            id: existing.id,
-            version: TAXONOMY_VERSION,
-            method: 'deterministic_rule',
-          });
-          classificationsUpdated++;
+            .where(
+              and(
+                eq(listingClassifications.id, existing.id),
+                isNull(listingClassifications.supersededAt),
+              ),
+            )
+            .returning({ id: listingClassifications.id });
+          if (updated !== undefined) {
+            existingByPair.set(pairKey, {
+              id: existing.id,
+              version: TAXONOMY_VERSION,
+              method: 'deterministic_rule',
+              supersededAt: null,
+            });
+            classificationsUpdated++;
+          }
           continue;
         }
 
@@ -213,6 +262,7 @@ export async function classifyListings(
           id: newId,
           version: TAXONOMY_VERSION,
           method: 'deterministic_rule',
+          supersededAt: null,
         });
         classificationsCreated++;
       }

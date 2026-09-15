@@ -61,5 +61,9 @@ export const ListingClassificationSchema = z.object({
   evidence: z.record(z.string(), z.unknown()),
   taxonomyVersion: z.string().min(1),
   createdAt: IsoDateTime,
+  /** Null while live; set the moment a correction retires this row. */
+  supersededAt: IsoDateTime.nullable(),
+  /** The row this one's correction replaced, if any. */
+  previousClassificationId: z.string().uuid().nullable(),
 });
 export type ListingClassification = z.infer<typeof ListingClassificationSchema>;

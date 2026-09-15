@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   doublePrecision,
@@ -8,6 +9,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { sourceListingRevisions } from './source-listings.js';
@@ -112,6 +114,14 @@ export const sourceTaxonomyMappings = pgTable(
  * over time, and a classification is only ever honest about the revision it
  * actually read (the same reasoning `opportunity_revisions.resolvedFields`
  * already applies).
+ *
+ * Append-only for corrections, exactly like `opportunity_source_memberships`
+ * (`opportunities.ts`) — retiring a row via `supersededAt` rather than
+ * updating it in place preserves the original automated (or prior human)
+ * verdict a correction is judging, per the same reasoning that table's own
+ * doc comment gives. `previousClassificationId` chains each correction to
+ * what it replaced, which is what makes undo possible without a separate
+ * history table (Stage 7, taxonomy correction workflow).
  */
 export const listingClassifications = pgTable(
   'listing_classifications',
@@ -130,14 +140,22 @@ export const listingClassifications = pgTable(
     evidence: jsonb('evidence').notNull(),
     taxonomyVersion: text('taxonomy_version').notNull(),
     createdAt: timestamp('created_at', { mode: 'string', withTimezone: true }).notNull(),
+    /** Null while live. Set the moment a correction retires this row — never updated otherwise. */
+    supersededAt: timestamp('superseded_at', { mode: 'string', withTimezone: true }),
+    /** The row this one's correction replaced, if any — a linked list per (revision, term) pair, enabling undo. */
+    previousClassificationId: uuid('previous_classification_id').references(
+      (): AnyPgColumn => listingClassifications.id,
+    ),
   },
   (table) => [
-    // One classification per revision per term — idempotent backfill re-runs
-    // don't duplicate rows for a listing whose revision hasn't changed.
-    unique('listing_classifications_revision_term_unique').on(
-      table.sourceListingRevisionId,
-      table.taxonomyTermId,
-    ),
+    // At most one LIVE classification per revision/term pair — any number of
+    // retired ones. A plain unique constraint here would make a correction's
+    // retire-then-insert impossible for the same pair; this is the same
+    // "one live row" shape `opportunity_source_memberships`'s own partial
+    // index already uses.
+    uniqueIndex('listing_classifications_one_live_per_pair_idx')
+      .on(table.sourceListingRevisionId, table.taxonomyTermId)
+      .where(sql`${table.supersededAt} is null`),
     index('listing_classifications_term_idx').on(table.taxonomyTermId),
     // §15.2 step 8's "queue low-confidence... for review" reads this table
     // filtered by confidence — no separate candidate table, see docs/STATUS.md.
