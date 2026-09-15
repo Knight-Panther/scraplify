@@ -39,11 +39,22 @@ since a stray file could otherwise ride into the PR.
    branch. Summarize the phase's changes in the PR body from the commit log,
    not from guesswork.
 
-5. **Run the whole-branch review**: `/codex:adversarial-review --base main`.
-   This is the step that catches cross-commit issues the per-commit gate
-   can't see. Wait for it to finish; don't skip it because the per-commit
-   gate already passed on every individual commit — that's a different
-   check.
+5. **Check for a Codex cooldown first.** `.githooks/pre-commit` records one
+   (`$(git rev-parse --git-dir)/codex-cooldown`, a local epoch-seconds
+   timestamp) the moment a per-commit review hits a usage-limit exhaustion,
+   and the same file is the answer to "is Codex actually usable right now"
+   for this step too — read it and compare against the current time rather
+   than attempting the review and discovering the outage fresh. If a
+   cooldown is active, don't run step 5's review at all: report the
+   recorded reset time, note the whole-branch review as owed (matching this
+   repo's existing "OWED" convention in `docs/STATUS.md`), and stop here
+   unless the user explicitly says to proceed without it.
+
+   Otherwise, **run the whole-branch review**: `/codex:adversarial-review
+   --base main`. This is the step that catches cross-commit issues the
+   per-commit gate can't see. Wait for it to finish; don't skip it because
+   the per-commit gate already passed on every individual commit — that's a
+   different check.
 
 6. **Triage the review.** If it reports any P0/P1, stop here and report them
    — do not proceed to merge. Fixing them is normal implementation work, not

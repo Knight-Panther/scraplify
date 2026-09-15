@@ -49,6 +49,33 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 1
 fi
 
+# Self-managing usage-limit cooldown. Codex's own error names exactly when
+# it resets ("try again at HH:MM AM/PM"); rather than re-discovering that
+# out of the blue on every commit attempt in between (and needing a human
+# to notice and reach for --no-verify each time), a cooldown file records
+# it once and every subsequent commit checks it BEFORE even trying codex.
+# Machine-local and gitignored on purpose — this is about one account's
+# rate limit, not a fact about the repo. Self-expires: once now is past the
+# recorded time, the file is stale and this falls through to a real
+# attempt, which is what actually confirms Codex is back — no cron job or
+# external scheduler needed, since a hook only ever needs to know "is it
+# still in the future" at the moment someone commits.
+cooldown_file="$(git rev-parse --git-dir 2>/dev/null || echo .git)/codex-cooldown"
+now_epoch=$(date +%s)
+
+if [ -f "$cooldown_file" ]; then
+  cooldown_until=$(cat "$cooldown_file" 2>/dev/null || echo 0)
+  case "$cooldown_until" in
+    ''|*[!0-9]*) cooldown_until=0 ;;
+  esac
+  if [ "$cooldown_until" -gt "$now_epoch" ]; then
+    echo "pre-commit: Codex reported its usage limit exhausted until $(date -d "@$cooldown_until" '+%H:%M' 2>/dev/null || echo "$cooldown_until"); skipping the review for this commit rather than re-attempting a call already known to fail." >&2
+    echo "pre-commit: recorded as owed if this touches application code — see docs/STATUS.md's existing convention for this." >&2
+    exit 0
+  fi
+  rm -f "$cooldown_file"
+fi
+
 review_log=$(mktemp "${TMPDIR:-/tmp}/scraplify-codex-log.XXXXXX") || {
   echo "pre-commit: could not create a temporary log file; blocking commit." >&2
   exit 1
@@ -69,6 +96,24 @@ fi
 
 if [ "$review_status" -ne 0 ]; then
   cat "$review_log"
+  # A usage-limit exhaustion is a distinct failure mode from a real review
+  # failure: record the cooldown so the NEXT commit doesn't have to
+  # rediscover it, but this one still fails closed — recorded as owed and
+  # committed --no-verify remains an explicit, visible decision, not an
+  # automatic bypass on the first hit.
+  reset_time=$(grep -oE 'try again at [0-9]{1,2}:[0-9]{2} ?[AP]M' "$review_log" | head -1 | sed -E 's/try again at //')
+  if [ -n "$reset_time" ]; then
+    reset_epoch=$(date -d "today $reset_time" +%s 2>/dev/null || echo "")
+    if [ -n "$reset_epoch" ]; then
+      if [ "$reset_epoch" -le "$now_epoch" ]; then
+        reset_epoch=$(date -d "tomorrow $reset_time" +%s 2>/dev/null || echo "")
+      fi
+      if [ -n "$reset_epoch" ]; then
+        echo "$reset_epoch" >"$cooldown_file"
+        echo "pre-commit: recorded a cooldown until $reset_time — future commits will skip re-attempting Codex until then." >&2
+      fi
+    fi
+  fi
   echo "pre-commit: Codex review failed (exit $review_status); blocking commit." >&2
   exit 1
 fi
