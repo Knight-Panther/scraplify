@@ -16,6 +16,7 @@ import {
 } from '../../../lib/format.js';
 import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../../lib/labels.js';
 import { type OpportunityRow, toRow } from '../../../lib/opportunity-row.js';
+import { lastCompletedSync } from '../../../lib/sync.js';
 import {
   appliedFilters,
   buildHref,
@@ -113,19 +114,7 @@ export default async function OpportunitiesPage({
     (query.form.closing === '' ? 0 : 1) +
     (query.form.crossPosted ? 1 : 0);
 
-  // The oldest of each source's last CONFIRMED-complete crawl — never a
-  // fabricated "synced just now", and never the newest source's timestamp
-  // either. `lastRunAt` is a run's start time regardless of outcome, so a
-  // source that is mid-crawl (or whose last attempt failed) would otherwise
-  // print as "synced" just because it started recently. The oldest completed
-  // run, not the newest of any run, is the honest bound on "as of when can
-  // every listed board's content be trusted" — and only shown when every
-  // source actually has one, rather than silently ignoring the ones that
-  // don't.
-  const completedRuns = health.map((source) => source.lastFullCoverageRunAt);
-  const lastSync = completedRuns.every((value): value is string => value !== null)
-    ? completedRuns.slice().sort()[0]
-    : undefined;
+  const lastSync = lastCompletedSync(health);
 
   // A real id rather than a nested <form>: the results table below contains
   // its own per-row write forms (DecisionControl's Save/Dismiss/Undo), and
@@ -144,9 +133,17 @@ export default async function OpportunitiesPage({
         <StickyFilterBar
           title={
             <div className="px-4 sm:px-0">
-              <p className="numeric text-xs tracking-[0.1em] text-[var(--color-browse-accent)] uppercase">
-                {slugs.map(sourceLabel).join(' + ')}
-                {lastSync !== undefined && <> · synced {relativeTime(lastSync)}</>}
+              <p className="numeric text-xs text-[var(--color-browse-accent)] uppercase">
+                {/* `tracking-*` on a <p> is dead: globals.css's unlayered
+                    `p { letter-spacing: normal }` (added for Georgian
+                    headings) beats Tailwind's layered utility regardless of
+                    specificity — confirmed in the compiled stylesheet, not
+                    assumed. Carried on this inner span instead, same fix
+                    applied throughout the Phase 3E landing hero. */}
+                <span className="tracking-[0.1em]">
+                  {slugs.map(sourceLabel).join(' + ')}
+                  {lastSync !== undefined && <> · synced {relativeTime(lastSync)}</>}
+                </span>
               </p>
               <h1 className="mt-1 font-[family-name:var(--font-display)] text-6xl leading-[0.9] text-white uppercase">
                 Browse

@@ -44,11 +44,13 @@ describe('opportunity filters, counts and ordering', () => {
       title: string;
       status?: 'active' | 'missing_suspected' | 'closed';
       firstSeenAt?: string;
+      /** Defaults to a fixed future instant; pass `null` for "no deadline stated". */
+      deadlineAt?: string | null;
     },
   ): Promise<string> {
     const listing = await createTestSourceListing(sourceId, {
       status: spec.status ?? 'active',
-      sourceDeadlineAt: '2026-12-01T00:00:00Z',
+      sourceDeadlineAt: spec.deadlineAt === undefined ? '2026-12-01T00:00:00Z' : spec.deadlineAt,
       firstSeenAt: spec.firstSeenAt ?? '2026-09-01T00:00:00Z',
       lastSeenAt: spec.firstSeenAt ?? '2026-09-01T00:00:00Z',
     });
@@ -151,6 +153,128 @@ describe('opportunity filters, counts and ordering', () => {
       opportunityIds.length = 0;
     }
     for (const sourceId of sourceIds.splice(0)) await cleanupTestSource(sourceId);
+  });
+
+  /**
+   * A single opportunity with fully independent per-member status/deadline —
+   * `makeCluster` applies one status to every member, which cannot express
+   * the case this filter exists for: one board open, another not.
+   */
+  async function makeMixedCluster(
+    title: string,
+    members: readonly {
+      status: 'active' | 'missing_suspected' | 'closed';
+      deadlineAt?: string | null;
+    }[],
+  ): Promise<string> {
+    const created: string[] = [];
+    for (const member of members) {
+      const sourceId = await createTestSource();
+      sourceIds.push(sourceId);
+      created.push(
+        await addListing(sourceId, {
+          title,
+          status: member.status,
+          ...(member.deadlineAt === undefined ? {} : { deadlineAt: member.deadlineAt }),
+        }),
+      );
+    }
+    const opportunityId = randomUUID();
+    opportunityIds.push(opportunityId);
+    await db.insert(opportunities).values({
+      id: opportunityId,
+      type: 'job',
+      canonicalTitle: title,
+      organizationId: null,
+      canonicalStatus: 'active',
+      currentCanonicalRevisionId: null,
+      createdAt: '2026-09-06T12:00:00Z',
+      updatedAt: '2026-09-06T12:00:00Z',
+    });
+    for (const listingId of created) {
+      await db.insert(opportunitySourceMemberships).values({
+        id: randomUUID(),
+        opportunityId,
+        sourceListingId: listingId,
+        decision: 'confirmed_same',
+        confidence: 0.97,
+        evidence: {},
+        decidedBy: 'ruleset',
+        decidedAt: '2026-09-06T12:00:00Z',
+        dedupeModelOrRulesetVersion: 'v1',
+        supersededAt: null,
+      });
+    }
+    return opportunityId;
+  }
+
+  describe('genuinelyOpenAsOf', () => {
+    const now = '2026-09-15T12:00:00Z';
+    const past = '2026-09-01T00:00:00Z';
+    const future = '2026-12-01T00:00:00Z';
+
+    it('excludes an active member whose own deadline has passed', async () => {
+      const marker = `Past deadline ${randomUUID().slice(0, 8)}`;
+      await makeMixedCluster(marker, [{ status: 'active', deadlineAt: past }]);
+
+      const rows = await searchOpportunities(db, { text: marker, genuinelyOpenAsOf: now });
+      expect(rows).toHaveLength(0);
+    });
+
+    it('includes an active member with no stated deadline', async () => {
+      const marker = `No deadline ${randomUUID().slice(0, 8)}`;
+      await makeMixedCluster(marker, [{ status: 'active', deadlineAt: null }]);
+
+      const rows = await searchOpportunities(db, { text: marker, genuinelyOpenAsOf: now });
+      expect(rows).toHaveLength(1);
+    });
+
+    it('includes an active member with a future deadline', async () => {
+      const marker = `Future deadline ${randomUUID().slice(0, 8)}`;
+      await makeMixedCluster(marker, [{ status: 'active', deadlineAt: future }]);
+
+      const rows = await searchOpportunities(db, { text: marker, genuinelyOpenAsOf: now });
+      expect(rows).toHaveLength(1);
+    });
+
+    it('checks status and deadline together on the SAME member, not independently across members', async () => {
+      // The exact bug a Codex review caught in the first version of this
+      // filter's application-layer equivalent (Phase 3E, 2026-09-15): an
+      // active member with its own past deadline, plus an unrelated closed
+      // member with a future deadline, wrongly passed when the two
+      // conditions were checked as independent aggregates. Neither member
+      // here is actually open, so the cluster must be excluded.
+      const marker = `Mismatched members ${randomUUID().slice(0, 8)}`;
+      await makeMixedCluster(marker, [
+        { status: 'active', deadlineAt: past },
+        { status: 'closed', deadlineAt: future },
+      ]);
+
+      const rows = await searchOpportunities(db, { text: marker, genuinelyOpenAsOf: now });
+      expect(rows).toHaveLength(0);
+    });
+
+    it('includes a cluster where only one member is genuinely open', async () => {
+      const marker = `One open member ${randomUUID().slice(0, 8)}`;
+      await makeMixedCluster(marker, [
+        { status: 'active', deadlineAt: null },
+        { status: 'closed', deadlineAt: past },
+      ]);
+
+      const rows = await searchOpportunities(db, { text: marker, genuinelyOpenAsOf: now });
+      expect(rows).toHaveLength(1);
+    });
+
+    it('count agrees with search under the same filter', async () => {
+      const marker = `Genuinely open count parity ${randomUUID().slice(0, 8)}`;
+      await makeMixedCluster(marker, [{ status: 'active', deadlineAt: future }]);
+      await makeMixedCluster(marker, [{ status: 'active', deadlineAt: past }]);
+
+      const rows = await searchOpportunities(db, { text: marker, genuinelyOpenAsOf: now });
+      const count = await countOpportunities(db, { text: marker, genuinelyOpenAsOf: now });
+      expect(count).toBe(rows.length);
+      expect(count).toBe(1);
+    });
   });
 
   it('counts exactly what the same filters return', async () => {

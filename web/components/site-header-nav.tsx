@@ -7,11 +7,13 @@ import { usePathname } from 'next/navigation.js';
  * menu — a second, hand-kept copy is exactly how the two drifted before
  * (`SiteNav` had six links, the browse screen's one-off header had four).
  *
- * "Design system", not "Overview" — calling a token specimen the product's
- * overview is what once let its sample numbers read as real listings.
+ * No entry for `/` itself (Phase 3E, 2026-09-15) — it is the landing page
+ * now, not a "Design system" reference screen, and the wordmark link
+ * (`XTELO`, below) already goes there; a second link to the same
+ * destination in the nav proper would be redundant, not a real page in
+ * its own right the way every other entry here is.
  */
 const NAV = [
-  { href: '/', label: 'Design system' },
   { href: '/opportunities', label: 'Browse' },
   { href: '/listings', label: 'Listings' },
   { href: '/ranked', label: 'Ranked' },
@@ -48,19 +50,22 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
       </a>
 
       {/* Desktop: every link inline, in the handoff's clipped-corner blocks.
-          `xl:flex`, not `lg:flex` — this bar was tuned for exactly the
-          original 6 links and fit `lg`'s 1024px with 12px to spare;
-          `/review` and `/taxonomy-review` push it to 8, which overflows at
-          1024px regardless of label length (each item's fixed padding alone
-          exceeds the old slack) — measured via `header.scrollWidth`, not
-          eyeballed. Moving the threshold to `xl` (1280px, where 8 items
-          were verified to fit) rather than trimming padding keeps every
-          item's existing visual design untouched; the mobile popover below
-          already covers the gap this opens up between 1024 and 1279,
-          exactly like the write-gate badge further down already does for
-          the same reason (commit gate finding, phase-3c1-duplicate-review
-          merge, 2026-09-15). */}
-      <nav aria-label="Main" className="ml-auto hidden items-stretch xl:flex">
+          `min-[1360px]:flex`, not `xl:flex` (1280px) — the original
+          threshold, chosen when this bar had 6 then 8 links and claimed to
+          fit "at xl" in isolation. It didn't: measured via real
+          `header.scrollWidth` at exactly 1280px CSS width (Phase 3E's own
+          browser-QA sweep, 2026-09-15, found only because it tested the
+          true boundary rather than a devicePixelRatio-skewed approximation
+          of it), the 8-link nav alone overflowed by 37px at 1280px, and
+          together with the write-gate badge below (which shares this
+          threshold) by 155px. Dropping the redundant `/` ("Design system")
+          entry the same day (it's the landing page now, already reachable
+          via the wordmark link) took the count back to 7 — measured natural
+          width (wordmark + nav + badge, unclipped) is ~1270px, so 1360px is
+          used for real margin without the first fix's much wider 1500px,
+          which stopped being necessary once the link count dropped. The
+          mobile popover below still covers the 1024–1359px gap. */}
+      <nav aria-label="Main" className="ml-auto hidden items-stretch min-[1360px]:flex">
         <ul className="flex items-stretch">
           {NAV.map((item, index) => (
             <li key={item.href}>
@@ -99,14 +104,22 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
         type="button"
         popoverTarget="site-nav-mobile"
         aria-label="Menu"
-        className="ml-auto flex items-center px-4 text-[var(--color-browse-ink)] xl:hidden"
+        className="ml-auto flex items-center px-4 text-[var(--color-browse-ink)] min-[1360px]:hidden"
       >
         <MenuIcon />
       </button>
       <div
         id="site-nav-mobile"
         popover="auto"
-        className="m-0 mt-[58px] ml-auto h-[calc(100vh-58px)] w-64 max-h-none rounded-none border-0 border-l border-border bg-surface p-5 text-foreground xl:hidden"
+        // mt-[58px]/h-[calc(100vh-58px)] alone matched the header's own
+        // default height, but not its lg:h-[78px] — at 1024-1359px (now
+        // routed through this menu rather than the desktop nav, widened
+        // when that nav's own breakpoint moved past `lg` for the overflow
+        // fix above) the popover started 20px too high, its top overlapping
+        // the taller header instead of sitting below it (Codex, 2026-09-15).
+        // lg: variants below mirror the header's own threshold exactly
+        // rather than introducing a third breakpoint value to keep in sync.
+        className="m-0 mt-[58px] ml-auto h-[calc(100vh-58px)] w-64 max-h-none rounded-none border-0 border-l border-border bg-surface p-5 text-foreground lg:mt-[78px] lg:h-[calc(100vh-78px)] min-[1360px]:hidden"
       >
         <ul className="flex flex-col gap-1">
           {NAV.map((item) => (
@@ -127,16 +140,13 @@ export function SiteHeaderNav({ dbLabel, writesOn }: { dbLabel: string; writesOn
         </ul>
       </div>
 
-      {/* xl, matching the desktop nav's own threshold above (moved from lg to
-          xl once an 8-link bar stopped fitting lg's 1024px) — this badge
-          already lived only alongside the full desktop nav, so the two
-          breakpoints staying equal keeps that relationship rather than
-          reopening the narrow-band overflow this exact reasoning was
-          originally written to avoid. It is a "nice to have" dev/env
-          indicator, not something a real page depends on seeing, so it
-          simply doesn't render at all below xl rather than needing its own
-          separate fit budget. */}
-      <span className="my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 xl:flex">
+      {/* Matches the desktop nav's own threshold above — this badge already
+          lived only alongside the full desktop nav, so the two breakpoints
+          staying equal keeps that relationship. It is a "nice to have"
+          dev/env indicator, not something a real page depends on seeing, so
+          it simply doesn't render at all below the shared threshold rather
+          than needing its own separate fit budget. */}
+      <span className="my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 min-[1360px]:flex">
         <span>{dbLabel}</span>
         <span
           title={
