@@ -13,11 +13,13 @@ import type { ParserIncidentKind, ParserIncidentSeverity } from '../domain/incid
  * only in a log line, so `/health`'s incident count stayed at zero through a
  * real count collapse.
  *
- * Only called for a run whose walk genuinely FINISHED — not incremental, not
- * stopped by a block/backoff, and (hr.ge) not resumed mid-index. Those other
- * `partial` runs are routine operating states, already surfaced as a degraded
- * last run on `/health`; recording an incident for each would bury the
- * anomalies this exists for.
+ * Called for every full (not incremental) run that was not stopped by a
+ * block/backoff and, for hr.ge, not resumed mid-index. Those excluded `partial`
+ * runs are routine operating states, already surfaced as a degraded last run
+ * on `/health`; recording an incident for each would bury the anomalies this
+ * exists for. A walk that ended early on its own (an index page that no longer
+ * parses, the page cap, a failed page fetch) is NOT excluded: that is reported
+ * through the adapters' `discoveryComplete` guard.
  */
 
 export const RUN_GUARD_ORIGIN = 'run_guard';

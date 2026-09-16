@@ -799,15 +799,19 @@ export async function runHrGeCrawl(
       (incremental || baselineOk) &&
       !control.stopped;
 
-    // A finished full walk that still failed a guard is an anomaly, not a
-    // routine stop or resume — leave a durable incident, not only a
-    // `partial` status (src/adapters/run-anomalies.ts).
-    if (!incremental && complete && fullIndexSweep && !control.stopped) {
+    // A full walk from page 1 that was not stopped by a block/backoff but
+    // still failed a guard is an anomaly — leave a durable incident, not only
+    // a `partial` status (src/adapters/run-anomalies.ts). Deliberately NOT
+    // gated on `complete`: an index page that stops parsing, an empty page 1,
+    // or a walk into the page cap all leave it false, and each is itself one of
+    // the anomalies (Phase 7A branch review).
+    if (!incremental && fullIndexSweep && !control.stopped) {
       await recordRunAnomalies(db, {
         sourceId: hrGeSource.id,
         crawlRunId: crawlRun.id,
         detectedAt: now(),
         guards: [
+          { name: 'discoveryComplete', ok: complete, countGuard: true },
           { name: 'totalCount', ok: totalCountOk, countGuard: true },
           { name: 'baseline', ok: baselineOk, countGuard: true },
           { name: 'quarantineRate', ok: quarantineRate <= maxQuarantineRate, countGuard: false },

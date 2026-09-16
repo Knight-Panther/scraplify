@@ -78,12 +78,13 @@ export interface CloseMissingListingsResult {
  * between repeat calls for one run (also caught by adversarial review,
  * 2026-09-04, before this reached `main`).
  *
- * Runs as two plain UPDATEs (not the SELECT-FOR-UPDATE protocol
- * write-source-listing-revision.ts needs): each UPDATE's WHERE is
- * re-evaluated against the row's currently-committed state, so a listing a
- * concurrent writeSourceListingRevision call is actively touching is simply
- * excluded once that write commits its newer lastSeenAt — there is no
- * "decide based on a value read earlier" step to protect with a row lock.
+ * The missing_suspected UPDATE is a plain UPDATE whose WHERE is re-evaluated
+ * against each row's currently-committed state, so a listing a concurrent
+ * writeSourceListingRevision call is touching is simply excluded once that
+ * write commits its newer lastSeenAt. The closing step is the one exception:
+ * the mass-closure cap is a decision made on a count read first, so its
+ * candidate rows are locked (SELECT ... FOR UPDATE) and then updated by id,
+ * keeping the decision and the write on the same rows.
  */
 export async function closeMissingListings(
   db: Database,
@@ -141,17 +142,24 @@ export async function closeMissingListingsInTransaction(
     sql`${sourceListings.missingStreak} + 1 >= ${input.missingStreakThreshold}`,
   );
 
-  const [candidates] = await tx
-    .select({ total: sql<number>`count(*)::int` })
+  // The cap is decided on exactly the rows the UPDATE below then touches:
+  // locked here and updated by id, so a concurrent writer between the count and
+  // the UPDATE cannot turn an under-cap decision into a larger closure (Phase 7A
+  // branch review). The crawl exclusivity lock should already rule that
+  // writer out; this keeps the cap correct without depending on it.
+  const candidateRows = await tx
+    .select({ id: sourceListings.id })
     .from(sourceListings)
-    .where(closeWhere);
+    .where(closeWhere)
+    .for('update');
+  const candidateIds = candidateRows.map((row) => row.id);
   const [open] = await tx
     .select({ total: sql<number>`count(*)::int` })
     .from(sourceListings)
     .where(
       and(eq(sourceListings.sourceId, run.sourceId), inArray(sourceListings.status, OPEN_STATUSES)),
     );
-  const closureCandidateCount = candidates?.total ?? 0;
+  const closureCandidateCount = candidateIds.length;
   const openListingCount = open?.total ?? 0;
   const closureCap = Math.max(
     MASS_CLOSURE_MIN_CAP,
@@ -163,15 +171,18 @@ export async function closeMissingListingsInTransaction(
   // discarding them would restart the count), but nothing closes. The rows stay
   // over the threshold, so every later pass stays capped too until a person
   // reviews the incident and passes allowMassClosure.
-  const closed = await tx
-    .update(sourceListings)
-    .set({
-      missingStreak: sql`${sourceListings.missingStreak} + 1`,
-      status: closureCapped ? 'missing_suspected' : 'closed',
-      lastReconciledAt: run.startedAt,
-    })
-    .where(closeWhere)
-    .returning({ id: sourceListings.id });
+  const closed =
+    candidateIds.length === 0
+      ? []
+      : await tx
+          .update(sourceListings)
+          .set({
+            missingStreak: sql`${sourceListings.missingStreak} + 1`,
+            status: closureCapped ? 'missing_suspected' : 'closed',
+            lastReconciledAt: run.startedAt,
+          })
+          .where(and(closeWhere, inArray(sourceListings.id, candidateIds)))
+          .returning({ id: sourceListings.id });
 
   if (closureCapped) {
     const [alreadyOpen] = await tx

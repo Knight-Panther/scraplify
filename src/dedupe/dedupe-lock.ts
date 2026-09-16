@@ -67,10 +67,19 @@ export async function withDedupeLock<T>(
       throw err;
     }
     acquired = true;
-    await client.query('reset lock_timeout');
     return await fn();
   } finally {
+    // Reset on EVERY path, the timed-out wait included: this is a pooled
+    // connection, and a session-level lock_timeout left behind would make an
+    // unrelated later query on it give up on ordinary row locks (found by the
+    // Phase 7A branch review). If the reset itself fails, the session is
+    // destroyed rather than handed back still carrying the setting.
     let destroy = false;
+    try {
+      await client.query('reset lock_timeout');
+    } catch {
+      destroy = true;
+    }
     if (acquired) {
       try {
         await client.query('select pg_advisory_unlock($1)', [DEDUPE_ADVISORY_LOCK_KEY.toString()]);

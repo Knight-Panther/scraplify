@@ -1,3 +1,4 @@
+import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 import { pool } from '../db/client.js';
 import { DEDUPE_ADVISORY_LOCK_KEY, DedupeLockTimeoutError, withDedupeLock } from './dedupe-lock.js';
@@ -102,5 +103,41 @@ describe('withDedupeLock', () => {
     releaseFirst();
     await first;
     expect(await lockIsFree()).toBe(true);
+  });
+
+  it('hands its connection back to the pool without a leftover lock_timeout, even after timing out', async () => {
+    // A one-connection pool, so the connection inspected afterwards is
+    // provably the one the timed-out call used and released.
+    const single = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+    let releaseFirst!: () => void;
+    const firstMayFinish = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstStarted!: () => void;
+    const firstHasLock = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    const first = withDedupeLock(pool, async () => {
+      firstStarted();
+      await firstMayFinish;
+    });
+    try {
+      await firstHasLock;
+      await expect(
+        withDedupeLock(single, async () => undefined, { waitTimeoutMs: 150 }),
+      ).rejects.toBeInstanceOf(DedupeLockTimeoutError);
+
+      const client = await single.connect();
+      try {
+        const result = await client.query<{ lock_timeout: string }>('show lock_timeout');
+        expect(result.rows[0]?.lock_timeout).toBe('0');
+      } finally {
+        client.release();
+      }
+    } finally {
+      releaseFirst();
+      await first;
+      await single.end();
+    }
   });
 });

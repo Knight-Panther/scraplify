@@ -800,15 +800,18 @@ export async function runJobsGeCrawl(
       (incremental || standardOk) &&
       !control.stopped;
 
-    // A finished full walk that still failed a guard is an anomaly, not a
-    // routine stop — leave a durable incident, not only a `partial` status
-    // (src/adapters/run-anomalies.ts).
-    if (!incremental && complete && !control.stopped) {
+    // A full walk that was not stopped by a block/backoff but still failed a
+    // guard is an anomaly — leave a durable incident, not only a `partial`
+    // status (src/adapters/run-anomalies.ts). Deliberately NOT gated on
+    // `complete`: a walk that ran into the page cap without confirming the
+    // clamp is itself one of the anomalies (Phase 7A branch review).
+    if (!incremental && !control.stopped) {
       await recordRunAnomalies(db, {
         sourceId: jobsGeSource.id,
         crawlRunId: crawlRun.id,
         detectedAt: now(),
         guards: [
+          { name: 'discoveryComplete', ok: complete, countGuard: true },
           { name: 'floor', ok: listings.size >= minExpectedDiscoveredListings, countGuard: true },
           { name: 'baseline', ok: baselineOk, countGuard: true },
           { name: 'vipPartition', ok: vipOk, countGuard: true },
