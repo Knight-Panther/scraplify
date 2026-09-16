@@ -5,7 +5,11 @@ param(
     [string]$DbUser = 'scraplify',
     # How many of the newest backups of this database to keep; older ones are deleted.
     [ValidateRange(1, 1000)]
-    [int]$RetentionCount = 14
+    [int]$RetentionCount = 14,
+    # Also write everything this run prints to logs/backup-db-<date>.log. Set by
+    # the scheduled task (register-backup-schedule.ps1), since Task Scheduler
+    # keeps no output of its own.
+    [switch]$LogToFile
 )
 
 # Takes a compressed, restorable backup of one local database (Phase 7A, stage
@@ -25,6 +29,12 @@ if ($LASTEXITCODE -ne 0 -or -not $repositoryRoot) {
     throw 'Run this script from inside the scraplify Git repository.'
 }
 $repositoryRoot = $repositoryRoot.Trim()
+
+if ($LogToFile) {
+    $logDirectory = Join-Path $repositoryRoot 'logs'
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+    Start-Transcript -Append -Path (Join-Path $logDirectory ('backup-db-{0}.log' -f (Get-Date -Format 'yyyy-MM-dd'))) | Out-Null
+}
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw 'docker is not on PATH. Start Docker Desktop (the database runs in its Compose container) and retry.'
