@@ -50,3 +50,6 @@ web/tsconfig.tsbuildinfo
 test-results/
 playwright-report/
 blob-report/
+
+# Database backups (scripts/backup-db.ps1) - real corpus data, never committed
+backups/
