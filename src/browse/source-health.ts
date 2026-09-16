@@ -61,6 +61,12 @@ function hoursBetween(earlierIso: string, laterMs: number): number {
   return (laterMs - Date.parse(earlierIso)) / HOUR_MS;
 }
 
+const countFormat = new Intl.NumberFormat('en-US');
+
+function formatCount(n: number): string {
+  return countFormat.format(n);
+}
+
 function formatAge(hours: number): string {
   return hours < 48 ? `${Math.floor(hours)}h` : `${Math.floor(hours / 24)} days`;
 }
@@ -102,7 +108,7 @@ export function assessSourceHealth(
       add(
         'warning',
         'run_possibly_stuck',
-        `A crawl has been "running" for ${formatAge(sinceLastRun)}. If no crawl process is alive, it crashed and is holding the lock.`,
+        `A crawl has been “running” for ${formatAge(sinceLastRun)}. If no crawl process is alive, it crashed and is holding the lock.`,
       );
     }
   }
@@ -130,7 +136,7 @@ export function assessSourceHealth(
     add(
       'warning',
       'open_incidents',
-      `${source.unresolvedIncidents} unresolved parser incident${source.unresolvedIncidents === 1 ? '' : 's'}.`,
+      `${formatCount(source.unresolvedIncidents)} unresolved parser incident${source.unresolvedIncidents === 1 ? '' : 's'}.`,
     );
   }
 
@@ -138,7 +144,7 @@ export function assessSourceHealth(
     add(
       'critical',
       'unlinked_active_listings',
-      `${source.staleUnlinkedActiveListings} active listing${source.staleUnlinkedActiveListings === 1 ? ' has' : 's have'} had no opportunity for over ${UNLINKED_GRACE_HOURS}h, so ${source.staleUnlinkedActiveListings === 1 ? 'it is' : 'they are'} invisible outside the raw listings view. Run \`npm run dedupe -- --auto-link\`.`,
+      `${formatCount(source.staleUnlinkedActiveListings)} active listing${source.staleUnlinkedActiveListings === 1 ? ' has' : 's have'} had no opportunity for over ${UNLINKED_GRACE_HOURS}h, so ${source.staleUnlinkedActiveListings === 1 ? 'it is' : 'they are'} invisible outside the raw listings view. Run npm run dedupe -- --auto-link.`,
     );
   }
 

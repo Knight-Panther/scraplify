@@ -84,7 +84,7 @@ describe('assessSourceHealth', () => {
     );
     expect(alerts.map((alert) => alert.code)).toEqual(['unlinked_active_listings']);
     expect(alerts[0]?.level).toBe('critical');
-    expect(alerts[0]?.message).toContain('3277 active listings have');
+    expect(alerts[0]?.message).toContain('3,277 active listings have');
   });
 
   it('reports several problems at once rather than only the first', () => {
