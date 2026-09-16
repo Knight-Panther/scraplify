@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
-import { crawlRuns, sourceListings } from './schema/index.js';
+import { recordParserIncident } from './ingest.js';
+import { crawlRuns, parserIncidents, sourceListings } from './schema/index.js';
 import type { Database, DatabaseOrTransaction } from './types.js';
 
 /** Statuses a listing must be in to be eligible for either closure below (§13's diagram: expired/closed only ever branch off active or missing_suspected). */
@@ -13,7 +14,27 @@ export interface CloseMissingListingsInput {
   crawlRunId: string;
   /** concept §13: "missing across the configured number of complete successful reconciliations." Must be >= 2. */
   missingStreakThreshold: number;
+  /**
+   * Lifts the mass-closure cap (see MASS_CLOSURE_* below) for this one pass.
+   * The reviewed override, passed only once a person has checked the open
+   * `mass_closure_suspected` incident and confirmed the listings really are gone.
+   */
+  allowMassClosure?: boolean;
 }
+
+/**
+ * The most listings one reconciliation pass may close without a person's
+ * say-so: the larger of a fixed floor and a share of the source's open listings
+ * (Phase 7A, stage 7-3; concept §21.3 "mass apparent closures").
+ *
+ * The 3-miss streak already demands three consecutive full, healthy runs, but a
+ * parser regression subtle enough to pass every whole-run guard (a selector
+ * that silently drops one listing category) would fail that same way three runs
+ * in a row, and then close all of it at once. Real churn is far below this:
+ * hr.ge had closed 9 listings in total across its first full runs.
+ */
+export const MASS_CLOSURE_MIN_CAP = 25;
+export const MASS_CLOSURE_MAX_FRACTION = 0.1;
 
 export interface CloseMissingListingsResult {
   /** True when the run wasn't eligible (not completed, or not full coverage) — no rows were touched. */
@@ -22,6 +43,12 @@ export interface CloseMissingListingsResult {
   missingSuspectedCount: number;
   /** Listings whose missing streak crossed the threshold this pass. */
   closedCount: number;
+  /**
+   * True when more listings crossed the threshold than the mass-closure cap
+   * allows: none were closed, they stayed missing_suspected with their streak
+   * advanced, and a `mass_closure_suspected` incident was opened.
+   */
+  closureCapped: boolean;
 }
 
 /**
@@ -51,12 +78,13 @@ export interface CloseMissingListingsResult {
  * between repeat calls for one run (also caught by adversarial review,
  * 2026-09-04, before this reached `main`).
  *
- * Runs as two plain UPDATEs (not the SELECT-FOR-UPDATE protocol
- * write-source-listing-revision.ts needs): each UPDATE's WHERE is
- * re-evaluated against the row's currently-committed state, so a listing a
- * concurrent writeSourceListingRevision call is actively touching is simply
- * excluded once that write commits its newer lastSeenAt — there is no
- * "decide based on a value read earlier" step to protect with a row lock.
+ * The missing_suspected UPDATE is a plain UPDATE whose WHERE is re-evaluated
+ * against each row's currently-committed state, so a listing a concurrent
+ * writeSourceListingRevision call is touching is simply excluded once that
+ * write commits its newer lastSeenAt. The closing step is the one exception:
+ * the mass-closure cap is a decision made on a count read first, so its
+ * candidate rows are locked (SELECT ... FOR UPDATE) and then updated by id,
+ * keeping the decision and the write on the same rows.
  */
 export async function closeMissingListings(
   db: Database,
@@ -99,7 +127,7 @@ export async function closeMissingListingsInTransaction(
   }
 
   if (run.status !== 'completed' || !run.fullCoverage) {
-    return { skipped: true, missingSuspectedCount: 0, closedCount: 0 };
+    return { skipped: true, missingSuspectedCount: 0, closedCount: 0, closureCapped: false };
   }
 
   const baseWhere = and(
@@ -109,17 +137,82 @@ export async function closeMissingListingsInTransaction(
     or(isNull(sourceListings.lastReconciledAt), lt(sourceListings.lastReconciledAt, run.startedAt)),
   );
 
-  const closed = await tx
-    .update(sourceListings)
-    .set({
-      missingStreak: sql`${sourceListings.missingStreak} + 1`,
-      status: 'closed',
-      lastReconciledAt: run.startedAt,
-    })
+  const closeWhere = and(
+    baseWhere,
+    sql`${sourceListings.missingStreak} + 1 >= ${input.missingStreakThreshold}`,
+  );
+
+  // The cap is decided on exactly the rows the UPDATE below then touches:
+  // locked here and updated by id, so a concurrent writer between the count and
+  // the UPDATE cannot turn an under-cap decision into a larger closure (Phase 7A
+  // branch review). The crawl exclusivity lock should already rule that
+  // writer out; this keeps the cap correct without depending on it.
+  const candidateRows = await tx
+    .select({ id: sourceListings.id })
+    .from(sourceListings)
+    .where(closeWhere)
+    .for('update');
+  const candidateIds = candidateRows.map((row) => row.id);
+  const [open] = await tx
+    .select({ total: sql<number>`count(*)::int` })
+    .from(sourceListings)
     .where(
-      and(baseWhere, sql`${sourceListings.missingStreak} + 1 >= ${input.missingStreakThreshold}`),
-    )
-    .returning({ id: sourceListings.id });
+      and(eq(sourceListings.sourceId, run.sourceId), inArray(sourceListings.status, OPEN_STATUSES)),
+    );
+  const closureCandidateCount = candidateIds.length;
+  const openListingCount = open?.total ?? 0;
+  const closureCap = Math.max(
+    MASS_CLOSURE_MIN_CAP,
+    Math.floor(openListingCount * MASS_CLOSURE_MAX_FRACTION),
+  );
+  const closureCapped = input.allowMassClosure !== true && closureCandidateCount > closureCap;
+
+  // Capped: the streak still advances (the misses really happened, and
+  // discarding them would restart the count), but nothing closes. The rows stay
+  // over the threshold, so every later pass stays capped too until a person
+  // reviews the incident and passes allowMassClosure.
+  const closed =
+    candidateIds.length === 0
+      ? []
+      : await tx
+          .update(sourceListings)
+          .set({
+            missingStreak: sql`${sourceListings.missingStreak} + 1`,
+            status: closureCapped ? 'missing_suspected' : 'closed',
+            lastReconciledAt: run.startedAt,
+          })
+          .where(and(closeWhere, inArray(sourceListings.id, candidateIds)))
+          .returning({ id: sourceListings.id });
+
+  if (closureCapped) {
+    const [alreadyOpen] = await tx
+      .select({ id: parserIncidents.id })
+      .from(parserIncidents)
+      .where(
+        and(
+          eq(parserIncidents.sourceId, run.sourceId),
+          eq(parserIncidents.kind, 'mass_closure_suspected'),
+          eq(parserIncidents.resolved, false),
+        ),
+      )
+      .limit(1);
+    if (alreadyOpen === undefined) {
+      await recordParserIncident(tx, {
+        sourceId: run.sourceId,
+        crawlRunId: run.id,
+        detectedAt: run.finishedAt ?? new Date().toISOString(),
+        kind: 'mass_closure_suspected',
+        severity: 'critical',
+        evidence: {
+          origin: 'closure_cap',
+          closureCandidateCount,
+          openListingCount,
+          closureCap,
+          missingStreakThreshold: input.missingStreakThreshold,
+        },
+      });
+    }
+  }
 
   const missingSuspected = await tx
     .update(sourceListings)
@@ -135,8 +228,9 @@ export async function closeMissingListingsInTransaction(
 
   return {
     skipped: false,
-    missingSuspectedCount: missingSuspected.length,
-    closedCount: closed.length,
+    missingSuspectedCount: missingSuspected.length + (closureCapped ? closed.length : 0),
+    closedCount: closureCapped ? 0 : closed.length,
+    closureCapped,
   };
 }
 

@@ -12,7 +12,11 @@ import {
 export function parseJobsGeOptions(args: string[]): RunJobsGeCrawlOptions {
   const { values } = parseArgs({
     args,
-    options: { mode: { type: 'string', default: 'full' }, pages: { type: 'string' } },
+    options: {
+      mode: { type: 'string', default: 'full' },
+      pages: { type: 'string' },
+      'allow-mass-closure': { type: 'boolean', default: false },
+    },
     strict: true,
     allowPositionals: false,
   });
@@ -27,5 +31,6 @@ export function parseJobsGeOptions(args: string[]): RunJobsGeCrawlOptions {
     missingStreakThreshold: DEFAULT_MISSING_STREAK_THRESHOLD,
     mode: values.mode,
     ...(values.mode === 'incremental' ? { incrementalPages: pages } : {}),
+    ...(values['allow-mass-closure'] ? { allowMassClosure: true } : {}),
   };
 }

@@ -1,17 +1,14 @@
 import { createHash } from 'node:crypto';
-import type { ResourceId } from '../../domain/ids.js';
-import type { ResourceRole } from '../../domain/resource.js';
-import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
 import {
   type CrawlRunCounts,
-  failUnsettledCrawlRun,
   extendSourceBackoff,
-  getSourceBackoffUntil,
+  failUnsettledCrawlRun,
   finishCrawlRun,
   getCrawlCursor,
   getCrawlDiscoveryPage,
   getLastCompletedCrawlRun,
   getMaxDiscoveredCountForSource,
+  getSourceBackoffUntil,
   markCrawlRunPartialCoverage,
   recordFetchAttempt,
   recordParserIncident,
@@ -35,14 +32,18 @@ import {
   touchSourceListingSeen,
   writeSourceListingRevision,
 } from '../../db/write-source-listing-revision.js';
+import type { ResourceId } from '../../domain/ids.js';
+import type { ResourceRole } from '../../domain/resource.js';
+import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
+import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import {
   type HttpFetcher,
   type HttpFetchResult,
   SsrfBlockedError,
   UrlNotAllowedError,
 } from '../../net/http-fetcher.js';
-import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import { hrGePolicy, hrGeSource, isHrGeUrlAllowed } from '../../policies/hr-ge.js';
+import { recordRunAnomalies } from '../run-anomalies.js';
 import { classifyHrGeResponse, isHrGeRateLimited } from './challenge.js';
 import { HR_GE_DETAIL_PARSER_VERSION, parseHrGeDetailPage } from './detail.js';
 import { type DiscoveredListing, parseSearchPostingPage } from './discovery.js';
@@ -107,6 +108,12 @@ export interface RunHrGeCrawlOptions {
   minRelativeCoverageRatio?: number;
   /** Skips the sitemap cross-check entirely — for tests that don't want to stub a sitemap fetch. Production callers should omit this. */
   skipSitemapCrossCheck?: boolean;
+  /**
+   * Lets this run's reconciliation close more listings than the mass-closure
+   * cap allows (src/db/reconcile-source-listings.ts). Only for a reviewed
+   * `mass_closure_suspected` incident; the CLI's `--allow-mass-closure`.
+   */
+  allowMassClosure?: boolean;
 }
 
 export interface RunHrGeCrawlResult {
@@ -792,6 +799,42 @@ export async function runHrGeCrawl(
       (incremental || baselineOk) &&
       !control.stopped;
 
+    // A full walk from page 1 that was not stopped by a block/backoff but
+    // still failed a guard is an anomaly — leave a durable incident, not only
+    // a `partial` status (src/adapters/run-anomalies.ts). Deliberately NOT
+    // gated on `complete`: an index page that stops parsing, an empty page 1,
+    // or a walk into the page cap all leave it false, and each is itself one of
+    // the anomalies (Phase 7A branch review).
+    if (!incremental && fullIndexSweep && !control.stopped) {
+      await recordRunAnomalies(db, {
+        sourceId: hrGeSource.id,
+        crawlRunId: crawlRun.id,
+        detectedAt: now(),
+        guards: [
+          { name: 'discoveryComplete', ok: complete, countGuard: true },
+          { name: 'totalCount', ok: totalCountOk, countGuard: true },
+          { name: 'baseline', ok: baselineOk, countGuard: true },
+          { name: 'quarantineRate', ok: quarantineRate <= maxQuarantineRate, countGuard: false },
+          {
+            name: 'fetchFailureRate',
+            ok: fetchFailureRate <= maxFetchFailureRate,
+            countGuard: false,
+          },
+        ],
+        discoveredCount: observedIds.size,
+        baselineDiscoveredCount: lastCompletedRun?.discoveredCount ?? null,
+        measurements: {
+          totalCount,
+          maxDiscoveryShortfall,
+          quarantineRate,
+          maxQuarantineRate,
+          fetchFailureRate,
+          maxFetchFailureRate,
+          minRelativeCoverageRatio,
+        },
+      });
+    }
+
     // The discovery position is written only for the two decisive outcomes
     // (a stop with covered ground behind it, or the terminator), and only
     // when it actually differs from what this run read — an unchanged value
@@ -828,6 +871,7 @@ export async function runHrGeCrawl(
       const closeResult = await closeMissingListingsInTransaction(tx, {
         crawlRunId: crawlRun.id,
         missingStreakThreshold: options.missingStreakThreshold,
+        allowMassClosure: options.allowMassClosure === true,
       });
 
       const settledCounts: CrawlRunCounts = {

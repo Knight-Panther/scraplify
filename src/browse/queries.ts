@@ -11,6 +11,7 @@ import {
   sources,
 } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import { UNLINKED_GRACE_HOURS } from './source-health.js';
 
 /**
  * Read-only queries backing Phase 3's exit gate: "the stored corpus can be
@@ -1052,6 +1053,16 @@ export interface SourceHealthView {
   lastRunStatus: string | null;
   lastFullCoverageRunAt: string | null;
   unresolvedIncidents: number;
+  /** The subset of those at `critical` severity: a count collapse or a held-back mass closure. */
+  unresolvedCriticalIncidents: number;
+  /** Active listings with no live opportunity membership — not yet (or never) through dedupe. */
+  unlinkedActiveListings: number;
+  /**
+   * The subset of those first seen more than UNLINKED_GRACE_HOURS ago: too old
+   * to be waiting on a dedupe pass still to come, which means dedupe is not
+   * running (the 2026-09-15 incident's exact signature).
+   */
+  staleUnlinkedActiveListings: number;
 }
 
 /**
@@ -1086,10 +1097,31 @@ export async function getSourceHealth(db: DatabaseOrTransaction): Promise<Source
     .orderBy(desc(crawlRuns.startedAt));
 
   const incidentRows = await db
-    .select({ sourceId: parserIncidents.sourceId, count: sql<number>`count(*)::int` })
+    .select({
+      sourceId: parserIncidents.sourceId,
+      count: sql<number>`count(*)::int`,
+      critical: sql<number>`(count(*) filter (where ${parserIncidents.severity} = 'critical'))::int`,
+    })
     .from(parserIncidents)
     .where(eq(parserIncidents.resolved, false))
     .groupBy(parserIncidents.sourceId);
+
+  const unlinkedRows = await db
+    .select({
+      sourceId: sourceListings.sourceId,
+      total: sql<number>`count(*)::int`,
+      stale: sql<number>`(count(*) filter (where ${sourceListings.firstSeenAt} < now() - make_interval(hours => ${UNLINKED_GRACE_HOURS})))::int`,
+    })
+    .from(sourceListings)
+    .leftJoin(
+      opportunitySourceMemberships,
+      and(
+        eq(opportunitySourceMemberships.sourceListingId, sourceListings.id),
+        isNull(opportunitySourceMemberships.supersededAt),
+      ),
+    )
+    .where(and(eq(sourceListings.status, 'active'), isNull(opportunitySourceMemberships.id)))
+    .groupBy(sourceListings.sourceId);
 
   return sourceRows.map((source) => {
     const listingsByStatus: Record<string, number> = {};
@@ -1098,13 +1130,18 @@ export async function getSourceHealth(db: DatabaseOrTransaction): Promise<Source
     }
     const runs = runRows.filter((row) => row.sourceId === source.id);
     const lastFullCoverage = runs.find((row) => row.fullCoverage && row.status === 'completed');
+    const unlinked = unlinkedRows.find((row) => row.sourceId === source.id);
+    const incidents = incidentRows.find((row) => row.sourceId === source.id);
     return {
       sourceSlug: source.slug,
       listingsByStatus,
       lastRunAt: runs[0]?.startedAt ?? null,
       lastRunStatus: runs[0]?.status ?? null,
       lastFullCoverageRunAt: lastFullCoverage?.startedAt ?? null,
-      unresolvedIncidents: incidentRows.find((row) => row.sourceId === source.id)?.count ?? 0,
+      unresolvedIncidents: incidents?.count ?? 0,
+      unresolvedCriticalIncidents: incidents?.critical ?? 0,
+      unlinkedActiveListings: unlinked?.total ?? 0,
+      staleUnlinkedActiveListings: unlinked?.stale ?? 0,
     };
   });
 }

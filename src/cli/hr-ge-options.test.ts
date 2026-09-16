@@ -19,3 +19,11 @@ it.each([
 ])('rejects invalid options before starting a crawl: %j', (...args) => {
   expect(() => parseHrGeOptions(args)).toThrow();
 });
+it('only lifts the mass-closure cap when explicitly asked to', () => {
+  expect(parseHrGeOptions([])).not.toHaveProperty('allowMassClosure');
+  expect(parseHrGeOptions(['--allow-mass-closure'])).toEqual({
+    mode: 'full',
+    missingStreakThreshold: 3,
+    allowMassClosure: true,
+  });
+});

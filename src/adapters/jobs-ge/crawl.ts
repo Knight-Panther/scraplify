@@ -1,19 +1,16 @@
 import { createHash } from 'node:crypto';
-import type { ResourceId } from '../../domain/ids.js';
-import type { ResourceRole } from '../../domain/resource.js';
-import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
 import {
   type CrawlRunCounts,
-  failUnsettledCrawlRun,
   extendSourceBackoff,
-  getSourceBackoffUntil,
-  getCrawlCursor,
-  setCrawlCursor,
+  failUnsettledCrawlRun,
   finishCrawlRun,
+  getCrawlCursor,
   getLastCompletedCrawlRun,
   getMaxDiscoveredCountForSource,
+  getSourceBackoffUntil,
   recordFetchAttempt,
   recordParserIncident,
+  setCrawlCursor,
   startCrawlRun,
   upsertResource,
 } from '../../db/ingest.js';
@@ -32,14 +29,18 @@ import {
   touchSourceListingSeen,
   writeSourceListingRevision,
 } from '../../db/write-source-listing-revision.js';
+import type { ResourceId } from '../../domain/ids.js';
+import type { ResourceRole } from '../../domain/resource.js';
+import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
+import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import {
   type HttpFetcher,
   type HttpFetchResult,
   SsrfBlockedError,
   UrlNotAllowedError,
 } from '../../net/http-fetcher.js';
-import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import { jobsGePolicy, jobsGeSource } from '../../policies/jobs-ge.js';
+import { recordRunAnomalies } from '../run-anomalies.js';
 import { JOBS_GE_DETAIL_PARSER_VERSION, parseJobsGeDetailPage } from './detail.js';
 import { type DiscoveredListing, parseAdsPage } from './discovery.js';
 
@@ -177,6 +178,12 @@ export interface RunJobsGeCrawlOptions {
   maxFetchFailureRate?: number;
   /** See DEFAULT_MIN_RELATIVE_COVERAGE_RATIO. Overridable for testing; production callers should rarely need to. */
   minRelativeCoverageRatio?: number;
+  /**
+   * Lets this run's reconciliation close more listings than the mass-closure
+   * cap allows (src/db/reconcile-source-listings.ts). Only for a reviewed
+   * `mass_closure_suspected` incident; the CLI's `--allow-mass-closure`.
+   */
+  allowMassClosure?: boolean;
 }
 
 export interface RunJobsGeCrawlResult {
@@ -793,6 +800,44 @@ export async function runJobsGeCrawl(
       (incremental || standardOk) &&
       !control.stopped;
 
+    // A full walk that was not stopped by a block/backoff but still failed a
+    // guard is an anomaly — leave a durable incident, not only a `partial`
+    // status (src/adapters/run-anomalies.ts). Deliberately NOT gated on
+    // `complete`: a walk that ran into the page cap without confirming the
+    // clamp is itself one of the anomalies (Phase 7A branch review).
+    if (!incremental && !control.stopped) {
+      await recordRunAnomalies(db, {
+        sourceId: jobsGeSource.id,
+        crawlRunId: crawlRun.id,
+        detectedAt: now(),
+        guards: [
+          { name: 'discoveryComplete', ok: complete, countGuard: true },
+          { name: 'floor', ok: listings.size >= minExpectedDiscoveredListings, countGuard: true },
+          { name: 'baseline', ok: baselineOk, countGuard: true },
+          { name: 'vipPartition', ok: vipOk, countGuard: true },
+          { name: 'standardPartition', ok: standardOk, countGuard: true },
+          { name: 'quarantineRate', ok: quarantineRate <= maxQuarantineRate, countGuard: false },
+          {
+            name: 'fetchFailureRate',
+            ok: fetchFailureRate <= maxFetchFailureRate,
+            countGuard: false,
+          },
+        ],
+        discoveredCount: listings.size,
+        baselineDiscoveredCount: lastCompletedRun?.discoveredCount ?? null,
+        measurements: {
+          minExpectedDiscoveredListings,
+          vipCount: counts.vipCount,
+          standardCount: counts.standardCount,
+          quarantineRate,
+          maxQuarantineRate,
+          fetchFailureRate,
+          maxFetchFailureRate,
+          minRelativeCoverageRatio,
+        },
+      });
+    }
+
     // Incremental polls leave both cursor branches alone entirely. Writing
     // a resume point from a bounded slice would strand the full walk partway
     // through a corpus this run never looked at, and clearing the cursor
@@ -839,6 +884,7 @@ export async function runJobsGeCrawl(
       const closeResult = await closeMissingListingsInTransaction(tx, {
         crawlRunId: crawlRun.id,
         missingStreakThreshold: options.missingStreakThreshold,
+        allowMassClosure: options.allowMassClosure === true,
       });
 
       const settledCounts: CrawlRunCounts = {

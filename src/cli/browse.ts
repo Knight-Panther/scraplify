@@ -8,6 +8,7 @@ import {
   searchListings,
   searchOpportunities,
 } from '../browse/queries.js';
+import { assessSourceHealth } from '../browse/source-health.js';
 import { db } from '../db/client.js';
 
 /**
@@ -141,7 +142,11 @@ async function main(): Promise<void> {
     }
 
     case 'health': {
-      const rows = await getSourceHealth(db);
+      const now = new Date().toISOString();
+      const rows = (await getSourceHealth(db)).map((row) => ({
+        ...row,
+        alerts: assessSourceHealth(row, now),
+      }));
       emit('source health', rows, () => {
         for (const row of rows) {
           const statuses = Object.entries(row.listingsByStatus)
@@ -155,6 +160,12 @@ async function main(): Promise<void> {
           // absence reconciliation is silently not happening (§10.2).
           console.log(`  last FULL coverage ${row.lastFullCoverageRunAt ?? 'never'}`);
           console.log(`  open incidents     ${row.unresolvedIncidents}`);
+          console.log(
+            `  unlinked active    ${row.unlinkedActiveListings} (${row.staleUnlinkedActiveListings} past grace period)`,
+          );
+          for (const alert of row.alerts) {
+            console.log(`  ${alert.level.toUpperCase().padEnd(8)} ${alert.message}`);
+          }
         }
       });
       break;

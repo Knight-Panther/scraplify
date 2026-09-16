@@ -36,7 +36,73 @@ Found by Codex during an independent design review of an unrelated landing-page 
 
 **Consequence for the in-flight landing-page plan (Phase 3E, below):** every "live proof" number that plan cited (310 open vacancies, 410 listings tracked) was computed against the stale, pre-fix corpus and is now wrong at a large margin (the corrected open-vacancy count alone is **3,627**, not 310) — revised before any landing-page code was written, per the same review that caught it.
 
-## Current phase: Phase 5 — CV parsing
+## Current phase: Phase 7 — operations
+
+**Phase 5 (CV parsing) and the profile hub are both merged (PR #14, PR #15); their records below are unchanged.** Phase 7 was chosen next (2026-09-16) over Phases 4 and 6 because the 2026-09-15 incident showed the corpus can silently go stale for days, and nothing ran unattended at all. Scoped as **Phase 7A — operations baseline**; see its stage plan below.
+
+### Phase 7A — operations baseline, stage plan (written 2026-09-16, before any code)
+
+**State this was planned against, all checked live rather than assumed:** no scheduled task registered on this machine (`Get-ScheduledTask`); last crawl of any kind was hr.ge's full-coverage run on 2026-09-15 (3,354 discovered, 12 failed); jobs.ge last crawled 2026-09-06 and has never had a full-coverage run; only jobs.ge has a scheduler wrapper, and nothing ever invokes it; `runDedupe` has no concurrency lock of any kind; the corpus has no backup.
+
+**Out of scope, deliberately (concept §25 Phase 7 bullets carried to a later 7B):** `pg-boss` (no heterogeneous durable work exists yet), sandboxed parser-repair proposals and canaries (§22), hosting/scaling reassessment — all three are explicitly "from measured evidence," and that evidence starts accumulating only once 7A's schedules run. Registering the scheduled tasks is **also not done by this phase's code** — it starts real, unattended, recurring requests against both live sites, so it stays a deliberate step the project owner runs.
+
+**Stage 7-1 — unattended pipeline.**
+- `runDedupe` serialized by a Postgres session advisory lock (acquired on a dedicated pooled connection, blocking wait, not skip — a dedupe after a crawl should run late rather than never). Without it, two scheduled sources finishing close together run two `--auto-link` passes concurrently, which can canonicalize the same listing twice.
+- The jobs.ge-only wrapper/registration pair generalized to `scripts/run-crawl.ps1 -Source jobs-ge|hr-ge` and `scripts/register-crawl-schedule.ps1 -Source …`, both chaining `run-dedupe --auto-link` after every crawl attempt with its failure folded into the exit code. The old jobs.ge-specific scripts are removed (verified never registered). README updated.
+
+**Stage 7-2 — silence becomes visible.**
+- A pure `assessSourceHealth` producing typed alerts per source: never crawled; last run older than 48h (2× the default 24h cadence); last run not `completed`; no completed full-coverage run in 7 days; unresolved incidents. Plus corpus-level alerts: active listings with no live opportunity membership (the exact 2026-09-15 incident signature) and the review backlog.
+- Surfaced on `/health` and in `npm run browse health`; a new `npm run health:check` exits non-zero on any critical alert, so a scheduler or a person gets a real failure signal, not just a page to remember to open. No push channel yet (concept §27 leaves the notification channel open).
+
+**Stage 7-3 — anomalous runs leave a durable record.** Most of §21.3 already exists (floor, relative-baseline, totalCount, VIP/standard partition, quarantine-rate and fetch-failure-rate guards all downgrade a run to `partial`, which already excludes it from closure). The real gaps:
+- A guard failure downgrades the run but records **no** `parser_incidents` row — it is visible only in a log file, so `/health`'s incident count stays 0 through a real collapse. Fixed: every failed whole-run guard records a typed incident with its measured evidence.
+- No surge detection. Added as a non-blocking `count_surge` incident (a surge cannot drive closure, so it does not downgrade the run).
+- No per-run cap on closure beyond the 3-miss streak. Added in `closeMissingListingsInTransaction`: a batch that would close more than max(25, 10%) of a source's open listings closes nothing, keeps streaks advancing, and records a critical `mass_closure_suspected` incident; an explicit `--allow-mass-closure` crawl flag is the reviewed override.
+
+**Stage 7-4 — backup and a practiced restore.** `scripts/backup-db.ps1` (`pg_dump -Fc` via the Compose container into gitignored `backups/`, with retention), and one real restore drill into a throwaway database, verified by row counts against the live corpus — recorded here with its numbers.
+
+**Exit gate (7A)** — as written before any code; results in the build record below, which states where an item was met more narrowly than worded:
+- [x] Both sources can be scheduled by one registration script each, and every scheduled run chains a locked dedupe pass whose failure fails the run.
+- [x] A stale source, a stale full-coverage run, and unlinked active listings each produce a visible alert on `/health` and a non-zero `health:check`, verified against real data. *(Narrower than worded — see below: stale full coverage is a warning, so it does not by itself fail `health:check`; unlinked listings are verified at DB-test level only, since the live corpus has none.)*
+- [x] A failed whole-run guard, a surge, and an oversized closure batch each produce a durable incident, covered by tests.
+- [x] A backup has been taken and actually restored, with row counts matched.
+- [x] Per-commit review clean or recorded OWED (Codex cooldown until 2026-09-20 10:31); whole-branch review run or explicitly waived. *(Per-commit: OWED. Whole-branch Codex review: **WAIVED** by explicit project-owner decision, 2026-09-16 — see below.)*
+
+### Phase 7A — built (2026-09-16), `phase-7-ops`
+
+Nine code/doc commits plus review fixes, each on a green suite — finally **811/811 tests**, `npm run typecheck` and `npm run lint` clean.
+
+**7-1 — unattended pipeline.**
+- `src/dedupe/dedupe-lock.ts`: `withDedupeLock` holds a session advisory lock on one dedicated connection for the whole pass, waits up to 30 min (`lock_timeout`) rather than skipping, and destroys the connection if unlocking fails. `run-dedupe` uses it. Four tests on real Postgres (held/released, released on throw, two concurrent passes serialize, typed timeout); mutation-checked — replacing the lock call with a no-op failed 3 of 4.
+- `scripts/run-crawl.ps1 -Source` and `scripts/register-crawl-schedule.ps1 -Source` replace the jobs.ge-only pair (never registered — `Get-ScheduledTask` showed no task). Verified with a stub standing in for `node` (no live crawl): crawl exit 0 + dedupe exit 7 made the wrapper exit 7; an invalid `-Source` is rejected.
+- **Found and fixed on the way: the old wrapper's logs were unreadable for Georgian.** `*>>` appended UTF-16 beside `Add-Content`'s ANSI headers, and native output was decoded with the OEM code page. The new wrapper writes UTF-8 throughout; verified with a stub emitting `ბუღალტერი` on stdout and a line on stderr — both logged intact, and the stderr line no longer risks aborting the wrapper under `ErrorActionPreference = 'Stop'`.
+- **Not done, deliberately:** neither task is registered. That starts real unattended requests against both sites and stays the project owner's step: `./scripts/register-crawl-schedule.ps1 -Source jobs-ge` and `-Source hr-ge`.
+
+**7-2 — silence becomes visible.**
+- `src/browse/source-health.ts` (`assessSourceHealth`, pure, 11 tests): critical for never crawled, no crawl in 48h, failed last run, active listings unlinked for over 12h (the grace is 12h, not the 6h first drafted — a full jobs.ge crawl runs ~8-9h before its dedupe, so 6h would have raised false criticals mid-run), and any unresolved critical incident; warning for a partial/quarantined last run, a run "running" over 24h, no completed full-coverage run in 7 days, and other open incidents.
+- `getSourceHealth` gained `unlinkedActiveListings`, `staleUnlinkedActiveListings` and `unresolvedCriticalIncidents`; a DB test covers linked, superseded-only, stale, fresh and non-active listings.
+- `npm run health:check` exits 1 on any critical alert; `npm run browse health` prints the alerts. **Live against the real corpus:** `hr-ge: ok`; `jobs-ge` critical `run_overdue` (last crawl 2026-09-06, 10 days) and warning `full_coverage_stale` (never); exit 1. That is the true state, and it stays critical until jobs.ge is actually crawled.
+- `/health` states each source's alerts above its figures (level carried by a word and a shape as well as colour), a header summary, and a "not yet browsable" field. Browser-QA'd read-only against `dev:web` at 390/768/1280/1920 — no horizontal overflow at any width, alert label stacks above its message at 390. `web-design-guidelines` pass found three issues in alert copy, all fixed: counts not `Intl`-formatted, straight quotes, a literal-backtick command. **Not browser-verified:** the all-healthy header and a non-zero "not yet browsable" field — neither state exists in the real corpus today; both are covered by unit/DB tests only.
+
+**7-3 — anomalous runs leave a durable record.**
+- `src/adapters/run-anomalies.ts`, called from both adapters **only for a finished full walk** (not incremental, not stopped by a block/backoff, and for hr.ge not resumed mid-index — those `partial` runs are routine and already surface as a degraded last run). A failed guard records a critical `count_collapse` (any count guard) or `other` incident with the failed guard names and measured figures; a count above 2x the last completed full-coverage baseline (baseline >= 100) records a non-blocking `count_surge` warning. An unresolved run-level incident of the same kind suppresses repeats until someone resolves it (mutation-checked). The existing jobs.ge relative-collapse test now also asserts the incident.
+- `closeMissingListingsInTransaction`: a pass may close at most max(25, 10% of open listings). Over that it closes nothing, advances the streaks (listings stay `missing_suspected`), and opens one critical `mass_closure_suspected` incident. `--allow-mass-closure` on either crawl CLI is the reviewed override. Four DB tests (at cap closes, over cap holds + incident, cap scales with source size, override closes); mutation-checked.
+
+**7-4 — backup and a practiced restore.**
+- `scripts/backup-db.ps1`: `pg_dump -Fc` written inside the container (never piped through PowerShell, which would corrupt binary), validated with `pg_restore --list`, copied to gitignored `backups/`, newest 14 kept.
+- `scripts/restore-db-drill.ps1`: restores into `<db>_restore_drill`, compares exact per-table row counts with the source, drops the drill database, exits 1 on any mismatch.
+- **Drilled for real, 2026-09-16:** 10.1 MB backup of `scraplify`, restored in 2s, **all 23 public tables matched** (e.g. `source_listings` 3,705, `opportunities` 3,671, `source_listing_revisions` 7,076, `fetch_attempts` 8,397). Negative check: the same backup drilled against `scraplify_qa` exited 1 with mismatches reported. `pg_database` afterwards lists no leftover drill database. Not yet scheduled — run it by hand, or register it the same way as the crawls, when wanted.
+
+**OWED: per-commit Codex review of every code commit on this branch** (`e146216`, `d85cc2c`, `7fd6c87`, `0faa252`, `7fdac6b`, `d9df279`, `11e3ab6`, `c16c3fb`) — Codex's usage-limit cooldown runs until 2026-09-20 10:31 and the hook skipped each automatically. **Also owed before merge: the whole-branch `/codex:adversarial-review --base main`** CLAUDE.md requires.
+
+**Substitute whole-branch pass: the `dedupe-correctness-reviewer` agent over `git diff main...phase-7-ops`.** Not a replacement for the Codex review — a different reviewer, run so the branch was not left with no second pass at all. It reported two P1s and a P2, each verified against the code before fixing, all fixed in `c16c3fb`:
+- **P1 — `withDedupeLock` leaked `lock_timeout` into the pool.** `reset lock_timeout` ran only after the lock was acquired, so a timed-out wait handed its connection back still carrying the setting (the reviewer confirmed it live: `300ms` on the released connection). Harmless in the one-shot CLI, which ends the pool; real in the shared test pool and any longer-lived caller. Now reset on every path, or the session destroyed. New test on a one-connection pool; fails without the fix.
+- **P1 — run-level incidents skipped every walk that ended early on its own.** The recording was gated on `complete`, which is also false when an hr.ge index page stops parsing, page 1 comes back empty, or a walk hits the 200-page cap — exactly the silent-breakage cases 7-3 exists for. Now gated only on "full, not stopped, (hr.ge) not resumed", with `discoveryComplete` as a guard. New hr.ge tests: a redesigned page 1 records a critical `count_collapse` naming `discoveryComplete`; a 429-stopped run records none; the existing totalCount-shortfall test now asserts its incident. Mutation-checked (restoring the `complete` gate fails the redesign test). Consequence stated plainly: a transient non-retry discovery failure (not a block/backoff) now also opens an incident, once, until resolved — accepted as the cost of not missing a real one.
+- **P2 — the mass-closure cap decided on a count, then updated by predicate.** Unreachable while the crawl exclusivity lock holds, but the cap should not depend on it: candidates are now locked `FOR UPDATE` and updated by id. Not reproduced as a race test; covered only by the existing cap tests still passing.
+
+Ruled out by the same pass: the unlinked-listing definition matches the live-membership rule used everywhere else; incident de-duplication is correctly scoped; an exception while recording an anomaly still settles the run through `failUnsettledCrawlRun`; the wrapper's exit-code folding is correct.
+
+**WAIVED: the whole-branch `/codex:adversarial-review --base main`, by explicit project-owner decision (2026-09-16).** Outage-driven, not a deliberate skip: Codex is on its usage-limit cooldown until 2026-09-20 10:31, and waiting would have left jobs.ge (10 days uncrawled) and the whole scheduling pipeline dormant for four more days. What stands in its place is the substitute branch pass above, with all three of its findings fixed. **Still OWED after merge:** the per-commit Codex reviews of the eight code commits listed above, to be discharged once Codex is back. **After merging, the operational steps this phase deliberately leaves to the project owner:** register both schedules (`./scripts/register-crawl-schedule.ps1 -Source jobs-ge` / `-Source hr-ge`), after which `npm run health:check` should clear jobs.ge's `run_overdue` critical within a day; and decide whether to schedule `scripts/backup-db.ps1`.
 
 **This heading previously read "Phase 3C — duplicate review and taxonomy" well after 3C (and 3D, and 3E) had actually merged** — the sections below for all three are real and stayed accurate, but the heading itself had drifted, and `.githooks/pre-commit` derives its suggested `git checkout -b` name from this exact line, so a stale heading was actively misleading that mechanism rather than just cosmetic. Corrected here, when starting Phase 5 gave a concrete reason to touch it. (The heading is kept short on purpose, same reason as before: trailing status in parentheses would end up in the branch name.)
 
@@ -944,7 +1010,7 @@ Phases have not been worked strictly in order — 3A and 5A were taken early bec
 - **Phase 5 — CV parsing.** PDF/DOCX extraction, so profiles come from an uploaded CV rather than hand-entered JSON.
 - Phase 4 — attachments and resource expansion.
 - Phase 6 — outreach assistance.
-- Phase 7 — operations and supervised repair.
+- Phase 7 — operations and supervised repair. **7A (operations baseline) in progress on `phase-7-ops`** — see the current-phase section; 7B (supervised repair, pg-boss, hosting) deferred until 7A produces measured evidence.
 
 ## Completed
 

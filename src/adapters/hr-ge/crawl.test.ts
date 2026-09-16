@@ -5,6 +5,7 @@ import { getCrawlCursor } from '../../db/ingest.js';
 import {
   crawlCursors,
   crawlRuns,
+  parserIncidents,
   sourceListingRevisions,
   sourceListings,
 } from '../../db/schema/index.js';
@@ -507,6 +508,71 @@ describe('runHrGeCrawl', () => {
     expect(result.crawlRun.status).toBe('partial');
     // A partial run must not have advanced closure for anyone.
     expect(result.crawlRun.missingCount).toBe(0);
+
+    // Phase 7A: and it leaves a durable, evidence-bearing incident.
+    const [incident] = await db
+      .select()
+      .from(parserIncidents)
+      .where(eq(parserIncidents.sourceId, hrGeSource.id));
+    expect(incident).toMatchObject({ kind: 'count_collapse', crawlRunId: result.crawlRun.id });
+    expect(incident?.evidence).toMatchObject({ failedGuards: ['totalCount'], totalCount: 20 });
+  });
+
+  it('records an incident when the index itself stops parsing, even though discovery never "finished" (Phase 7A branch review)', async () => {
+    // The shape of a silent site redesign: page 1 is a healthy HTTP 200 whose
+    // body no longer carries the listing state. Discovery stops with
+    // `complete: false` without any block or backoff — an anomaly that an
+    // earlier version of the incident recording skipped because it only
+    // considered walks that completed.
+    const responses = new Map<string, HttpFetchResult | Error>([
+      [
+        searchPostingUrl(1),
+        htmlResponse(searchPostingUrl(1), '<html><body>redesigned</body></html>'),
+      ],
+    ]);
+
+    const result = await runHrGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(responses),
+        now: makeClock(Date.UTC(2026, 8, 5, 12, 0, 0)),
+      },
+      BASE_OPTIONS,
+    );
+
+    expect(result.crawlRun.status).toBe('partial');
+    const incidents = await db
+      .select()
+      .from(parserIncidents)
+      .where(eq(parserIncidents.sourceId, hrGeSource.id));
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]).toMatchObject({ kind: 'count_collapse', severity: 'critical' });
+    expect(incidents[0]?.evidence).toMatchObject({
+      failedGuards: expect.arrayContaining(['discoveryComplete', 'totalCount']),
+      discoveredCount: 0,
+    });
+  });
+
+  it('records no run-level incident for a run stopped by a rate limit, which is routine', async () => {
+    const responses = new Map<string, HttpFetchResult | Error>([
+      [searchPostingUrl(1), rateLimitedResponse(searchPostingUrl(1))],
+    ]);
+
+    const result = await runHrGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeHttpFetcher(responses),
+        now: makeClock(Date.UTC(2026, 8, 5, 12, 0, 0)),
+      },
+      BASE_OPTIONS,
+    );
+
+    expect(result.crawlRun.status).toBe('partial');
+    const incidents = await db
+      .select()
+      .from(parserIncidents)
+      .where(eq(parserIncidents.sourceId, hrGeSource.id));
+    expect(incidents).toHaveLength(0);
   });
 
   it('treats a WAF-challenged detail response as blocked, not a parse attempt', async () => {

@@ -86,7 +86,12 @@ describe('cross-source isolation', () => {
         missingStreakThreshold: 3,
       });
 
-      expect(result).toEqual({ skipped: false, missingSuspectedCount: 1, closedCount: 0 });
+      expect(result).toEqual({
+        skipped: false,
+        missingSuspectedCount: 1,
+        closedCount: 0,
+        closureCapped: false,
+      });
 
       const [rowA] = await db
         .select()
@@ -126,7 +131,12 @@ describe('cross-source isolation', () => {
         missingStreakThreshold: 3,
       });
 
-      expect(result).toEqual({ skipped: false, missingSuspectedCount: 0, closedCount: 1 });
+      expect(result).toEqual({
+        skipped: false,
+        missingSuspectedCount: 0,
+        closedCount: 1,
+        closureCapped: false,
+      });
 
       const [rowA] = await db
         .select()

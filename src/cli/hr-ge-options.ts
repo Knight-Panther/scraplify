@@ -7,7 +7,11 @@ import {
 export function parseHrGeOptions(args: string[]): RunHrGeCrawlOptions {
   const { values } = parseArgs({
     args,
-    options: { mode: { type: 'string', default: 'full' }, pages: { type: 'string' } },
+    options: {
+      mode: { type: 'string', default: 'full' },
+      pages: { type: 'string' },
+      'allow-mass-closure': { type: 'boolean', default: false },
+    },
     strict: true,
     allowPositionals: false,
   });
@@ -22,5 +26,6 @@ export function parseHrGeOptions(args: string[]): RunHrGeCrawlOptions {
     missingStreakThreshold: DEFAULT_MISSING_STREAK_THRESHOLD,
     mode: values.mode,
     ...(values.mode === 'incremental' ? { incrementalPages: pages } : {}),
+    ...(values['allow-mass-closure'] ? { allowMassClosure: true } : {}),
   };
 }
