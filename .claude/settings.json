@@ -39,6 +39,18 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/scripts/compact-watch.sh\" 2>/dev/null || true",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
