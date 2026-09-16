@@ -55,7 +55,7 @@ if (-not (Test-Path -LiteralPath $wrapperScript -PathType Leaf)) {
     throw "Expected wrapper script not found: $wrapperScript"
 }
 
-foreach ($entryPoint in @("dist/cli/run-$Source-crawl.js", 'dist/cli/run-dedupe.js')) {
+foreach ($entryPoint in @("dist/cli/run-$Source-crawl.js", 'dist/cli/run-dedupe.js', 'dist/cli/backfill-taxonomy.js')) {
     if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot $entryPoint) -PathType Leaf)) {
         throw "Build output not found: $entryPoint. Run 'npm run build' before registering the schedule, so the first scheduled fire doesn't just fail."
     }
@@ -113,7 +113,7 @@ if ($repetition -ne ('PT{0}M' -f $IntervalMinutes) -and $repetition -ne [System.
 
 Write-Host "Scheduled task '$taskName' registered: fires every $IntervalMinutes minute(s), starting in about 1 minute."
 Write-Host "Resolved node to: $nodePath (baked into the scheduled action, so unattended runs don't depend on fnm's PATH hook firing)."
-Write-Host "Each run is a full $Source crawl (discovery + every listing detail) followed by a dedupe pass, measured at $($sourceDefaults.Description) end to end - not a quick poll."
+Write-Host "Each run is a full $Source crawl (discovery + every listing detail) followed by dedupe and taxonomy passes, measured at $($sourceDefaults.Description) end to end - not a quick poll."
 if ($IntervalMinutes -lt $sourceDefaults.RuntimeMinutes) {
     Write-Warning "IntervalMinutes ($IntervalMinutes) is under the measured runtime. -MultipleInstances IgnoreNew means overlapping triggers are silently dropped rather than queued, so most firings will simply no-op while the previous run is still going."
 }

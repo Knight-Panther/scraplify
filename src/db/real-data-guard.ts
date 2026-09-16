@@ -162,6 +162,34 @@ async function fingerprintRealData(): Promise<string> {
 }
 
 /**
+ * Real sources with a crawl still unsettled (`reconciled_at` null) — a live or
+ * scheduled crawl writing real rows right now.
+ *
+ * Once crawls run on a schedule (Phase 7A), a test run overlapping one sees the
+ * fingerprint change for a reason unrelated to the tests. The guard still fails
+ * then — it cannot tell a crawl's writes from a test's — but it says so, rather
+ * than leaving "tests modified real data" to be investigated from scratch.
+ */
+async function realCrawlsInProgress(): Promise<string[]> {
+  const url = process.env.DATABASE_URL;
+  if (!url) return [];
+  const pool = new Pool({ connectionString: url, max: 1 });
+  try {
+    const { rows } = await pool.query<{ slug: string }>(
+      `select distinct s.slug from crawl_runs r join sources s on s.id = r.source_id
+       where r.reconciled_at is null and s.slug = any($1) order by s.slug`,
+      [REAL_SOURCE_SLUGS],
+    );
+    return rows.map((row) => row.slug);
+  } catch (err) {
+    if ((err as { code?: string }).code === UNDEFINED_TABLE) return [];
+    throw err;
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
  * Deletes `test-source-*` rows left behind by an EARLIER run, before this one
  * starts.
  *
@@ -350,6 +378,7 @@ export async function setup(): Promise<() => Promise<void>> {
   }
 
   const before = await fingerprintRealData();
+  const crawlingAtStart = await realCrawlsInProgress();
 
   return async () => {
     // Before the comparison below, which can throw: the run lock must not
@@ -365,6 +394,7 @@ export async function setup(): Promise<() => Promise<void>> {
       // mode this guard was rewritten to avoid. Set the exit code
       // explicitly, then throw for the human-readable message.
       process.exitCode = 1;
+      const crawling = [...new Set([...crawlingAtStart, ...(await realCrawlsInProgress())])];
       throw new Error(
         [
           'TEST SUITE MODIFIED REAL SOURCE DATA.',
@@ -380,6 +410,15 @@ export async function setup(): Promise<() => Promise<void>> {
           'per-source WHERE clause to prove a test is load-bearing), that is exactly the',
           'accident this guard exists to catch: the mutation removes the protection that',
           'keeps tests off real rows. Restore the clause and repair the affected rows.',
+          ...(crawling.length === 0
+            ? []
+            : [
+                '',
+                `LIKELY CAUSE: a real crawl was running during this test run (${crawling.join(', ')}:`,
+                'an unsettled crawl_runs row). Its own writes change this fingerprint, so this',
+                'comparison is inconclusive, not proof a test touched real data. Re-run the',
+                'suite once that crawl has finished for a trustworthy result.',
+              ]),
         ].join('\n'),
       );
     }
