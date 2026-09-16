@@ -26,6 +26,19 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel)/scripts/session-context.sh\" 2>/dev/null || true",
+            "shell": "bash",
+            "timeout": 15,
+            "statusMessage": "Reading repo state..."
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {

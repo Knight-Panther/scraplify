@@ -2,6 +2,12 @@
 
 Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a schedule, normalizes and dedupes listings across sources, categorizes them, and later ranks them against an uploaded CV. See [`docs/scraplify-concept.md`](docs/scraplify-concept.md) for the confirmed-final product and architecture concept — read it before making any architectural or scope decision; it takes precedence over `docs/PROJECT_PLAN.md` and `docs/CRAWLING_ARCHITECTURE_2026.md`, which are earlier research kept for reference only. Check [`docs/STATUS.md`](docs/STATUS.md) for what's actually done versus outstanding, and update it in the same commit as any work that changes phase/exit-gate status.
 
+## Session handoff
+
+A `SessionStart` hook (`.claude/settings.json` → `scripts/session-context.sh`) injects live repo state into every new session: branch, uncommitted count, last three commits, the current-phase line from `docs/STATUS.md`, any active Codex cooldown, and any dev server already holding port 3000/3001. It exists so a fresh session stops spending tool calls re-deriving all of that.
+
+When the user says **"save state"** (or similar, before `/clear`), write a few plain lines to `.git/session-handoff` — what is mid-flight and what the immediate next step is. That file is machine-local and gitignored by virtue of living in `.git/` (same home as `.git/codex-cooldown`), it is printed back at the next session's start, and it is **not** a status file: anything about phase or exit-gate progress belongs in `docs/STATUS.md`, which is versioned and visible to Codex. Overwrite it rather than appending, and delete it once its next step has been done.
+
 ## Git workflow
 
 - `main` stays always in a working, phase-complete state. Direct commits to `main` are for repo-governance/doc changes only (`docs/`, `.claude/`, `.agents/`, `.codex/`, `.githooks/`, `scripts/`, and a few root config/readme files) — implementation work happens on branches. This is enforced, not just documented: the pre-commit hook hard-blocks (exit 1) any commit on `main` that stages a file outside that allow-list, and prints the exact `git checkout -b <name>` command to fix it, auto-derived from `docs/STATUS.md`'s current-phase heading.
