@@ -16,6 +16,7 @@ function view(overrides: Partial<SourceHealthView> = {}): SourceHealthView {
     lastRunStatus: 'completed',
     lastFullCoverageRunAt: hoursAgo(10),
     unresolvedIncidents: 0,
+    unresolvedCriticalIncidents: 0,
     unlinkedActiveListings: 0,
     staleUnlinkedActiveListings: 0,
     ...overrides,
@@ -72,6 +73,15 @@ describe('assessSourceHealth', () => {
     const [alert] = assessSourceHealth(view({ unresolvedIncidents: 2 }), NOW);
     expect(alert?.code).toBe('open_incidents');
     expect(alert?.message).toBe('2 unresolved parser incidents.');
+  });
+
+  it('escalates to critical when any unresolved incident is critical', () => {
+    const [alert] = assessSourceHealth(
+      view({ unresolvedIncidents: 3, unresolvedCriticalIncidents: 1 }),
+      NOW,
+    );
+    expect(alert).toMatchObject({ level: 'critical', code: 'open_incidents' });
+    expect(alert?.message).toContain('3 unresolved parser incidents, 1 critical');
   });
 
   it('is critical only for unlinked listings too old to still be waiting on dedupe', () => {

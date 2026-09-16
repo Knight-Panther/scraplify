@@ -1053,6 +1053,8 @@ export interface SourceHealthView {
   lastRunStatus: string | null;
   lastFullCoverageRunAt: string | null;
   unresolvedIncidents: number;
+  /** The subset of those at `critical` severity: a count collapse or a held-back mass closure. */
+  unresolvedCriticalIncidents: number;
   /** Active listings with no live opportunity membership — not yet (or never) through dedupe. */
   unlinkedActiveListings: number;
   /**
@@ -1095,7 +1097,11 @@ export async function getSourceHealth(db: DatabaseOrTransaction): Promise<Source
     .orderBy(desc(crawlRuns.startedAt));
 
   const incidentRows = await db
-    .select({ sourceId: parserIncidents.sourceId, count: sql<number>`count(*)::int` })
+    .select({
+      sourceId: parserIncidents.sourceId,
+      count: sql<number>`count(*)::int`,
+      critical: sql<number>`(count(*) filter (where ${parserIncidents.severity} = 'critical'))::int`,
+    })
     .from(parserIncidents)
     .where(eq(parserIncidents.resolved, false))
     .groupBy(parserIncidents.sourceId);
@@ -1125,13 +1131,15 @@ export async function getSourceHealth(db: DatabaseOrTransaction): Promise<Source
     const runs = runRows.filter((row) => row.sourceId === source.id);
     const lastFullCoverage = runs.find((row) => row.fullCoverage && row.status === 'completed');
     const unlinked = unlinkedRows.find((row) => row.sourceId === source.id);
+    const incidents = incidentRows.find((row) => row.sourceId === source.id);
     return {
       sourceSlug: source.slug,
       listingsByStatus,
       lastRunAt: runs[0]?.startedAt ?? null,
       lastRunStatus: runs[0]?.status ?? null,
       lastFullCoverageRunAt: lastFullCoverage?.startedAt ?? null,
-      unresolvedIncidents: incidentRows.find((row) => row.sourceId === source.id)?.count ?? 0,
+      unresolvedIncidents: incidents?.count ?? 0,
+      unresolvedCriticalIncidents: incidents?.critical ?? 0,
       unlinkedActiveListings: unlinked?.total ?? 0,
       staleUnlinkedActiveListings: unlinked?.stale ?? 0,
     };

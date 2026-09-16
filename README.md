@@ -99,3 +99,13 @@ npm run build
 ```
 
 This is a deliberate, separate step from building the CLI — registering starts real, unsupervised, recurring requests against the live site. The script checks `dist/` and `.env` exist first and refuses to register otherwise. Each run goes through `scripts/run-crawl.ps1`, which runs the crawl and then **always** a `run-dedupe --auto-link` pass (so newly crawled listings become browsable opportunities without a manual step), appends both outputs as UTF-8 to `logs/<source>-crawl-<date>.log` (gitignored), and exits non-zero if either step failed so Task Scheduler reports it. Dedupe passes from the two schedules never overlap: they are serialized by a Postgres advisory lock (`src/dedupe/dedupe-lock.ts`). Remove a task with `Unregister-ScheduledTask -TaskName 'Scraplify - jobs-ge crawl' -Confirm:$false` (or `hr-ge`).
+
+### Health checks and held-back closures
+
+```powershell
+npm run health:check   # prints each source's alerts; exits 1 on any critical one
+```
+
+The same alerts appear on `/health` and in `npm run browse health`: a source not crawled in 48h, a failed or degraded last run, no full-coverage crawl in 7 days, unresolved parser incidents, and active listings that have gone more than 12h without reaching browse (dedupe not running).
+
+A crawl records a parser incident when a finished full walk fails a whole-run guard (count collapse, quarantine or fetch-failure rate) or its count more than doubles. Reconciliation also refuses to close more than max(25, 10%) of a source's open listings in one pass: it records a critical `mass_closure_suspected` incident and leaves them `missing_suspected`. Once you have checked those listings really are gone, run that source's crawl once with the override, for example `npm run crawl:hr-ge -- --allow-mass-closure`, then mark the incident resolved.

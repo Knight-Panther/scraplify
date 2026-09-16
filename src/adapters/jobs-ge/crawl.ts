@@ -178,6 +178,12 @@ export interface RunJobsGeCrawlOptions {
   maxFetchFailureRate?: number;
   /** See DEFAULT_MIN_RELATIVE_COVERAGE_RATIO. Overridable for testing; production callers should rarely need to. */
   minRelativeCoverageRatio?: number;
+  /**
+   * Lets this run's reconciliation close more listings than the mass-closure
+   * cap allows (src/db/reconcile-source-listings.ts). Only for a reviewed
+   * `mass_closure_suspected` incident; the CLI's `--allow-mass-closure`.
+   */
+  allowMassClosure?: boolean;
 }
 
 export interface RunJobsGeCrawlResult {
@@ -875,6 +881,7 @@ export async function runJobsGeCrawl(
       const closeResult = await closeMissingListingsInTransaction(tx, {
         crawlRunId: crawlRun.id,
         missingStreakThreshold: options.missingStreakThreshold,
+        allowMassClosure: options.allowMassClosure === true,
       });
 
       const settledCounts: CrawlRunCounts = {

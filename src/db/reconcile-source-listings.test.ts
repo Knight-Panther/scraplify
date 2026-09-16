@@ -1,8 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from './client.js';
-import { closeMissingListings, expireOverdueListings } from './reconcile-source-listings.js';
-import { sourceListings } from './schema/index.js';
+import {
+  closeMissingListings,
+  expireOverdueListings,
+  MASS_CLOSURE_MIN_CAP,
+} from './reconcile-source-listings.js';
+import { parserIncidents, sourceListings } from './schema/index.js';
 import {
   cleanupTestSource,
   createTestCrawlRun,
@@ -50,7 +54,12 @@ describe('closeMissingListings', () => {
       missingStreakThreshold: 3,
     });
 
-    expect(result).toEqual({ skipped: true, missingSuspectedCount: 0, closedCount: 0 });
+    expect(result).toEqual({
+      skipped: true,
+      missingSuspectedCount: 0,
+      closedCount: 0,
+      closureCapped: false,
+    });
     const [row] = await db.select().from(sourceListings).where(eq(sourceListings.id, listing.id));
     expect(row?.status).toBe('active');
     expect(row?.missingStreak).toBe(0);
@@ -69,7 +78,12 @@ describe('closeMissingListings', () => {
       missingStreakThreshold: 3,
     });
 
-    expect(result).toEqual({ skipped: true, missingSuspectedCount: 0, closedCount: 0 });
+    expect(result).toEqual({
+      skipped: true,
+      missingSuspectedCount: 0,
+      closedCount: 0,
+      closureCapped: false,
+    });
     const [row] = await db.select().from(sourceListings).where(eq(sourceListings.id, listing.id));
     expect(row?.status).toBe('active');
   });
@@ -87,7 +101,12 @@ describe('closeMissingListings', () => {
       missingStreakThreshold: 3,
     });
 
-    expect(result).toEqual({ skipped: false, missingSuspectedCount: 0, closedCount: 0 });
+    expect(result).toEqual({
+      skipped: false,
+      missingSuspectedCount: 0,
+      closedCount: 0,
+      closureCapped: false,
+    });
     const [row] = await db.select().from(sourceListings).where(eq(sourceListings.id, listing.id));
     expect(row?.status).toBe('active');
     expect(row?.missingStreak).toBe(0);
@@ -107,7 +126,12 @@ describe('closeMissingListings', () => {
       missingStreakThreshold: 3,
     });
 
-    expect(result).toEqual({ skipped: false, missingSuspectedCount: 1, closedCount: 0 });
+    expect(result).toEqual({
+      skipped: false,
+      missingSuspectedCount: 1,
+      closedCount: 0,
+      closureCapped: false,
+    });
     const [row] = await db.select().from(sourceListings).where(eq(sourceListings.id, listing.id));
     expect(row?.status).toBe('missing_suspected');
     expect(row?.missingStreak).toBe(1);
@@ -127,7 +151,12 @@ describe('closeMissingListings', () => {
       missingStreakThreshold: 3,
     });
 
-    expect(result).toEqual({ skipped: false, missingSuspectedCount: 0, closedCount: 1 });
+    expect(result).toEqual({
+      skipped: false,
+      missingSuspectedCount: 0,
+      closedCount: 1,
+      closureCapped: false,
+    });
     const [row] = await db.select().from(sourceListings).where(eq(sourceListings.id, listing.id));
     expect(row?.status).toBe('closed');
     expect(row?.missingStreak).toBe(3);
@@ -146,8 +175,18 @@ describe('closeMissingListings', () => {
     const first = await closeMissingListings(db, input);
     const retry = await closeMissingListings(db, input);
 
-    expect(first).toEqual({ skipped: false, missingSuspectedCount: 1, closedCount: 0 });
-    expect(retry).toEqual({ skipped: false, missingSuspectedCount: 0, closedCount: 0 });
+    expect(first).toEqual({
+      skipped: false,
+      missingSuspectedCount: 1,
+      closedCount: 0,
+      closureCapped: false,
+    });
+    expect(retry).toEqual({
+      skipped: false,
+      missingSuspectedCount: 0,
+      closedCount: 0,
+      closureCapped: false,
+    });
     const [row] = await db.select().from(sourceListings).where(eq(sourceListings.id, listing.id));
     expect(row?.status).toBe('missing_suspected');
     expect(row?.missingStreak).toBe(1);
@@ -175,8 +214,18 @@ describe('closeMissingListings', () => {
       missingStreakThreshold: 3,
     });
 
-    expect(runOne).toEqual({ skipped: false, missingSuspectedCount: 1, closedCount: 0 });
-    expect(runTwo).toEqual({ skipped: false, missingSuspectedCount: 1, closedCount: 0 });
+    expect(runOne).toEqual({
+      skipped: false,
+      missingSuspectedCount: 1,
+      closedCount: 0,
+      closureCapped: false,
+    });
+    expect(runTwo).toEqual({
+      skipped: false,
+      missingSuspectedCount: 1,
+      closedCount: 0,
+      closureCapped: false,
+    });
     const [row] = await db.select().from(sourceListings).where(eq(sourceListings.id, listing.id));
     expect(row?.status).toBe('missing_suspected');
     expect(row?.missingStreak).toBe(2);
@@ -197,7 +246,12 @@ describe('closeMissingListings', () => {
       missingStreakThreshold: 3,
     });
 
-    expect(result).toEqual({ skipped: false, missingSuspectedCount: 0, closedCount: 0 });
+    expect(result).toEqual({
+      skipped: false,
+      missingSuspectedCount: 0,
+      closedCount: 0,
+      closureCapped: false,
+    });
     for (const [index, status] of statuses.entries()) {
       const [row] = await db
         .select()
@@ -298,5 +352,107 @@ describe('expireOverdueListings', () => {
     expect(result).toEqual({ expiredCount: 0 });
     const [row] = await db.select().from(sourceListings).where(eq(sourceListings.id, closed.id));
     expect(row?.status).toBe('closed');
+  });
+});
+
+describe('closeMissingListings mass-closure cap', () => {
+  let sourceId: string;
+
+  afterEach(async () => {
+    if (sourceId) await cleanupTestSource(sourceId);
+  });
+
+  /** `closing` listings on their last allowed miss, plus `healthy` ones seen in the run. */
+  async function seed(closing: number, healthy: number) {
+    sourceId = await createTestSource();
+    for (let i = 0; i < closing; i++) {
+      await createTestSourceListing(sourceId, {
+        status: 'missing_suspected',
+        missingStreak: 2,
+        lastSeenAt: '2026-01-01T00:00:00Z',
+      });
+    }
+    for (let i = 0; i < healthy; i++) {
+      await createTestSourceListing(sourceId, {
+        status: 'active',
+        lastSeenAt: '2026-01-05T12:00:00Z',
+      });
+    }
+    return createTestCrawlRun(sourceId, {
+      startedAt: '2026-01-05T00:00:00Z',
+      finishedAt: '2026-01-05T01:00:00Z',
+    });
+  }
+
+  const incidents = () =>
+    db.select().from(parserIncidents).where(eq(parserIncidents.sourceId, sourceId));
+
+  it('closes a batch at the cap as usual', async () => {
+    // 25 of 30 open is far above 10%, but never below the fixed floor of 25.
+    const run = await seed(MASS_CLOSURE_MIN_CAP, 5);
+    const result = await closeMissingListings(db, {
+      crawlRunId: run.id,
+      missingStreakThreshold: 3,
+    });
+    expect(result).toMatchObject({ closedCount: MASS_CLOSURE_MIN_CAP, closureCapped: false });
+    expect(await incidents()).toHaveLength(0);
+  });
+
+  it('closes nothing over the cap, keeps the streaks advancing, and opens one critical incident', async () => {
+    const run = await seed(MASS_CLOSURE_MIN_CAP + 1, 5);
+    const result = await closeMissingListings(db, {
+      crawlRunId: run.id,
+      missingStreakThreshold: 3,
+    });
+
+    expect(result).toEqual({
+      skipped: false,
+      missingSuspectedCount: MASS_CLOSURE_MIN_CAP + 1,
+      closedCount: 0,
+      closureCapped: true,
+    });
+    const rows = await db
+      .select()
+      .from(sourceListings)
+      .where(eq(sourceListings.sourceId, sourceId));
+    const held = rows.filter((row) => row.status === 'missing_suspected');
+    expect(held).toHaveLength(MASS_CLOSURE_MIN_CAP + 1);
+    expect(held.every((row) => row.missingStreak === 3)).toBe(true);
+    expect(rows.some((row) => row.status === 'closed')).toBe(false);
+
+    const [incident, ...more] = await incidents();
+    expect(more).toHaveLength(0);
+    expect(incident).toMatchObject({
+      crawlRunId: run.id,
+      kind: 'mass_closure_suspected',
+      severity: 'critical',
+      resolved: false,
+    });
+    expect(incident?.evidence).toMatchObject({
+      closureCandidateCount: MASS_CLOSURE_MIN_CAP + 1,
+      openListingCount: MASS_CLOSURE_MIN_CAP + 6,
+      closureCap: MASS_CLOSURE_MIN_CAP,
+    });
+  });
+
+  it('scales the cap with the size of the source', async () => {
+    // 10% of 400 open listings is 40, so 30 closures is ordinary churn there.
+    const run = await seed(30, 370);
+    const result = await closeMissingListings(db, {
+      crawlRunId: run.id,
+      missingStreakThreshold: 3,
+    });
+    expect(result).toMatchObject({ closedCount: 30, closureCapped: false });
+  });
+
+  it('closes an over-cap batch when a person has reviewed it and allowed it', async () => {
+    const run = await seed(MASS_CLOSURE_MIN_CAP + 1, 5);
+    const result = await closeMissingListings(db, {
+      crawlRunId: run.id,
+      missingStreakThreshold: 3,
+      allowMassClosure: true,
+    });
+    expect(result).toMatchObject({ closedCount: MASS_CLOSURE_MIN_CAP + 1, closureCapped: false });
+    expect(await incidents()).toHaveLength(0);
   });
 });

@@ -133,10 +133,15 @@ export function assessSourceHealth(
   }
 
   if (source.unresolvedIncidents > 0) {
+    const critical = source.unresolvedCriticalIncidents;
     add(
-      'warning',
+      critical > 0 ? 'critical' : 'warning',
       'open_incidents',
-      `${formatCount(source.unresolvedIncidents)} unresolved parser incident${source.unresolvedIncidents === 1 ? '' : 's'}.`,
+      `${formatCount(source.unresolvedIncidents)} unresolved parser incident${source.unresolvedIncidents === 1 ? '' : 's'}${
+        critical > 0
+          ? `, ${formatCount(critical)} critical (a count collapse or closures held back pending review)`
+          : ''
+      }.`,
     );
   }
 

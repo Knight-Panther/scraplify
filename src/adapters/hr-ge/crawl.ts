@@ -108,6 +108,12 @@ export interface RunHrGeCrawlOptions {
   minRelativeCoverageRatio?: number;
   /** Skips the sitemap cross-check entirely — for tests that don't want to stub a sitemap fetch. Production callers should omit this. */
   skipSitemapCrossCheck?: boolean;
+  /**
+   * Lets this run's reconciliation close more listings than the mass-closure
+   * cap allows (src/db/reconcile-source-listings.ts). Only for a reviewed
+   * `mass_closure_suspected` incident; the CLI's `--allow-mass-closure`.
+   */
+  allowMassClosure?: boolean;
 }
 
 export interface RunHrGeCrawlResult {
@@ -861,6 +867,7 @@ export async function runHrGeCrawl(
       const closeResult = await closeMissingListingsInTransaction(tx, {
         crawlRunId: crawlRun.id,
         missingStreakThreshold: options.missingStreakThreshold,
+        allowMassClosure: options.allowMassClosure === true,
       });
 
       const settledCounts: CrawlRunCounts = {
