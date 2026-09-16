@@ -36,7 +36,37 @@ Found by Codex during an independent design review of an unrelated landing-page 
 
 **Consequence for the in-flight landing-page plan (Phase 3E, below):** every "live proof" number that plan cited (310 open vacancies, 410 listings tracked) was computed against the stale, pre-fix corpus and is now wrong at a large margin (the corrected open-vacancy count alone is **3,627**, not 310) — revised before any landing-page code was written, per the same review that caught it.
 
-## Current phase: Phase 5 — CV parsing
+## Current phase: Phase 7 — operations
+
+**Phase 5 (CV parsing) and the profile hub are both merged (PR #14, PR #15); their records below are unchanged.** Phase 7 was chosen next (2026-09-16) over Phases 4 and 6 because the 2026-09-15 incident showed the corpus can silently go stale for days, and nothing ran unattended at all. Scoped as **Phase 7A — operations baseline**; see its stage plan below.
+
+### Phase 7A — operations baseline, stage plan (written 2026-09-16, before any code)
+
+**State this was planned against, all checked live rather than assumed:** no scheduled task registered on this machine (`Get-ScheduledTask`); last crawl of any kind was hr.ge's full-coverage run on 2026-09-15 (3,354 discovered, 12 failed); jobs.ge last crawled 2026-09-06 and has never had a full-coverage run; only jobs.ge has a scheduler wrapper, and nothing ever invokes it; `runDedupe` has no concurrency lock of any kind; the corpus has no backup.
+
+**Out of scope, deliberately (concept §25 Phase 7 bullets carried to a later 7B):** `pg-boss` (no heterogeneous durable work exists yet), sandboxed parser-repair proposals and canaries (§22), hosting/scaling reassessment — all three are explicitly "from measured evidence," and that evidence starts accumulating only once 7A's schedules run. Registering the scheduled tasks is **also not done by this phase's code** — it starts real, unattended, recurring requests against both live sites, so it stays a deliberate step the project owner runs.
+
+**Stage 7-1 — unattended pipeline.**
+- `runDedupe` serialized by a Postgres session advisory lock (acquired on a dedicated pooled connection, blocking wait, not skip — a dedupe after a crawl should run late rather than never). Without it, two scheduled sources finishing close together run two `--auto-link` passes concurrently, which can canonicalize the same listing twice.
+- The jobs.ge-only wrapper/registration pair generalized to `scripts/run-crawl.ps1 -Source jobs-ge|hr-ge` and `scripts/register-crawl-schedule.ps1 -Source …`, both chaining `run-dedupe --auto-link` after every crawl attempt with its failure folded into the exit code. The old jobs.ge-specific scripts are removed (verified never registered). README updated.
+
+**Stage 7-2 — silence becomes visible.**
+- A pure `assessSourceHealth` producing typed alerts per source: never crawled; last run older than 48h (2× the default 24h cadence); last run not `completed`; no completed full-coverage run in 7 days; unresolved incidents. Plus corpus-level alerts: active listings with no live opportunity membership (the exact 2026-09-15 incident signature) and the review backlog.
+- Surfaced on `/health` and in `npm run browse health`; a new `npm run health:check` exits non-zero on any critical alert, so a scheduler or a person gets a real failure signal, not just a page to remember to open. No push channel yet (concept §27 leaves the notification channel open).
+
+**Stage 7-3 — anomalous runs leave a durable record.** Most of §21.3 already exists (floor, relative-baseline, totalCount, VIP/standard partition, quarantine-rate and fetch-failure-rate guards all downgrade a run to `partial`, which already excludes it from closure). The real gaps:
+- A guard failure downgrades the run but records **no** `parser_incidents` row — it is visible only in a log file, so `/health`'s incident count stays 0 through a real collapse. Fixed: every failed whole-run guard records a typed incident with its measured evidence.
+- No surge detection. Added as a non-blocking `count_surge` incident (a surge cannot drive closure, so it does not downgrade the run).
+- No per-run cap on closure beyond the 3-miss streak. Added in `closeMissingListingsInTransaction`: a batch that would close more than max(25, 10%) of a source's open listings closes nothing, keeps streaks advancing, and records a critical `mass_closure_suspected` incident; an explicit `--allow-mass-closure` crawl flag is the reviewed override.
+
+**Stage 7-4 — backup and a practiced restore.** `scripts/backup-db.ps1` (`pg_dump -Fc` via the Compose container into gitignored `backups/`, with retention), and one real restore drill into a throwaway database, verified by row counts against the live corpus — recorded here with its numbers.
+
+**Exit gate (7A):**
+- [ ] Both sources can be scheduled by one registration script each, and every scheduled run chains a locked dedupe pass whose failure fails the run.
+- [ ] A stale source, a stale full-coverage run, and unlinked active listings each produce a visible alert on `/health` and a non-zero `health:check`, verified against real data.
+- [ ] A failed whole-run guard, a surge, and an oversized closure batch each produce a durable incident, covered by tests.
+- [ ] A backup has been taken and actually restored, with row counts matched.
+- [ ] Per-commit review clean or recorded OWED (Codex cooldown until 2026-09-20 10:31); whole-branch review run or explicitly waived.
 
 **This heading previously read "Phase 3C — duplicate review and taxonomy" well after 3C (and 3D, and 3E) had actually merged** — the sections below for all three are real and stayed accurate, but the heading itself had drifted, and `.githooks/pre-commit` derives its suggested `git checkout -b` name from this exact line, so a stale heading was actively misleading that mechanism rather than just cosmetic. Corrected here, when starting Phase 5 gave a concrete reason to touch it. (The heading is kept short on purpose, same reason as before: trailing status in parentheses would end up in the branch name.)
 
@@ -944,7 +974,7 @@ Phases have not been worked strictly in order — 3A and 5A were taken early bec
 - **Phase 5 — CV parsing.** PDF/DOCX extraction, so profiles come from an uploaded CV rather than hand-entered JSON.
 - Phase 4 — attachments and resource expansion.
 - Phase 6 — outreach assistance.
-- Phase 7 — operations and supervised repair.
+- Phase 7 — operations and supervised repair. **7A (operations baseline) in progress on `phase-7-ops`** — see the current-phase section; 7B (supervised repair, pg-boss, hosting) deferred until 7A produces measured evidence.
 
 ## Completed
 
