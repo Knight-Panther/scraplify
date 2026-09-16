@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { CandidateClaimKind, CandidateClaimOrigin } from '../domain/candidate.js';
 import { candidateProfileClaims, candidateProfiles, rankings } from '../db/schema/index.js';
 import type { Database, DatabaseOrTransaction } from '../db/types.js';
@@ -244,18 +244,51 @@ export async function deleteCandidateProfile(
   });
 }
 
-/** Profiles that have not been deleted, for listing in a CLI or UI. */
-export async function listCandidateProfiles(
-  db: DatabaseOrTransaction,
-): Promise<Array<{ profileId: string; label: string; version: number; createdAt: string }>> {
+/**
+ * Profiles that have not been deleted, for listing in a CLI or UI.
+ *
+ * Widened (not forked) to carry `claimCount` and an explicit newest-first
+ * order for the web profile hub — the CLI's own `profile:list` keeps working
+ * unchanged since it only reads the fields it already used. `claimCount`
+ * joins on `profileVersion` too, matching `loadCandidateProfile`'s own
+ * current-version-only rule, so a superseded version's claims are never
+ * counted alongside the live one.
+ */
+export async function listCandidateProfiles(db: DatabaseOrTransaction): Promise<
+  Array<{
+    profileId: string;
+    label: string;
+    version: number;
+    createdAt: string;
+    claimCount: number;
+  }>
+> {
   const rows = await db
     .select({
       profileId: candidateProfiles.id,
       label: candidateProfiles.label,
       version: candidateProfiles.version,
       createdAt: candidateProfiles.createdAt,
+      // count(column), not count(*): a LEFT JOIN with no matching claims
+      // still produces one joined row (all NULL), which count(*) would
+      // wrongly report as 1 claim rather than 0.
+      claimCount: sql<number>`count(${candidateProfileClaims.id})::int`,
     })
     .from(candidateProfiles)
-    .where(isNull(candidateProfiles.deletedAt));
+    .leftJoin(
+      candidateProfileClaims,
+      and(
+        eq(candidateProfileClaims.profileId, candidateProfiles.id),
+        eq(candidateProfileClaims.profileVersion, candidateProfiles.version),
+      ),
+    )
+    .where(isNull(candidateProfiles.deletedAt))
+    .groupBy(
+      candidateProfiles.id,
+      candidateProfiles.label,
+      candidateProfiles.version,
+      candidateProfiles.createdAt,
+    )
+    .orderBy(desc(candidateProfiles.createdAt));
   return rows;
 }

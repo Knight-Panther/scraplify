@@ -10,12 +10,17 @@ import {
   UnsupportedCvFormatError,
 } from '../../../src/cv-parsing/read-document.js';
 import { db } from '../../../src/db/client.js';
-import { createCandidateProfile } from '../../../src/ranking/profile-store.js';
+import {
+  createCandidateProfile,
+  deleteCandidateProfile,
+} from '../../../src/ranking/profile-store.js';
+import { runRanking } from '../../../src/ranking/run-ranking.js';
 import {
   InvalidProfileInputError,
   readConsent,
   readCvFile,
   readLabel,
+  readProfileId,
 } from '../../lib/profile-input.js';
 import { assertWritesEnabled } from '../../lib/writes.js';
 
@@ -95,4 +100,47 @@ export async function uploadCv(form: FormData): Promise<void> {
 
   revalidatePath('/ranked');
   redirect(`/profile/${createdProfileId}`);
+}
+
+/**
+ * A real, cascading `DELETE` (`deleteCandidateProfile` already removes
+ * rankings, claims and the profile row itself) — never soft, so the UI's own
+ * confirmation (a popover, not a plain click) is load-bearing, not decorative.
+ */
+export async function deleteProfile(form: FormData): Promise<void> {
+  assertWritesEnabled();
+  const profileId = readProfileId(form);
+
+  await deleteCandidateProfile(db, profileId);
+
+  revalidatePath('/profile');
+  revalidatePath('/ranked');
+  redirect('/profile');
+}
+
+/**
+ * The same scoring the CLI's `rank` command runs — this closes the gap where
+ * a profile could be uploaded and corrected with no way to actually see
+ * ranked results short of a terminal.
+ */
+export async function rankProfile(form: FormData): Promise<void> {
+  assertWritesEnabled();
+  const profileId = readProfileId(form);
+
+  let conflictMessage: string | null = null;
+  try {
+    await runRanking(db, { profileId, force: false });
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('no active candidate profile')) {
+      throw error;
+    }
+    conflictMessage = 'This profile could not be found — it may have been deleted.';
+  }
+
+  if (conflictMessage !== null) {
+    redirect(`/profile?error=${encodeURIComponent(conflictMessage)}`);
+  }
+
+  revalidatePath('/ranked');
+  redirect(`/ranked?profile=${profileId}`);
 }
