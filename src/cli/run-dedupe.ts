@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { sql } from 'drizzle-orm';
-import { db } from '../db/client.js';
+import { db, pool } from '../db/client.js';
+import { withDedupeLock } from '../dedupe/dedupe-lock.js';
 import { countPendingReview, runDedupe } from '../dedupe/run-dedupe.js';
 import { logger } from '../logger.js';
 
@@ -30,8 +31,13 @@ async function main(): Promise<void> {
   }
 
   const startedAtMs = Date.now();
-  const result = await runDedupe(db, { autoLink: values['auto-link'] });
-  const pendingReview = await countPendingReview(db);
+  // Serialized across processes: once both sources run on a schedule, each
+  // crawl chains its own `--auto-link` pass, and two overlapping passes could
+  // canonicalize the same listing twice (Phase 7A, stage 7-1).
+  const { result, pendingReview } = await withDedupeLock(pool, async () => ({
+    result: await runDedupe(db, { autoLink: values['auto-link'] }),
+    pendingReview: await countPendingReview(db),
+  }));
 
   logger.info(
     {
