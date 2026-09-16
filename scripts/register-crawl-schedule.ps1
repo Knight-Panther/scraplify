@@ -84,16 +84,32 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$wrapperScript`" -Source $Source -NodePath `"$nodePath`"" `
     -WorkingDirectory $repositoryRoot
 
+# No -RepetitionDuration: omitting it repeats indefinitely. The earlier
+# `[TimeSpan]::MaxValue` serializes to P99999999DT23H59M59S, which Task
+# Scheduler on Windows 11 rejects as out of range (found 2026-09-16, the first
+# time this script was actually run).
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
-    -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
-    -RepetitionDuration ([TimeSpan]::MaxValue)
+    -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
 
 $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -StartWhenAvailable `
     -DontStopOnIdleEnd
 
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
+# -ErrorAction Stop explicitly: Register-ScheduledTask reports a rejected task
+# as a non-terminating CIM error, which the script-wide preference did not turn
+# into a stop, so a failed registration went on to print "registered" below.
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Force -ErrorAction Stop | Out-Null
+
+# Trust the registry of tasks, not the absence of an error.
+$registered = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if (-not $registered) {
+    throw "Scheduled task '$taskName' was not found after registering it."
+}
+$repetition = $registered.Triggers[0].Repetition.Interval
+if ($repetition -ne ('PT{0}M' -f $IntervalMinutes) -and $repetition -ne [System.Xml.XmlConvert]::ToString((New-TimeSpan -Minutes $IntervalMinutes))) {
+    throw "Scheduled task '$taskName' registered with repetition interval '$repetition', expected every $IntervalMinutes minute(s)."
+}
 
 Write-Host "Scheduled task '$taskName' registered: fires every $IntervalMinutes minute(s), starting in about 1 minute."
 Write-Host "Resolved node to: $nodePath (baked into the scheduled action, so unattended runs don't depend on fnm's PATH hook firing)."
