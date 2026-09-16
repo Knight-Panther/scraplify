@@ -29,6 +29,7 @@
     "browse": "node --env-file-if-exists=.env dist/cli/browse.js",
     "rank": "node --env-file-if-exists=.env dist/cli/rank.js",
     "taxonomy:backfill": "node --env-file-if-exists=.env dist/cli/backfill-taxonomy.js",
+    "health:check": "node --env-file-if-exists=.env dist/cli/health-check.js",
     "dev:web:qa": "node scripts/next.mjs dev web --profile qa -H 127.0.0.1 -p 3001"
   },
   "repository": {

@@ -651,6 +651,36 @@ describe('browse queries', () => {
     expect(row?.lastFullCoverageRunAt).toBeNull();
   });
 
+  it('counts active listings with no live opportunity, and which of them are too old to be waiting on dedupe', async () => {
+    // The 2026-09-15 incident's signature: active listings that dedupe never
+    // canonicalized, invisible everywhere except the raw listings view.
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const longAgo = '2026-09-01T00:00:00Z';
+
+    await cluster({ title: 'Linked', members: [{ sourceId }] });
+    // A listing whose only membership was superseded has no LIVE opportunity.
+    const detachedOpportunityId = await cluster({ title: 'Detached', members: [{ sourceId }] });
+    await db
+      .update(opportunitySourceMemberships)
+      .set({ supersededAt: '2026-09-07T00:00:00Z' })
+      .where(eq(opportunitySourceMemberships.opportunityId, detachedOpportunityId));
+    await addListing(sourceId, { title: 'Stale unlinked', firstSeenAt: longAgo });
+    // Just crawled: legitimately still waiting for the dedupe pass after the crawl.
+    await addListing(sourceId, { title: 'Fresh unlinked', firstSeenAt: new Date().toISOString() });
+    // Not active, so it has no business being in browse and is not counted.
+    await addListing(sourceId, {
+      title: 'Closed unlinked',
+      status: 'closed',
+      firstSeenAt: longAgo,
+    });
+
+    const health = await getSourceHealth(db);
+    const row = health.find((entry) => entry.sourceSlug === `test-source-${sourceId}`);
+    expect(row?.unlinkedActiveListings).toBe(3);
+    expect(row?.staleUnlinkedActiveListings).toBe(2);
+  });
+
   /**
    * The detail query. Its own tests rather than an extension of the list's,
    * because it answers a different question: not "which opportunities match"
