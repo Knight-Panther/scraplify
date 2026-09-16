@@ -449,6 +449,23 @@ Also added while reviewing against `web-design-guidelines`: `aria-live="polite"`
 - [x] The write gate correctly blocks `/profile` against the real corpus — verified live against `dev:web`: the upload form does not render at all, only the read-only notice.
 - [x] Per-commit review clean; whole-branch review waived by explicit decision, not silently skipped.
 
+### Profile hub, `profile-hub` (2026-09-16)
+
+Real usage of the merged Phase 5 screens found three gaps the exit gate above didn't cover, since none of them are about the extraction/correction flow itself: `/profile` had no nav entry (reachable only via links buried in `/ranked`), no way to delete a profile from the web at all (CLI-only), and — the sharpest one — no way to actually see ranked results without a terminal, since `runRanking` was CLI-only too. Confirmed live: a freshly uploaded, corrected profile showed `/ranked`'s empty state until `npm run rank -- rank --profile <id>` was run by hand.
+
+Also raised in the same conversation and worth recording: **extraction is the only place an LLM runs.** Comparison against listings (`src/ranking/score-opportunity.ts`) is a deterministic scorer, not a model call — real, live confusion this phase's own copy hadn't addressed. `/profile` now states this plainly.
+
+**Fixed, not deferred:**
+- `listCandidateProfiles` (`src/ranking/profile-store.ts`) widened — not forked — with `claimCount` (joined on `profileVersion`, matching `loadCandidateProfile`'s own current-version-only rule) and an explicit newest-first order, replacing incidental DB order. The CLI's `profile:list` keeps working unchanged. `profile-store.test.ts` (new) pins both, plus deletion exclusion.
+- `/profile` is now a real hub: the upload form, plus every profile listed with claim count, age, and per-row **Rank now** / **Delete**. `/profile/[id]` gained the same two actions in its header.
+- Two new actions in `web/app/profile/actions.ts`, shared by both screens: `rankProfile` (calls the same `runRanking` the CLI's `rank` command does) and `deleteProfile` (the existing cascading `deleteCandidateProfile`).
+- Delete is a real, irreversible `DELETE`, so it sits behind an actual confirmation — reusing the exact zero-JS popover mechanism `site-header-nav.tsx`'s mobile menu already uses (`popoverTarget`/`popover="auto"`), not a new pattern.
+- Nav entry added to `NAV_EN`/`NAV_KA`. This file's own history documents the desktop nav's breakpoints (1360px EN / 1600px KA) being tuned twice already after a link-count change overflowed them, each time only caught by re-measuring live rather than assumed. Re-measured the same way before trusting it this time — real viewport resize, `header.scrollWidth` vs `clientWidth`, both locales, at the exact current breakpoints: both still hold with the 8th link, no adjustment needed.
+
+**Codex was checked, not assumed unavailable:** a live `codex exec` call during this session confirmed the same usage-limit outage, cooldown still recorded until Sep 20th, 2026 10:31 AM. This branch's one commit is therefore **OWED**, same convention as every prior outage-driven gap in this file — per-commit review will run once Codex is back.
+
+**Verified live against `dev:web:qa`, not just structurally:** upload → list → **Rank now** (real ranking executed in-app, 25 real result rows, no CLI step) → **Delete** (popover confirm, row disappears, `/ranked`'s picker updates too). Confirmed `dev:web` (writes disabled) shows the list read-only with no upload form or action buttons. `npm run typecheck`, `npm run lint`, and all 780 tests (5 new) pass.
+
 ### The record below
 
 Everything from here down is the record of work that has landed, oldest context first. It is not part of the current phase's own sections above.

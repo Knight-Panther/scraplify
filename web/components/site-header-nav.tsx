@@ -24,6 +24,7 @@ import type { Locale } from '../lib/locale.js';
 const NAV_EN = [
   { href: '/opportunities', label: 'Browse' },
   { href: '/listings', label: 'Listings' },
+  { href: '/profile', label: 'Profile' },
   { href: '/ranked', label: 'Ranked' },
   { href: '/saved', label: 'Shortlist' },
   { href: '/review', label: 'Duplicate review' },
@@ -34,6 +35,7 @@ const NAV_EN = [
 const NAV_KA = [
   { href: '/opportunities', label: 'ვაკანსიები' },
   { href: '/listings', label: 'განცხადებები' },
+  { href: '/profile', label: 'პროფილი' },
   { href: '/ranked', label: 'რანჟირება' },
   { href: '/saved', label: 'შენახულები' },
   { href: '/review', label: 'დუბლიკატების შემოწმება' },

@@ -7,6 +7,7 @@ import { UUID } from '../../../lib/profile-input.js';
 import type { RawSearchParams } from '../../../lib/search-params.js';
 import { one } from '../../../lib/search-params.js';
 import { writesEnabled } from '../../../lib/writes.js';
+import { deleteProfile, rankProfile } from '../actions.js';
 import { saveCorrections } from './actions.js';
 
 /**
@@ -42,14 +43,17 @@ export default async function ProfileDetailPage({
 
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
-      <header>
-        <h1 className="text-xl font-semibold">{profile.label}</h1>
-        <p className="mt-2 max-w-[var(--measure)] text-sm text-muted">
-          Version <span className="numeric">{profile.version}</span> ·{' '}
-          <span className="numeric">{profile.claims.length}</span> claim
-          {profile.claims.length === 1 ? '' : 's'}. Each one below carries the exact text it was
-          drawn from — correct, remove, or add to it, then save.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold">{profile.label}</h1>
+          <p className="mt-2 max-w-[var(--measure)] text-sm text-muted">
+            Version <span className="numeric">{profile.version}</span> ·{' '}
+            <span className="numeric">{profile.claims.length}</span> claim
+            {profile.claims.length === 1 ? '' : 's'}. Each one below carries the exact text it was
+            drawn from — correct, remove, or add to it, then save.
+          </p>
+        </div>
+        {writesEnabled() && <HeaderActions profile={profile} />}
       </header>
 
       {error !== '' && <ErrorNotice message={error} />}
@@ -67,13 +71,69 @@ export default async function ProfileDetailPage({
 
       <p className="mt-6 text-sm">
         <a
-          href={`/ranked?profile=${profile.profileId}`}
+          href="/profile"
           className="text-accent underline underline-offset-2 hover:text-foreground"
         >
-          Rank against this profile
+          All profiles
         </a>
       </p>
     </main>
+  );
+}
+
+function HeaderActions({ profile }: { profile: LoadedProfile }) {
+  const popoverId = `delete-${profile.profileId}`;
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <form action={rankProfile}>
+        <input type="hidden" name="profileId" value={profile.profileId} />
+        <SubmitButton
+          pendingLabel="Ranking…"
+          className="rounded-[var(--radius)] border border-border-strong bg-surface-raised px-3 py-1 text-sm hover:bg-surface-active disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Rank now
+        </SubmitButton>
+      </form>
+
+      {/* Same zero-JS popover confirmation as the hub list — see
+          web/app/profile/page.tsx's ProfileRow for the full rationale. */}
+      <button
+        type="button"
+        popoverTarget={popoverId}
+        className="rounded-[var(--radius)] px-3 py-1 text-sm text-status-held underline underline-offset-2 hover:text-foreground"
+      >
+        Delete
+      </button>
+      <div
+        id={popoverId}
+        popover="auto"
+        className="m-auto max-w-sm rounded-[var(--radius)] border border-border bg-surface p-4 text-sm text-foreground"
+      >
+        <p>
+          Delete <span className="font-medium">{profile.label}</span> permanently? This cannot be
+          undone.
+        </p>
+        <div className="mt-3 flex items-center gap-3">
+          <form action={deleteProfile}>
+            <input type="hidden" name="profileId" value={profile.profileId} />
+            <button
+              type="submit"
+              className="rounded-[var(--radius)] border border-status-held px-3 py-1 text-sm text-status-held hover:bg-status-held hover:text-white"
+            >
+              Yes, delete permanently
+            </button>
+          </form>
+          <button
+            type="button"
+            popoverTarget={popoverId}
+            popoverTargetAction="hide"
+            className="text-sm text-muted underline underline-offset-2 hover:text-foreground"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
