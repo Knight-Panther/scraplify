@@ -89,12 +89,13 @@ This runs one full jobs.ge crawl against the live site (discovery, detail fetch,
 
 ### Scheduling recurring runs (Windows Task Scheduler)
 
-Per `docs/scraplify-concept.md` §19.1, local runs are driven by Windows Task Scheduler rather than an in-process scheduler. To register a recurring job (every 24 hours by default, matching the ~8-9 hour runtime above):
+Per `docs/scraplify-concept.md` §19.1, local runs are driven by Windows Task Scheduler rather than an in-process scheduler. Register one recurring job per source (every 24 hours by default for both; a full jobs.ge run measures ~8-9 hours, a full hr.ge run ~3-4 hours):
 
 ```powershell
 npm run build
-./scripts/register-jobs-ge-schedule.ps1
-# or: ./scripts/register-jobs-ge-schedule.ps1 -IntervalMinutes 720   # every 12h, still >= the measured runtime
+./scripts/register-crawl-schedule.ps1 -Source jobs-ge
+./scripts/register-crawl-schedule.ps1 -Source hr-ge
+# or: ./scripts/register-crawl-schedule.ps1 -Source hr-ge -IntervalMinutes 720   # every 12h, still >= the measured runtime
 ```
 
-This is a deliberate, separate step from building the CLI — registering it starts real, unsupervised, recurring requests against the live jobs.ge site. The script checks `dist/` and `.env` exist first and refuses to register otherwise. It wraps each run in `scripts/run-jobs-ge-crawl.ps1`, which appends output to `logs/jobs-ge-crawl-<date>.log` (gitignored) and preserves the crawl's real exit code so Task Scheduler reports failures accurately. Remove the task with `Unregister-ScheduledTask -TaskName 'Scraplify - jobs.ge crawl' -Confirm:$false`.
+This is a deliberate, separate step from building the CLI — registering starts real, unsupervised, recurring requests against the live site. The script checks `dist/` and `.env` exist first and refuses to register otherwise. Each run goes through `scripts/run-crawl.ps1`, which runs the crawl and then **always** a `run-dedupe --auto-link` pass (so newly crawled listings become browsable opportunities without a manual step), appends both outputs as UTF-8 to `logs/<source>-crawl-<date>.log` (gitignored), and exits non-zero if either step failed so Task Scheduler reports it. Dedupe passes from the two schedules never overlap: they are serialized by a Postgres advisory lock (`src/dedupe/dedupe-lock.ts`). Remove a task with `Unregister-ScheduledTask -TaskName 'Scraplify - jobs-ge crawl' -Confirm:$false` (or `hr-ge`).
