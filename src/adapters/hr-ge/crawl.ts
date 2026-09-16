@@ -1,17 +1,14 @@
 import { createHash } from 'node:crypto';
-import type { ResourceId } from '../../domain/ids.js';
-import type { ResourceRole } from '../../domain/resource.js';
-import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
 import {
   type CrawlRunCounts,
-  failUnsettledCrawlRun,
   extendSourceBackoff,
-  getSourceBackoffUntil,
+  failUnsettledCrawlRun,
   finishCrawlRun,
   getCrawlCursor,
   getCrawlDiscoveryPage,
   getLastCompletedCrawlRun,
   getMaxDiscoveredCountForSource,
+  getSourceBackoffUntil,
   markCrawlRunPartialCoverage,
   recordFetchAttempt,
   recordParserIncident,
@@ -35,14 +32,18 @@ import {
   touchSourceListingSeen,
   writeSourceListingRevision,
 } from '../../db/write-source-listing-revision.js';
+import type { ResourceId } from '../../domain/ids.js';
+import type { ResourceRole } from '../../domain/resource.js';
+import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
+import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import {
   type HttpFetcher,
   type HttpFetchResult,
   SsrfBlockedError,
   UrlNotAllowedError,
 } from '../../net/http-fetcher.js';
-import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import { hrGePolicy, hrGeSource, isHrGeUrlAllowed } from '../../policies/hr-ge.js';
+import { recordRunAnomalies } from '../run-anomalies.js';
 import { classifyHrGeResponse, isHrGeRateLimited } from './challenge.js';
 import { HR_GE_DETAIL_PARSER_VERSION, parseHrGeDetailPage } from './detail.js';
 import { type DiscoveredListing, parseSearchPostingPage } from './discovery.js';
@@ -791,6 +792,38 @@ export async function runHrGeCrawl(
       fetchFailureRate <= maxFetchFailureRate &&
       (incremental || baselineOk) &&
       !control.stopped;
+
+    // A finished full walk that still failed a guard is an anomaly, not a
+    // routine stop or resume — leave a durable incident, not only a
+    // `partial` status (src/adapters/run-anomalies.ts).
+    if (!incremental && complete && fullIndexSweep && !control.stopped) {
+      await recordRunAnomalies(db, {
+        sourceId: hrGeSource.id,
+        crawlRunId: crawlRun.id,
+        detectedAt: now(),
+        guards: [
+          { name: 'totalCount', ok: totalCountOk, countGuard: true },
+          { name: 'baseline', ok: baselineOk, countGuard: true },
+          { name: 'quarantineRate', ok: quarantineRate <= maxQuarantineRate, countGuard: false },
+          {
+            name: 'fetchFailureRate',
+            ok: fetchFailureRate <= maxFetchFailureRate,
+            countGuard: false,
+          },
+        ],
+        discoveredCount: observedIds.size,
+        baselineDiscoveredCount: lastCompletedRun?.discoveredCount ?? null,
+        measurements: {
+          totalCount,
+          maxDiscoveryShortfall,
+          quarantineRate,
+          maxQuarantineRate,
+          fetchFailureRate,
+          maxFetchFailureRate,
+          minRelativeCoverageRatio,
+        },
+      });
+    }
 
     // The discovery position is written only for the two decisive outcomes
     // (a stop with covered ground behind it, or the terminator), and only

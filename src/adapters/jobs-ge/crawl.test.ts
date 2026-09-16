@@ -1020,6 +1020,27 @@ describe('runJobsGeCrawl', () => {
     expect(second.crawlRun.discoveredCount).toBe(2);
     expect(second.crawlRun.status).toBe('partial'); // 2 < 10 * 0.5 — must not be 'completed'
     expect(second.crawlRun.missingCount).toBe(0); // reconciliation must not have run at all
+
+    // Phase 7A: the downgrade also leaves a durable incident, tied to the
+    // collapsed run and naming the guard that tripped — before this it lived
+    // only in a log line, and /health's incident count stayed 0.
+    const incidents = await db
+      .select()
+      .from(parserIncidents)
+      .where(eq(parserIncidents.sourceId, jobsGeSource.id));
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]).toMatchObject({
+      crawlRunId: second.crawlRun.id,
+      kind: 'count_collapse',
+      severity: 'critical',
+      resolved: false,
+    });
+    expect(incidents[0]?.evidence).toMatchObject({
+      origin: 'run_guard',
+      failedGuards: ['baseline'],
+      discoveredCount: 2,
+      baselineDiscoveredCount: 10,
+    });
   });
 
   it('marks the run partial when VIP entirely disappears vs. a run that previously had it, even though the combined total barely moves', async () => {

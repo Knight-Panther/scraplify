@@ -1,19 +1,16 @@
 import { createHash } from 'node:crypto';
-import type { ResourceId } from '../../domain/ids.js';
-import type { ResourceRole } from '../../domain/resource.js';
-import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
 import {
   type CrawlRunCounts,
-  failUnsettledCrawlRun,
   extendSourceBackoff,
-  getSourceBackoffUntil,
-  getCrawlCursor,
-  setCrawlCursor,
+  failUnsettledCrawlRun,
   finishCrawlRun,
+  getCrawlCursor,
   getLastCompletedCrawlRun,
   getMaxDiscoveredCountForSource,
+  getSourceBackoffUntil,
   recordFetchAttempt,
   recordParserIncident,
+  setCrawlCursor,
   startCrawlRun,
   upsertResource,
 } from '../../db/ingest.js';
@@ -32,14 +29,18 @@ import {
   touchSourceListingSeen,
   writeSourceListingRevision,
 } from '../../db/write-source-listing-revision.js';
+import type { ResourceId } from '../../domain/ids.js';
+import type { ResourceRole } from '../../domain/resource.js';
+import type { CrawlRunStatus, FetchOutcome } from '../../domain/run.js';
+import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import {
   type HttpFetcher,
   type HttpFetchResult,
   SsrfBlockedError,
   UrlNotAllowedError,
 } from '../../net/http-fetcher.js';
-import { type FetchControl, responseBackoffUntil } from '../../net/fetch-control.js';
 import { jobsGePolicy, jobsGeSource } from '../../policies/jobs-ge.js';
+import { recordRunAnomalies } from '../run-anomalies.js';
 import { JOBS_GE_DETAIL_PARSER_VERSION, parseJobsGeDetailPage } from './detail.js';
 import { type DiscoveredListing, parseAdsPage } from './discovery.js';
 
@@ -792,6 +793,41 @@ export async function runJobsGeCrawl(
       (incremental || vipOk) &&
       (incremental || standardOk) &&
       !control.stopped;
+
+    // A finished full walk that still failed a guard is an anomaly, not a
+    // routine stop — leave a durable incident, not only a `partial` status
+    // (src/adapters/run-anomalies.ts).
+    if (!incremental && complete && !control.stopped) {
+      await recordRunAnomalies(db, {
+        sourceId: jobsGeSource.id,
+        crawlRunId: crawlRun.id,
+        detectedAt: now(),
+        guards: [
+          { name: 'floor', ok: listings.size >= minExpectedDiscoveredListings, countGuard: true },
+          { name: 'baseline', ok: baselineOk, countGuard: true },
+          { name: 'vipPartition', ok: vipOk, countGuard: true },
+          { name: 'standardPartition', ok: standardOk, countGuard: true },
+          { name: 'quarantineRate', ok: quarantineRate <= maxQuarantineRate, countGuard: false },
+          {
+            name: 'fetchFailureRate',
+            ok: fetchFailureRate <= maxFetchFailureRate,
+            countGuard: false,
+          },
+        ],
+        discoveredCount: listings.size,
+        baselineDiscoveredCount: lastCompletedRun?.discoveredCount ?? null,
+        measurements: {
+          minExpectedDiscoveredListings,
+          vipCount: counts.vipCount,
+          standardCount: counts.standardCount,
+          quarantineRate,
+          maxQuarantineRate,
+          fetchFailureRate,
+          maxFetchFailureRate,
+          minRelativeCoverageRatio,
+        },
+      });
+    }
 
     // Incremental polls leave both cursor branches alone entirely. Writing
     // a resume point from a bounded slice would strand the full walk partway
