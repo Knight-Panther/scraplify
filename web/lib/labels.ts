@@ -1,3 +1,4 @@
+import type { CandidateClaimKind } from '../../src/domain/candidate.js';
 import type {
   dedupeDecidedByEnum,
   dedupeDecisionEnum,
@@ -333,6 +334,42 @@ export function classificationMethodLabel(method: string): Label {
     classificationMethodLabels[method as ClassificationMethod] ?? {
       short: 'unrecognised method',
       explanation: `This build has no label for the classification method "${method}".`,
+    }
+  );
+}
+
+/** §17.1's candidate-claim axes, shown as `/profile/[id]`'s group headings. */
+export const claimKindLabels: Record<CandidateClaimKind, Label> = {
+  role: { short: 'roles', explanation: 'Job titles and roles held.' },
+  skill: { short: 'skills', explanation: 'Specific skills or tools.' },
+  education: { short: 'education', explanation: 'Degrees and areas of study.' },
+  certification: { short: 'certifications', explanation: 'Professional certifications held.' },
+  language: { short: 'languages', explanation: 'Languages spoken.' },
+  location_preference: { short: 'location preference', explanation: 'Where you want to work.' },
+  work_mode_preference: {
+    short: 'work-mode preference',
+    explanation: 'On-site, hybrid, or remote.',
+  },
+  salary_constraint: { short: 'salary constraint', explanation: 'A stated salary requirement.' },
+  schedule_constraint: {
+    short: 'schedule constraint',
+    explanation: 'A stated working-hours requirement.',
+  },
+  preferred_profession: {
+    short: 'preferred professions',
+    explanation: 'Professions or industries you want.',
+  },
+  excluded_profession: {
+    short: 'excluded professions',
+    explanation: 'Professions or industries you want to rule out.',
+  },
+};
+
+export function claimKindLabel(kind: string): Label {
+  return (
+    claimKindLabels[kind as CandidateClaimKind] ?? {
+      short: 'unrecognised kind',
+      explanation: `This build has no label for the claim kind "${kind}".`,
     }
   );
 }

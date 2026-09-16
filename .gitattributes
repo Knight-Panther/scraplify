@@ -29,3 +29,7 @@ src/adapters/hr-ge/fixtures/** -text
 # changes no stored or checked-out bytes, which is why it can safely cover
 # jobs-ge's already-merged fixtures too.
 src/adapters/*/fixtures/** linguist-vendored
+
+# Real .docx/.pdf fixtures whose bytes matter — magic-byte checks and zip
+# structure must round-trip exactly, same reasoning as hr-ge's fixtures above.
+src/cv-parsing/fixtures/** -text
