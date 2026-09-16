@@ -36,7 +36,41 @@ Found by Codex during an independent design review of an unrelated landing-page 
 
 **Consequence for the in-flight landing-page plan (Phase 3E, below):** every "live proof" number that plan cited (310 open vacancies, 410 listings tracked) was computed against the stale, pre-fix corpus and is now wrong at a large margin (the corrected open-vacancy count alone is **3,627**, not 310) — revised before any landing-page code was written, per the same review that caught it.
 
-## Current phase: Phase 7 — operations
+## Current phase: Phase 6 — outreach drafts
+
+**Phase 7A (operations baseline) is merged (PR #16) and running for real; its record and open follow-ups are below.** Phase 6 was started 2026-09-16 while the first scheduled crawls run, by project-owner decision, scoped as **6A — drafts and exact-content approval, with no sending of any kind**.
+
+### Phase 6A — outreach drafts, stage plan (written 2026-09-16, before any code)
+
+**The rule this phase exists to enforce (concept §18, §25 Phase 6 exit gate):** drafting does not imply approval; an approval binds the exact recipient, subject, body, attachments, listing and version; any change after approval invalidates it; every approval and mutation is audited; **no external action is possible without a current explicit approval.** 6A builds the draft and approval half and deliberately **no send path at all** — no SMTP, no HTTP submit, no messaging channel. A later 6B adds one channel, gated on the approvals built here.
+
+**Grounding, checked against the live corpus first:** of 3,803 active listings, 2,485 apply by `email` (with a real address), 1,221 by `url`, 67 by `form`, 30 unspecified. So a draft is an **email** (recipient taken from the listing's own application method, never typed or inferred) when the listing carries an email, and otherwise a **cover letter** with no recipient.
+
+**Decision 1 — drafts are written by Claude, from the corrected profile claims and the listing text only.** Same model and pattern as Phase 5's extraction (`claude-opus-5`, forced tool use, fake client in tests, nothing about the profile or the draft ever logged). The tool schema returns the subject, body, and the ids of the profile claims the text relies on; ids that do not belong to the profile are rejected, and the draft screen lists the claims used, so any statement can be traced to a claim the person reviewed. The prompt forbids stating experience, skills, years or qualifications absent from the claims — the letter-writing equivalent of "never render invented data." Language defaults to the listing's own (Georgian listing → Georgian draft), switchable EN/KA. Generating sends derived CV data to Anthropic, so it carries the same required per-submission acknowledgment Phase 5's upload does (§23.2).
+
+**Decision 2 — approval is a hash over the exact content, and invalidation is explicit AND checked.** New tables (migration reviewed by `migration-safety-reviewer`; additive only):
+- `outreach_drafts` — profile id + profile version, opportunity id + opportunity revision id, source listing id, kind (`email` | `cover_letter`), recipient (null for a cover letter), subject, body, language, model/prompt version, timestamps, soft delete.
+- `outreach_approvals` — draft id, `content_hash` (sha-256 over kind, recipient, subject, body, attachments — none in 6A — opportunity revision id, profile version), approved_at, invalidated_at + reason.
+- `audit_events` — entity type/id, action (`draft_generated`, `draft_edited`, `draft_approved`, `approval_invalidated`, `draft_deleted`), at, and hashes/ids only — **never draft or profile text**.
+
+An approval is **current** only if it is not invalidated, its hash equals the draft's hash recomputed now, and the opportunity revision it bound is still the opportunity's current one. Saving an edit invalidates any current approval in the same transaction; the recompute is the defense in depth if some future write path forgets.
+
+**Stages:**
+1. **Store and domain** (`src/outreach/`): schema + migration, `createDraft`/`editDraft`/`approveDraft`/`deleteDraft`/`loadDraft` with hashing, invalidation and audit in one transaction each; tests including "edit after approval invalidates", "listing revision change makes the approval stale", "approving stale content is refused", "audit carries no content".
+2. **Generation** (`src/outreach/generate-draft.ts`): the Claude call, claim-id validation, recipient from the listing only; fake-client tests; no content in logs, verified by grepping real log output as in Phase 5.
+3. **Web**: a "Draft application" action on `/ranked` rows → `/drafts/[id]` editor (recipient read-only, subject/body editable, claims used, Save, Approve, current-approval state) and a `/drafts` list. The only "ready to use" affordances — copy text, and for an email an "open in your mail app" `mailto:` link, which still leaves pressing send to the person — render **only while the approval is current**. Every mutation behind `assertWritesEnabled()`; browser QA against `dev:web:qa`.
+4. **Review gate**: `security-review` plus an approval-workflow pass (concept §24's Phase 6 row: exact-content approval, invalidation after edits, recipient binding, audit events), and a search proving no send path exists.
+
+**Development constraint while the scheduled crawls run:** no `npm run build` (the running wrappers call `dist/` for dedupe and taxonomy when each crawl ends). The migration is additive (new tables only), applied to `scraplify_qa` for browser QA and to the real database for the test suite.
+
+**Exit gate (6A):**
+- [ ] A draft can be generated from a real profile and a real listing, edited, and approved, end to end in a browser against the disposable database.
+- [ ] Any edit invalidates a current approval, a changed listing revision makes it stale, and the copy/`mailto:` affordances disappear in both cases — covered by tests and seen in the browser.
+- [ ] Every generate/edit/approve/invalidate/delete writes an audit event with no draft or profile text in it; no draft or profile text in application logs on a real generation.
+- [ ] No send, submit or messaging code exists anywhere in the repo (verified by search, recorded here).
+- [ ] Per-commit review clean or recorded OWED; whole-branch review run or explicitly waived.
+
+## Earlier phase: Phase 7 — operations
 
 **Phase 5 (CV parsing) and the profile hub are both merged (PR #14, PR #15); their records below are unchanged.** Phase 7 was chosen next (2026-09-16) over Phases 4 and 6 because the 2026-09-15 incident showed the corpus can silently go stale for days, and nothing ran unattended at all. Scoped as **Phase 7A — operations baseline**; see its stage plan below.
 
