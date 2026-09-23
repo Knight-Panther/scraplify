@@ -12,8 +12,11 @@
 --
 -- Prerequisite: drizzle/migrations/0023_goofy_moondragon.sql (Stage 3's own
 -- migration, creating public_opportunities and public_opportunity_members)
--- must already be applied via `npm run db:migrate` — this script only
--- grants access to views that migration creates.
+-- AND drizzle/migrations/0024_sharp_hammerhead.sql (Stage 4 round 3, adding
+-- public_source_listings — the public /listings screen's own raw-listing
+-- view, independent of dedupe/membership state) must already be applied via
+-- `npm run db:migrate` — this script only grants access to views those
+-- migrations create.
 --
 -- Replace <STRONG_PASSWORD_HERE> before running. Do not commit the real
 -- password anywhere, and do not paste it into chat — put it straight into
@@ -41,25 +44,27 @@ CREATE ROLE scraplify_public LOGIN PASSWORD '<STRONG_PASSWORD_HERE>';
 GRANT CONNECT ON DATABASE scraplify TO scraplify_public;
 GRANT USAGE ON SCHEMA public TO scraplify_public;
 
--- 3. The entire visible surface: SELECT on Stage 3's two views, and NOTHING
+-- 3. The entire visible surface: SELECT on these three views, and NOTHING
 --    ELSE. No grant follows on any base table (opportunities,
 --    source_listings, sources, opportunity_source_memberships, or any
 --    other) — PostgreSQL views run with the privileges of their OWNER by
 --    default (the role that ran the migration), so scraplify_public needs
 --    no direct grant on a base table to read through these views. That is
 --    what makes this a real boundary: even a future public-surface query
---    with a bug has nothing to fall back on beyond these two views.
+--    with a bug has nothing to fall back on beyond these three views.
 GRANT SELECT ON public.public_opportunities TO scraplify_public;
 GRANT SELECT ON public.public_opportunity_members TO scraplify_public;
+GRANT SELECT ON public.public_source_listings TO scraplify_public;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --
 --    a) \du+ scraplify_public
 --       Confirm: no Superuser, no Create DB, no Create role, no Bypass RLS.
 --
---    b) Connected AS scraplify_public, confirm the two views ARE readable:
+--    b) Connected AS scraplify_public, confirm all three views ARE readable:
 --         SELECT count(*) FROM public_opportunities;
 --         SELECT count(*) FROM public_opportunity_members;
+--         SELECT count(*) FROM public_source_listings;
 --
 --    c) Connected AS scraplify_public, confirm everything else is NOT —
 --       every one of these must fail with "permission denied":

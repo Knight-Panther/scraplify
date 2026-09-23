@@ -4,6 +4,7 @@
 // ordinary runtime import with no compile-time transform keyed on the
 // specifier, so the explicit path is safe as well as necessary.
 import { notFound } from 'next/navigation.js';
+import { publicGetOpportunity } from '../../../../../src/browse/public-queries.js';
 import { getOpportunity } from '../../../../../src/browse/queries.js';
 import { db } from '../../../../../src/db/client.js';
 import { decisionsByOpportunity } from '../../../../../src/shortlist/decisions.js';
@@ -24,14 +25,39 @@ import {
   opportunityTypeLabel,
   sourceLabel,
 } from '../../../../lib/labels.js';
-import { writesEnabled } from '../../../../lib/writes.js';
-import { detachFromOpportunity } from './actions.js';
 import {
   type BoardColumn,
   type Cell,
   type OpportunityDetail,
   toDetail,
 } from '../../../../lib/opportunity-detail.js';
+import { toPublicDetail } from '../../../../lib/public-opportunity-detail.js';
+import { currentSurface } from '../../../../lib/surface.js';
+import { writesEnabled } from '../../../../lib/writes.js';
+import { detachFromOpportunity } from './actions.js';
+
+/**
+ * The fields both `OpportunityDetail` (local, with dedupe/audit sections) and
+ * `PublicOpportunityDetail` (Phase 8B Stage 4, no dedupe fields at all)
+ * actually carry — `Header`/`Comparison`/`Apply`/`Descriptions`/`Extras`
+ * render identically for both surfaces and only need this common shape.
+ * `FormerBoards`/`Provenance`/`DecisionControl`/`DetachControl` are local-only
+ * and take `OpportunityDetail` directly, gated on `surface !== 'public'` in
+ * the page body below rather than made to accept this narrower type.
+ */
+type DetailForDisplay = Pick<
+  OpportunityDetail,
+  | 'opportunityId'
+  | 'title'
+  | 'status'
+  | 'type'
+  | 'columns'
+  | 'comparison'
+  | 'apply'
+  | 'descriptions'
+  | 'extras'
+  | 'crossPosted'
+> & { canonicalIsStale?: boolean };
 
 /**
  * One opportunity in full.
@@ -70,14 +96,44 @@ export default async function OpportunityPage({
   searchParams: Promise<{ back?: string | string[]; conflict?: string | string[] }>;
 }) {
   const { id } = await params;
+  const surface = currentSurface();
+  const query = await searchParams;
+  const conflict = Array.isArray(query.conflict) ? query.conflict[0] : query.conflict;
+
+  if (surface === 'public') {
+    // publicGetOpportunity covers both "no such id" and "not a uuid at all"
+    // the same way getOpportunity does. No dedupe evidence, no former
+    // members, no revision/staleness bookkeeping — see toPublicDetail's own
+    // comment for why: PublicOpportunityDetailView has none of those fields
+    // to leak in the first place, not merely values it happens to omit.
+    const view = await publicGetOpportunity(db, id);
+    if (view === null) notFound();
+    const detail = toPublicDetail(view);
+    return (
+      <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
+        <BackLink back={query.back} opportunityId={detail.opportunityId} />
+        {/* No ConflictNotice here, deliberately: `?conflict=` is only ever set
+            by `detachFromOpportunity`'s own redirect, a local-only Server
+            Action (`assertLocalSurface()`-guarded). Rendering an arbitrary
+            query-string value verbatim in an authoritative-looking warning
+            box on a real Xtelo URL would let anyone craft a link that shows a
+            visitor a site-looking notice this site never generated (Codex,
+            2026-09-24). */}
+        <Header detail={detail} hasFormerBoards={false} />
+        <Comparison detail={detail} />
+        <Apply detail={detail} />
+        <Descriptions detail={detail} />
+        <Extras detail={detail} />
+      </main>
+    );
+  }
+
   const view = await getOpportunity(db, id);
   // Covers both "no such id" and "not a uuid at all" — see getOpportunity,
   // which refuses to hand a malformed id to Postgres.
   if (view === null) notFound();
 
   const detail = toDetail(view);
-  const query = await searchParams;
-  const conflict = Array.isArray(query.conflict) ? query.conflict[0] : query.conflict;
 
   // The one screen with enough context to decide from: the boards compared,
   // the descriptions, and what the grouping rests on are all on this page.
@@ -88,7 +144,7 @@ export default async function OpportunityPage({
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
       <BackLink back={query.back} opportunityId={detail.opportunityId} />
       {conflict !== undefined && conflict !== '' && <ConflictNotice message={conflict} />}
-      <Header detail={detail} />
+      <Header detail={detail} hasFormerBoards={detail.formerBoards.length > 0} />
       <section className="mt-4">
         <DecisionControl
           opportunityId={detail.opportunityId}
@@ -165,7 +221,20 @@ function BackLink({
   );
 }
 
-function Header({ detail }: { detail: OpportunityDetail }) {
+function Header({
+  detail,
+  hasFormerBoards,
+}: {
+  detail: DetailForDisplay;
+  /**
+   * Passed explicitly rather than read off `detail.formerBoards` — that
+   * field is local-only audit history and deliberately not part of
+   * `DetailForDisplay`, which both surfaces' `Header` calls share. The
+   * public surface always passes `false`: it has no former-boards concept
+   * to show at all, not merely an empty one.
+   */
+  hasFormerBoards: boolean;
+}) {
   const type = detail.type === 'job' ? null : opportunityTypeLabel(detail.type);
   const employers = [
     ...new Set(
@@ -205,7 +274,7 @@ function Header({ detail }: { detail: OpportunityDetail }) {
       )}
       <p className="mt-2 text-sm text-faint">
         {detail.columns.length === 0 ? (
-          detail.formerBoards.length > 0 ? (
+          hasFormerBoards ? (
             'No listings are currently grouped into this record. What was detached from it is listed below.'
           ) : (
             'No listings are currently grouped into this record, and nothing is recorded about what was.'
@@ -281,7 +350,7 @@ function CellValue({ cell }: { cell: Cell | null }) {
  * contrast requirement and a tooltip is unavailable on touch — the list screen
  * already learned this about its own conflict marker.
  */
-function Comparison({ detail }: { detail: OpportunityDetail }) {
+function Comparison({ detail }: { detail: DetailForDisplay }) {
   if (detail.columns.length === 0 || detail.comparison.length === 0) return null;
 
   return (
@@ -376,7 +445,7 @@ function applicationHost(href: string): string {
   }
 }
 
-function Apply({ detail }: { detail: OpportunityDetail }) {
+function Apply({ detail }: { detail: DetailForDisplay }) {
   if (detail.apply.length === 0) return null;
 
   return (
@@ -440,7 +509,7 @@ function Apply({ detail }: { detail: OpportunityDetail }) {
  * the prose it is rather than split into invented headings or bullets. The
  * measure is capped because these run to 6,657 characters at worst.
  */
-function Descriptions({ detail }: { detail: OpportunityDetail }) {
+function Descriptions({ detail }: { detail: DetailForDisplay }) {
   if (detail.descriptions.length === 0) return null;
 
   return (
@@ -473,7 +542,7 @@ function Descriptions({ detail }: { detail: OpportunityDetail }) {
  * Georgian — normalising them here would be inventing data, and the taxonomy
  * work that maps them properly is a later stage.
  */
-function Extras({ detail }: { detail: OpportunityDetail }) {
+function Extras({ detail }: { detail: DetailForDisplay }) {
   if (detail.extras.length === 0) return null;
 
   return (

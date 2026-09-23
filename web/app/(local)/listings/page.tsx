@@ -1,7 +1,18 @@
+import {
+  publicCountListings,
+  publicSearchListings,
+  publicSourceOverview,
+} from '../../../../src/browse/public-queries.js';
 import { countListings, getSourceHealth, searchListings } from '../../../../src/browse/queries.js';
 import { db } from '../../../../src/db/client.js';
 import { StatusChip } from '../../../components/status-chip.js';
-import { absoluteTime, count, relativeTime, sourceDate, sourceDateTime } from '../../../lib/format.js';
+import {
+  absoluteTime,
+  count,
+  relativeTime,
+  sourceDate,
+  sourceDateTime,
+} from '../../../lib/format.js';
 import { listingStatusLabels, sourceLabel } from '../../../lib/labels.js';
 import {
   buildListingHref,
@@ -11,6 +22,7 @@ import {
   viewHref,
 } from '../../../lib/listing-params.js';
 import { type RawSearchParams, ROW_CHUNK } from '../../../lib/search-params.js';
+import { currentSurface, type Surface } from '../../../lib/surface.js';
 import type { ListingView } from '../../../../src/browse/queries.js';
 
 /**
@@ -38,16 +50,34 @@ export default async function ListingsPage({
   searchParams: Promise<RawSearchParams>;
 }) {
   const raw = await searchParams;
+  const surface = currentSurface();
 
   // From the database rather than a hardcoded pair, so adding a third board
-  // does not leave a filter silently missing it.
-  const health = await getSourceHealth(db);
-  const slugs = health.map((source) => source.sourceSlug);
+  // does not leave a filter silently missing it. Surface-aware for the same
+  // reason as /opportunities: getSourceHealth reads crawl-run diagnostics the
+  // public database role has no grant on (Phase 8B Stage 4).
+  const slugs =
+    surface === 'public'
+      ? (await publicSourceOverview(db)).map((s) => s.sourceSlug)
+      : (await getSourceHealth(db)).map((s) => s.sourceSlug);
 
   const query = parseListingQuery(raw, slugs);
 
-  const total = await countListings(db, query.filters);
-  const rows = await fetchRows(query, Math.min(query.show, total));
+  // `held` and `changed` are local-only views (Codex, 2026-09-24): on the
+  // public surface neither can ever return a row (the public views exclude
+  // quarantined listings by construction, and `changedOnly` is forced to
+  // zero by `publicListingConditions`), so their real empty-state copy would
+  // assert a fact about the corpus rather than about what this role can see.
+  // Reached only via a hand-typed `?view=held`/`?view=changed` URL, since
+  // `Views` below no longer links to either for `surface === 'public'`.
+  const viewUnavailable = surface === 'public' && query.view.localOnly;
+
+  const total = viewUnavailable
+    ? 0
+    : surface === 'public'
+      ? await publicCountListings(db, query.filters)
+      : await countListings(db, query.filters);
+  const rows = viewUnavailable ? [] : await fetchRows(surface, query, Math.min(query.show, total));
   const more = total - rows.length;
   const filtered = query.form.q !== '' || query.form.source !== '' || query.form.status !== '';
 
@@ -65,19 +95,25 @@ export default async function ListingsPage({
         </p>
       </header>
 
-      <Views query={query} />
+      <Views query={query} surface={surface} />
       <Filters query={query} slugs={slugs} />
 
-      <p className="mt-4 text-sm text-faint">
-        <span className="numeric">{count(total)}</span>
-        {total === 1 ? ' listing' : ' listings'}
-        {query.view.value !== '' && ` · ${query.view.blurb}`}
-      </p>
-
-      {rows.length === 0 ? (
-        <EmptyState query={query} filtered={filtered} />
+      {viewUnavailable ? (
+        <UnavailableView view={query.view.label} />
       ) : (
-        <ResultsTable rows={rows} />
+        <>
+          <p className="mt-4 text-sm text-faint">
+            <span className="numeric">{count(total)}</span>
+            {total === 1 ? ' listing' : ' listings'}
+            {query.view.value !== '' && ` · ${query.view.blurb}`}
+          </p>
+
+          {rows.length === 0 ? (
+            <EmptyState query={query} filtered={filtered} />
+          ) : (
+            <ResultsTable rows={rows} />
+          )}
+        </>
       )}
 
       <ShowMore query={query} shown={rows.length} more={more} />
@@ -90,14 +126,18 @@ export default async function ListingsPage({
  * than being raised to suit one screen. Safe under OFFSET only because the
  * ordering ends in `sourceListings.id`.
  */
-async function fetchRows(query: ListingQuery, wanted: number): Promise<ListingView[]> {
+async function fetchRows(
+  surface: Surface,
+  query: ListingQuery,
+  wanted: number,
+): Promise<ListingView[]> {
   const rows: ListingView[] = [];
   for (let offset = 0; offset < wanted; offset += ROW_CHUNK) {
-    const batch = await searchListings(db, {
-      ...query.filters,
-      limit: Math.min(ROW_CHUNK, wanted - offset),
-      offset,
-    });
+    const filters = { ...query.filters, limit: Math.min(ROW_CHUNK, wanted - offset), offset };
+    const batch =
+      surface === 'public'
+        ? await publicSearchListings(db, filters)
+        : await searchListings(db, filters);
     rows.push(...batch);
     if (batch.length === 0) break;
   }
@@ -110,11 +150,14 @@ async function fetchRows(query: ListingQuery, wanted: number): Promise<ListingVi
  * `aria-current="page"` rather than styling alone, so which view is active is
  * announced and not merely visible.
  */
-function Views({ query }: { query: ListingQuery }) {
+function Views({ query, surface }: { query: ListingQuery; surface: Surface }) {
+  // `held`/`changed` link nowhere useful on the public surface — see
+  // `listing-params.ts`'s `localOnly` comment.
+  const views = surface === 'public' ? VIEWS.filter((view) => !view.localOnly) : VIEWS;
   return (
     <nav aria-label="Views" className="mt-6">
       <ul className="flex flex-wrap gap-x-1 gap-y-2 text-sm">
-        {VIEWS.map((view) => {
+        {views.map((view) => {
           const active = view.value === query.view.value;
           return (
             <li key={view.value || 'all'}>
@@ -343,6 +386,21 @@ function NarrowMeta({ row, employer }: { row: ListingView; employer: string }) {
         </>
       )}
     </span>
+  );
+}
+
+/**
+ * What a hand-typed `?view=held`/`?view=changed` URL renders on the public
+ * surface, instead of running the query at all. Naming the real reason
+ * ("this role can't see that", an access boundary) rather than either view's
+ * local empty-state copy, which would otherwise assert something false about
+ * the corpus itself — see `listing-params.ts`'s `localOnly` comment.
+ */
+function UnavailableView({ view }: { view: string }) {
+  return (
+    <p className="mt-4 max-w-[var(--measure)] rounded-[var(--radius)] border border-border bg-surface px-4 py-6 text-sm text-muted">
+      The “{view}” view isn’t available here — it needs access this site doesn’t have publicly.
+    </p>
   );
 }
 

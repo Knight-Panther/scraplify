@@ -39,18 +39,21 @@ export const VIEWS = [
     label: 'everything',
     blurb: 'Every listing either board has shown us, newest first.',
     empty: 'No listing matches these filters.',
+    localOnly: false,
   },
   {
     value: 'new',
     label: 'new',
     blurb: 'First seen in the last 7 days.',
     empty: 'Nothing new in the last 7 days.',
+    localOnly: false,
   },
   {
     value: 'closing',
     label: 'closing soon',
     blurb: 'Still open, with a deadline inside the next 7 days.',
     empty: 'Nothing states a deadline inside the next 7 days.',
+    localOnly: false,
   },
   {
     value: 'missing',
@@ -58,13 +61,22 @@ export const VIEWS = [
     blurb:
       'Not seen on the last crawl. A suspicion, not a fact — the board may simply have changed how it lists jobs.',
     empty: 'Every listing was seen on its board’s most recent crawl.',
+    localOnly: false,
   },
+  // `held` and `changed` are both LOCAL-ONLY (Codex, 2026-09-24): `held`'s
+  // `statuses: ['quarantined']` can never match anything through the public
+  // views (they exclude quarantined rows by construction), and `changed`'s
+  // `changedOnly` is forced to zero rows by `publicListingConditions` — so on
+  // the public surface either one's real empty-state copy ("Nothing has been
+  // held back", "No listing has been edited") would assert a fact about the
+  // corpus that isn't true, only that this role cannot see it.
   {
     value: 'held',
     label: 'held back',
     blurb:
       'Something failed to parse cleanly, so the listing is withheld rather than shown as understood.',
     empty: 'Nothing has been held back. No listing has failed to parse.',
+    localOnly: true,
   },
   {
     value: 'changed',
@@ -72,6 +84,7 @@ export const VIEWS = [
     blurb:
       'The board edited the listing after we first captured it. Content changes only — a listing moving between states is not recorded anywhere.',
     empty: 'No listing has been edited since it was first captured.',
+    localOnly: true,
   },
 ] as const;
 

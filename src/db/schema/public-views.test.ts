@@ -14,6 +14,7 @@ import {
   opportunitySourceMemberships,
   publicOpportunities,
   publicOpportunityMembers,
+  publicSourceListings,
   sourceListingRevisions,
   sourceListings,
 } from './index.js';
@@ -97,6 +98,46 @@ describe('public database views', () => {
     });
 
     return { opportunityId, listingId: listing.id, title };
+  }
+
+  /** A source listing with no opportunity/membership at all — the shape a fresh crawl writes before dedupe has clustered it. */
+  async function addBareListing(spec: {
+    status: 'active' | 'quarantined';
+  }): Promise<{ listingId: string; title: string }> {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const listing = await createTestSourceListing(sourceId, { status: spec.status });
+    const resourceId = await createTestResource(sourceId);
+    const revisionId = randomUUID();
+    const title = `Public view bare listing ${randomUUID().slice(0, 8)}`;
+    await db.insert(sourceListingRevisions).values({
+      id: revisionId,
+      sourceListingId: listing.id,
+      parserVersion: 'test-v1',
+      extractionMethod: 'http',
+      rawResourceHash: 'a'.repeat(64),
+      meaningfulContentHash: randomUUID().replace(/-/g, '').padEnd(64, '0'),
+      titleRaw: title,
+      titleNormalized: title.toLowerCase(),
+      organizationRaw: 'Public View Test Org',
+      description: 'a public-safe description',
+      locations: [],
+      publishedDate: { raw: '', parsed: '2026-09-01T00:00:00Z' },
+      deadlineDate: { raw: '', parsed: '2026-12-01T00:00:00Z' },
+      applicationMethod: { type: 'email', value: 'apply@example.invalid' },
+      sourceCategories: [],
+      structuredAttributes: {},
+      createdAt: '2026-09-01T00:00:00Z',
+      provenanceResourceId: resourceId,
+      provenanceFetchedAt: '2026-09-01T00:00:00Z',
+      provenanceNotes: null,
+    });
+    await db
+      .update(sourceListings)
+      .set({ currentRevisionId: revisionId })
+      .where(eq(sourceListings.id, listing.id));
+    listingIds.push(listing.id);
+    return { listingId: listing.id, title };
   }
 
   afterEach(async () => {
@@ -185,6 +226,43 @@ describe('public database views', () => {
       .select()
       .from(publicOpportunityMembers)
       .where(eq(publicOpportunityMembers.sourceListingId, listingId));
+    expect(rows).toHaveLength(0);
+  });
+
+  /**
+   * `public_source_listings` (Stage 4 round 3): unlike `public_opportunity_members`
+   * above, this one has no join to `opportunities`/`opportunity_source_memberships`
+   * at all, precisely so a listing dedupe hasn't clustered yet is still visible
+   * to the public `/listings` screen (Codex, 2026-09-24) — `getSourceHealth`'s
+   * own `unlinkedRows` already tracks this as a normal, expected gap, not a
+   * rare edge case.
+   */
+  it('public_source_listings includes a listing with no opportunity membership at all', async () => {
+    const { listingId, title } = await addBareListing({ status: 'active' });
+
+    // Absent from the membership-based view — proving this really is an
+    // UNCLUSTERED listing, not a fixture bug.
+    const memberRows = await db
+      .select()
+      .from(publicOpportunityMembers)
+      .where(eq(publicOpportunityMembers.sourceListingId, listingId));
+    expect(memberRows).toHaveLength(0);
+
+    const [row] = await db
+      .select()
+      .from(publicSourceListings)
+      .where(eq(publicSourceListings.sourceListingId, listingId));
+    expect(row?.title).toBe(title);
+    expect(row?.status).toBe('active');
+  });
+
+  it('public_source_listings excludes a quarantined listing', async () => {
+    const { listingId } = await addBareListing({ status: 'quarantined' });
+
+    const rows = await db
+      .select()
+      .from(publicSourceListings)
+      .where(eq(publicSourceListings.sourceListingId, listingId));
     expect(rows).toHaveLength(0);
   });
 });

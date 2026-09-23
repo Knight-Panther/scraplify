@@ -1,4 +1,10 @@
 import {
+  publicCountOpportunities,
+  publicLastSeen,
+  publicSearchOpportunities,
+  publicSourceOverview,
+} from '../../../src/browse/public-queries.js';
+import {
   type OpportunityView,
   countOpportunities,
   getSourceHealth,
@@ -12,6 +18,7 @@ import { type HeadlineRun, type HeroCopy, heroCopy } from '../../lib/hero-copy.j
 import { sourceLabel } from '../../lib/labels.js';
 import { type Locale, currentLocale } from '../../lib/locale.js';
 import { type OpportunityRow, toRow } from '../../lib/opportunity-row.js';
+import { currentSurface } from '../../lib/surface.js';
 import { lastCompletedSync } from '../../lib/sync.js';
 
 export const dynamic = 'force-dynamic';
@@ -83,7 +90,12 @@ export default async function Page() {
                 />
                 <span className="tracking-[0.22em]">
                   {hero.boardsLabel}
-                  {hero.lastSync !== undefined && <> · synced {relativeTime(hero.lastSync)}</>}
+                  {hero.lastSync !== undefined && (
+                    <>
+                      {' '}
+                      · {hero.lastSyncLabel} {relativeTime(hero.lastSync)}
+                    </>
+                  )}
                 </span>
               </p>
             )}
@@ -210,6 +222,15 @@ type HeroData =
       boardsCount: number;
       trackedCount: number;
       lastSync: string | undefined;
+      /**
+       * `lastSync`'s own honest label. `lastCompletedSync` (local) is a real
+       * full-coverage crawl completion, worth calling "synced"; `publicLastSeen`
+       * (public) is only the newest per-listing confirmation the public role can
+       * see — a single incrementally-confirmed listing can advance it with most
+       * of the catalogue still stale, so calling that "synced" too would assert
+       * a full-coverage guarantee this role has no way to back (Codex, 2026-09-24).
+       */
+      lastSyncLabel: string;
       openCount: number;
       panelRows: PanelRow[];
       tickerRows: OpportunityRow[];
@@ -228,25 +249,67 @@ const HEADLINE_DELAY_CLASSES = [
   '[animation-delay:440ms]',
 ];
 
+/**
+ * The board list and tracked count, surface-aware.
+ *
+ * `getSourceHealth` carries crawl-run diagnostics (§30.2, Stage 4) the public
+ * database role has no grant to read at all — `publicSourceOverview` is the
+ * public equivalent, grouped from `public_opportunity_members` instead.
+ * One real, unavoidable difference: `getSourceHealth` lists every REGISTERED
+ * source from the `sources` table, even one with zero current listings;
+ * `publicSourceOverview` can only ever list a source that has at least one
+ * live, non-quarantined listing right now, since the public role has no
+ * grant on `sources` itself. Not a gap in practice today (both real sources
+ * have live listings), but a real, stated boundary of what this role can see.
+ */
+async function loadBoardOverview(surface: ReturnType<typeof currentSurface>): Promise<{
+  sortedSlugs: string[];
+  trackedCount: number;
+  lastSync: string | undefined;
+  lastSyncLabel: string;
+}> {
+  if (surface === 'public') {
+    const overview = await publicSourceOverview(db);
+    return {
+      sortedSlugs: overview.map((source) => source.sourceSlug).sort(),
+      trackedCount: overview.reduce((sum, source) => sum + source.trackedCount, 0),
+      lastSync: publicLastSeen(overview),
+      // Deliberately not "synced" — see `HeroData.lastSyncLabel`'s own comment.
+      lastSyncLabel: 'last confirmed',
+    };
+  }
+  const health = await getSourceHealth(db);
+  // getSourceHealth's row order is whatever Postgres happened to return (no
+  // ORDER BY in the query) — sorted here so the kicker's board list reads the
+  // same on every render rather than depending on incidental result order (a
+  // Codex design review found this during this screen's own build).
+  const sortedSlugs = health.map((source) => source.sourceSlug).sort();
+  const trackedCount = health.reduce(
+    (sum, source) => sum + Object.values(source.listingsByStatus).reduce((a, b) => a + b, 0),
+    0,
+  );
+  return {
+    sortedSlugs,
+    trackedCount,
+    lastSync: lastCompletedSync(health),
+    lastSyncLabel: 'synced',
+  };
+}
+
 async function loadHeroData(): Promise<HeroData> {
   try {
+    const surface = currentSurface();
     const genuinelyOpenAsOf = new Date().toISOString();
-    const [health, openCount, eligible] = await Promise.all([
-      getSourceHealth(db),
-      countOpportunities(db, { genuinelyOpenAsOf }),
-      searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
-    ]);
-
-    // getSourceHealth's row order is whatever Postgres happened to return
-    // (no ORDER BY in the query) — sorted here so the kicker's board list
-    // reads the same on every render rather than depending on incidental
-    // result order (found during this screen's own Codex design review).
-    const sortedHealth = [...health].sort((a, b) => a.sourceSlug.localeCompare(b.sourceSlug));
-
-    const trackedCount = health.reduce(
-      (sum, source) => sum + Object.values(source.listingsByStatus).reduce((a, b) => a + b, 0),
-      0,
-    );
+    const [{ sortedSlugs, trackedCount, lastSync, lastSyncLabel }, openCount, eligible] =
+      await Promise.all([
+        loadBoardOverview(surface),
+        surface === 'public'
+          ? publicCountOpportunities(db, { genuinelyOpenAsOf })
+          : countOpportunities(db, { genuinelyOpenAsOf }),
+        surface === 'public'
+          ? publicSearchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN })
+          : searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
+      ]);
 
     const nowMs = Date.parse(genuinelyOpenAsOf);
     // Per-source "is THIS member genuinely open," not just the opportunity
@@ -276,10 +339,11 @@ async function loadHeroData(): Promise<HeroData> {
 
     return {
       ok: true,
-      boardsLabel: sortedHealth.map((source) => sourceLabel(source.sourceSlug)).join(' + '),
-      boardsCount: health.length,
+      boardsLabel: sortedSlugs.map((slug) => sourceLabel(slug)).join(' + '),
+      boardsCount: sortedSlugs.length,
       trackedCount,
-      lastSync: lastCompletedSync(health),
+      lastSync,
+      lastSyncLabel,
       openCount,
       panelRows,
       tickerRows,

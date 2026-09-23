@@ -14,8 +14,9 @@ import { sources } from './sources.js';
 
 /**
  * The public database role's entire visible surface (concept §30.2, Phase 8B
- * Stage 3). This role is granted `SELECT` on these two views ONLY — never on
- * any base table — so the boundary holds even if a future public-surface
+ * Stage 3, extended Stage 4 round 3 with `public_source_listings`). This role
+ * is granted `SELECT` on these three views ONLY — never on any base table —
+ * so the boundary holds even if a future public-surface
  * query has a bug: there is no grant to fall back on for
  * `opportunity_source_memberships.evidence`, `shortlist_decisions`,
  * `duplicate_candidates`, `outreach_drafts`, `candidate_profiles`,
@@ -107,4 +108,52 @@ export const publicOpportunityMembers = pgView('public_opportunity_members', {
   inner join ${sourceListingRevisions} on ${sourceListingRevisions.id} = ${sourceListings.currentRevisionId}
   where ${opportunitySourceMemberships.supersededAt} is null
     and ${sourceListings.status} <> 'quarantined'
+`);
+
+/**
+ * One row per non-quarantined source listing, regardless of dedupe/membership
+ * state — the public-safe equivalent of what `src/browse/queries.ts`'s
+ * `searchListings`/`countListings` already read directly off `source_listings`
+ * (no membership join at all). `public_opportunity_members` above is the wrong
+ * base for `/listings` (Codex, 2026-09-24): it requires a LIVE
+ * `opportunity_source_memberships` row via an inner join, so any listing a
+ * crawl has written but dedupe hasn't clustered yet — the normal, expected gap
+ * `getSourceHealth`'s own `unlinkedRows`/`UNLINKED_GRACE_HOURS` tracks as a
+ * routine operational state, not a rare edge case — would be silently absent
+ * from the public raw-listing view entirely, contradicting change.md §5's own
+ * "`/listings` — Separate raw source postings" contract. Same fields as
+ * `ListingView` (no dedupe/opportunity linkage of any kind, since a listing
+ * here may not have any), same quarantine exclusion as every other public
+ * view, deliberately no join to `opportunities`/`opportunity_source_memberships`
+ * at all.
+ */
+export const publicSourceListings = pgView('public_source_listings', {
+  sourceListingId: uuid('source_listing_id').notNull(),
+  sourceSlug: text('source_slug').notNull(),
+  status: sourceListingStatusEnum('status').notNull(),
+  title: text('title').notNull(),
+  organization: text('organization'),
+  canonicalUrl: text('canonical_url').notNull(),
+  publishedAt: timestamp('published_at', { mode: 'string', withTimezone: true }),
+  deadlineAt: timestamp('deadline_at', { mode: 'string', withTimezone: true }),
+  firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+  lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+  applicationMethod: jsonb('application_method'),
+}).as(sql`
+  select
+    ${sourceListings.id} as source_listing_id,
+    ${sources.slug} as source_slug,
+    ${sourceListings.status} as status,
+    ${sourceListingRevisions.titleRaw} as title,
+    ${sourceListingRevisions.organizationRaw} as organization,
+    ${sourceListings.canonicalSourceUrl} as canonical_url,
+    ${sourceListings.sourcePublishedAt} as published_at,
+    ${sourceListings.sourceDeadlineAt} as deadline_at,
+    ${sourceListings.firstSeenAt} as first_seen_at,
+    ${sourceListings.lastSeenAt} as last_seen_at,
+    ${sourceListingRevisions.applicationMethod} as application_method
+  from ${sourceListings}
+  inner join ${sources} on ${sources.id} = ${sourceListings.sourceId}
+  inner join ${sourceListingRevisions} on ${sourceListingRevisions.id} = ${sourceListings.currentRevisionId}
+  where ${sourceListings.status} <> 'quarantined'
 `);

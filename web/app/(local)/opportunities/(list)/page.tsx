@@ -1,4 +1,10 @@
 import {
+  publicCountOpportunities,
+  publicLastSeen,
+  publicSearchOpportunities,
+  publicSourceOverview,
+} from '../../../../../src/browse/public-queries.js';
+import {
   countOpportunities,
   getSourceHealth,
   searchOpportunities,
@@ -16,6 +22,7 @@ import {
 } from '../../../../lib/format.js';
 import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../../../lib/labels.js';
 import { type OpportunityRow, toRow } from '../../../../lib/opportunity-row.js';
+import { currentSurface, type Surface } from '../../../../lib/surface.js';
 import { lastCompletedSync } from '../../../../lib/sync.js';
 import {
   appliedFilters,
@@ -74,24 +81,69 @@ export default async function OpportunitiesPage({
   searchParams: Promise<RawSearchParams>;
 }) {
   const raw = await searchParams;
+  const surface = currentSurface();
 
   // The source list comes from the database rather than a hardcoded pair, so
-  // adding a third board does not leave a filter silently missing it.
-  const health = await getSourceHealth(db);
-  const slugs = health.map((source) => source.sourceSlug);
+  // adding a third board does not leave a filter silently missing it. Surface-
+  // aware: `getSourceHealth` reads crawl-run diagnostics the public database
+  // role has no grant on at all (Phase 8B Stage 4) — `publicSourceOverview`
+  // is its narrower public equivalent, grouped from `public_opportunity_members`.
+  // `lastSyncLabel` is deliberately not always "synced": `publicLastSeen` is
+  // only the newest per-listing confirmation the public role can see (one
+  // incrementally-confirmed listing can advance it with most of the
+  // catalogue still stale), while `lastCompletedSync` is a real full-coverage
+  // crawl completion — calling both "synced" would assert a guarantee the
+  // public value has no way to back (Codex, 2026-09-24).
+  const { slugs, lastSync, lastSyncLabel } =
+    surface === 'public'
+      ? await (async () => {
+          const overview = await publicSourceOverview(db);
+          return {
+            slugs: overview.map((s) => s.sourceSlug),
+            lastSync: publicLastSeen(overview),
+            lastSyncLabel: 'last confirmed',
+          };
+        })()
+      : await (async () => {
+          const health = await getSourceHealth(db);
+          return {
+            slugs: health.map((s) => s.sourceSlug),
+            lastSync: lastCompletedSync(health),
+            lastSyncLabel: 'synced',
+          };
+        })();
 
   const query = parseOpportunityQuery(raw, slugs);
+  // One shared instant for both calls below, same reason the landing hero
+  // shares its own `genuinelyOpenAsOf`: `publicOpportunityConditions` now
+  // enforces public eligibility unconditionally (Codex, 2026-09-24), and two
+  // separate `new Date()` calls a query apart could let `total` and the
+  // fetched rows disagree right at a deadline boundary.
+  const publicFilters =
+    surface === 'public'
+      ? { ...query.filters, genuinelyOpenAsOf: new Date().toISOString() }
+      : query.filters;
 
-  const total = await countOpportunities(db, query.filters);
+  const total =
+    surface === 'public'
+      ? await publicCountOpportunities(db, publicFilters)
+      : await countOpportunities(db, query.filters);
   // Clamped to what actually matches, so "how deep can this list go" has no
   // arbitrary answer — it goes as deep as there are rows.
-  const opportunities = await fetchRows(query, Math.min(query.show, total));
+  const opportunities = await fetchRows(surface, query, Math.min(query.show, total), publicFilters);
 
   const rows = opportunities.map(toRow);
-  const decisions = await decisionsByOpportunity(
-    db,
-    rows.map((row) => row.opportunityId),
-  );
+  // No shortlist on the public surface at all — Save/Dismiss/Undo are local-
+  // only Server Actions (Stage 2's assertLocalSurface()), and decisionsByOpportunity
+  // reads opportunity_decisions, a table the public database role has no
+  // grant on.
+  const decisions =
+    surface === 'public'
+      ? new Map<string, { decision: 'saved' | 'dismissed'; note: string | null }>()
+      : await decisionsByOpportunity(
+          db,
+          rows.map((row) => row.opportunityId),
+        );
 
   // More matches exist than are rendered. Never silent: the bottom of the
   // list says so and offers the next chunk.
@@ -113,8 +165,6 @@ export default async function OpportunitiesPage({
     (query.form.since === '' ? 0 : 1) +
     (query.form.closing === '' ? 0 : 1) +
     (query.form.crossPosted ? 1 : 0);
-
-  const lastSync = lastCompletedSync(health);
 
   // A real id rather than a nested <form>: the results table below contains
   // its own per-row write forms (DecisionControl's Save/Dismiss/Undo), and
@@ -142,7 +192,12 @@ export default async function OpportunitiesPage({
                     applied throughout the Phase 3E landing hero. */}
                 <span className="tracking-[0.1em]">
                   {slugs.map(sourceLabel).join(' + ')}
-                  {lastSync !== undefined && <> · synced {relativeTime(lastSync)}</>}
+                  {lastSync !== undefined && (
+                    <>
+                      {' '}
+                      · {lastSyncLabel} {relativeTime(lastSync)}
+                    </>
+                  )}
                 </span>
               </p>
               <h1 className="mt-1 font-[family-name:var(--font-display)] text-6xl leading-[0.9] text-white uppercase">
@@ -230,7 +285,7 @@ export default async function OpportunitiesPage({
             <EmptyState filtered={chips.length > 0 || query.form.q !== ''} />
           ) : (
             <>
-              <ResultsTable rows={rows} decisions={decisions} back={back} />
+              <ResultsTable rows={rows} decisions={decisions} back={back} surface={surface} />
               <ShowMore query={query} shown={rows.length} more={more} />
             </>
           )}
@@ -248,15 +303,24 @@ export default async function OpportunitiesPage({
  * in `opportunities.id` — without that tie-breaker Postgres may order tied
  * rows differently per query, and adjacent batches would overlap and skip.
  */
-async function fetchRows(query: OpportunityQuery, count: number) {
+async function fetchRows(
+  surface: Surface,
+  query: OpportunityQuery,
+  count: number,
+  baseFilters: OpportunityQuery['filters'] = query.filters,
+) {
   const collected = [];
   for (let offset = 0; offset < count; offset += ROW_CHUNK) {
-    const batch = await searchOpportunities(db, {
-      ...query.filters,
+    const filters = {
+      ...baseFilters,
       sort: query.sort,
       limit: Math.min(ROW_CHUNK, count - offset),
       offset,
-    });
+    };
+    const batch =
+      surface === 'public'
+        ? await publicSearchOpportunities(db, filters)
+        : await searchOpportunities(db, filters);
     collected.push(...batch);
     if (batch.length === 0) break;
   }
@@ -307,10 +371,12 @@ function ResultsTable({
   rows,
   decisions,
   back,
+  surface,
 }: {
   rows: OpportunityRow[];
   decisions: Map<string, { decision: 'saved' | 'dismissed'; note: string | null }>;
   back: string;
+  surface: Surface;
 }) {
   return (
     <table className="block w-full border-collapse text-sm lg:table lg:table-fixed">
@@ -319,7 +385,7 @@ function ResultsTable({
           <Th className="w-[46%]">Opportunity</Th>
           <Th className="w-[18%]">Boards</Th>
           <Th className="w-[14%]">Closes</Th>
-          <Th className="w-[22%]" />
+          {surface !== 'public' && <Th className="w-[22%]" />}
         </tr>
       </thead>
       <tbody className="block lg:table-row-group">
@@ -330,6 +396,7 @@ function ResultsTable({
             position={index + 1}
             decision={decisions.get(row.opportunityId) ?? null}
             back={back}
+            surface={surface}
           />
         ))}
       </tbody>
@@ -350,6 +417,7 @@ function Row({
   position,
   decision,
   back,
+  surface,
 }: {
   row: OpportunityRow;
   /** 1-based position in the current result set, for `ShowMore`'s scroll anchor. */
@@ -357,6 +425,7 @@ function Row({
   decision: { decision: 'saved' | 'dismissed'; note: string | null } | null;
   /** This view's query string, so the detail screen can link back to it. */
   back: string;
+  surface: Surface;
 }) {
   const type = row.type === 'job' ? null : opportunityTypeLabel(row.type);
   const href = `/opportunities/${row.opportunityId}?${new URLSearchParams({ back })}`;
@@ -409,13 +478,15 @@ function Row({
         <Deadline row={row} />
       </td>
 
-      <td className="block py-2 lg:table-cell lg:py-4 lg:align-top lg:opacity-35 lg:transition-[opacity,transform] lg:duration-150 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:[transform:translateX(6px)] lg:group-hover:[transform:translateX(0)] lg:group-focus-within:[transform:translateX(0)]">
-        <DecisionControl
-          opportunityId={row.opportunityId}
-          decision={decision?.decision ?? null}
-          note={decision?.note ?? null}
-        />
-      </td>
+      {surface !== 'public' && (
+        <td className="block py-2 lg:table-cell lg:py-4 lg:align-top lg:opacity-35 lg:transition-[opacity,transform] lg:duration-150 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:[transform:translateX(6px)] lg:group-hover:[transform:translateX(0)] lg:group-focus-within:[transform:translateX(0)]">
+          <DecisionControl
+            opportunityId={row.opportunityId}
+            decision={decision?.decision ?? null}
+            note={decision?.note ?? null}
+          />
+        </td>
+      )}
     </tr>
   );
 }

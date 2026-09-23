@@ -169,6 +169,13 @@
       "when": 1790186132675,
       "tag": "0023_goofy_moondragon",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790199124306,
+      "tag": "0024_sharp_hammerhead",
+      "breakpoints": true
     }
   ]
 }
