@@ -28,7 +28,7 @@ on this exact code — treat that as the base rate, not an anomaly.
 - `src/browse/queries.ts` — read paths, including the review queue
   (`listReviewQueue`) and cluster-size lookups the accept/reject guards
   depend on.
-- `web/app/review/` and `web/lib/review-pair.ts` — the human review screen
+- `web/app/(local)/review/` and `web/lib/review-pair.ts` — the human review screen
   and its survivor-picking/evidence-gating logic.
 
 ## Specific edge cases to check on every diff here

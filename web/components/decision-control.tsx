@@ -2,7 +2,7 @@ import {
   clearOpportunityDecision,
   dismissOpportunity,
   saveOpportunity,
-} from '../app/saved/actions.js';
+} from '../app/(local)/saved/actions.js';
 import type { Decision } from '../../src/shortlist/decisions.js';
 import { writesEnabled } from '../lib/writes.js';
 

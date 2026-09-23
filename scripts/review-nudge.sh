@@ -32,7 +32,7 @@ case "$file" in
     agent="migration-safety-reviewer"
     msg="Schema/migration file edited ($file). Before running \`npm run db:migrate\` against the real corpus, run the migration-safety-reviewer agent over the generated migration."
     ;;
-  */src/dedupe/* | */src/browse/queries.ts | */web/app/review/* | */web/lib/review-pair.ts)
+  */src/dedupe/* | */src/browse/queries.ts | */web/app/\(local\)/review/* | */web/lib/review-pair.ts)
     agent="dedupe-correctness-reviewer"
     msg="Dedupe/membership code edited ($file). Once this change is complete, run the dedupe-correctness-reviewer agent over it as a second pass alongside the Codex gate."
     ;;
