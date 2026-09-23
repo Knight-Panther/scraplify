@@ -7,6 +7,7 @@ vi.mock('../logger.js', () => ({ logger: { info: loggerInfoMock } }));
 const { detectLanguage, DraftGenerationFailedError, writeDraft } = await import(
   './generate-draft.js'
 );
+const { MAX_DRAFT_BODY_CHARS, MAX_DRAFT_SUBJECT_CHARS } = await import('./draft-store.js');
 
 const createMock = vi.fn();
 const client = { beta: { messages: { create: createMock } } } as unknown as Anthropic;
@@ -128,6 +129,53 @@ describe('writeDraft', () => {
       ),
     ).rejects.toBeInstanceOf(DraftGenerationFailedError);
     expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a generated body or subject longer than a draft can ever be saved or approved with', async () => {
+    // max_tokens: 16000 can produce more than MAX_DRAFT_BODY_CHARS. Storing
+    // it anyway would create a draft nobody could ever save (unchanged) or
+    // approve, since both go through the same bound — refused instead, the
+    // same treatment as any other malformed tool output.
+    createMock.mockResolvedValueOnce(
+      toolUse({
+        subject: '',
+        body: 'x'.repeat(MAX_DRAFT_BODY_CHARS + 1),
+        claim_ids: ['claim-ts'],
+      }),
+    );
+    await expect(
+      writeDraft(
+        { kind: 'cover_letter', language: 'en', claims: CLAIMS, listing: LISTING },
+        client,
+      ),
+    ).rejects.toBeInstanceOf(DraftGenerationFailedError);
+
+    createMock.mockResolvedValueOnce(
+      toolUse({
+        subject: 'x'.repeat(MAX_DRAFT_SUBJECT_CHARS + 1),
+        body: 'Body',
+        claim_ids: ['claim-ts'],
+      }),
+    );
+    await expect(
+      writeDraft({ kind: 'email', language: 'en', claims: CLAIMS, listing: LISTING }, client),
+    ).rejects.toBeInstanceOf(DraftGenerationFailedError);
+
+    // A subject this long on a COVER LETTER is moot — it's dropped to null
+    // regardless — so it must not be refused for a reason that never applies.
+    createMock.mockResolvedValueOnce(
+      toolUse({
+        subject: 'x'.repeat(MAX_DRAFT_SUBJECT_CHARS + 1),
+        body: 'Body',
+        claim_ids: ['claim-ts'],
+      }),
+    );
+    await expect(
+      writeDraft(
+        { kind: 'cover_letter', language: 'en', claims: CLAIMS, listing: LISTING },
+        client,
+      ),
+    ).resolves.toMatchObject({ subject: null, body: 'Body' });
   });
 
   it('logs counts and timing only — no claim, listing or draft text', async () => {

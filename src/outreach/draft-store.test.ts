@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import type Anthropic from '@anthropic-ai/sdk';
 import { eq, inArray } from 'drizzle-orm';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../db/client.js';
 import {
   auditEvents,
@@ -30,10 +31,31 @@ import {
   createDraft,
   deleteDraft,
   editDraft,
+  listDrafts,
   loadDraft,
+  loadDraftContext,
   OutreachError,
   recipientFromApplicationMethod,
 } from './draft-store.js';
+import { generateDraft } from './generate-draft.js';
+
+/** A fake Claude client that hands back a fixed, valid tool call — no network. */
+function fakeGenerationClient(subject: string, body: string, claimIds: string[]) {
+  const create = vi.fn().mockResolvedValue({
+    model: 'claude-opus-5',
+    stop_reason: 'tool_use',
+    content: [
+      {
+        type: 'tool_use',
+        id: 'tu_1',
+        name: 'record_application_draft',
+        input: { subject, body, claim_ids: claimIds },
+      },
+    ],
+  });
+  const client = { beta: { messages: { create } } } as unknown as Anthropic;
+  return { client, create };
+}
 
 const NOW = '2026-09-16T12:00:00.000Z';
 const LATER = '2026-09-16T13:00:00.000Z';
@@ -114,12 +136,15 @@ describe('outreach draft store', () => {
     return revisionId;
   }
 
-  async function addOpportunityRevision(opportunityId: string) {
+  async function addOpportunityRevision(
+    opportunityId: string,
+    canonicalTitle = 'Draft store test opportunity',
+  ) {
     const revisionId = randomUUID();
     await db.insert(opportunityRevisions).values({
       id: revisionId,
       opportunityId,
-      canonicalTitle: 'Draft store test opportunity',
+      canonicalTitle,
       canonicalStatus: 'active',
       organizationId: null,
       resolvedFields: {},
@@ -128,9 +153,15 @@ describe('outreach draft store', () => {
       meaningfulContentHash: randomUUID(),
       createdAt: NOW,
     });
+    // Real re-resolution updates both: the revision is the pinned record,
+    // and `opportunities.canonicalTitle`/`currentCanonicalRevisionId` are the
+    // live denormalized view every OTHER screen reads. A test that only moved
+    // the pointer, without also moving the live title, couldn't tell a fix
+    // that reads the pinned revision apart from the bug that read the live
+    // column — both would still see the original title.
     await db
       .update(opportunities)
-      .set({ currentCanonicalRevisionId: revisionId })
+      .set({ currentCanonicalRevisionId: revisionId, canonicalTitle })
       .where(eq(opportunities.id, opportunityId));
     return revisionId;
   }
@@ -232,18 +263,99 @@ describe('outreach draft store', () => {
     await expect(draftFor(fixture)).rejects.toMatchObject({ code: 'LISTING_NOT_CURRENT' });
   });
 
+  it('refuses to generate when the confirmation screen no longer matches what is current', async () => {
+    // Save/Approve's exact-content guarantee has a sibling gap at generation
+    // time: without this check, a profile edit or a re-crawl landing between
+    // the confirmation screen rendering and the button being pressed would
+    // send different claims or listing text to Claude than the person agreed
+    // to send. `expected` is what closes it — checked before the model is
+    // ever called, never after.
+    const fixture = await setup();
+    const { client, create } = fakeGenerationClient('Subject', 'Body', fixture.claimIds);
+    const current = {
+      profileVersion: fixture.profileVersion,
+      opportunityRevisionId: fixture.opportunityRevisionId,
+      listingRevisionId: fixture.sourceListingRevisionId,
+    };
+
+    await expect(
+      generateDraft(
+        db,
+        {
+          profileId: fixture.profileId,
+          opportunityId: fixture.opportunityId,
+          now: NOW,
+          expected: { ...current, profileVersion: current.profileVersion + 1 },
+        },
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFIRMATION_STALE' });
+
+    await expect(
+      generateDraft(
+        db,
+        {
+          profileId: fixture.profileId,
+          opportunityId: fixture.opportunityId,
+          now: NOW,
+          expected: { ...current, opportunityRevisionId: randomUUID() },
+        },
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFIRMATION_STALE' });
+
+    await expect(
+      generateDraft(
+        db,
+        {
+          profileId: fixture.profileId,
+          opportunityId: fixture.opportunityId,
+          now: NOW,
+          expected: { ...current, listingRevisionId: randomUUID() },
+        },
+        client,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFIRMATION_STALE' });
+
+    // All three refusals happen before the model is ever reached.
+    expect(create).not.toHaveBeenCalled();
+
+    // Matching versions succeed, and do call the model.
+    const draft = await generateDraft(
+      db,
+      {
+        profileId: fixture.profileId,
+        opportunityId: fixture.opportunityId,
+        now: NOW,
+        expected: current,
+      },
+      client,
+    );
+    draftIds.push(draft.id);
+    expect(draft.subject).toBe('Subject');
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it('approves exactly the content shown, and nothing else', async () => {
     const draft = await draftFor(await setup());
     const loaded = await loadDraft(db, draft.id);
     expect(loaded?.approval).toEqual({ status: 'none' });
 
     await expect(
-      approveDraft(db, { draftId: draft.id, expectedContentHash: 'f'.repeat(64), now: LATER }),
+      approveDraft(db, {
+        draftId: draft.id,
+        expectedContentHash: 'f'.repeat(64),
+        visibleSubject: draft.subject,
+        visibleBody: draft.body,
+        now: LATER,
+      }),
     ).rejects.toMatchObject({ code: 'CONTENT_CHANGED' });
 
     await approveDraft(db, {
       draftId: draft.id,
       expectedContentHash: loaded?.contentHash ?? '',
+      visibleSubject: draft.subject,
+      visibleBody: draft.body,
       now: LATER,
     });
     const approval = (await loadDraft(db, draft.id))?.approval;
@@ -254,10 +366,51 @@ describe('outreach draft store', () => {
     );
   });
 
+  it('refuses to approve submitted text that does not match what is actually stored, independent of the content hash', async () => {
+    // This is the check that makes the exact-content guarantee real without
+    // depending on JavaScript: the web layer submits Approve as a
+    // `formAction` on the SAME form Save uses (see [id]/page.tsx), so the
+    // visible subject/body always rides along with the approval, whatever
+    // the browser is or isn't running. A correct `expectedContentHash` alone
+    // says nothing about an unsaved LOCAL edit sitting in a textarea that
+    // was never posted to the server before this — only comparing the
+    // submitted text against the stored row can catch that.
+    const draft = await draftFor(await setup());
+    const hash = (await loadDraft(db, draft.id))?.contentHash ?? '';
+
+    await expect(
+      approveDraft(db, {
+        draftId: draft.id,
+        expectedContentHash: hash,
+        visibleSubject: draft.subject,
+        visibleBody: `${draft.body} — an edit that was never saved.`,
+        now: LATER,
+      }),
+    ).rejects.toMatchObject({ code: 'UNSAVED_EDITS' });
+
+    await expect(
+      approveDraft(db, {
+        draftId: draft.id,
+        expectedContentHash: hash,
+        visibleSubject: 'A subject that was never saved',
+        visibleBody: draft.body,
+        now: LATER,
+      }),
+    ).rejects.toMatchObject({ code: 'UNSAVED_EDITS' });
+
+    expect((await loadDraft(db, draft.id))?.approval).toEqual({ status: 'none' });
+  });
+
   it('invalidates the approval on any edit, and keeps it when saving identical text', async () => {
     const draft = await draftFor(await setup());
     const hash = (await loadDraft(db, draft.id))?.contentHash ?? '';
-    await approveDraft(db, { draftId: draft.id, expectedContentHash: hash, now: LATER });
+    await approveDraft(db, {
+      draftId: draft.id,
+      expectedContentHash: hash,
+      visibleSubject: draft.subject,
+      visibleBody: draft.body,
+      now: LATER,
+    });
 
     await editDraft(db, {
       draftId: draft.id,
@@ -286,7 +439,13 @@ describe('outreach draft store', () => {
     // A future write path that edits the row directly and forgets to invalidate.
     const draft = await draftFor(await setup());
     const hash = (await loadDraft(db, draft.id))?.contentHash ?? '';
-    await approveDraft(db, { draftId: draft.id, expectedContentHash: hash, now: LATER });
+    await approveDraft(db, {
+      draftId: draft.id,
+      expectedContentHash: hash,
+      visibleSubject: draft.subject,
+      visibleBody: draft.body,
+      now: LATER,
+    });
     await db
       .update((await import('../db/schema/index.js')).outreachDrafts)
       .set({ body: 'Changed behind the store’s back.' })
@@ -302,6 +461,8 @@ describe('outreach draft store', () => {
     await approveDraft(db, {
       draftId: a.id,
       expectedContentHash: (await loadDraft(db, a.id))?.contentHash ?? '',
+      visibleSubject: a.subject,
+      visibleBody: a.body,
       now: LATER,
     });
     await addListingRevision(listingCase.listingId, listingCase.sourceId, {
@@ -318,6 +479,8 @@ describe('outreach draft store', () => {
     await approveDraft(db, {
       draftId: b.id,
       expectedContentHash: (await loadDraft(db, b.id))?.contentHash ?? '',
+      visibleSubject: b.subject,
+      visibleBody: b.body,
       now: LATER,
     });
     await addOpportunityRevision(opportunityCase.opportunityId);
@@ -327,6 +490,8 @@ describe('outreach draft store', () => {
       approveDraft(db, {
         draftId: b.id,
         expectedContentHash: (await loadDraft(db, b.id))?.contentHash ?? '',
+        visibleSubject: b.subject,
+        visibleBody: b.body,
         now: LATER,
       }),
     ).rejects.toMatchObject({ code: 'OPPORTUNITY_NOT_CURRENT' });
@@ -336,6 +501,8 @@ describe('outreach draft store', () => {
     await approveDraft(db, {
       draftId: c.id,
       expectedContentHash: (await loadDraft(db, c.id))?.contentHash ?? '',
+      visibleSubject: c.subject,
+      visibleBody: c.body,
       now: LATER,
     });
     await reviseCandidateProfile(db, {
@@ -375,6 +542,8 @@ describe('outreach draft store', () => {
     await approveDraft(db, {
       draftId: draft.id,
       expectedContentHash: (await loadDraft(db, draft.id))?.contentHash ?? '',
+      visibleSubject: draft.subject,
+      visibleBody: draft.body,
       now: LATER,
     });
     await deleteDraft(db, draft.id, LATER);
@@ -392,7 +561,13 @@ describe('outreach draft store', () => {
   it('audits every mutation with ids and hashes only, never the text', async () => {
     const draft = await draftFor(await setup());
     const hash = (await loadDraft(db, draft.id))?.contentHash ?? '';
-    await approveDraft(db, { draftId: draft.id, expectedContentHash: hash, now: LATER });
+    await approveDraft(db, {
+      draftId: draft.id,
+      expectedContentHash: hash,
+      visibleSubject: draft.subject,
+      visibleBody: draft.body,
+      now: LATER,
+    });
     await editDraft(db, {
       draftId: draft.id,
       subject: 'New subject',
@@ -424,6 +599,8 @@ describe('outreach draft store', () => {
     await approveDraft(db, {
       draftId: draft.id,
       expectedContentHash: (await loadDraft(db, draft.id))?.contentHash ?? '',
+      visibleSubject: draft.subject,
+      visibleBody: draft.body,
       now: LATER,
     });
     const result = await deleteCandidateProfile(db, fixture.profileId);
@@ -440,5 +617,49 @@ describe('outreach draft store', () => {
   it('reports no approval for a draft that was never approved', async () => {
     const draft = await draftFor(await setup());
     expect(await approvalState(db, draft)).toEqual({ status: 'none' });
+  });
+
+  it('lists both an unapproved and a currently-approved draft with the right status each', async () => {
+    // `listDrafts` only re-fetches a draft's full row (needed to recompute its
+    // hash) for the ones that carry a live approval — so this exercises both
+    // branches of that split, not just the happy path where every draft has one.
+    const unapproved = await draftFor(await setup());
+    const approvedFixture = await setup();
+    const approved = await draftFor(approvedFixture);
+    const loaded = await loadDraft(db, approved.id);
+    await approveDraft(db, {
+      draftId: approved.id,
+      expectedContentHash: loaded?.contentHash ?? '',
+      visibleSubject: approved.subject,
+      visibleBody: approved.body,
+      now: LATER,
+    });
+
+    const rows = await listDrafts(db);
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(unapproved.id)?.approval).toEqual({ status: 'none' });
+    expect(byId.get(approved.id)?.approval.status).toBe('current');
+    // The list omits body/subject entirely — never assert on them existing.
+    expect(byId.get(approved.id)).not.toHaveProperty('body');
+    expect(byId.get(approved.id)).not.toHaveProperty('subject');
+  });
+
+  it('shows the title pinned to the draft, not the opportunity’s title after a later re-resolution', async () => {
+    // A cross-posted vacancy can be re-resolved (a new crawl, a merge) after
+    // a draft was written against it. `opportunities.canonicalTitle` moves
+    // when that happens; `opportunityRevisions.canonicalTitle` for the
+    // revision the draft actually cites does not. Both `loadDraftContext`
+    // (the [id] screen) and `listDrafts` (the list) must read the latter.
+    const fixture = await setup();
+    const draft = await draftFor(fixture);
+    await addOpportunityRevision(fixture.opportunityId, 'A retitled opportunity');
+
+    const context = await loadDraftContext(db, draft);
+    expect(context?.opportunityTitle).toBe('Draft store test opportunity');
+
+    const rows = await listDrafts(db);
+    expect(rows.find((row) => row.id === draft.id)?.opportunityTitle).toBe(
+      'Draft store test opportunity',
+    );
   });
 });

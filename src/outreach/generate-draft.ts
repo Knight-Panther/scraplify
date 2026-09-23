@@ -7,12 +7,14 @@ import {
   sourceListingRevisions,
   sourceListings,
 } from '../db/schema/index.js';
-import type { Database } from '../db/types.js';
+import type { Database, DatabaseOrTransaction } from '../db/types.js';
 import { logger } from '../logger.js';
 import { loadCandidateProfile } from '../ranking/profile-store.js';
 import {
   createDraft,
   type DraftLanguage,
+  MAX_DRAFT_BODY_CHARS,
+  MAX_DRAFT_SUBJECT_CHARS,
   OutreachError,
   recipientFromApplicationMethod,
 } from './draft-store.js';
@@ -206,8 +208,19 @@ export async function writeDraft(
   );
 
   const subject = parsed.data.subject.trim();
+  const finalSubject = input.kind === 'email' && subject.length > 0 ? subject : null;
+
+  // Checked against the SAME bounds the edit form enforces (one constant,
+  // `draft-store.ts`) — a `max_tokens: 16000` response can exceed them, and
+  // a draft stored longer than the form accepts could never afterward be
+  // saved or approved by anyone. Refused here rather than truncated: a
+  // billed call is wasted, but a cut-off letter mid-sentence would be worse
+  // than asking the person to try again.
+  if (parsed.data.body.length > MAX_DRAFT_BODY_CHARS) throw new DraftGenerationFailedError();
+  if ((finalSubject?.length ?? 0) > MAX_DRAFT_SUBJECT_CHARS) throw new DraftGenerationFailedError();
+
   return {
-    subject: input.kind === 'email' && subject.length > 0 ? subject : null,
+    subject: finalSubject,
     body: parsed.data.body,
     claimIds,
   };
@@ -219,23 +232,53 @@ export interface GenerateDraftInput {
   /** Defaults to the language of the listing itself. */
   language?: DraftLanguage;
   now: string;
+  /**
+   * The profile version, opportunity revision and listing revision the
+   * confirmation screen showed, when the caller has them. Checked against
+   * what is current right before the billed model call: without this, a
+   * profile edit or a crawl landing between the confirmation screen
+   * rendering and the button being pressed sends different claims or
+   * listing text than the person confirmed — undermining the §23.2
+   * acknowledgment, which is about *this* content, not "whatever is current
+   * when the button is pressed". Optional so direct callers (tests, a future
+   * CLI) that never showed a confirmation screen can skip it.
+   */
+  expected?: {
+    profileVersion: number;
+    opportunityRevisionId: string;
+    listingRevisionId: string;
+  };
+}
+
+export interface DraftTarget {
+  opportunityRevisionId: string;
+  listingId: string;
+  revisionId: string;
+  title: string;
+  organization: string | null;
+  description: string;
+  kind: 'email' | 'cover_letter';
+  recipient: string | null;
+  /** The listing's own language, the default for the draft. */
+  language: DraftLanguage;
 }
 
 /**
- * Loads a profile and an opportunity, writes a draft for them, and stores it.
+ * Which listing a draft for this opportunity would answer, and how.
  *
- * The target listing is the opportunity's live member that states an email
- * address, when one does — so a cross-posted vacancy becomes an email if any
- * of its boards gives an address — otherwise its first live member.
+ * The opportunity's live member that states an email address, when one does —
+ * so a cross-posted vacancy becomes an email if any of its boards gives an
+ * address — otherwise its first live member. Shared by generation and by the
+ * confirmation screen, so what a person agrees to is what gets generated.
  */
-export async function generateDraft(db: Database, input: GenerateDraftInput, client?: Anthropic) {
-  const profile = await loadCandidateProfile(db, input.profileId);
-  if (profile === null) throw new OutreachError('PROFILE_NOT_CURRENT', 'No such profile.');
-
+export async function loadDraftTarget(
+  db: DatabaseOrTransaction,
+  opportunityId: string,
+): Promise<DraftTarget> {
   const [opportunity] = await db
     .select({ revisionId: opportunities.currentCanonicalRevisionId })
     .from(opportunities)
-    .where(eq(opportunities.id, input.opportunityId));
+    .where(eq(opportunities.id, opportunityId));
   if (!opportunity?.revisionId) {
     throw new OutreachError(
       'OPPORTUNITY_NOT_CURRENT',
@@ -260,7 +303,7 @@ export async function generateDraft(db: Database, input: GenerateDraftInput, cli
     )
     .where(
       and(
-        eq(opportunitySourceMemberships.opportunityId, input.opportunityId),
+        eq(opportunitySourceMemberships.opportunityId, opportunityId),
         isNull(opportunitySourceMemberships.supersededAt),
       ),
     )
@@ -271,10 +314,44 @@ export async function generateDraft(db: Database, input: GenerateDraftInput, cli
   if (target === undefined) {
     throw new OutreachError('LISTING_NOT_IN_OPPORTUNITY', 'This opportunity has no live listing.');
   }
+  const recipient = recipientFromApplicationMethod(target.applicationMethod);
+  return {
+    opportunityRevisionId: opportunity.revisionId,
+    listingId: target.listingId,
+    revisionId: target.revisionId,
+    title: target.title,
+    organization: target.organization,
+    description: target.description,
+    kind: recipient === null ? 'cover_letter' : 'email',
+    recipient,
+    language: detectLanguage(`${target.title} ${target.description}`),
+  };
+}
 
-  const kind =
-    recipientFromApplicationMethod(target.applicationMethod) === null ? 'cover_letter' : 'email';
-  const language = input.language ?? detectLanguage(`${target.title} ${target.description ?? ''}`);
+/** Loads a profile and an opportunity's draft target, writes a draft, and stores it. */
+export async function generateDraft(db: Database, input: GenerateDraftInput, client?: Anthropic) {
+  const profile = await loadCandidateProfile(db, input.profileId);
+  if (profile === null) throw new OutreachError('PROFILE_NOT_CURRENT', 'No such profile.');
+  const target = await loadDraftTarget(db, input.opportunityId);
+
+  // Checked right before the one billed call this function makes: the
+  // confirmation screen showed a specific profile version and a specific
+  // listing; if either moved since, what would be sent to Anthropic is not
+  // what the person agreed to.
+  if (
+    input.expected &&
+    (input.expected.profileVersion !== profile.version ||
+      input.expected.opportunityRevisionId !== target.opportunityRevisionId ||
+      input.expected.listingRevisionId !== target.revisionId)
+  ) {
+    throw new OutreachError(
+      'CONFIRMATION_STALE',
+      'The profile or listing changed since you opened this screen. Reload and try again.',
+    );
+  }
+
+  const kind = target.kind;
+  const language = input.language ?? target.language;
   const written = await writeDraft(
     {
       kind,
@@ -298,7 +375,7 @@ export async function generateDraft(db: Database, input: GenerateDraftInput, cli
     profileId: profile.profileId,
     profileVersion: profile.version,
     opportunityId: input.opportunityId,
-    opportunityRevisionId: opportunity.revisionId,
+    opportunityRevisionId: target.opportunityRevisionId,
     sourceListingId: target.listingId,
     sourceListingRevisionId: target.revisionId,
     subject: written.subject,

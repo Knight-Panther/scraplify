@@ -26,6 +26,7 @@ const NAV_EN = [
   { href: '/listings', label: 'Listings' },
   { href: '/profile', label: 'Profile' },
   { href: '/ranked', label: 'Ranked' },
+  { href: '/drafts', label: 'Drafts' },
   { href: '/saved', label: 'Shortlist' },
   { href: '/review', label: 'Duplicate review' },
   { href: '/taxonomy-review', label: 'Taxonomy review' },
@@ -37,6 +38,7 @@ const NAV_KA = [
   { href: '/listings', label: 'განცხადებები' },
   { href: '/profile', label: 'პროფილი' },
   { href: '/ranked', label: 'რანჟირება' },
+  { href: '/drafts', label: 'მონახაზები' },
   { href: '/saved', label: 'შენახულები' },
   { href: '/review', label: 'დუბლიკატების შემოწმება' },
   { href: '/taxonomy-review', label: 'კატეგორიების შემოწმება' },
@@ -71,13 +73,13 @@ export function SiteHeaderNav({
   // Per-locale, not one shared value: Georgian's longer nav words need
   // more room than English's (see the desktop-nav comment below), and a
   // single breakpoint sized for Georgian would needlessly drop English
-  // users at 1360-1599px into the mobile popover when their content
+  // users at 1480-1719px into the mobile popover when their content
   // actually fits there. Each variant below is a complete literal class
-  // name (`min-[1360px]:flex`, `min-[1600px]:flex`, ...) so Tailwind's
+  // name (`min-[1480px]:flex`, `min-[1720px]:flex`, ...) so Tailwind's
   // source scanner — which matches raw text, not evaluated JS — still
   // finds and generates both.
-  const deskFlex = locale === 'ka' ? 'min-[1600px]:flex' : 'min-[1360px]:flex';
-  const deskHidden = locale === 'ka' ? 'min-[1600px]:hidden' : 'min-[1360px]:hidden';
+  const deskFlex = locale === 'ka' ? 'min-[1720px]:flex' : 'min-[1480px]:flex';
+  const deskHidden = locale === 'ka' ? 'min-[1720px]:hidden' : 'min-[1480px]:hidden';
 
   return (
     <header className="flex h-[58px] items-stretch bg-[var(--color-browse-nav-yellow)] lg:h-[78px]">
@@ -131,7 +133,14 @@ export function SiteHeaderNav({
           rather than raising the English breakpoint too, so English users
           at 1360-1599px keep the desktop bar their content actually fits
           in — see `deskFlex`/`deskHidden` above. The mobile popover below
-          still covers the gap under whichever threshold is active. */}
+          still covers the gap under whichever threshold is active.
+
+          Raised again for the 9th link, "Drafts" (Phase 6A, 2026-09-16), by the
+          same method rather than by estimate: at a real 1360px viewport the
+          English header measured 1434px wide in a 1345px client (overflowing),
+          and fit with 11px to spare at 1460px, so 1480px; Georgian measured
+          1664px in 1585px at 1600px, so 1720px. The comments above keep the
+          earlier numbers as history. */}
       <nav aria-label="Main" className={`ml-auto hidden items-stretch ${deskFlex}`}>
         <ul className="flex items-stretch">
           {nav.map((item, index) => (

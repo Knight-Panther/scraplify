@@ -12,6 +12,7 @@ import { count, score as formatScore } from '../../lib/format.js';
 import { sourceLabel } from '../../lib/labels.js';
 import { componentLabel, type RankedRow, toRankedRow } from '../../lib/ranked-row.js';
 import { type RawSearchParams, ROW_CHUNK } from '../../lib/search-params.js';
+import { writesEnabled } from '../../lib/writes.js';
 
 /**
  * Ranked results — the feature the product exists for.
@@ -106,7 +107,13 @@ export default async function RankedPage({
       ) : (
         <ol className="mt-3 flex flex-col">
           {rows.map((row, index) => (
-            <Row key={row.opportunityId} row={row} rank={index + 1} />
+            <Row
+              key={row.opportunityId}
+              row={row}
+              rank={index + 1}
+              profileId={profile.id}
+              canDraft={writesEnabled()}
+            />
           ))}
         </ol>
       )}
@@ -206,7 +213,17 @@ function Controls({
  * read a few rows at a time to decide whether a match is real. The reasoning
  * does not fit a table cell and would be reduced to a number if it had to.
  */
-function Row({ row, rank }: { row: RankedRow; rank: number }) {
+function Row({
+  row,
+  rank,
+  profileId,
+  canDraft,
+}: {
+  row: RankedRow;
+  rank: number;
+  profileId: string;
+  canDraft: boolean;
+}) {
   return (
     <li
       id={`rank-${rank}`}
@@ -244,6 +261,18 @@ function Row({ row, rank }: { row: RankedRow; rank: number }) {
           </p>
 
           {row.eligible ? <Why row={row} /> : <Excluded row={row} />}
+
+          {canDraft && (
+            <p className="mt-2 text-xs">
+              <a
+                href={`/drafts/new?profile=${profileId}&opportunity=${row.opportunityId}`}
+                aria-label={`Draft application for ${row.title}`}
+                className="text-accent underline underline-offset-2 hover:text-foreground"
+              >
+                Draft application
+              </a>
+            </p>
+          )}
         </div>
       </div>
     </li>

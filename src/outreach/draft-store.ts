@@ -6,6 +6,7 @@ import {
   candidateProfiles,
   type OutreachDraftRow,
   opportunities,
+  opportunityRevisions,
   opportunitySourceMemberships,
   outreachApprovals,
   outreachDrafts,
@@ -32,6 +33,18 @@ import type { Database, DatabaseOrTransaction, DatabaseTransaction } from '../db
 export const DRAFT_LANGUAGES = ['ka', 'en'] as const;
 export type DraftLanguage = (typeof DRAFT_LANGUAGES)[number];
 
+/**
+ * A draft's size bounds — the single source both directions check against:
+ * `generate-draft.ts` refuses a model response that exceeds them (so a
+ * runaway generation is never stored as a draft nobody can then save or
+ * approve, since the edit form enforces these same limits), and this
+ * module's own `createDraft` enforces them again as the real backstop, the
+ * same "never trust a single check" reasoning this file already applies to
+ * the approval hash.
+ */
+export const MAX_DRAFT_BODY_CHARS = 20_000;
+export const MAX_DRAFT_SUBJECT_CHARS = 300;
+
 export class OutreachError extends Error {
   constructor(
     readonly code:
@@ -43,7 +56,10 @@ export class OutreachError extends Error {
       | 'LISTING_NOT_CURRENT'
       | 'UNKNOWN_CLAIM'
       | 'CONTENT_CHANGED'
-      | 'EMPTY_BODY',
+      | 'EMPTY_BODY'
+      | 'CONFIRMATION_STALE'
+      | 'UNSAVED_EDITS'
+      | 'DRAFT_TOO_LONG',
     message: string,
   ) {
     super(message);
@@ -159,6 +175,16 @@ export async function createDraft(
 ): Promise<OutreachDraftRow> {
   if (input.body.trim().length === 0) {
     throw new OutreachError('EMPTY_BODY', 'A draft needs a body.');
+  }
+  // The real backstop: `generate-draft.ts` also checks this against the same
+  // constants before ever calling here, but this is the actual write
+  // boundary, and a draft stored longer than the edit form accepts could
+  // never afterward be saved or approved — see the constants' own comment.
+  if (input.body.length > MAX_DRAFT_BODY_CHARS) {
+    throw new OutreachError('DRAFT_TOO_LONG', 'The draft is too long to store.');
+  }
+  if (input.subject !== null && input.subject.length > MAX_DRAFT_SUBJECT_CHARS) {
+    throw new OutreachError('DRAFT_TOO_LONG', 'The subject line is too long to store.');
   }
   return db.transaction(async (tx) => {
     const [profile] = await tx
@@ -354,12 +380,41 @@ export interface ApproveDraftInput {
    * loaded, approving would bless text they never saw, so it is refused.
    */
   expectedContentHash: string;
+  /**
+   * The subject and body actually submitted alongside this approval — the
+   * SAME form fields Save uses, not a separate hidden pair. Compared
+   * byte-for-byte against what is actually stored, below.
+   *
+   * `expectedContentHash` alone only catches a REMOTE change — the draft
+   * being edited from another tab or session between the page loading and
+   * this submission. It cannot catch a LOCAL one: text typed into the editor
+   * and never saved, which the client-side guard
+   * (`draft-approval-guard.tsx`) only disables cosmetically, and which
+   * JavaScript being off or failing bypasses entirely. Because this pair
+   * comes from the same `<form>` Save posts to, this check is what makes
+   * "an approval binds the exact content shown" true unconditionally,
+   * not just when the browser cooperates.
+   */
+  visibleSubject: string | null;
+  visibleBody: string;
   now: string;
 }
 
 export async function approveDraft(db: Database, input: ApproveDraftInput) {
   return db.transaction(async (tx) => {
     const draft = await lockDraft(tx, input.draftId);
+
+    // Checked before anything else, and unconditionally — this is what
+    // stops an approval from ever binding to something other than what is
+    // actually stored, whether or not the browser's own JavaScript guard
+    // ran. See the field comments on `ApproveDraftInput`.
+    if (draft.subject !== input.visibleSubject || draft.body !== input.visibleBody) {
+      throw new OutreachError(
+        'UNSAVED_EDITS',
+        'Save your changes first — this would approve the last saved text, not what is shown.',
+      );
+    }
+
     const hash = contentHash(boundContent(draft));
     if (hash !== input.expectedContentHash) {
       throw new OutreachError(
@@ -513,23 +568,120 @@ export async function loadDraft(
   };
 }
 
-/** Drafts that have not been deleted, newest first, without their text. */
+/**
+ * Drafts that have not been deleted, newest first, without their text.
+ *
+ * `approvalState` needs a draft's full row — subject and body included — to
+ * recompute its content hash, which is the whole point: this screen must never
+ * trust a stored flag. But a draft with no *live* approval at all can only
+ * ever be `{status: 'none'}` (see `approvalState`'s first check), so it never
+ * needs that hash. Loading the full row — up to 20,000 characters of body,
+ * for every draft, on every list render — only for drafts that actually carry
+ * a live approval keeps this screen from reading private draft text it never
+ * shows, for the (usually most) drafts that don't need it.
+ */
 export async function listDrafts(db: DatabaseOrTransaction) {
   const rows = await db
-    .select()
+    .select({
+      id: outreachDrafts.id,
+      profileId: outreachDrafts.profileId,
+      opportunityId: outreachDrafts.opportunityId,
+      kind: outreachDrafts.kind,
+      recipient: outreachDrafts.recipient,
+      language: outreachDrafts.language,
+      updatedAt: outreachDrafts.updatedAt,
+      // The PINNED title from the revision the draft was written against
+      // (`opportunityRevisionId`), not `opportunities.canonicalTitle` —
+      // that column is live and mutates as the opportunity is re-resolved,
+      // which would make this list claim a draft answers a title it was
+      // never actually generated from (concept's exact-version requirement).
+      opportunityTitle: opportunityRevisions.canonicalTitle,
+      profileLabel: candidateProfiles.label,
+      liveApprovalId: outreachApprovals.id,
+    })
     .from(outreachDrafts)
+    .innerJoin(
+      opportunityRevisions,
+      eq(opportunityRevisions.id, outreachDrafts.opportunityRevisionId),
+    )
+    .innerJoin(candidateProfiles, eq(candidateProfiles.id, outreachDrafts.profileId))
+    .leftJoin(
+      outreachApprovals,
+      and(
+        eq(outreachApprovals.draftId, outreachDrafts.id),
+        isNull(outreachApprovals.invalidatedAt),
+      ),
+    )
     .where(isNull(outreachDrafts.deletedAt))
     .orderBy(desc(outreachDrafts.updatedAt));
+
+  const approvedIds = rows.filter((row) => row.liveApprovalId !== null).map((row) => row.id);
+  const fullDrafts = approvedIds.length
+    ? await db.select().from(outreachDrafts).where(inArray(outreachDrafts.id, approvedIds))
+    : [];
+  const fullById = new Map(fullDrafts.map((draft) => [draft.id, draft]));
+
   return Promise.all(
-    rows.map(async (draft) => ({
-      id: draft.id,
-      profileId: draft.profileId,
-      opportunityId: draft.opportunityId,
-      kind: draft.kind,
-      recipient: draft.recipient,
-      language: draft.language,
-      updatedAt: draft.updatedAt,
-      approval: await approvalState(db, draft),
+    rows.map(async (row) => ({
+      id: row.id,
+      profileId: row.profileId,
+      profileLabel: row.profileLabel,
+      opportunityId: row.opportunityId,
+      opportunityTitle: row.opportunityTitle,
+      kind: row.kind,
+      recipient: row.recipient,
+      language: row.language,
+      updatedAt: row.updatedAt,
+      approval:
+        row.liveApprovalId === null
+          ? ({ status: 'none' } as const)
+          : // biome-ignore lint/style/noNonNullAssertion: fullById was built from exactly approvedIds, which is exactly the rows with liveApprovalId !== null
+            await approvalState(db, fullById.get(row.id)!),
     })),
   );
+}
+
+/**
+ * The claims a draft cites, from whichever profile version it was written
+ * against — so the screen can show what each statement rests on even after the
+ * profile has been revised (the approval is stale then, but the history is not).
+ */
+export async function loadDraftClaims(db: DatabaseOrTransaction, draft: OutreachDraftRow) {
+  const ids = Array.isArray(draft.claimIds)
+    ? draft.claimIds.filter((id): id is string => typeof id === 'string')
+    : [];
+  if (ids.length === 0) return [];
+  return db
+    .select({
+      id: candidateProfileClaims.id,
+      kind: candidateProfileClaims.kind,
+      value: candidateProfileClaims.value,
+      evidence: candidateProfileClaims.evidence,
+    })
+    .from(candidateProfileClaims)
+    .where(
+      and(
+        inArray(candidateProfileClaims.id, ids),
+        eq(candidateProfileClaims.profileId, draft.profileId),
+      ),
+    );
+}
+
+/**
+ * The opportunity title and profile label a draft screen needs for its
+ * heading — the title PINNED to the revision the draft was written against
+ * (`draft.opportunityRevisionId`), not `opportunities.canonicalTitle`, which
+ * is live and would otherwise claim the draft answers a title it was never
+ * actually generated from once the opportunity is re-resolved.
+ */
+export async function loadDraftContext(db: DatabaseOrTransaction, draft: OutreachDraftRow) {
+  const [row] = await db
+    .select({
+      opportunityTitle: opportunityRevisions.canonicalTitle,
+      profileLabel: candidateProfiles.label,
+    })
+    .from(opportunityRevisions)
+    .innerJoin(candidateProfiles, eq(candidateProfiles.id, draft.profileId))
+    .where(eq(opportunityRevisions.id, draft.opportunityRevisionId));
+  return row ?? null;
 }
