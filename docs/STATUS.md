@@ -36,7 +36,28 @@ Found by Codex during an independent design review of an unrelated landing-page 
 
 **Consequence for the in-flight landing-page plan (Phase 3E, below):** every "live proof" number that plan cited (310 open vacancies, 410 listings tracked) was computed against the stale, pre-fix corpus and is now wrong at a large margin (the corrected open-vacancy count alone is **3,627**, not 310) — revised before any landing-page code was written, per the same review that caught it.
 
-## Current phase: Phase 6 — outreach drafts
+## Current phase: Phase 4 — attachment visibility (narrowed scope)
+
+**Phase 6 (outreach drafts) is merged (PR #17); its full record is below.** Phase 4 was chosen next (2026-09-23) by project-owner decision, and deliberately re-scoped from what the concept originally asked for — see the grounding and decision below before the concept §16/§25 amendment this section also makes.
+
+### Stage plan (written 2026-09-23, before any code)
+
+**Grounding, checked against the live corpus first (concept §25's own instruction for this phase: "analyze observed attachment formats and frequency"):** of 3,524 current hr.ge listings, **27 (0.77%) carry `structuredAttributes.hasAttachment: true`**; jobs.ge carries **zero** across 711 current listings and has never been observed to. Formats, from the 27 real `attachmentUrl` file extensions: mostly `.docx`/`.xlsx`/`.xls`, plus a handful of `.zip`, `.rar`, `.odt`. **Every one of those URLs is a presigned S3 link (`s3.eu-west-1.amazonaws.com`) that expires roughly 40 minutes after hr.ge generates it** (`X-Amz-Expires=2400`) — so storing the URL itself for later use is pointless, and actually fetching content would need to happen within the crawl run that discovers it, not lazily afterward.
+
+**Decision: do not fetch, quarantine, or process attachment content at all — the concept's original Phase 4 (§16, §25) is deferred indefinitely, not built now.** Two reasons, not one: the observed volume is small enough (27 listings total, one source) that the fetch/quarantine/archive-safety machinery §16 specifies would cost far more engineering and security surface than it returns; and the accepted hosted-edition direction (§30) already leans the product toward "the person reviews the real listing and acts on it themselves" rather than Xtelo re-hosting source content. A person who wants the attachment already has, and will keep having, a link straight to the real hr.ge listing — they get it there, at the source, same as anyone visiting hr.ge directly would. This is recorded as a concept amendment in `docs/scraplify-concept.md` (§16/§25), not just a STATUS.md scope note, since it changes what the concept itself asks for.
+
+**What this phase actually delivers: one visibility flag, nothing else.** hr.ge's `structuredAttributes.hasAttachment` is already captured by the existing detail parser (Phase 1) and already reaches `getOpportunity` — it has simply never been rendered. `web/lib/opportunity-detail.ts`'s `EXTRA_TRUE_FLAGS` list (the same "print only when true" pattern already used for `isWorkFromHome`/`isSuitableForStudent`) gets one more entry: "This listing has an attachment on hr.ge — see the original listing." No new table, no migration, no fetch, no jobs.ge change (zero observed attachments there, so nothing to show).
+
+**Stages:**
+1. Add `hasAttachment` to `EXTRA_TRUE_FLAGS` and confirm it renders on the detail screen for a listing that actually has one.
+2. Unit test coverage for the new flag in `opportunity-detail.test.ts`.
+3. Browser QA against the live corpus (read-only `npm run dev:web` is sufficient — nothing here writes) using several of the 27 real listings, at all four gate viewports.
+
+**Exit gate:** the flag renders exactly for a canonical opportunity whose current live hr.ge member's structured attributes say `hasAttachment: true`, and for no other listing; nothing is fetched, stored, or linked to any URL other than the listing's own existing source link.
+
+## Earlier phase: Phase 6 — outreach drafts
+
+**Merged as PR #17 (2026-09-23).** Its full build and review record, including the two post-merge review rounds and the explicit waiver of the whole-branch review, is unchanged below.
 
 **Phase 7A (operations baseline) is merged (PR #16) and running for real; its record and open follow-ups are below.** Phase 6 was started 2026-09-16 while the first scheduled crawls run, by project-owner decision, scoped as **6A — drafts and exact-content approval, with no sending of any kind**.
 
@@ -1101,9 +1122,8 @@ Phases have not been worked strictly in order — 3A and 5A were taken early bec
   - **Deferred or rejected:** **shadcn and the React Bits registry**, dropped 2026-09-06 after the Stage 1 spike. Its real value is accessible *behaviour* for primitives that are hard to hand-roll — focus-trapped dialogs, comboboxes, dropdown menus — and none of the planned screens need one: they are tables, links, plain inputs, custom status chips, and a review queue whose keyboard handling is bespoke either way. Since the palette is a custom dark system, shadcn's styling would be overridden anyway, so it amounted to a Radix dependency tree bought for behaviour nothing was using. Add it the day a real dialog or combobox appears; React Bits stays out for the reasons in `anti-patterns.md`. Also deferred: Figma MCP until a Figma file exists; Storybook entirely, since this is a single-user internal tool rather than a component library; and the Python `webapp-testing` skill, which would duplicate the already-connected Playwright MCP that §25 warns against stacking variants of.
 - **Phase 1C items 1, 2 and 4** — closure has still never run against live data on either source, and neither source has had a full-coverage run (jobs.ge ≈ 7.9h, hr.ge ≈ 2.75h). Operational, not blocking: it needs elapsed time, not code. hr.ge's 100 listings also still carry stale `missing_suspected`/streak-2 residue that a real run would clear.
 - **Phase 2 item 2 — taxonomy mapping.** *(Corrected 2026-09-16: this entry still described the schema as missing well after Phase 3C-2 built it.)* Done for hr.ge in Phase 3C-2: migration 0020, `seedTaxonomyTerms` + `classifyListings`, first real backfill 765 terms / 16,868 classifications. Still open: **jobs.ge carries no category data at all** (0 of 310 listings), so it stays uncategorized rather than inferred; and classification of newly crawled listings was never automated — being closed by the Phase 7A follow-ups below.
-- **Phase 5 — CV parsing.** PDF/DOCX extraction, so profiles come from an uploaded CV rather than hand-entered JSON.
-- Phase 4 — attachments and resource expansion.
-- Phase 6 — outreach assistance.
+- **Phase 5 — CV parsing.** PDF/DOCX extraction, so profiles come from an uploaded CV rather than hand-entered JSON. *(Stale entry corrected 2026-09-23: this has been merged since 2026-09-16, PR #14 — see the completed-phases record.)*
+- **Phase 6 — outreach assistance.** *(Stale entry corrected 2026-09-23: merged 2026-09-23, PR #17 — see "Earlier phase: Phase 6" above.)*
 - Phase 7 — operations and supervised repair. **7A (operations baseline) in progress on `phase-7-ops`** — see the current-phase section; 7B (supervised repair, pg-boss, hosting) deferred until 7A produces measured evidence.
 - **Phase 8 — hosted edition and private browser CV matching. Not started.** Accepted direction recorded 2026-09-23 in `docs/scraplify-concept.md` §30 (amendment) and `change.md` (full implementation handoff, repository root). **Precondition (`change.md` §2, concept §30.6):** Phase 8A must not start from Phase 6's unmerged history — either Phase 6 (in progress on `phase-6-outreach-drafts`, not reflected on `main` yet — see this file's own history on that branch) is reviewed and merged to `main` first, or Phase 8A starts from a separate worktree off reviewed `main`. Sub-phases 8A (private matching feasibility) through 8E (hosted readiness), each its own branch — see concept §30.6 for the one-line exit criterion per sub-phase and `change.md` §13 for full deliverables. No public route, admin surface, migration, or production dependency for any of this exists yet; nothing about embeddings, browser CV parsing, or hosted auth has been implemented.
 

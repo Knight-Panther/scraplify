@@ -387,6 +387,7 @@ describe('toDetail — what a board also records', () => {
     expect(labels).not.toContain('Benefits');
     expect(labels).not.toContain('Driving licence');
     expect(labels).not.toContain('Remote');
+    expect(labels).not.toContain('Attachment');
   });
 
   it('shows a flag only when the board sets it', () => {
@@ -400,6 +401,30 @@ describe('toDetail — what a board also records', () => {
     );
 
     expect(detail.extras[0]?.fields.map((field) => field.label)).toContain('Remote');
+  });
+
+  /**
+   * Phase 4 (narrowed 2026-09-23): the flag only says an attachment exists —
+   * `attachmentUrl` itself is never rendered or linked to, since hr.ge's
+   * presigned links expire within the hour and Xtelo never fetches the file.
+   */
+  it('shows an attachment flag without ever rendering the presigned URL', () => {
+    const detail = toDetail(
+      view([
+        member({
+          sourceSlug: 'hr-ge',
+          structuredAttributes: {
+            ...HR_GE_ATTRIBUTES,
+            hasAttachment: true,
+            attachmentUrl:
+              'https://s3.eu-west-1.amazonaws.com/hrra-prod-hrge-general/x.docx?X-Amz-Signature=secret',
+          },
+        }),
+      ]),
+    );
+
+    expect(detail.extras[0]?.fields.map((field) => field.label)).toContain('Attachment');
+    expect(JSON.stringify(detail.extras)).not.toContain('X-Amz-Signature');
   });
 
   it('omits the section entirely for a board that records nothing', () => {

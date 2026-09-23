@@ -412,6 +412,14 @@ const EXTRA_TRUE_FLAGS: readonly { key: string; label: string; value: string }[]
     label: 'Students',
     value: 'The board marks this as suitable for students',
   },
+  {
+    // Phase 4 (concept §16, narrowed 2026-09-23): the board's own attachment
+    // is never fetched or stored — this only says one exists, so the reader
+    // can open it on the source listing linked in the heading just above.
+    key: 'hasAttachment',
+    label: 'Attachment',
+    value: 'The board marks this listing as having an attachment — open it on the source above',
+  },
 ];
 
 function extraFields(attributes: unknown): ExtraField[] {

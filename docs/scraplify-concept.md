@@ -10,6 +10,8 @@
 
 **Hosted edition amendment:** 2026-09-23 — accepted the hosted/public and privacy-first browser CV matching direction described in `change.md` (repository root; kept in full as the Phase 8 implementation handoff, not duplicated here). Summarized and made authoritative in new §30. This amendment also narrows §8.4, §17.2, and §28's `pgvector` statements — see §30.3 for the corrected rule. Phase 8 has not started as of this amendment; see `docs/STATUS.md`'s "Upcoming phases" for its precondition and current status.
 
+**Phase 4 scope amendment:** 2026-09-23 — narrowed §16 and §25's Phase 4 at the start of that phase, by project-owner decision, before any code. The live corpus shows attachment frequency too low (27 of 3,524 current hr.ge listings, zero on jobs.ge) to justify §16's fetch/quarantine/resource-graph machinery, and every observed attachment URL is a presigned link that expires in minutes — see §16's own note and `docs/STATUS.md`'s Phase 4 section for the full reasoning. Fetching, quarantining, and processing attachment content is deferred indefinitely rather than built; Phase 4 instead surfaces attachment presence as a visible flag, linking to the source listing where a person retrieves the file themselves.
+
 ## 1. Purpose of this document
 
 This document is the proposed source of truth for Scraplify's product direction and system architecture. It combines:
@@ -668,6 +670,8 @@ Organizations require their own identity process:
 
 Phase 1 records attachment and external-application metadata. Full recursive processing is enabled only after observed examples justify it.
 
+**Amended 2026-09-23:** observed examples do not justify it, at least not yet — Phase 4's own grounding pass found attachment metadata on 27 of 3,524 current hr.ge listings (0.77%) and none on jobs.ge, and every observed attachment URL is a presigned link that expires within the hour of being generated. The processing pipeline below is deferred indefinitely rather than built now; Phase 4 instead surfaces attachment presence as a flag pointing back to the source listing. See `docs/STATUS.md`'s Phase 4 section for the full reasoning, and revisit this section if a source's observed volume or link durability changes materially.
+
 Each source policy defines:
 
 - Allowed destination hosts.
@@ -1089,16 +1093,16 @@ Before committing symlinks on Windows, verify filesystem permissions and Git sym
 
 **Exit gate:** the stored corpus can be inspected and corrected without direct database access.
 
-### Phase 4 — attachments and resource expansion
+### Phase 4 — attachment visibility (narrowed, see amendment below)
 
-- Analyze observed attachment formats and frequency.
-- Implement only required processors with bounded quarantine handling.
-- Add resource-graph traversal under source-specific host/depth policies.
-- Add adversarial fixtures before accepting archives or documents.
+- Analyze observed attachment formats and frequency. *(Done 2026-09-23: 27 of 3,524 current hr.ge listings, 0 of 711 jobs.ge; see `docs/STATUS.md`.)*
+- ~~Implement only required processors with bounded quarantine handling.~~
+- ~~Add resource-graph traversal under source-specific host/depth policies.~~
+- ~~Add adversarial fixtures before accepting archives or documents.~~
 
-**Exit gate:** supported resources preserve provenance and malicious or oversized inputs fail safely.
+**Amended 2026-09-23:** the three struck items are deferred indefinitely, not merely reordered — see §16's amendment note and `docs/STATUS.md`'s Phase 4 section. The analysis step above is what actually happened; it found volume and link durability (presigned URLs expiring within the hour) that do not justify building a fetch/quarantine pipeline now. **Exit gate (narrowed): attachment presence is visible on the opportunity detail screen for every listing whose source data says it has one, linking back to the source rather than to any fetched copy.**
 
-This phase may move earlier only if an initial source places essential listing content in attachments.
+~~This phase may move earlier only if an initial source places essential listing content in attachments.~~ Superseded by the amendment above — nothing here is "earlier" or "later" now, it simply is not being built.
 
 ### Phase 5 — CV matching
 
