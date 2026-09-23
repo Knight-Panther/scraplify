@@ -30,6 +30,9 @@
     "rank": "node --env-file-if-exists=.env dist/cli/rank.js",
     "taxonomy:backfill": "node --env-file-if-exists=.env dist/cli/backfill-taxonomy.js",
     "health:check": "node --env-file-if-exists=.env dist/cli/health-check.js",
+    "matching:vendor-model": "node scripts/vendor-matching-model.mjs",
+    "matching:embed-eval-corpus": "node --env-file-if-exists=.env dist/cli/embed-eval-corpus.js",
+    "matching:parity-check": "node scripts/matching-parity/bundle-worker.mjs && node scripts/matching-parity/check.mjs",
     "dev:web:qa": "node scripts/next.mjs dev web --profile qa -H 127.0.0.1 -p 3001"
   },
   "repository": {
@@ -50,6 +53,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
@@ -62,6 +66,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",
+    "@huggingface/transformers": "^4.3.0",
     "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.2",
     "mammoth": "^1.12.3",
@@ -72,5 +77,11 @@
     "react-dom": "^19.2.8",
     "undici": "^8.10.1",
     "zod": "^4.5.4"
+  },
+  "allowScripts": {
+    "onnxruntime-node@1.30.0": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "protobufjs@7.6.6": true
   }
 }

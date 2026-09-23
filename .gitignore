@@ -53,3 +53,12 @@ blob-report/
 
 # Database backups (scripts/backup-db.ps1) - real corpus data, never committed
 backups/
+
+# Self-hosted matching-model cache (Phase 8A) — large binaries (100MB+),
+# never committed; vendored locally by scripts/vendor-matching-model.mjs and
+# verified against the hashes pinned in src/matching/models/.
+.matching-models/
+
+# Build artifact, not source (scripts/matching-parity/bundle-worker.mjs
+# regenerates it from worker.mjs) — run that before scripts/matching-parity/check.mjs.
+scripts/matching-parity/worker.bundle.mjs
