@@ -162,6 +162,13 @@
       "when": 1789575817093,
       "tag": "0022_far_talon",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790186132675,
+      "tag": "0023_goofy_moondragon",
+      "breakpoints": true
     }
   ]
 }

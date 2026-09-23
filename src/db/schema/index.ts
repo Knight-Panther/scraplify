@@ -4,6 +4,7 @@ export * from './incidents.js';
 export * from './opportunities.js';
 export * from './organizations.js';
 export * from './outreach.js';
+export * from './public-views.js';
 export * from './resources.js';
 export * from './runs.js';
 export * from './shortlist.js';
