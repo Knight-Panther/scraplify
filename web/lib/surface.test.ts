@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { currentSurface, InvalidSurfaceError } from './surface.js';
+import {
+  assertLocalSurface,
+  currentSurface,
+  InvalidSurfaceError,
+  NotLocalSurfaceError,
+} from './surface.js';
 
 /**
  * The whole point of this selector is that an unrecognized value cannot
@@ -29,4 +34,30 @@ describe('runtime surface', () => {
       expect(() => currentSurface()).toThrow(InvalidSurfaceError);
     },
   );
+});
+
+/**
+ * `assertLocalSurface()` authorizes by `XTELO_SURFACE` alone, not by user
+ * identity — so its own matrix is "reject under public/admin, succeed
+ * unconditionally under local", never a "non-allowlisted user" variant,
+ * which would misdescribe what this guard checks (per this stage's own
+ * plan in docs/STATUS.md).
+ */
+describe('assertLocalSurface', () => {
+  const original = { ...process.env };
+  afterEach(() => {
+    process.env = { ...original };
+  });
+
+  it('succeeds unconditionally on local (including unset)', () => {
+    delete process.env.XTELO_SURFACE;
+    expect(() => assertLocalSurface()).not.toThrow();
+    process.env.XTELO_SURFACE = 'local';
+    expect(() => assertLocalSurface()).not.toThrow();
+  });
+
+  it.each(['public', 'admin'] as const)('refuses on %o', (surface) => {
+    process.env.XTELO_SURFACE = surface;
+    expect(() => assertLocalSurface()).toThrow(NotLocalSurfaceError);
+  });
 });

@@ -10,7 +10,10 @@ import {
   loadDraft,
   OutreachError,
 } from '../../../../src/outreach/draft-store.js';
-import { DraftGenerationFailedError, generateDraft } from '../../../../src/outreach/generate-draft.js';
+import {
+  DraftGenerationFailedError,
+  generateDraft,
+} from '../../../../src/outreach/generate-draft.js';
 import {
   InvalidDraftInputError,
   readDraftEdit,
@@ -22,6 +25,7 @@ import {
   readLanguage,
   readOpportunityId,
 } from '../../../lib/draft-input.js';
+import { assertLocalSurface } from '../../../lib/surface.js';
 import { assertWritesEnabled } from '../../../lib/writes.js';
 
 /**
@@ -56,6 +60,7 @@ function withError(path: string, error: Error): string {
 }
 
 export async function generateDraftAction(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   const profileId = readDraftProfileId(form);
   const opportunityId = readOpportunityId(form);
@@ -87,6 +92,7 @@ export async function generateDraftAction(form: FormData): Promise<void> {
 }
 
 export async function saveDraftAction(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   const draftId = readDraftId(form);
   let target = `/drafts/${draftId}?saved=1`;
@@ -113,6 +119,7 @@ export async function saveDraftAction(form: FormData): Promise<void> {
 }
 
 export async function approveDraftAction(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   const draftId = readDraftId(form);
   let target = `/drafts/${draftId}?approved=1`;
@@ -156,6 +163,7 @@ export async function checkApprovalCurrentAction(
   draftId: string,
   expectedContentHash: string,
 ): Promise<boolean> {
+  assertLocalSurface();
   const loaded = await loadDraft(db, draftId);
   if (loaded === null) return false;
   return (
@@ -164,6 +172,7 @@ export async function checkApprovalCurrentAction(
 }
 
 export async function deleteDraftAction(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   const draftId = readDraftId(form);
   let target = '/drafts?deleted=1';

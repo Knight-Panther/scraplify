@@ -9,6 +9,7 @@ import {
   readCorrectedClaims,
   readProfileId,
 } from '../../../../lib/profile-input.js';
+import { assertLocalSurface } from '../../../../lib/surface.js';
 import { assertWritesEnabled } from '../../../../lib/writes.js';
 
 /**
@@ -27,6 +28,7 @@ function isKnownSaveConflict(error: unknown): error is Error {
 }
 
 export async function saveCorrections(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   // A malformed profileId means this request did not come from our own
   // rendered form — let it fall through to the generic error boundary,

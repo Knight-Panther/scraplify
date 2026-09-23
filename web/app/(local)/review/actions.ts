@@ -15,6 +15,7 @@ import {
   readMovingListingId,
   readSurvivorListingId,
 } from '../../../lib/review-input.js';
+import { assertLocalSurface } from '../../../lib/surface.js';
 import { assertWritesEnabled } from '../../../lib/writes.js';
 
 /**
@@ -111,6 +112,7 @@ function redirectToConflict(error: Error): never {
  * from overwriting it.
  */
 export async function acceptReviewPair(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
 
   const candidateId = readCandidateId(form);
@@ -184,6 +186,7 @@ export async function acceptReviewPair(form: FormData): Promise<void> {
  * other field: nothing but validated ids ever comes from client input here.
  */
 export async function rejectReviewPair(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
 
   const candidateId = readCandidateId(form);

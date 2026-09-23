@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache.js';
 import { redirect } from 'next/navigation.js';
 import { db } from '../../../../../src/db/client.js';
 import { undoAcceptedMerge } from '../../../../../src/dedupe/membership-review.js';
+import { assertLocalSurface } from '../../../../lib/surface.js';
 import { assertWritesEnabled } from '../../../../lib/writes.js';
 
 /**
@@ -40,6 +41,7 @@ function readUuid(form: FormData, field: string): string {
 }
 
 export async function detachFromOpportunity(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
 
   const sourceListingId = readUuid(form, 'sourceListingId');

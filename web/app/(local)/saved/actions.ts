@@ -2,8 +2,13 @@
 
 import { revalidatePath } from 'next/cache.js';
 import { db } from '../../../../src/db/client.js';
-import { clearDecision, type Decision, recordDecision } from '../../../../src/shortlist/decisions.js';
+import {
+  clearDecision,
+  type Decision,
+  recordDecision,
+} from '../../../../src/shortlist/decisions.js';
 import { readNote, readOpportunityId } from '../../../lib/decision-input.js';
+import { assertLocalSurface } from '../../../lib/surface.js';
 import { assertWritesEnabled } from '../../../lib/writes.js';
 
 /**
@@ -27,6 +32,7 @@ import { assertWritesEnabled } from '../../../lib/writes.js';
  */
 
 async function decide(form: FormData, decision: Decision): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
 
   const opportunityId = readOpportunityId(form);
@@ -51,6 +57,7 @@ export async function dismissOpportunity(form: FormData): Promise<void> {
 }
 
 export async function clearOpportunityDecision(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
 
   const opportunityId = readOpportunityId(form);

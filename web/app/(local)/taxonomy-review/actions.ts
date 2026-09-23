@@ -9,6 +9,7 @@ import {
   undoClassificationCorrection,
 } from '../../../../src/taxonomy/correct-classification.js';
 import { readClassificationId } from '../../../lib/taxonomy-review-input.js';
+import { assertLocalSurface } from '../../../lib/surface.js';
 import { assertWritesEnabled } from '../../../lib/writes.js';
 
 /**
@@ -47,6 +48,7 @@ function redirectToConflict(error: Error): never {
 }
 
 async function correct(form: FormData, verdict: ClassificationVerdict): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   const classificationId = readClassificationId(form);
 
@@ -86,6 +88,7 @@ export async function rejectClassification(form: FormData): Promise<void> {
 }
 
 export async function undoCorrection(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   const classificationId = readClassificationId(form);
 

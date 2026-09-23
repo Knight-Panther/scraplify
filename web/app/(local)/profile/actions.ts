@@ -2,7 +2,10 @@
 
 import { redirect } from 'next/navigation.js';
 import { revalidatePath } from 'next/cache.js';
-import { extractClaims, CvExtractionFailedError } from '../../../../src/cv-parsing/extract-claims.js';
+import {
+  extractClaims,
+  CvExtractionFailedError,
+} from '../../../../src/cv-parsing/extract-claims.js';
 import {
   CvTooLargeError,
   EmptyCvTextError,
@@ -22,6 +25,7 @@ import {
   readLabel,
   readProfileId,
 } from '../../../lib/profile-input.js';
+import { assertLocalSurface } from '../../../lib/surface.js';
 import { assertWritesEnabled } from '../../../lib/writes.js';
 
 /**
@@ -66,6 +70,7 @@ function isKnownUploadFailure(
 }
 
 export async function uploadCv(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
 
   let redirectTo: string | null = null;
@@ -108,6 +113,7 @@ export async function uploadCv(form: FormData): Promise<void> {
  * confirmation (a popover, not a plain click) is load-bearing, not decorative.
  */
 export async function deleteProfile(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   const profileId = readProfileId(form);
 
@@ -124,6 +130,7 @@ export async function deleteProfile(form: FormData): Promise<void> {
  * ranked results short of a terminal.
  */
 export async function rankProfile(form: FormData): Promise<void> {
+  assertLocalSurface();
   assertWritesEnabled();
   const profileId = readProfileId(form);
 

@@ -37,3 +37,28 @@ export function currentSurface(): Surface {
   if (!SURFACES.has(raw)) throw new InvalidSurfaceError(raw);
   return raw as Surface;
 }
+
+export class NotLocalSurfaceError extends Error {
+  readonly code = 'NOT_LOCAL_SURFACE';
+
+  constructor() {
+    super(
+      'This action is only reachable on the local surface (XTELO_SURFACE=local or unset). ' +
+        'It authorizes by surface, not by user identity, so it refuses unconditionally on ' +
+        'public or admin.',
+    );
+    this.name = 'NotLocalSurfaceError';
+  }
+}
+
+/**
+ * Throws unless this process is running as the local surface. Call FIRST in
+ * every Server Action that belongs to the operator's local-only workflow —
+ * a Server Action is independently reachable by a direct request regardless
+ * of which page nominally renders it, so a proxy/layout check alone is not
+ * authorization for it (the same principle `assertWritesEnabled()` in
+ * `web/lib/writes.ts` already applies to writes specifically).
+ */
+export function assertLocalSurface(): void {
+  if (currentSurface() !== 'local') throw new NotLocalSurfaceError();
+}
