@@ -88,10 +88,13 @@ the same severity class as fabricated data or broken Georgian handling.
    that surface.
 3. **Auth.js / admin auth scoped by path, not by surface-wide middleware.**
    Per concept round 5: code that runs Auth.js's own secret/provider
-   validation must be reached only for `/admin*` requests, never for
-   `public`/`local` paths that by design carry no `AUTH_SECRET` — a
+   validation must be reached only for `/admin*` **and** `/api/auth/*`
+   requests (`docs/STATUS.md`'s Stage 6 plan allowlists both on the admin
+   surface — the callback route legitimately has to invoke Auth.js) — never
+   for `public`/`local` paths, which by design carry no `AUTH_SECRET`. A
    surface-wide check that runs Auth.js unconditionally will crash or
-   misbehave on every non-admin request.
+   misbehave on every non-admin request; don't flag the OAuth handler itself
+   for doing what it exists to do.
 4. **Fails closed on an unrecognized surface value, but keeps the documented
    default for a *missing* one.** `currentSurface()` (`web/lib/surface.ts`)
    intentionally maps an unset `XTELO_SURFACE` to `local` — that's today's
