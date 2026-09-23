@@ -21,6 +21,10 @@ A `PreCompact` hook (`scripts/compact-watch.sh`) counts compactions per session 
 
 Two Postgres databases exist locally: `scraplify` (the real crawled corpus) and `scraplify_qa` (a frozen, disposable snapshot — a few hundred listings, not kept in sync with crawls or anything else). `npm run dev` / `dev:web` always points at `scraplify` with writes permanently disabled — a hard rule, not a temporary or togglable state, because a session has accidentally mutated the real corpus twice before this existed. `npm run dev:web:qa` points at `scraplify_qa` with writes enabled, for testing anything that mutates data (Save/Dismiss, duplicate-review actions, etc.) without any risk to real data. See `web/lib/writes.ts` for the full rationale.
 
+## Hosted edition (planned)
+
+`docs/scraplify-concept.md` §30 (amended 2026-09-23) records the accepted direction for a hosted public catalogue plus privacy-first browser CV matching, alongside the local/operator workflow this file already documents — one repository, one codebase, three runtime surfaces (`local`, `public`, `admin`), no fork and no permanent hosted branch. **None of it exists yet.** `docs/STATUS.md`'s "Upcoming phases" section is the source of truth for whether Phase 8 has started; until it has, every rule above and below this section describes the entire current system with no exceptions. `change.md` (repository root, kept per its own note at the top) is the full implementation handoff Phase 8A works from.
+
 ## Roles
 
 - **Claude (Claude Code): implementer.** Writes and edits all code in this repo.

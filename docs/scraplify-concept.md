@@ -8,6 +8,8 @@
 
 **Acquisition correction:** 2026-09-05 — Phase 1B's recorded reconnaissance supersedes the initial hr.ge pagination/sitemap assumptions (§5.2/§10.2). Index HTML is the coverage authority; sitemap entries are additive candidates only. The current transport/orchestration is shared undici plus adapter loops, not Crawlee (§8.5/§20).
 
+**Hosted edition amendment:** 2026-09-23 — accepted the hosted/public and privacy-first browser CV matching direction described in `change.md` (repository root; kept in full as the Phase 8 implementation handoff, not duplicated here). Summarized and made authoritative in new §30. This amendment also narrows §8.4, §17.2, and §28's `pgvector` statements — see §30.3 for the corrected rule. Phase 8 has not started as of this amendment; see `docs/STATUS.md`'s "Upcoming phases" for its precondition and current status.
+
 ## 1. Purpose of this document
 
 This document is the proposed source of truth for Scraplify's product direction and system architecture. It combines:
@@ -287,7 +289,7 @@ Track browser requests as a percentage of total requests. A rising ratio is a so
 
 **Decision:** Store crawl metadata, source observations, revisions, normalized entities, clusters, classifications, rankings, and approvals in PostgreSQL.
 
-Use `pg_trgm` for fuzzy candidate generation. Add `pgvector` only when semantic matching begins.
+Use `pg_trgm` for fuzzy candidate generation. Add `pgvector` only when semantic matching begins. **Amended 2026-09-23 (§30.3):** narrower than this reads — public CV ranking runs client-side in the browser and does not by itself justify a server-side vector index. Add `pgvector` only when evaluated server-side vector search begins.
 
 ### 8.5 Durable jobs only when needed
 
@@ -726,7 +728,7 @@ The result must explain:
 
 Cache results by opportunity revision, candidate-profile version, and evaluation version. Never overwrite prior assessments when an input or model changes.
 
-Embeddings improve candidate retrieval; they are not the sole ranking truth. Add `pgvector` only during this phase and use exact search until scale measurements justify an approximate index.
+Embeddings improve candidate retrieval; they are not the sole ranking truth. Add `pgvector` only during this phase and use exact search until scale measurements justify an approximate index. **Amended 2026-09-23 (§30.3):** this applies to the existing server-side local/operator ranking (§17.1). The Phase 8 public matching path performs exact search in the browser, not in Postgres, and does not trigger `pgvector` on its own — see §30.3 for the corrected rule.
 
 ## 18. Agent and approval boundaries
 
@@ -808,7 +810,7 @@ Consider Apify or Browserless only after measured operations show that hosted cr
 | Database | PostgreSQL | Foundation |
 | Database access | Drizzle ORM and `pg` | Foundation |
 | Fuzzy matching | PostgreSQL `pg_trgm` | Deduplication phase |
-| Vector matching | `pgvector` | CV-matching phase |
+| Vector matching | `pgvector` | Server-side vector search, once evaluated (§30.3) — not simply "CV-matching phase" |
 | Durable work queue | `pg-boss` | When heterogeneous durable jobs appear |
 | API | Fastify or a comparably small TypeScript HTTP layer | Browse/search phase |
 | Web UI | Small TypeScript web application | Browse/search phase |
@@ -1161,7 +1163,7 @@ Acceptance criteria:
 - Implement §10.1's incremental discovery overlap window for jobs.ge once its corpus grows enough that a full discovery walk every run becomes slow — deferred from Phase 1A (2026-09-05); currently ~19 pages / ~5,647 listings, well within a fast full walk.
 - Add `pg-boss` when durable heterogeneous jobs appear.
 - Add Playwright to the application when a source or automated canary requires it.
-- Add `pgvector` when semantic retrieval is being implemented.
+- Add `pgvector` when semantic retrieval is being implemented. **Amended 2026-09-23:** narrowed by §30.3 — public CV ranking (Phase 8) runs client-side and does not trigger this on its own; the actual trigger is evaluated server-side vector search.
 - Add object storage when retained resources outgrow simple controlled local storage.
 - Add OCR, XLSX, or archive processors only after representative samples exist.
 - Consider Apify for hosted crawling operations.
@@ -1196,3 +1198,79 @@ Acceptance criteria:
 - [OpenTelemetry JavaScript status](https://opentelemetry.io/docs/languages/js/)
 - [Vitest](https://vitest.dev/guide/)
 - [Biome](https://biomejs.dev/guides/getting-started/)
+
+## 30. Hosted edition and private browser CV matching (amendment, 2026-09-23)
+
+**Status of this section:** accepted direction, not yet implemented. Phase 8 has not started as of this amendment — see `docs/STATUS.md`'s "Upcoming phases" for the actual precondition and current state. This section is the authoritative summary; `change.md` (repository root) is the full implementation handoff this amendment reconciles from — architecture diagrams, per-phase deliverables, test/gate lists, and primary references live there and are not duplicated here. Read `change.md` before starting Phase 8A. Keep this section and `change.md` in agreement: if a later decision changes one, update the other in the same change.
+
+### 30.1 Decision summary
+
+Build the hosted service and the individually cloned/local product from **one repository and one codebase**, not a fork and not permanent `local`/`hosted` branches — the same reasoning §8.1 already gives for one PostgreSQL system of record applies to one codebase: security, crawler, schema, and correctness fixes must not be able to drift between two maintained copies. A GitHub fork remains the right tool for a separately owned derivative or an outside contributor; it is the wrong tool for two editions of the same product.
+
+Three runtime surfaces, one build:
+
+- **local/operator** — the current complete workflow (crawling, health, review queues, stored profiles, rankings, shortlist, outreach drafts), unchanged in scope by this amendment.
+- **public** — the hosted catalogue plus privacy-first browser CV matching, with no account and no server-side candidate/claim/ranking rows created for a visitor.
+- **admin** — the hosted operational control plane (crawl/dedupe/taxonomy/embedding/publication health and review), authenticated, deployed separately from `public`.
+
+The public hosted navigation is `Browse | Listings | CV Ranked`. `Browse` keeps meaning canonical opportunities and `Listings` keeps meaning distinct source records, matching §12's existing distinction — Phase 8 does not redefine either term.
+
+### 30.2 Runtime profiles and process separation
+
+One validated server-only setting selects the surface: `XTELO_SURFACE=local | public | admin`. In production, `public` and `admin` run as **separate processes with separate database credentials** from the same build — the `public` process holds neither an admin secret nor a write-capable/admin database credential, so a public-process compromise cannot reach admin data or crawl/dedupe/taxonomy write paths. This is deployment isolation (a reverse proxy mapping `admin.<domain>` and the public domain to separate loopback ports/processes), not a new service architecture — it does not revisit §8.1's modular-monolith decision. Every disallowed route returns `404`; page/action/handler-level authorization is required independently of layout/proxy checks, which are treated as UX only.
+
+Database roles for the hosted deployment: a public web role (`SELECT`-only on explicit public views/queries), an admin role (only implemented review/operations mutations), the existing worker role (crawl/dedupe/taxonomy/embedding/publication writes), and a migration role (DDL at deploy time only). `XTELO_WRITES_ENABLED` (already in use locally — see root `CLAUDE.md`'s "Local databases" section) remains a safety switch, not an authorization boundary; the public process's connection string is the actual control.
+
+### 30.3 Vacancy embeddings, matching bundle, and the `pgvector` correction
+
+**This narrows §8.4, §17.2, and §28's existing `pgvector` statements**, all of which currently say some form of "add `pgvector` when semantic matching/retrieval begins." Public CV ranking is designed to run **client-side, in the browser**, against a downloaded matching bundle — semantic matching beginning does not by itself create a server-side vector-search workload. The corrected rule: **add `pgvector` only when evaluated server-side vector search begins**, not merely because embeddings exist. At the corpus size observed through Phase 3–7 (on the order of a few thousand opportunities), exact typed-array cosine similarity in a browser Web Worker is simpler than any index; reconsider only if the compressed matching-bundle artifact exceeds 25 MB or ranking exceeds 250 ms p75 on the agreed baseline device.
+
+Vacancy and CV vectors are only comparable when produced under the **same exact model contract** (pinned model/tokenizer/runtime revision, prefixes, chunking, pooling, output dimension) — one pinned, self-hosted, redistributable multilingual ONNX model runs in both the scheduled Node builder and the browser worker; there is no separate embedding API for vacancies. `multilingual-e5-small` is a Phase 8A candidate, not a decision — Georgian/English quality, license, size, latency, and memory must clear the evaluation gate in §30.6's Phase 8A before any later phase depends on it.
+
+Embeddings and the artifacts built from them are versioned and immutable: `embedding_models`, `opportunity_embeddings` (keyed by a `semantic_input_hash` over the canonical opportunity representation, not every duplicate source row), `matching_bundle_builds`, and `matching_bundle_publications` are additive schema, built only after crawl/dedupe/taxonomy settle for a watermark, verified (counts, checksums, sample provenance) before an atomic activation that keeps the prior verified bundle on any failure. A bundle beyond an operator-chosen maximum age stops serving matches rather than silently going stale — last-known-good does not mean unboundedly old.
+
+### 30.4 Admin control plane
+
+The admin surface (`/admin`, `/admin/sources`, `/admin/duplicates`, `/admin/taxonomy`, `/admin/matching`, `/admin/incidents`, `/admin/operations`) is the hosted equivalent of the local operator's existing screens (source health, duplicate review, taxonomy review — §25 Phase 3/3C) plus new matching-bundle and publication visibility. It reports only durable, real evidence per stage of `Crawl -> Parse -> Normalize -> Dedupe -> Taxonomy -> Embed -> Publish` — no invented health scores, consistent with the "never render invented data" rule already stated in root `CLAUDE.md`'s Frontend section. Profile, ranking, shortlist, and outreach drafts (§17, §18, Phase 5, Phase 6) remain personal/local features — they do not become admin features, and are unavailable in the `public` production profile.
+
+Authentication uses a maintained OIDC/OAuth identity provider with provider-enforced MFA, not a homegrown password system. Every protected page, Route Handler, and Server Action re-checks identity independently; auth/provider errors fail closed.
+
+### 30.5 Privacy promise and browser CV processing
+
+The public CV flow is a new capability, not a hosted copy of the existing `/profile` flow (§17.1, Phase 5). The existing server-side flow (Mammoth/Anthropic extraction into a stored `CandidateProfile`) remains a valid **local/operator** capability under explicit consent; it must not be silently reused by the public surface, because it conflicts with both the privacy promise below and the zero-per-visitor-API-cost goal.
+
+Use this exact promise on the public CV surface:
+
+> The selected CV is read and analysed in this browser. Xtelo does not intentionally upload or store the file, extracted text, profile, embedding or ranking results. Closing or refreshing the tab clears the current session. Public model files and the vacancy index may remain in the browser cache.
+
+A dedicated Web Worker (never the main thread) parses the file (self-hosted PDF.js for PDF, Mammoth's browser build for DOCX), matches taxonomy aliases, lets the user correct role/skill/language/location/work-mode, and embeds/ranks locally against the published matching bundle. CV-derived state is **memory-only** for the first release — no cookies, `localStorage`, `sessionStorage`, IndexedDB, URL, or server cache — and is cleared on tab close, refresh, or explicit "Change CV." No third-party script or analytics runs on the CV surface; a strict CSP restricts it to same-origin assets. This is a zero-LLM-API-per-visitor design: the existing `claude-opus-5` CV extraction (§17.1) and outreach drafting (Phase 6) calls remain local/operator-only, deliberate, and consented, exactly as today.
+
+### 30.6 Phased implementation
+
+One branch per sub-phase, same convention as every earlier phase (root `CLAUDE.md`'s Git workflow section). **Precondition, recorded in `change.md` §2:** Phase 8A must not start from unmerged Phase 6 history — either Phase 6 is reviewed and merged to `main` first, or Phase 8A starts from a separate worktree off reviewed `main`. Full stage-by-stage deliverables, file-level detail, and test/gate lists for each sub-phase below are in `change.md` §13; this list is the one-line summary and exit criterion for each:
+
+- **Phase 8A — private matching feasibility** (`phase-8a-private-matching-spike`). Pin a candidate embedding model/license, build the evaluation harness (§30.3), prove Node/browser vector parity and an isolated worker (no public route, no production dependency added until the spike decides). **Exit:** one contract meets declared quality/performance/parity, or the branch records an honest lexical-first decision.
+- **Phase 8B — surfaces and admin boundary** (`phase-8b-surface-admin-boundary`). Runtime-profile config, layouts/nav, auth integration, admin dashboard, migrated health/duplicate/taxonomy screens, database roles/views. **Exit:** unauthenticated/public requests cannot read or mutate local/admin resources by any direct route or action; local workflows stay intact.
+- **Phase 8C — matching bundle** (`phase-8c-matching-bundle`). Embedding/bundle schema and migrations, incremental embedding by semantic hash, artifact store/manifest, atomic activation/rollback, admin matching health. **Exit:** an interrupted or incompatible build never replaces active data; every published row maps to a current public canonical revision and a real source.
+- **Phase 8D — browser CV Ranked** (`phase-8d-browser-cv-ranked`). Lazy self-hosted worker, memory-only provider, landing chooser, combined profile/preferences/results UI, hybrid ranking with explanations, privacy/no-network tests. **Exit:** a canary CV produces only allowlisted same-origin `GET` requests — no upload, no mutation — and leaves no canary text, file metadata, candidate row, or ranking anywhere server-side.
+- **Phase 8E — hosted readiness** (`phase-8e-hosted-readiness`). Production runbook/restore rehearsal, least-privilege secrets, two hosted profiles/domains, TLS/CSP/rate limits/probes, load/accessibility/security evidence, source rights/licenses, rollback drills. **Exit:** every release item has current evidence — a local demo is not hosted readiness.
+
+Each sub-phase follows the same review discipline as every phase before it (root `CLAUDE.md`: per-commit Codex gate, whole-branch adversarial review before merge, exit gate checked truthfully in `docs/STATUS.md`, never claimed from local success alone).
+
+### 30.7 What this amendment does not change
+
+- §12's canonical-opportunity/source-listing model, §14's deduplication pipeline, and §15's taxonomy are unchanged — Phase 8 consumes them, it does not redesign them.
+- Georgian typography rules (no uppercase transform, grapheme-safe truncation, Noto Sans Georgian coverage — root `CLAUDE.md`'s Frontend section) and "never render invented data" apply identically to the new public/admin surfaces.
+- §16's attachment-processing controls, §21's observability requirements, and §23's remote-content/candidate-privacy principles extend to the new surfaces rather than being replaced by them (see `docs/THREAT_MODEL.md`'s Phase 8 section for the specific new threats these principles now cover).
+- Migrations stay additive through the hosted launch; no current candidate/ranking table or local route is removed (§17's `/profile` flow and Phase 6's outreach-draft flow keep their current routes under `local`).
+
+### 30.8 Rejected alternatives
+
+| Alternative | Reason |
+| --- | --- |
+| Fork or new hosted repository | Duplicates schema/crawler/security fixes and drifts, per §30.1 |
+| Permanent hosted branch | Continual merge debt, two sources of truth |
+| Send the public CV to `claude-opus-5` (or any LLM API) | Recurring per-visitor cost and contradicts the privacy promise in §30.5 |
+| API vacancy embeddings paired with a different browser CV model | Embedding spaces from different contracts are not comparable (§30.3) |
+| Immediate `pgvector`/HNSW for public ranking | Browser exact search meets current corpus scale (§30.3) |
+| One hosted process serving both public and admin | A public compromise would expose admin secrets; two profiles are cheap isolation (§30.2) |

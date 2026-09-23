@@ -1021,6 +1021,7 @@ Phases have not been worked strictly in order — 3A and 5A were taken early bec
 - Phase 4 — attachments and resource expansion.
 - Phase 6 — outreach assistance.
 - Phase 7 — operations and supervised repair. **7A (operations baseline) in progress on `phase-7-ops`** — see the current-phase section; 7B (supervised repair, pg-boss, hosting) deferred until 7A produces measured evidence.
+- **Phase 8 — hosted edition and private browser CV matching. Not started.** Accepted direction recorded 2026-09-23 in `docs/scraplify-concept.md` §30 (amendment) and `change.md` (full implementation handoff, repository root). **Precondition (`change.md` §2, concept §30.6):** Phase 8A must not start from Phase 6's unmerged history — either Phase 6 (in progress on `phase-6-outreach-drafts`, not reflected on `main` yet — see this file's own history on that branch) is reviewed and merged to `main` first, or Phase 8A starts from a separate worktree off reviewed `main`. Sub-phases 8A (private matching feasibility) through 8E (hosted readiness), each its own branch — see concept §30.6 for the one-line exit criterion per sub-phase and `change.md` §13 for full deliverables. No public route, admin surface, migration, or production dependency for any of this exists yet; nothing about embeddings, browser CV parsing, or hosted auth has been implemented.
 
 ## Completed
 
