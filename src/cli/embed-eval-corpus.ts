@@ -51,10 +51,12 @@ async function main(): Promise<void> {
     profiles: SYNTHETIC_PROFILES.map((p, i) => ({
       id: p.id,
       language: p.language,
+      text: p.text,
       vector: profileVectors[i],
     })),
     opportunities: opportunities.map((o, i) => ({
       opportunityId: o.opportunityId,
+      text: o.text,
       vector: opportunityVectors[i],
     })),
   };

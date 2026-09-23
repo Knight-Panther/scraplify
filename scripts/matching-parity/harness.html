@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Phase 8A matching parity harness (local only, not a shipped screen)</title>
+  </head>
+  <body>
+    <script type="module">
+      const worker = new Worker('/harness/worker.bundle.mjs', { type: 'module' });
+      window.__parityReady = new Promise((resolve, reject) => {
+        worker.addEventListener('message', (event) => {
+          if (event.data?.status === 'progress') return;
+          resolve(event.data);
+        });
+        worker.addEventListener('error', (event) => reject(event.message));
+      });
+      window.__runParity = (payload) =>
+        new Promise((resolve, reject) => {
+          const onMessage = (event) => {
+            if (event.data?.status === 'progress') return;
+            worker.removeEventListener('message', onMessage);
+            resolve(event.data);
+          };
+          worker.addEventListener('message', onMessage);
+          worker.addEventListener('error', (event) => reject(event.message), { once: true });
+          worker.postMessage(payload);
+        });
+    </script>
+  </body>
+</html>
