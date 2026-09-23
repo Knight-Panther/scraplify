@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { CandidateClaimKind, CandidateClaimOrigin } from '../domain/candidate.js';
-import { candidateProfileClaims, candidateProfiles, rankings } from '../db/schema/index.js';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  candidateProfileClaims,
+  candidateProfiles,
+  outreachApprovals,
+  outreachDrafts,
+  rankings,
+} from '../db/schema/index.js';
 import type { Database, DatabaseOrTransaction } from '../db/types.js';
+import { CandidateClaimKind, CandidateClaimOrigin } from '../domain/candidate.js';
 import { normalizeTitle } from '../normalize/text.js';
 
 /**
@@ -154,6 +160,8 @@ export interface LoadedProfile {
   label: string;
   version: number;
   claims: Array<{
+    /** Lets an outreach draft cite the exact claims it relies on (Phase 6A). */
+    id: string;
     kind: string;
     value: string;
     valueNormalized: string;
@@ -177,6 +185,7 @@ export async function loadCandidateProfile(
 
   const claims = await db
     .select({
+      id: candidateProfileClaims.id,
       kind: candidateProfileClaims.kind,
       value: candidateProfileClaims.value,
       valueNormalized: candidateProfileClaims.valueNormalized,
@@ -200,6 +209,8 @@ export async function loadCandidateProfile(
 
 export interface DeleteProfileResult {
   rankingsDeleted: number;
+  /** Outreach drafts written from this profile — CV-derived text, so purged with it (Phase 6A). */
+  draftsDeleted: number;
   claimsDeleted: number;
   profileDeleted: boolean;
 }
@@ -216,13 +227,26 @@ export interface DeleteProfileResult {
  * request is asking to be rid of.
  *
  * Order matters: rankings reference the profile, and claims reference it too,
- * so both go before the profile row itself.
+ * so both go before the profile row itself. Outreach drafts (Phase 6A) are
+ * CV-derived text as well, so they and their approvals are deleted too — a
+ * soft-deleted draft still holds its body. Their audit events are kept: they
+ * carry ids and hashes only, no text.
  */
 export async function deleteCandidateProfile(
   db: Database,
   profileId: string,
 ): Promise<DeleteProfileResult> {
   return db.transaction(async (tx) => {
+    const draftIds = (
+      await tx
+        .select({ id: outreachDrafts.id })
+        .from(outreachDrafts)
+        .where(eq(outreachDrafts.profileId, profileId))
+    ).map((row) => row.id);
+    if (draftIds.length > 0) {
+      await tx.delete(outreachApprovals).where(inArray(outreachApprovals.draftId, draftIds));
+      await tx.delete(outreachDrafts).where(inArray(outreachDrafts.id, draftIds));
+    }
     const deletedRankings = await tx
       .delete(rankings)
       .where(eq(rankings.profileId, profileId))
@@ -238,6 +262,7 @@ export async function deleteCandidateProfile(
 
     return {
       rankingsDeleted: deletedRankings.length,
+      draftsDeleted: draftIds.length,
       claimsDeleted: deletedClaims.length,
       profileDeleted: deletedProfile.length > 0,
     };

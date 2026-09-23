@@ -155,6 +155,13 @@
       "when": 1789468508579,
       "tag": "0021_tidy_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789575817093,
+      "tag": "0022_far_talon",
+      "breakpoints": true
     }
   ]
 }

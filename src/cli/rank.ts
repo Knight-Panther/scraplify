@@ -106,7 +106,7 @@ async function main(): Promise<void> {
       const result = await deleteCandidateProfile(db, values.profile);
       if (!result.profileDeleted) throw new Error(`no profile with id ${values.profile}`);
       console.log(
-        `deleted profile, ${result.claimsDeleted} claim(s) and ${result.rankingsDeleted} cached ranking(s)`,
+        `deleted profile, ${result.claimsDeleted} claim(s), ${result.rankingsDeleted} cached ranking(s) and ${result.draftsDeleted} outreach draft(s)`,
       );
       break;
     }

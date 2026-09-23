@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { db } from './client.js';
 import {
-  crawlCursors,
+  auditEvents,
   type CrawlRunRow,
+  crawlCursors,
   crawlRuns,
   duplicateCandidates,
   fetchAttempts,
@@ -11,15 +12,17 @@ import {
   type NewCrawlRunRow,
   type NewSourceListingRow,
   opportunities,
-  opportunityRevisions,
   opportunityDecisions,
+  opportunityRevisions,
   opportunitySourceMemberships,
   organizationAliases,
+  outreachApprovals,
+  outreachDrafts,
   parserIncidents,
   rankings,
   resources,
-  sourceListingRevisions,
   type SourceListingRow,
+  sourceListingRevisions,
   sourceListings,
   sourcePolicies,
   sources,
@@ -226,6 +229,23 @@ export async function cleanupTestSource(
       //
       // None of the three cascade: every FK into source_listings is NO ACTION,
       // checked against the live schema rather than assumed.
+      //
+      // Outreach drafts (Phase 6A) FK into source_listings, their revisions and
+      // opportunities, so they go first, with their approvals and — since these
+      // are test drafts — their audit events, which carry no FK and would
+      // otherwise outlive the run as debris.
+      const draftIds = (
+        await tx
+          .select({ id: outreachDrafts.id })
+          .from(outreachDrafts)
+          .where(inArray(outreachDrafts.sourceListingId, listingIds))
+      ).map((row) => row.id);
+      if (draftIds.length > 0) {
+        await tx.delete(outreachApprovals).where(inArray(outreachApprovals.draftId, draftIds));
+        await tx.delete(auditEvents).where(inArray(auditEvents.entityId, draftIds));
+        await tx.delete(outreachDrafts).where(inArray(outreachDrafts.id, draftIds));
+      }
+
       await tx
         .delete(duplicateCandidates)
         .where(
