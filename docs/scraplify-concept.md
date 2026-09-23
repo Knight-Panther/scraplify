@@ -85,6 +85,7 @@ The crawler is infrastructure. The agent operates above the database through exp
 - Approval-controlled sending or application assistance.
 - Additional opportunity types and sources.
 - Supervised parser-repair proposals.
+- **A hosted public catalogue plus privacy-first, browser-only CV matching, and a separately authenticated admin control plane — added 2026-09-23, see §30.** Distinct from the CV upload/structured profile line above, which stays the local/operator flow; the hosted public path is a new, memory-only browser capability with no server-side candidate data for a visitor.
 
 ### 4.3 Explicit non-goals for the initial release
 
@@ -795,6 +796,8 @@ Move to an always-on backend when continuous reliability matters more than local
 
 Consider Apify or Browserless only after measured operations show that hosted crawler execution or browser pooling would materially help.
 
+**Amended 2026-09-23:** this section describes the crawler/worker side of an always-on deployment. §30.2 is the specific answer for the web side — `public` and `admin` as separate processes with separate database credentials, not one application process serving both.
+
 ## 20. Technology stack
 
 | Layer | Decision | Timing |
@@ -1153,7 +1156,7 @@ Acceptance criteria:
 - Whether hr.ge exposes a stable, complete, permitted listing/detail API.
 - Exact raw HTML and attachment retention periods.
 - Initial normalized Georgian profession taxonomy and review process.
-- Local-only versus always-on deployment target after the first vertical slice.
+- ~~Local-only versus always-on deployment target after the first vertical slice.~~ **Answered 2026-09-23 by §30: both.** The local/operator workflow stays as the always-current clone-and-run baseline; a hosted public catalogue and admin control plane are added alongside it from the same codebase, not as a replacement.
 - Desired notification channel and acceptable notification delay.
 - Whether observed attachments contain essential listing content.
 - Initial labeled duplicate set and the precision required for automatic linking.
