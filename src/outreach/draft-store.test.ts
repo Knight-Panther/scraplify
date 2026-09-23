@@ -416,6 +416,7 @@ describe('outreach draft store', () => {
       draftId: draft.id,
       subject: draft.subject,
       body: draft.body,
+      expectedContentHash: (await loadDraft(db, draft.id))?.contentHash ?? '',
       now: LATER,
     });
     expect((await loadDraft(db, draft.id))?.approval.status).toBe('current');
@@ -424,6 +425,7 @@ describe('outreach draft store', () => {
       draftId: draft.id,
       subject: draft.subject,
       body: `${draft.body} One more sentence.`,
+      expectedContentHash: (await loadDraft(db, draft.id))?.contentHash ?? '',
       now: LATER,
     });
     expect((await loadDraft(db, draft.id))?.approval).toEqual({ status: 'none' });
@@ -433,6 +435,34 @@ describe('outreach draft store', () => {
       .where(eq(outreachApprovals.draftId, draft.id));
     expect(approval?.invalidationReason).toBe('edited');
     expect(Date.parse(approval?.invalidatedAt ?? '')).toBe(Date.parse(LATER));
+  });
+
+  it('rejects a save against a stale content hash instead of silently overwriting a newer edit', async () => {
+    // Two tabs open on the same draft: tab A loads it, tab B saves an edit,
+    // then tab A tries to save its own (now-stale) edit without reloading.
+    const draft = await draftFor(await setup());
+    const staleHash = (await loadDraft(db, draft.id))?.contentHash ?? '';
+
+    await editDraft(db, {
+      draftId: draft.id,
+      subject: draft.subject,
+      body: `${draft.body} Tab B's edit.`,
+      expectedContentHash: staleHash,
+      now: LATER,
+    });
+
+    await expect(
+      editDraft(db, {
+        draftId: draft.id,
+        subject: draft.subject,
+        body: `${draft.body} Tab A's edit, based on the old text.`,
+        expectedContentHash: staleHash,
+        now: LATER,
+      }),
+    ).rejects.toMatchObject({ code: 'CONTENT_CHANGED' });
+
+    // Tab B's edit survives untouched.
+    expect((await loadDraft(db, draft.id))?.draft.body).toBe(`${draft.body} Tab B's edit.`);
   });
 
   it('never calls an approval current once the approved content no longer matches, even if nothing invalidated it', async () => {
@@ -549,7 +579,13 @@ describe('outreach draft store', () => {
     await deleteDraft(db, draft.id, LATER);
     expect(await loadDraft(db, draft.id)).toBeNull();
     await expect(
-      editDraft(db, { draftId: draft.id, subject: null, body: 'x', now: LATER }),
+      editDraft(db, {
+        draftId: draft.id,
+        subject: null,
+        body: 'x',
+        expectedContentHash: '',
+        now: LATER,
+      }),
     ).rejects.toBeInstanceOf(OutreachError);
     const [approval] = await db
       .select()
@@ -572,6 +608,7 @@ describe('outreach draft store', () => {
       draftId: draft.id,
       subject: 'New subject',
       body: 'New body',
+      expectedContentHash: (await loadDraft(db, draft.id))?.contentHash ?? '',
       now: LATER,
     });
     await deleteDraft(db, draft.id, LATER);

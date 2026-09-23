@@ -10,6 +10,7 @@ import {
   ApproveSubmitButton,
   LiveApprovedActions,
 } from '../../../components/draft-approval-guard.js';
+import { DraftConflictRecovery } from '../../../components/draft-conflict-recovery.js';
 import { SubmitButton } from '../../../components/submit-button.js';
 import { UnsavedChangesGuard } from '../../../components/unsaved-changes-guard.js';
 import { absoluteTime, relativeTime } from '../../../lib/format.js';
@@ -51,6 +52,7 @@ export default async function DraftPage({
   const error = one(raw.error);
   const saved = one(raw.saved) === '1';
   const approved = one(raw.approved) === '1';
+  const isSaveConflict = error !== '' && one(raw.code) === 'CONTENT_CHANGED';
 
   if (!UUID.test(id)) return <NotFound />;
   const loaded = await loadDraft(db, id);
@@ -102,9 +104,9 @@ export default async function DraftPage({
           {error}
         </div>
       )}
-      {(saved || approved) && error === '' && (
+      {(saved || (approved && approval.status === 'current')) && error === '' && (
         <p className="mt-4 text-sm text-status-open" aria-live="polite">
-          {approved ? 'Approved.' : 'Saved.'}
+          {approved && approval.status === 'current' ? 'Approved.' : 'Saved.'}
         </p>
       )}
 
@@ -121,6 +123,11 @@ export default async function DraftPage({
         <form id="draft-edit-form" action={saveDraftAction} className="contents">
           <UnsavedChangesGuard formId="draft-edit-form" />
           <input type="hidden" name="draftId" value={draft.id} />
+          {/* Unconditional (unlike the Approve button below, which only
+              renders once not-yet-current): Save needs this on every
+              submission too, to detect a stale tab overwriting a newer
+              edit — see saveDraftAction's expectedContentHash check. */}
+          <input type="hidden" name="contentHash" value={contentHash} />
 
           <ApprovalPanel
             draft={draft}
@@ -131,6 +138,11 @@ export default async function DraftPage({
 
           <section className="mt-6 max-w-[var(--measure)]">
             <Recipient draft={draft} />
+            <DraftConflictRecovery
+              formId="draft-edit-form"
+              draftId={draft.id}
+              isSaveConflict={isSaveConflict}
+            />
             <div className="mt-3 flex flex-col gap-3">
               {draft.kind === 'email' && (
                 <label className="flex flex-col gap-1 text-sm">
@@ -223,6 +235,10 @@ function ApprovalPanel({
   contentHash: string;
   canWrite: boolean;
 }) {
+  const emailMailtoHref =
+    draft.kind === 'email' && draft.recipient !== null
+      ? mailtoHref(draft.recipient, draft.subject, draft.body)
+      : null;
   return (
     <section
       aria-label="Approval"
@@ -241,12 +257,13 @@ function ApprovalPanel({
             </span>
           </p>
           <LiveApprovedActions
-            editFormId="draft-edit-form"
+            editFormId={canWrite ? 'draft-edit-form' : null}
+            draftId={draft.id}
+            expectedContentHash={contentHash}
             text={draft.subject ? `${draft.subject}\n\n${draft.body}` : draft.body}
-            mailtoHref={
-              draft.kind === 'email' && draft.recipient !== null
-                ? mailtoHref(draft.recipient, draft.subject, draft.body)
-                : null
+            mailtoHref={emailMailtoHref}
+            emailWithSuppressedMailto={
+              draft.kind === 'email' && draft.recipient !== null && emailMailtoHref === null
             }
           />
           <p className="mt-2 text-xs text-faint">
@@ -283,8 +300,10 @@ function ApprovalPanel({
           // No wrapping <form>: this button submits the shared
           // draft-edit-form via `formAction`, which is what carries the
           // current subject/body along with it — see ApproveSubmitButton.
+          // The hidden `contentHash` field it also relies on is rendered
+          // once, unconditionally, by the parent form (see DraftPage) —
+          // Save needs the same field on every submission, not just this one.
           <div className="mt-3">
-            <input type="hidden" name="contentHash" value={contentHash} />
             <ApproveSubmitButton
               editFormId="draft-edit-form"
               formAction={approveDraftAction}

@@ -63,9 +63,17 @@ describe('draft form input', () => {
 
   it('builds a mailto link with every part encoded and CRLF line breaks', () => {
     const href = mailtoHref('hr@example.ge', 'გამარჯობა & hello', 'Line one\nLine two?');
-    expect(href.startsWith('mailto:hr@example.ge?subject=')).toBe(true);
+    expect(href).not.toBeNull();
+    expect(href?.startsWith('mailto:hr@example.ge?subject=')).toBe(true);
     expect(href).toContain(`subject=${encodeURIComponent('გამარჯობა & hello')}`);
     expect(href).toContain(`body=${encodeURIComponent('Line one\r\nLine two?')}`);
     expect(mailtoHref('hr@example.ge', null, 'x')).toBe('mailto:hr@example.ge?body=x');
+  });
+
+  it('refuses to build a mailto link long enough to be unsafe, but still allows one just under the bound', () => {
+    // Georgian expands ~9x under percent-encoding (3 bytes/char, 3 chars each), so
+    // a short Georgian body alone is enough to cross a 1,800-character bound.
+    expect(mailtoHref('hr@example.ge', null, 'გამარჯობა '.repeat(30))).toBeNull();
+    expect(mailtoHref('hr@example.ge', null, 'x'.repeat(100))).not.toBeNull();
   });
 });

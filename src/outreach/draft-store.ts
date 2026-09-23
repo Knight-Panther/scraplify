@@ -334,6 +334,15 @@ export interface EditDraftInput {
   draftId: string;
   subject: string | null;
   body: string;
+  /**
+   * The content hash the edit form was rendered with. Without this, two tabs
+   * open on the same draft race a plain read-then-write: tab A's save can be
+   * silently overwritten by tab B's, because neither transaction ever looks
+   * at what the other wrote. Checked against the locked row itself, so the
+   * comparison and the write happen under the same lock rather than a
+   * separate pre-check that could still race the transaction that acts on it.
+   */
+  expectedContentHash: string;
   now: string;
 }
 
@@ -349,8 +358,14 @@ export async function editDraft(db: Database, input: EditDraftInput): Promise<Ou
   }
   return db.transaction(async (tx) => {
     const draft = await lockDraft(tx, input.draftId);
-    const subject = draft.kind === 'email' ? (input.subject?.trim() ?? null) : null;
     const before = contentHash(boundContent(draft));
+    if (before !== input.expectedContentHash) {
+      throw new OutreachError(
+        'CONTENT_CHANGED',
+        'This draft changed elsewhere since you loaded it. Reload and reapply your edit.',
+      );
+    }
+    const subject = draft.kind === 'email' ? (input.subject?.trim() ?? null) : null;
     const after = contentHash({ ...boundContent(draft), subject, body: input.body });
     if (before === after) return draft;
 

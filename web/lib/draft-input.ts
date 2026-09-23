@@ -115,14 +115,35 @@ export function readExpectedContentHash(form: FormLike): string {
 }
 
 /**
- * A `mailto:` link carrying the approved draft, so pressing send stays with the
- * person and their own mail client. `encodeURIComponent` on every part; line
- * breaks as CRLF per RFC 6068.
+ * A safe-across-browsers ceiling for a `mailto:` URI. There is no single
+ * standard limit — old IE capped full URLs around 2,083 characters, and
+ * mail clients and OS protocol handlers (which `mailto:` hands off to,
+ * unlike an in-page link) impose their own, generally tighter ones — so this
+ * is a conservative bound comfortably under the smallest commonly cited
+ * figure, not a measured limit of any specific target.
  */
-export function mailtoHref(recipient: string, subject: string | null, body: string): string {
+const MAX_MAILTO_HREF_CHARS = 1800;
+
+/**
+ * A `mailto:` link carrying the approved draft, so pressing send stays with the
+ * person and their own mail client — or `null` if the encoded link would be
+ * unsafe to hand to one. `encodeURIComponent` on every part; line breaks as
+ * CRLF per RFC 6068.
+ *
+ * The allowed draft body is up to 20,000 characters, and Georgian text
+ * expands under percent-encoding (each character becomes multiple `%XX`
+ * triples), so an approved draft can legitimately produce a `mailto:` URI
+ * well past what a browser, OS protocol handler, or mail client reliably
+ * accepts — silent truncation of an approved letter would be worse than not
+ * offering the shortcut. The caller already handles `null` (it means "no
+ * safe mailto link" the same way "not an email draft" already does) by
+ * falling back to Copy, which has no such bound.
+ */
+export function mailtoHref(recipient: string, subject: string | null, body: string): string | null {
   const params = [
     ...(subject ? [`subject=${encodeURIComponent(subject)}`] : []),
     `body=${encodeURIComponent(body.replace(/\r?\n/g, '\r\n'))}`,
   ];
-  return `mailto:${encodeURIComponent(recipient).replace(/%40/g, '@')}?${params.join('&')}`;
+  const href = `mailto:${encodeURIComponent(recipient).replace(/%40/g, '@')}?${params.join('&')}`;
+  return href.length > MAX_MAILTO_HREF_CHARS ? null : href;
 }

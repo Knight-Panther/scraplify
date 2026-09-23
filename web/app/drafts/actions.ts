@@ -7,6 +7,7 @@ import {
   approveDraft,
   deleteDraft,
   editDraft,
+  loadDraft,
   OutreachError,
 } from '../../../src/outreach/draft-store.js';
 import { DraftGenerationFailedError, generateDraft } from '../../../src/outreach/generate-draft.js';
@@ -45,7 +46,13 @@ function isExpected(
 }
 
 function withError(path: string, error: Error): string {
-  return `${path}${path.includes('?') ? '&' : '?'}error=${encodeURIComponent(error.message)}`;
+  const base = `${path}${path.includes('?') ? '&' : '?'}error=${encodeURIComponent(error.message)}`;
+  // The code, when the error carries one, lets the client distinguish
+  // WHICH refusal happened without parsing prose — used today only to spot
+  // a stale-save conflict and recover the rejected tab's unsaved text (see
+  // `draft-conflict-recovery.tsx`), but generically useful for any future
+  // case that needs the same.
+  return error instanceof OutreachError ? `${base}&code=${error.code}` : base;
 }
 
 export async function generateDraftAction(form: FormData): Promise<void> {
@@ -85,7 +92,18 @@ export async function saveDraftAction(form: FormData): Promise<void> {
   let target = `/drafts/${draftId}?saved=1`;
   try {
     const { subject, body } = readDraftEdit(form);
-    await editDraft(db, { draftId, subject, body, now: new Date().toISOString() });
+    // Same hidden field Approve already reads (see approveDraftAction below) —
+    // rendered once, unconditionally, in the shared edit form. Catches two
+    // tabs open on the same draft: without it, a stale tab's Save would
+    // silently overwrite whatever the other tab already wrote.
+    const expectedContentHash = readExpectedContentHash(form);
+    await editDraft(db, {
+      draftId,
+      subject,
+      body,
+      expectedContentHash,
+      now: new Date().toISOString(),
+    });
   } catch (error) {
     if (!isExpected(error)) throw error;
     target = withError(`/drafts/${draftId}`, error);
@@ -117,6 +135,32 @@ export async function approveDraftAction(form: FormData): Promise<void> {
   }
   revalidatePath('/drafts');
   redirect(target);
+}
+
+/**
+ * Whether a draft's approval is current RIGHT NOW, called directly from
+ * `draft-approval-guard.tsx` (not a `<form>` action) immediately before
+ * revealing or acting on Copy / "open in your mail app".
+ *
+ * The client-side dirty guard only ever sees this ONE tab's edit form — it
+ * cannot know that another tab saved an edit, that the profile was revised,
+ * or that a crawl advanced the listing while this page stayed open, any of
+ * which invalidates the approval on the server without this tab's form ever
+ * becoming "dirty". A stale-but-confident page would then let Copy and the
+ * static `mailto:` link keep serving text that is no longer approved. This
+ * re-reads the real, authoritative check (`approvalState`, which never
+ * trusts a stored flag) and fails closed: anything other than an exact,
+ * still-current match refuses.
+ */
+export async function checkApprovalCurrentAction(
+  draftId: string,
+  expectedContentHash: string,
+): Promise<boolean> {
+  const loaded = await loadDraft(db, draftId);
+  if (loaded === null) return false;
+  return (
+    loaded.approval.status === 'current' && loaded.approval.contentHash === expectedContentHash
+  );
 }
 
 export async function deleteDraftAction(form: FormData): Promise<void> {
