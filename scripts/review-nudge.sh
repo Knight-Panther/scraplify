@@ -51,7 +51,7 @@ case "$file" in
 esac
 
 case "$file" in
-  */web/lib/surface.ts | */web/lib/writes.ts | */web/proxy.ts | */web/app/*actions.ts | */src/browse/public-queries.ts | */web/app/\(admin\)/* | */web/app/\(public\)/* | */web/app/\(local\)/*)
+  */web/lib/surface.ts | */web/lib/writes.ts | */web/proxy.ts | */web/app/*actions.ts | */src/browse/public-queries.ts | */web/app/\(admin\)/* | */web/app/\(public\)/* | */web/app/\(local\)/* | */src/db/schema/public-views.ts | */scripts/sql/phase-8b-public-role.sql | */src/db/client.ts | */web/instrumentation.ts | */web/auth.ts | */web/auth.config.ts | */web/app/api/auth/*)
     msg_surface="Surface-boundary code edited ($file). Before this change lands, run the surface-boundary-reviewer agent over it — this is the exact class of bug (a Server Action missing its guard, a public-surface path reaching a write-capable credential) that whole-branch review already caught twice on this phase (docs/STATUS.md's Phase 8B round 4/5 notes)."
     ;;
 esac

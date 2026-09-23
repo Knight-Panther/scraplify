@@ -36,6 +36,22 @@ the same severity class as fabricated data or broken Georgian handling.
   `public_source_listings` (the restricted views), never a base table or any
   table those views don't expose (`opportunity_decisions`,
   `duplicate_candidates`, `crawl_runs`, `parser_incidents`, …).
+- `src/db/schema/public-views.ts` and `scripts/sql/phase-8b-public-role.sql`
+  — the views themselves and the grant script defining what the
+  `scraplify_public` role can see; a view that joins in one column too many,
+  or a grant on a base table alongside the views, is the same leak as a bad
+  query, just one layer lower.
+- `src/db/client.ts` — how a process's `DATABASE_URL` becomes its live
+  connection; check this whenever role-specific wiring (public/admin/worker)
+  is added or changed here.
+- `web/instrumentation.ts` — calls `currentSurface()` at startup so an
+  invalid `XTELO_SURFACE` fails closed before the server accepts a request;
+  a change here that stops calling it, or swallows the throw, silently
+  undoes that.
+- `web/auth.ts` / `web/auth.config.ts` (Stage 7+, once they land) and the
+  `/api/auth/[...nextauth]` route handler — Auth.js's own config and the
+  route that reaches it; the provider/secret validation and the
+  `isAdmin`/`ADMIN_GITHUB_IDS` allowlist logic live here.
 - `web/app/(local)/`, and the `(admin)`/`(public)` route groups once they
   land — which surface a given route/action is actually reachable from.
 - `docs/THREAT_MODEL.md` §7 — the authoritative list of what this phase
@@ -116,9 +132,14 @@ than sampling.
 
 ## Output
 
-Report each finding as: the file/line, the specific unauthorized path that
-becomes reachable (concrete — "a direct POST to `/admin/publish` with no
-session cookie succeeds because `publishListing` never calls a guard", not
-"this might need auth"), and what the correct guard/check should be. If
-nothing in the diff touches the surface boundary, say so rather than padding
-the report.
+Report each finding as: the file/line, a concrete triggering scenario and
+its impact, and what the correct fix should be. Most findings here are an
+unauthorized path becoming reachable ("a direct POST to `/admin/publish`
+with no session cookie succeeds because `publishListing` never calls a
+guard") — but not all of checks 3/4/6/7 above are: Auth.js crashing every
+`public`/`local` request, a value that should fail closed silently passing
+through, a successful admin mutation redirecting to a URL the allow-list
+404s, or a mutation with no audit row are real findings with no
+"unauthorized path" to name. State the scenario and its concrete impact
+either way, never "this might need auth". If nothing in the diff touches the
+surface boundary, say so rather than padding the report.
