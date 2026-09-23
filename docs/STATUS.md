@@ -51,7 +51,36 @@ Found by `npm run health:check` while closing out a Phase 7A follow-up (the taxo
 
 **Not addressed, deliberately out of scope here:** self-healing for a stuck `running` row is not built — `health:check` surfacing it (which it did, correctly, the moment someone looked) is this project's current design, not a gap this incident calls for closing on its own; that would be a `Phase 7B` "supervised repair" concern, not a same-day fix.
 
-## Current phase: Phase 4 — attachment visibility (narrowed scope)
+## Current phase: Phase 8A — private matching feasibility
+
+**Phase 7 is fully closed** (7A merged as PR #16; its one open follow-up, newly-crawled-listing classification, merged as PR #18) and Phase 4 is merged (below, now "Earlier phase"). Phase 8A was chosen next (2026-09-23) by explicit instruction, ahead of Phase 7B: 7B is evidence-gated on the 7A schedules actually running (concept §25), and they had in fact been silently dead for a week — see the incident above, fixed the same day this phase started — so there is no multi-day evidence to build 7B on yet, while Phase 8A's own precondition (Phase 6 merged before any Phase 8 branch) was already satisfied.
+
+**Scope, per `change.md` §13/§18 (the accepted implementation handoff) and concept §30.6:** a feasibility spike only — pin one candidate embedding model and its redistribution license, build a privacy-safe evaluation harness, prove the exact same model/runtime produces matching vectors in Node and in a browser Web Worker (the "model contract" change.md §7 insists on, since vacancy and CV vectors are only comparable when produced identically), and measure size/latency/memory against change.md §14's performance gates. **No public route, no migration, no production dependency, no admin surface** — all deferred to 8B onward.
+
+### Stage plan (written 2026-09-23, before any code)
+
+**Candidate model, checked live before picking anything (change.md §18 step 4):** `intfloat/multilingual-e5-small` — confirmed directly from its Hugging Face model card and `config.json`: **MIT license** (redistributable), **Georgian (`ka`) explicitly listed among trained languages**, `hidden_size: 384`, `max_position_embeddings: 512`. A Transformers.js-compatible ONNX port already exists at `Xenova/multilingual-e5-small` (the standard community-conversion pattern this ecosystem uses, per Transformers.js's own docs). The E5 family's well-documented convention — not verified against this specific card's usage section, which did not load in full, but standard across every `e5`/`multilingual-e5` release — is a `"query: "` / `"passage: "` input prefix, mean pooling over non-padding tokens, and L2 normalization; this stays an assumption to confirm against the model's own tokenizer/config during Stage 1, not asserted as fact yet. Runtime: `@huggingface/transformers` (the maintained successor to `@xenova/transformers`), which supports `env.allowRemoteModels = false` plus a `localModelPath` for fully self-hosted, no-remote-download operation in both Node and the browser — confirmed against its current docs (Context7), not assumed from training data.
+
+**Stages:**
+1. **Pin and record.** Add `@huggingface/transformers` as a dependency. Vendor the exact ONNX/tokenizer files (model weights, `tokenizer.json`, `config.json`) into a self-hosted location (not a runtime download from the Hugging Face Hub), record their SHA-256 hashes and the upstream revision/commit pinned, and write the license/attribution down in-repo. Confirm the query:/passage: prefix and pooling convention directly against the vendored tokenizer/config rather than assumed.
+2. **Evaluation harness scaffold** (`src/matching/eval/`): a fixed, versioned corpus format (profile text + a real, traceable opportunity id + a human relevance judgment), and scorers for Recall@20 and NDCG@10 per change.md §12.
+3. **Synthetic profile set.** 15+ representative Georgian/English/mixed-language CVs, written as clearly synthetic fixtures (no real person's data) — this is the one part of the evaluation corpus this phase can build without outside input, per change.md §12's own minimum.
+4. **Node embedding script**: embed the synthetic profiles and a real, current sample of canonical opportunities (traceable ids, live corpus) with the pinned model; store the raw vectors as fixed golden output.
+5. **Browser Web Worker parity proof**: the identical model/runtime, run client-side via WASM against the same fixed non-personal text, behind no public route (a local-only test harness page or a Playwright-driven fixture, not a shipped screen). Assert the Node and browser vectors match within a tight numeric tolerance — this is the phase's central technical question.
+6. **Isolated worker proof**: PDF/DOCX extraction (reusing the existing Mammoth path for DOCX; a self-hosted pinned PDF.js worker for PDF) plus embedding, entirely inside a Web Worker, with a Playwright network-assertion test proving zero requests beyond allowlisted same-origin static assets — no upload, no third-party call.
+7. **Measure**: model/runtime download size, cold/warm load time, embedding latency and peak memory in a real browser at the four required widths, against change.md §14's gates (warm <=5s, cold <=20s on an agreed mid-range device, ranking off the main thread, reassess past 25MB compressed or 250ms p75).
+
+**Explicitly not attempted in this phase, stated rather than silently skipped:** change.md §12's **quantitative acceptance gate** (Recall@20 >= 0.90, meaningful NDCG@10 lift, zero hard-filter violations) needs **300+ human-labelled profile/opportunity judgments from real, traceable listings** — real human relevance judgment, not something to fabricate, and this project's hard rule against invented data applies here exactly as it does to rendered listings. Stages 1-7 above build every piece of infrastructure that gate needs to run the moment a labelled set exists, but the set itself is a separate, human task for the project owner. Until it exists, this phase's exit is change.md §13's own fallback: **"the branch records an honest lexical-first decision"** rather than a claimed quantitative win — Stage 7's measured size/latency/memory and the Stage 5 parity proof are still real, checkable evidence on their own, just not the full quality gate.
+
+**Exit gate (8A):**
+- [ ] One candidate model/runtime is pinned, self-hosted, and its license recorded.
+- [ ] Node and browser-Worker embeddings of the same fixed text match within tolerance — the model-contract question this phase exists to answer.
+- [ ] The isolated worker proof shows zero non-allowlisted network requests during PDF/DOCX parsing and embedding.
+- [ ] Size/latency/memory are measured against change.md §14's gates, in a real browser at all four required widths.
+- [ ] Either the 300+ label quantitative gate is met, or the branch says plainly that it isn't and why — never a claimed pass without the evidence.
+- [ ] Per-commit review clean or recorded OWED; whole-branch review run or explicitly waived.
+
+## Earlier phase: Phase 4 — attachment visibility (narrowed scope)
 
 **Phase 6 (outreach drafts) is merged (PR #17); its full record is below.** Phase 4 was chosen next (2026-09-23) by project-owner decision, and deliberately re-scoped from what the concept originally asked for — see the grounding and decision below before the concept §16/§25 amendment this section also makes.
 
