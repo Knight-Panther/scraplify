@@ -17,12 +17,14 @@ import { SiteHeaderNav } from './site-header-nav.js';
  */
 export async function SiteHeader() {
   const locale = await currentLocale();
-  return (
-    <SiteHeaderNav
-      dbLabel={databaseLabel()}
-      writesOn={writesEnabled()}
-      locale={locale}
-      surface={currentSurface()}
-    />
-  );
+  const surface = currentSurface();
+  // Computed only for the surface allowed to see them, not just rendered
+  // conditionally: a value passed to a Client Component is serialized into
+  // the RSC payload regardless of whether that component's JSX ends up
+  // displaying it, so gating only in SiteHeaderNav's render would still ship
+  // the real database name and write-mode flag to a public visitor's
+  // browser (Codex, 2026-09-24).
+  const dbLabel = surface === 'local' ? databaseLabel() : '';
+  const writesOn = surface === 'local' ? writesEnabled() : false;
+  return <SiteHeaderNav dbLabel={dbLabel} writesOn={writesOn} locale={locale} surface={surface} />;
 }
