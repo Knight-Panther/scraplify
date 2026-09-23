@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation.js';
 import { toggleLocale } from '../app/actions.js';
 import type { Locale } from '../lib/locale.js';
+import type { Surface } from '../lib/surface.js';
 
 /**
  * The site's nav links, one list shared by the desktop bar and the mobile
@@ -48,28 +49,38 @@ const NAV_KA = [
 /**
  * Client only for the two things that genuinely need the browser: which
  * link is "active" (needs the current pathname) and the mobile menu's
- * open/closed state. `dbLabel`/`writesOn` are passed in from the server
- * parent (`site-header.tsx`) rather than computed here — this component
- * used to call `databaseLabel()`/`writesEnabled()` directly when it was
- * still the whole `SiteNav`, and because those read server-only env vars,
- * running them again on the client (undefined there) produced a real
+ * open/closed state. `dbLabel`/`writesOn`/`surface` are passed in from the
+ * server parent (`site-header.tsx`) rather than computed here — this
+ * component used to call `databaseLabel()`/`writesEnabled()` directly when
+ * it was still the whole `SiteNav`, and because those read server-only env
+ * vars, running them again on the client (undefined there) produced a real
  * hydration mismatch: the server said "scraplify", the client said "no
- * database". Passing the already-resolved strings down avoids that class of
+ * database". Passing the already-resolved values down avoids that class of
  * bug entirely rather than working around its symptom.
  */
 export function SiteHeaderNav({
   dbLabel,
   writesOn,
   locale,
+  surface,
 }: {
   dbLabel: string;
   writesOn: boolean;
   locale: Locale;
+  surface: Surface;
 }) {
   const pathname = usePathname();
   const isActive = (href: string) =>
     href === '/' ? pathname === '/' : (pathname?.startsWith(href) ?? false);
-  const nav = locale === 'ka' ? NAV_KA : NAV_EN;
+  const navFull = locale === 'ka' ? NAV_KA : NAV_EN;
+  // Public hosted nav is `Browse | Listings` only (concept §30.1; `CV Ranked`
+  // stays withheld until Phase 8D actually builds it) — the other links
+  // (`/profile`, `/ranked`, `/drafts`, `/review`, `/taxonomy-review`,
+  // `/health`) all 404 once Stage 6 allow-lists routes by surface, and
+  // linking to them here would send a public visitor at a dead end. Sliced
+  // from the same array rather than a second literal list, so the two
+  // surfaces can never drift on the label/href for a link they share.
+  const nav = surface === 'public' ? navFull.slice(0, 2) : navFull;
   // Per-locale, not one shared value: Georgian's longer nav words need
   // more room than English's (see the desktop-nav comment below), and a
   // single breakpoint sized for Georgian would needlessly drop English
@@ -247,28 +258,35 @@ export function SiteHeaderNav({
       {/* Matches the desktop nav's own threshold above — this badge already
           lived only alongside the full desktop nav, so the two breakpoints
           staying equal keeps that relationship. It is a "nice to have"
-          dev/env indicator, not something a real page depends on seeing, so
-          it simply doesn't render at all below the shared threshold rather
-          than needing its own separate fit budget. */}
-      <span
-        className={`my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 ${deskFlex}`}
-      >
-        <span>{dbLabel}</span>
+          operator dev/env indicator (which database, whether writes are on),
+          not something a real page depends on seeing, so it simply doesn't
+          render at all below the shared threshold rather than needing its
+          own separate fit budget — and not on any surface but `local` at
+          all: a hosted public visitor has no business knowing which
+          database or write-mode this instance runs, and `admin` gets its
+          own dashboard chrome once Stage 8 builds it, not this operator
+          debug strip. */}
+      {surface === 'local' && (
         <span
-          title={
-            writesOn
-              ? 'This instance can modify the database. It should be pointed at a disposable copy, not the live corpus.'
-              : 'Read-only. Set XTELO_WRITES_ENABLED=true against a disposable database to make changes.'
-          }
-          className={
-            writesOn
-              ? 'rounded-full border border-[var(--color-browse-ink)]/40 px-2 py-0.5 text-[var(--color-browse-ink)]'
-              : 'rounded-full border border-[var(--color-browse-ink)]/20 px-2 py-0.5 text-[var(--color-browse-ink)]/70'
-          }
+          className={`my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 ${deskFlex}`}
         >
-          {writesOn ? 'writes on' : 'read-only'}
+          <span>{dbLabel}</span>
+          <span
+            title={
+              writesOn
+                ? 'This instance can modify the database. It should be pointed at a disposable copy, not the live corpus.'
+                : 'Read-only. Set XTELO_WRITES_ENABLED=true against a disposable database to make changes.'
+            }
+            className={
+              writesOn
+                ? 'rounded-full border border-[var(--color-browse-ink)]/40 px-2 py-0.5 text-[var(--color-browse-ink)]'
+                : 'rounded-full border border-[var(--color-browse-ink)]/20 px-2 py-0.5 text-[var(--color-browse-ink)]/70'
+            }
+          >
+            {writesOn ? 'writes on' : 'read-only'}
+          </span>
         </span>
-      </span>
+      )}
     </header>
   );
 }
