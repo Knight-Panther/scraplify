@@ -94,7 +94,19 @@ $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
 $settings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -StartWhenAvailable `
-    -DontStopOnIdleEnd
+    -DontStopOnIdleEnd `
+    -DisallowStartIfOnBatteries:$false `
+    -StopIfGoingOnBatteries:$false
+
+# Found 2026-09-23: New-ScheduledTaskSettingsSet's own defaults (DisallowStartIfOnBatteries
+# and StopIfGoingOnBatteries both true) silently stopped the very first scheduled crawl of
+# each source mid-run once this machine switched to battery, without ever writing crawl_runs
+# as failed - the run just sat "running" forever, blocking every later attempt behind the
+# CLI's own exclusivity guard (src/cli/run-hr-ge-crawl.ts / run-jobs-ge-crawl.ts) with no log
+# line at all, since the process never even started on later trigger times. Confirmed live:
+# `schtasks /query /fo list /v` on both tasks showed "Power Management: Stop On Battery Mode,
+# No Start On Batteries" and a single stale Last Run Time from six days earlier. An unattended
+# crawl on a laptop cannot assume AC power, so both restrictions are explicitly disabled here.
 
 # -ErrorAction Stop explicitly: Register-ScheduledTask reports a rejected task
 # as a non-terminating CIM error, which the script-wide preference did not turn
