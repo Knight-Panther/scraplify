@@ -37,7 +37,8 @@ $repositoryRoot = $repositoryRoot.Trim()
 
 $crawlEntryPoint = "dist/cli/run-$Source-crawl.js"
 $dedupeEntryPoint = 'dist/cli/run-dedupe.js'
-foreach ($entryPoint in @($crawlEntryPoint, $dedupeEntryPoint)) {
+$taxonomyEntryPoint = 'dist/cli/backfill-taxonomy.js'
+foreach ($entryPoint in @($crawlEntryPoint, $dedupeEntryPoint, $taxonomyEntryPoint)) {
     if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot $entryPoint) -PathType Leaf)) {
         throw "Build output not found: $entryPoint. Run 'npm run build' in $repositoryRoot first."
     }
@@ -117,11 +118,26 @@ try {
     $dedupeExitCode = Invoke-LoggedNode @('--env-file=.env', $dedupeEntryPoint, '--auto-link')
     Write-LogLine "----- dedupe exit code $dedupeExitCode -----"
 
+    # Classify after every crawl too: nothing else ever classifies newly
+    # crawled listings, so without this every listing a schedule adds stays
+    # uncategorized - the same shape as the dedupe gap above (found
+    # 2026-09-16). Seeds any new hr.ge category first, then classifies;
+    # idempotent, and serialized across schedules by its own advisory lock.
+    # Runs for jobs.ge too: it has no category data, so the pass only
+    # re-checks hr.ge, cheaply, and a source-specific skip would be one more
+    # thing to keep in sync when jobs.ge ever gains categories.
+    Write-LogLine "----- $(Get-Date -Format o) taxonomy backfill -----"
+    $taxonomyExitCode = Invoke-LoggedNode @('--env-file=.env', $taxonomyEntryPoint)
+    Write-LogLine "----- taxonomy backfill exit code $taxonomyExitCode -----"
+
     # concept section 19.1: a failed or skipped run must never pass
-    # silently. A crawl that itself succeeded but left a failed dedupe pass
-    # behind is not a clean run either, so it must not exit 0.
-    if ($exitCode -eq 0 -and $dedupeExitCode -ne 0) {
-        $exitCode = $dedupeExitCode
+    # silently. A crawl that itself succeeded but left a failed dedupe or
+    # classification pass behind is not a clean run either, so it must not
+    # exit 0. The crawl's own failure code wins when there are several.
+    foreach ($stepExitCode in @($dedupeExitCode, $taxonomyExitCode)) {
+        if ($exitCode -eq 0 -and $stepExitCode -ne 0) {
+            $exitCode = $stepExitCode
+        }
     }
 } finally {
     Pop-Location

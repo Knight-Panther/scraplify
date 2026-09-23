@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { db } from '../db/client.js';
+import { ADVISORY_LOCKS, withAdvisoryLock } from '../db/advisory-lock.js';
+import { db, pool } from '../db/client.js';
 import { logger } from '../logger.js';
 import { classifyListings } from '../taxonomy/classify-listings.js';
 import { seedTaxonomyTerms } from '../taxonomy/seed-terms.js';
@@ -15,6 +16,12 @@ import { seedTaxonomyTerms } from '../taxonomy/seed-terms.js';
  * Seeding runs before classifying: a node must have a `taxonomyTerms` row
  * and a `sourceTaxonomyMappings` row before any listing can be classified
  * against it.
+ *
+ * Also chained after every scheduled crawl (scripts/run-crawl.ps1, Phase 7A
+ * follow-up), since nothing else ever classified newly crawled listings. Held
+ * under an advisory lock for that reason: two schedules' backfills overlapping
+ * would both try to seed the same new term and collide on
+ * `taxonomy_terms_code_unique`.
  */
 async function main(): Promise<void> {
   try {
@@ -25,8 +32,14 @@ async function main(): Promise<void> {
   }
 
   const startedAtMs = Date.now();
-  const seedResult = await seedTaxonomyTerms(db);
-  const classifyResult = await classifyListings(db);
+  const { seedResult, classifyResult } = await withAdvisoryLock(
+    pool,
+    ADVISORY_LOCKS.taxonomyBackfill,
+    async () => ({
+      seedResult: await seedTaxonomyTerms(db),
+      classifyResult: await classifyListings(db),
+    }),
+  );
 
   logger.info(
     {
