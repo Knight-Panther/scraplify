@@ -145,27 +145,37 @@ describe('admin taxonomy actions', () => {
     it('rejects and mutates nothing when unauthenticated', async () => {
       requireAdminAuditedMock.mockRejectedValueOnce(UNAUTHENTICATED);
       const { classificationId } = await addClassifiedListing();
-
-      await expect(action(formData({ classificationId }))).rejects.toBe(UNAUTHENTICATED);
-
-      const [row] = await db
+      // Whole row, captured before the call — `supersededAt` alone doesn't
+      // prove nothing else changed (Codex, 2026-09-24).
+      const [rowBefore] = await db
         .select()
         .from(listingClassifications)
         .where(eq(listingClassifications.id, classificationId));
-      expect(row?.supersededAt).toBeNull();
+
+      await expect(action(formData({ classificationId }))).rejects.toBe(UNAUTHENTICATED);
+
+      const [rowAfter] = await db
+        .select()
+        .from(listingClassifications)
+        .where(eq(listingClassifications.id, classificationId));
+      expect(rowAfter).toEqual(rowBefore);
     });
 
     it('rejects and mutates nothing when authenticated but not an admin', async () => {
       requireAdminAuditedMock.mockRejectedValueOnce(NOT_ADMIN);
       const { classificationId } = await addClassifiedListing();
-
-      await expect(action(formData({ classificationId }))).rejects.toBe(NOT_ADMIN);
-
-      const [row] = await db
+      const [rowBefore] = await db
         .select()
         .from(listingClassifications)
         .where(eq(listingClassifications.id, classificationId));
-      expect(row?.supersededAt).toBeNull();
+
+      await expect(action(formData({ classificationId }))).rejects.toBe(NOT_ADMIN);
+
+      const [rowAfter] = await db
+        .select()
+        .from(listingClassifications)
+        .where(eq(listingClassifications.id, classificationId));
+      expect(rowAfter).toEqual(rowBefore);
     });
 
     it('genuinely commits for an allowlisted admin session', async () => {
@@ -173,9 +183,14 @@ describe('admin taxonomy actions', () => {
       process.env.XTELO_WRITES_ENABLED = 'true';
       const { classificationId } = await addClassifiedListing();
 
-      // redirect() throws — the success path IS a thrown NEXT_REDIRECT.
+      // redirect() throws — the success path IS a thrown NEXT_REDIRECT. Checks
+      // the exact destination, not just that a redirect happened, so a
+      // regression back to `/taxonomy-review` (a `local`-only route the admin
+      // proxy 404s) would fail this test instead of passing it (Codex,
+      // 2026-09-24). `?corrected=` carries the new classification id, not
+      // asserted here since it isn't known ahead of the call.
       await expect(action(formData({ classificationId }))).rejects.toMatchObject({
-        digest: expect.stringContaining('NEXT_REDIRECT'),
+        digest: expect.stringContaining('NEXT_REDIRECT;replace;/admin/taxonomy?corrected='),
       });
 
       const [row] = await db
@@ -231,34 +246,53 @@ describe('admin taxonomy actions', () => {
       return { correctionId: newClassificationId };
     }
 
+    /**
+     * Both the correction row AND the classification it would reactivate —
+     * `undoClassificationCorrection` touches both. Whole rows, not just
+     * `supersededAt`, so a regression that mutated either in place while
+     * leaving that one column alone would still fail these (Codex,
+     * 2026-09-24).
+     */
+    async function bothRows(
+      correctionId: string,
+    ): Promise<
+      [typeof listingClassifications.$inferSelect, typeof listingClassifications.$inferSelect]
+    > {
+      const [correction] = await db
+        .select()
+        .from(listingClassifications)
+        .where(eq(listingClassifications.id, correctionId));
+      if (correction === undefined) throw new Error('fixture missing its own correction row');
+      const [previous] = await db
+        .select()
+        .from(listingClassifications)
+        .where(eq(listingClassifications.id, correction.previousClassificationId as string));
+      if (previous === undefined) throw new Error('fixture missing its own previous row');
+      return [correction, previous];
+    }
+
     it('rejects and mutates nothing when unauthenticated', async () => {
       requireAdminAuditedMock.mockRejectedValueOnce(UNAUTHENTICATED);
       const { correctionId } = await correctedClassification();
+      const before = await bothRows(correctionId);
 
       await expect(undoCorrection(formData({ classificationId: correctionId }))).rejects.toBe(
         UNAUTHENTICATED,
       );
 
-      const [row] = await db
-        .select()
-        .from(listingClassifications)
-        .where(eq(listingClassifications.id, correctionId));
-      expect(row?.supersededAt).toBeNull();
+      expect(await bothRows(correctionId)).toEqual(before);
     });
 
     it('rejects and mutates nothing when authenticated but not an admin', async () => {
       requireAdminAuditedMock.mockRejectedValueOnce(NOT_ADMIN);
       const { correctionId } = await correctedClassification();
+      const before = await bothRows(correctionId);
 
       await expect(undoCorrection(formData({ classificationId: correctionId }))).rejects.toBe(
         NOT_ADMIN,
       );
 
-      const [row] = await db
-        .select()
-        .from(listingClassifications)
-        .where(eq(listingClassifications.id, correctionId));
-      expect(row?.supersededAt).toBeNull();
+      expect(await bothRows(correctionId)).toEqual(before);
     });
 
     it('genuinely commits for an allowlisted admin session', async () => {
@@ -266,9 +300,13 @@ describe('admin taxonomy actions', () => {
       process.env.XTELO_WRITES_ENABLED = 'true';
       const { correctionId } = await correctedClassification();
 
+      // Exact destination, not just "a NEXT_REDIRECT happened" — see the
+      // `describe.each` version of this test above for why (Codex, 2026-09-24).
       await expect(
         undoCorrection(formData({ classificationId: correctionId })),
-      ).rejects.toMatchObject({ digest: expect.stringContaining('NEXT_REDIRECT') });
+      ).rejects.toMatchObject({
+        digest: expect.stringContaining('NEXT_REDIRECT;replace;/admin/taxonomy;'),
+      });
 
       const [row] = await db
         .select()

@@ -171,32 +171,47 @@ describe('admin duplicate actions', () => {
     it('rejects and mutates nothing when unauthenticated', async () => {
       requireAdminAuditedMock.mockRejectedValueOnce(UNAUTHENTICATED);
       const { candidateId, survivorListingId, movingListingId } = await pendingPairFixture();
+      // Whole rows, captured before the call — `resultingDecision`/`not null`
+      // alone don't prove nothing moved (Codex, 2026-09-24: a membership could
+      // shift to a different opportunity while `resultingDecision` stayed
+      // `needs_review`, and that partial check would still pass).
+      const membershipBefore = await getLiveMembership(db, movingListingId);
+      const [candidateBefore] = await db
+        .select()
+        .from(duplicateCandidates)
+        .where(eq(duplicateCandidates.id, candidateId));
 
       await expect(
         acceptReviewPair(formData({ candidateId, survivorListingId, movingListingId })),
       ).rejects.toBe(UNAUTHENTICATED);
 
-      expect(await getLiveMembership(db, movingListingId)).not.toBeNull();
-      const [candidate] = await db
+      expect(await getLiveMembership(db, movingListingId)).toEqual(membershipBefore);
+      const [candidateAfter] = await db
         .select()
         .from(duplicateCandidates)
         .where(eq(duplicateCandidates.id, candidateId));
-      expect(candidate?.resultingDecision).toBe('needs_review');
+      expect(candidateAfter).toEqual(candidateBefore);
     });
 
     it('rejects and mutates nothing when authenticated but not an admin', async () => {
       requireAdminAuditedMock.mockRejectedValueOnce(NOT_ADMIN);
       const { candidateId, survivorListingId, movingListingId } = await pendingPairFixture();
+      const membershipBefore = await getLiveMembership(db, movingListingId);
+      const [candidateBefore] = await db
+        .select()
+        .from(duplicateCandidates)
+        .where(eq(duplicateCandidates.id, candidateId));
 
       await expect(
         acceptReviewPair(formData({ candidateId, survivorListingId, movingListingId })),
       ).rejects.toBe(NOT_ADMIN);
 
-      const [candidate] = await db
+      expect(await getLiveMembership(db, movingListingId)).toEqual(membershipBefore);
+      const [candidateAfter] = await db
         .select()
         .from(duplicateCandidates)
         .where(eq(duplicateCandidates.id, candidateId));
-      expect(candidate?.resultingDecision).toBe('needs_review');
+      expect(candidateAfter).toEqual(candidateBefore);
     });
 
     it('genuinely merges the pair for an allowlisted admin session', async () => {
@@ -204,9 +219,14 @@ describe('admin duplicate actions', () => {
       process.env.XTELO_WRITES_ENABLED = 'true';
       const { candidateId, survivorListingId, movingListingId } = await pendingPairFixture();
 
+      // Not just "a NEXT_REDIRECT happened" — the exact destination, so a
+      // regression back to `/review` (a `local`-only route the admin proxy
+      // 404s) would fail this test instead of passing it (Codex, 2026-09-24).
       await expect(
         acceptReviewPair(formData({ candidateId, survivorListingId, movingListingId })),
-      ).rejects.toMatchObject({ digest: expect.stringContaining('NEXT_REDIRECT') });
+      ).rejects.toMatchObject({
+        digest: expect.stringContaining('NEXT_REDIRECT;replace;/admin/duplicates;'),
+      });
 
       const survivorMembership = await getLiveMembership(db, survivorListingId);
       const movingMembership = await getLiveMembership(db, movingListingId);
@@ -260,31 +280,46 @@ describe('admin duplicate actions', () => {
     it('rejects and mutates nothing when unauthenticated', async () => {
       requireAdminAuditedMock.mockRejectedValueOnce(UNAUTHENTICATED);
       const { candidateId, movingListingId } = await pendingPairFixture();
+      // Whole rows, captured before the call — see acceptReviewPair's own
+      // version of this test for why `resultingDecision` alone doesn't prove
+      // nothing moved (Codex, 2026-09-24).
+      const membershipBefore = await getLiveMembership(db, movingListingId);
+      const [candidateBefore] = await db
+        .select()
+        .from(duplicateCandidates)
+        .where(eq(duplicateCandidates.id, candidateId));
 
       await expect(rejectReviewPair(formData({ candidateId, movingListingId }))).rejects.toBe(
         UNAUTHENTICATED,
       );
 
-      const [candidate] = await db
+      expect(await getLiveMembership(db, movingListingId)).toEqual(membershipBefore);
+      const [candidateAfter] = await db
         .select()
         .from(duplicateCandidates)
         .where(eq(duplicateCandidates.id, candidateId));
-      expect(candidate?.resultingDecision).toBe('needs_review');
+      expect(candidateAfter).toEqual(candidateBefore);
     });
 
     it('rejects and mutates nothing when authenticated but not an admin', async () => {
       requireAdminAuditedMock.mockRejectedValueOnce(NOT_ADMIN);
       const { candidateId, movingListingId } = await pendingPairFixture();
+      const membershipBefore = await getLiveMembership(db, movingListingId);
+      const [candidateBefore] = await db
+        .select()
+        .from(duplicateCandidates)
+        .where(eq(duplicateCandidates.id, candidateId));
 
       await expect(rejectReviewPair(formData({ candidateId, movingListingId }))).rejects.toBe(
         NOT_ADMIN,
       );
 
-      const [candidate] = await db
+      expect(await getLiveMembership(db, movingListingId)).toEqual(membershipBefore);
+      const [candidateAfter] = await db
         .select()
         .from(duplicateCandidates)
         .where(eq(duplicateCandidates.id, candidateId));
-      expect(candidate?.resultingDecision).toBe('needs_review');
+      expect(candidateAfter).toEqual(candidateBefore);
     });
 
     it('genuinely records the verdict for an allowlisted admin session', async () => {
@@ -292,9 +327,13 @@ describe('admin duplicate actions', () => {
       process.env.XTELO_WRITES_ENABLED = 'true';
       const { candidateId, movingListingId } = await pendingPairFixture();
 
+      // Exact destination, not just "a NEXT_REDIRECT happened" — see
+      // acceptReviewPair's own version of this test for why (Codex, 2026-09-24).
       await expect(
         rejectReviewPair(formData({ candidateId, movingListingId })),
-      ).rejects.toMatchObject({ digest: expect.stringContaining('NEXT_REDIRECT') });
+      ).rejects.toMatchObject({
+        digest: expect.stringContaining('NEXT_REDIRECT;replace;/admin/duplicates;'),
+      });
 
       const [candidate] = await db
         .select()
