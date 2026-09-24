@@ -270,6 +270,8 @@ Every "rejects" case proves the mutation-relevant row is byte-for-byte untouched
 
 `npm run typecheck`, `npm run lint` clean; `npm test` 957/960 (18 new tests, same 3 pre-existing unrelated `queries.test.ts` failures).
 
+**OWED review of the Stage 10 commit (`e21a96b`).** Same recorded Codex cooldown as the Stage 8 commit (`try again at 15:27`) — the hook's self-managing skip landed this one too. Real application code (auth-boundary test coverage plus a live CSRF verification, not tooling), so carried as owed debt on the same evidentiary bar as every other entry here: typecheck, lint and the full suite green, and — for the CSRF finding specifically — verified against a real running server with a real captured request, not simulated. Owed once Codex is reachable again.
+
 ## Earlier phase: Phase 8A — private matching feasibility
 
 **Phase 7A and its one follow-up (newly-crawled-listing classification) are merged** (PR #16, PR #18) — **Phase 7B itself remains open and deferred**, not closed, evidence-gated on the 7A schedules actually running (concept §25); they had in fact been silently dead for a week, fixed the same day this phase started (see the incident above), so there is no multi-day evidence to build 7B on yet. Phase 4 is also merged (below, now "Earlier phase"). Phase 8A was chosen next (2026-09-23) by explicit instruction, ahead of Phase 7B, since Phase 8A's own precondition (Phase 6 merged before any Phase 8 branch) was already satisfied while 7B's was not.
