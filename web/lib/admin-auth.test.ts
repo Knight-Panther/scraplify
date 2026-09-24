@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Mocks only the identity-resolution boundary (`auth()` from `web/auth.ts`,
@@ -20,6 +20,27 @@ vi.mock('../auth.js', () => ({ auth: () => authMock() }));
 const { requireAdmin, isDeniedError } = await import('./admin-auth.js');
 
 describe('requireAdmin', () => {
+  // Every test below exercises the real `auth()`-reached decision logic, so
+  // the surface must genuinely be `admin` for them — vitest sets no
+  // `XTELO_SURFACE` at all, which `currentSurface()` defaults to `local`,
+  // and the one test below that deliberately wants that default unsets it.
+  beforeEach(() => {
+    process.env.XTELO_SURFACE = 'admin';
+  });
+
+  afterEach(() => {
+    delete process.env.XTELO_SURFACE;
+  });
+
+  it('404s off the admin surface without ever calling auth() (no AUTH_SECRET there to crash on)', async () => {
+    delete process.env.XTELO_SURFACE;
+    authMock.mockClear();
+    await expect(requireAdmin()).rejects.toMatchObject({
+      digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
+    });
+    expect(authMock).not.toHaveBeenCalled();
+  });
+
   it('redirects to sign-in when there is no session at all', async () => {
     authMock.mockResolvedValueOnce(null);
     await expect(requireAdmin()).rejects.toMatchObject({

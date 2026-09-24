@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation.js';
 import { cache } from 'react';
 import type { Session } from 'next-auth';
 import { auth } from '../auth.js';
+import { currentSurface } from './surface.js';
 import { resolveAdminAccess } from './surface-routing.js';
 
 /**
@@ -53,6 +54,17 @@ export function isDeniedError(error: unknown): error is DeniedError {
 }
 
 export const requireAdmin = cache(async (): Promise<Session> => {
+  // Off the `admin` surface, this process never has an `AUTH_SECRET` (Auth.js
+  // config deliberately omits one for `local`/`public` — see `auth.config.ts`)
+  // so `auth()` itself throws `MissingSecret` rather than resolving `null`.
+  // `proxy.ts` already lets `/admin*` through unchecked on `local` (it is
+  // "UX only" there — this function is the real boundary), so a direct
+  // request can reach here with no session and no secret; failing closed by
+  // surface first, before ever calling `auth()`, turns that into the same
+  // clean 404 a denied session gets rather than an unhandled crash (Codex,
+  // 2026-09-24). No actor to attach — off-surface means no session was even
+  // attempted.
+  if (currentSurface() !== 'admin') notFound();
   const session = await auth();
   const decision = resolveAdminAccess(session);
   if (decision === 'allow') return session as Session;

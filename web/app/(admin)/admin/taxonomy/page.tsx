@@ -257,12 +257,12 @@ function ClassificationRow({ row, id }: { row: AmbiguousClassification; id?: str
   return (
     <li id={id} className="border-b border-border py-3 first:border-t">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        {/* Always the external source URL, never `/opportunities/${id}` — unlike
+            the `(local)` copy of this row, the `admin` surface's proxy refuses
+            every non-`/admin*` application route, so an internal link here
+            would 404 for most classified rows (Codex, 2026-09-24). */}
         <a
-          href={
-            row.opportunityId !== null
-              ? `/opportunities/${row.opportunityId}`
-              : row.canonicalSourceUrl
-          }
+          href={row.canonicalSourceUrl}
           className="max-w-[var(--measure)] text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-accent"
         >
           {row.listingTitle}

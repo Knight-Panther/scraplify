@@ -85,8 +85,12 @@ export function SiteHeaderNav({
   surface: Surface;
 }) {
   const pathname = usePathname();
+  // Exact match for both root links ('/' and admin's own '/admin'
+  // dashboard) — otherwise `startsWith` also matches every child route
+  // (`/admin/sources`, ...), highlighting two nav items at once (Codex,
+  // 2026-09-24).
   const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : (pathname?.startsWith(href) ?? false);
+    href === '/' || href === '/admin' ? pathname === href : (pathname?.startsWith(href) ?? false);
   const navFull = locale === 'ka' ? NAV_KA : NAV_EN;
   // Public hosted nav is `Browse | Listings` only (concept §30.1; `CV Ranked`
   // stays withheld until Phase 8D actually builds it) — the other links
@@ -123,7 +127,11 @@ export function SiteHeaderNav({
           Explicit width/height (the real 2172×724 asset, scaled by the
           `h-*`/`w-auto` classes) avoid layout shift the way `next/image`
           would have handled automatically. */}
-      <a href="/" className="flex items-center pl-4 lg:pl-8">
+      {/* `/` is refused outright on the `admin` surface (`proxy.ts`'s admin
+          branch only ever passes `/admin*`/`/api/auth*`) — the wordmark must
+          target `/admin` there instead of the shared default (Codex,
+          2026-09-24). */}
+      <a href={surface === 'admin' ? '/admin' : '/'} className="flex items-center pl-4 lg:pl-8">
         {/* biome-ignore lint/performance/noImgElement: next/image doesn't
             type-check under this repo's nodenext resolution (see comment
             above); a fixed-size static logo has no LCP/bandwidth case for
