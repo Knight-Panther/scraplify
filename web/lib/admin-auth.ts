@@ -37,10 +37,35 @@ import { resolveAdminAccess } from './surface-routing.js';
  * within one request/render share a single `auth()` decode rather than
  * re-verifying the session JWT on every call.
  */
+/**
+ * A `notFound()`/`redirect()` thrown by `requireAdmin()`, carrying who (if
+ * anyone) was denied — Stage 11's admin audit trail needs this to record a
+ * `refused` row's actor, and `notFound()`/`redirect()` themselves carry no
+ * such context. `null` for a genuinely unauthenticated attempt (nothing to
+ * name) or a `signin` redirect (not a denial at all).
+ */
+export interface DeniedError extends Error {
+  deniedActorGithubId: string | null;
+}
+
+export function isDeniedError(error: unknown): error is DeniedError {
+  return error instanceof Error && 'deniedActorGithubId' in error;
+}
+
 export const requireAdmin = cache(async (): Promise<Session> => {
   const session = await auth();
   const decision = resolveAdminAccess(session);
   if (decision === 'allow') return session as Session;
   if (decision === 'signin') redirect('/api/auth/signin');
-  notFound();
+  // decision === 'deny': notFound() throws synchronously — caught here only
+  // to attach the denied actor's id before re-throwing the SAME error
+  // object, so its `digest` (what Next's own rendering actually keys on)
+  // stays exactly what notFound() produced.
+  try {
+    notFound();
+  } catch (error) {
+    throw Object.assign(error as Error, {
+      deniedActorGithubId: session?.user.githubId ?? null,
+    } satisfies Pick<DeniedError, 'deniedActorGithubId'>);
+  }
 });

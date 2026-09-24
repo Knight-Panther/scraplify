@@ -18,13 +18,27 @@ import {
 } from '../../../../../src/db/test-support.js';
 
 /**
- * Stage 10 — same reasoning as `../taxonomy/actions.test.ts`'s own header
- * comment: mocks `requireAdmin()` directly (its own logic is
- * `web/lib/admin-auth.test.ts`'s job), proving instead that each action
- * calls it FIRST and genuinely mutates nothing when it rejects.
+ * Stage 10 (auth coverage) + Stage 11 (audit wiring). Mocks
+ * `requireAdminAudited`/`auditedMutation` from `web/lib/admin-audit.js` —
+ * the module these actions actually call now — not `admin-auth.js`
+ * directly: their own logic (including the audit rows they write) is
+ * `web/lib/admin-audit.test.ts`'s job. `auditedMutationMock` is a thin
+ * passthrough (`params.mutate(db)`) so the REAL underlying business logic
+ * still runs against the real `db` here — these tests exist to prove each
+ * action calls the guard FIRST and wires the real mutation correctly, not
+ * to re-prove the audit machinery itself.
  */
-const requireAdminMock = vi.fn();
-vi.mock('../../../../lib/admin-auth.js', () => ({ requireAdmin: () => requireAdminMock() }));
+const requireAdminAuditedMock = vi.fn();
+const auditedMutationMock = vi.fn(async (params: { mutate: (tx: typeof db) => Promise<unknown> }) =>
+  params.mutate(db),
+);
+const recordFailureMock = vi.fn();
+vi.mock('../../../../lib/admin-audit.js', () => ({
+  requireAdminAudited: (...args: unknown[]) => requireAdminAuditedMock(...args),
+  auditedMutation: (...args: [{ mutate: (tx: typeof db) => Promise<unknown> }]) =>
+    auditedMutationMock(...args),
+  recordFailure: (...args: unknown[]) => recordFailureMock(...args),
+}));
 // See ../taxonomy/actions.test.ts's own comment: revalidatePath needs a
 // request-scoped store this bare test run has no reason to set up.
 vi.mock('next/cache.js', () => ({ revalidatePath: vi.fn() }));
@@ -37,7 +51,7 @@ const UNAUTHENTICATED = Object.assign(new Error('NEXT_REDIRECT'), {
 const NOT_ADMIN = Object.assign(new Error('NEXT_HTTP_ERROR_FALLBACK;404'), {
   digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
 });
-const ADMIN_SESSION = { user: { isAdmin: true, name: 'Test Admin' } };
+const ADMIN_SESSION = { user: { isAdmin: true, name: 'Test Admin', githubId: '424242' } };
 
 function formData(fields: Record<string, string>): FormData {
   const form = new FormData();
@@ -155,7 +169,7 @@ describe('admin duplicate actions', () => {
 
   describe('acceptReviewPair', () => {
     it('rejects and mutates nothing when unauthenticated', async () => {
-      requireAdminMock.mockRejectedValueOnce(UNAUTHENTICATED);
+      requireAdminAuditedMock.mockRejectedValueOnce(UNAUTHENTICATED);
       const { candidateId, survivorListingId, movingListingId } = await pendingPairFixture();
 
       await expect(
@@ -171,7 +185,7 @@ describe('admin duplicate actions', () => {
     });
 
     it('rejects and mutates nothing when authenticated but not an admin', async () => {
-      requireAdminMock.mockRejectedValueOnce(NOT_ADMIN);
+      requireAdminAuditedMock.mockRejectedValueOnce(NOT_ADMIN);
       const { candidateId, survivorListingId, movingListingId } = await pendingPairFixture();
 
       await expect(
@@ -186,7 +200,7 @@ describe('admin duplicate actions', () => {
     });
 
     it('genuinely merges the pair for an allowlisted admin session', async () => {
-      requireAdminMock.mockResolvedValueOnce(ADMIN_SESSION);
+      requireAdminAuditedMock.mockResolvedValueOnce(ADMIN_SESSION);
       process.env.XTELO_WRITES_ENABLED = 'true';
       const { candidateId, survivorListingId, movingListingId } = await pendingPairFixture();
 
@@ -204,11 +218,47 @@ describe('admin duplicate actions', () => {
         .where(eq(duplicateCandidates.id, candidateId));
       expect(candidate?.resultingDecision).not.toBe('needs_review');
     });
+
+    it('audits a preflight failure (no live membership) even though it never reaches auditedMutation', async () => {
+      // The exact gap Codex flagged (2026-09-24): a genuinely authorized,
+      // writes-enabled admin whose attempt fails BEFORE `auditedMutation`
+      // ever starts must still get a `failed` audit row, not silence.
+      requireAdminAuditedMock.mockResolvedValueOnce(ADMIN_SESSION);
+      process.env.XTELO_WRITES_ENABLED = 'true';
+      // Both mocks accumulate call history across every test in this file
+      // (no global `vi.clearAllMocks()` here) — cleared so this test's own
+      // "not called"/"called once" assertions reflect only its own attempt.
+      recordFailureMock.mockClear();
+      auditedMutationMock.mockClear();
+      const { candidateId, movingListingId } = await pendingPairFixture();
+      const membershiplessListingId = await makeListing('No membership at all');
+
+      await expect(
+        acceptReviewPair(
+          formData({
+            candidateId,
+            survivorListingId: membershiplessListingId,
+            movingListingId,
+          }),
+        ),
+      ).rejects.toThrow('has no live membership to merge into');
+
+      expect(auditedMutationMock).not.toHaveBeenCalled();
+      expect(recordFailureMock).toHaveBeenCalledTimes(1);
+      expect(recordFailureMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorGithubId: '424242',
+          entityType: 'duplicate_candidate',
+          entityId: candidateId,
+          action: 'duplicate_accept',
+        }),
+      );
+    });
   });
 
   describe('rejectReviewPair', () => {
     it('rejects and mutates nothing when unauthenticated', async () => {
-      requireAdminMock.mockRejectedValueOnce(UNAUTHENTICATED);
+      requireAdminAuditedMock.mockRejectedValueOnce(UNAUTHENTICATED);
       const { candidateId, movingListingId } = await pendingPairFixture();
 
       await expect(rejectReviewPair(formData({ candidateId, movingListingId }))).rejects.toBe(
@@ -223,7 +273,7 @@ describe('admin duplicate actions', () => {
     });
 
     it('rejects and mutates nothing when authenticated but not an admin', async () => {
-      requireAdminMock.mockRejectedValueOnce(NOT_ADMIN);
+      requireAdminAuditedMock.mockRejectedValueOnce(NOT_ADMIN);
       const { candidateId, movingListingId } = await pendingPairFixture();
 
       await expect(rejectReviewPair(formData({ candidateId, movingListingId }))).rejects.toBe(
@@ -238,7 +288,7 @@ describe('admin duplicate actions', () => {
     });
 
     it('genuinely records the verdict for an allowlisted admin session', async () => {
-      requireAdminMock.mockResolvedValueOnce(ADMIN_SESSION);
+      requireAdminAuditedMock.mockResolvedValueOnce(ADMIN_SESSION);
       process.env.XTELO_WRITES_ENABLED = 'true';
       const { candidateId, movingListingId } = await pendingPairFixture();
 

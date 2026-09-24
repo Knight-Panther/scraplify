@@ -176,6 +176,13 @@
       "when": 1790199124306,
       "tag": "0024_sharp_hammerhead",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790244089351,
+      "tag": "0025_crazy_klaw",
+      "breakpoints": true
     }
   ]
 }

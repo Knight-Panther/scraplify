@@ -17,17 +17,29 @@ import {
 
 /**
  * Stage 10 (change.md §14's own test-gate line: "auth coverage for every
- * admin page, action and handler, not only its rejections"). Mocks
- * `requireAdmin()` directly — not `auth()` — since `requireAdmin()`'s own
- * logic (redirect/deny/allow) is already exhaustively covered by
- * `web/lib/admin-auth.test.ts`; what THESE tests prove is that each action
- * actually calls it, FIRST, and genuinely does nothing when it rejects —
- * exactly the class of bug ("a `requireAdmin()` accidentally omitted from
- * one mutation") the Stage 10 plan names as what route-level tests alone
- * cannot catch.
+ * admin page, action and handler, not only its rejections") + Stage 11
+ * (audit wiring). Mocks `requireAdminAudited`/`auditedMutation` from
+ * `web/lib/admin-audit.js` — the module these actions actually call now —
+ * not `admin-auth.js` directly: their own logic (including the audit rows
+ * they write) is `web/lib/admin-audit.test.ts`'s job. What THESE tests prove
+ * is that each action actually calls the guard, FIRST, and genuinely does
+ * nothing when it rejects — exactly the class of bug ("a `requireAdmin()`
+ * accidentally omitted from one mutation") the Stage 10 plan names as what
+ * route-level tests alone cannot catch. `auditedMutationMock` is a thin
+ * passthrough (`params.mutate(db)`) so the REAL underlying business logic
+ * still runs against the real `db`.
  */
-const requireAdminMock = vi.fn();
-vi.mock('../../../../lib/admin-auth.js', () => ({ requireAdmin: () => requireAdminMock() }));
+const requireAdminAuditedMock = vi.fn();
+const auditedMutationMock = vi.fn(async (params: { mutate: (tx: typeof db) => Promise<unknown> }) =>
+  params.mutate(db),
+);
+const recordFailureMock = vi.fn();
+vi.mock('../../../../lib/admin-audit.js', () => ({
+  requireAdminAudited: (...args: unknown[]) => requireAdminAuditedMock(...args),
+  auditedMutation: (...args: [{ mutate: (tx: typeof db) => Promise<unknown> }]) =>
+    auditedMutationMock(...args),
+  recordFailure: (...args: unknown[]) => recordFailureMock(...args),
+}));
 
 // `revalidatePath` needs Next's own internal request-scoped "static
 // generation store" (an AsyncLocalStorage this bare vitest run has no
@@ -47,7 +59,7 @@ const UNAUTHENTICATED = Object.assign(new Error('NEXT_REDIRECT'), {
 const NOT_ADMIN = Object.assign(new Error('NEXT_HTTP_ERROR_FALLBACK;404'), {
   digest: 'NEXT_HTTP_ERROR_FALLBACK;404',
 });
-const ADMIN_SESSION = { user: { isAdmin: true, name: 'Test Admin' } };
+const ADMIN_SESSION = { user: { isAdmin: true, name: 'Test Admin', githubId: '424242' } };
 
 function formData(fields: Record<string, string>): FormData {
   const form = new FormData();
@@ -131,7 +143,7 @@ describe('admin taxonomy actions', () => {
     ['rejectClassification', rejectClassification],
   ] as const)('%s', (_name, action) => {
     it('rejects and mutates nothing when unauthenticated', async () => {
-      requireAdminMock.mockRejectedValueOnce(UNAUTHENTICATED);
+      requireAdminAuditedMock.mockRejectedValueOnce(UNAUTHENTICATED);
       const { classificationId } = await addClassifiedListing();
 
       await expect(action(formData({ classificationId }))).rejects.toBe(UNAUTHENTICATED);
@@ -144,7 +156,7 @@ describe('admin taxonomy actions', () => {
     });
 
     it('rejects and mutates nothing when authenticated but not an admin', async () => {
-      requireAdminMock.mockRejectedValueOnce(NOT_ADMIN);
+      requireAdminAuditedMock.mockRejectedValueOnce(NOT_ADMIN);
       const { classificationId } = await addClassifiedListing();
 
       await expect(action(formData({ classificationId }))).rejects.toBe(NOT_ADMIN);
@@ -157,7 +169,7 @@ describe('admin taxonomy actions', () => {
     });
 
     it('genuinely commits for an allowlisted admin session', async () => {
-      requireAdminMock.mockResolvedValueOnce(ADMIN_SESSION);
+      requireAdminAuditedMock.mockResolvedValueOnce(ADMIN_SESSION);
       process.env.XTELO_WRITES_ENABLED = 'true';
       const { classificationId } = await addClassifiedListing();
 
@@ -175,6 +187,30 @@ describe('admin taxonomy actions', () => {
       // specific verdict was recorded (that correctness is already
       // `src/taxonomy/correct-classification.test.ts`'s own job).
       expect(row?.supersededAt).not.toBeNull();
+    });
+
+    it('audits a preflight failure (malformed classificationId) even though it never reaches auditedMutation', async () => {
+      // The exact gap Codex flagged (2026-09-24): a genuinely authorized,
+      // writes-enabled admin whose attempt fails BEFORE `auditedMutation`
+      // ever starts must still get a `failed` audit row, not silence — here
+      // via the strict re-read inside the try, since `entityId` couldn't be
+      // parsed even loosely (`safeClassificationId` also returns `null`).
+      requireAdminAuditedMock.mockResolvedValueOnce(ADMIN_SESSION);
+      process.env.XTELO_WRITES_ENABLED = 'true';
+      recordFailureMock.mockClear();
+      auditedMutationMock.mockClear();
+
+      await expect(action(formData({ classificationId: 'not-a-real-uuid' }))).rejects.toThrow();
+
+      expect(auditedMutationMock).not.toHaveBeenCalled();
+      expect(recordFailureMock).toHaveBeenCalledTimes(1);
+      expect(recordFailureMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorGithubId: '424242',
+          entityType: 'listing_classification',
+          entityId: null,
+        }),
+      );
     });
   });
 
@@ -196,7 +232,7 @@ describe('admin taxonomy actions', () => {
     }
 
     it('rejects and mutates nothing when unauthenticated', async () => {
-      requireAdminMock.mockRejectedValueOnce(UNAUTHENTICATED);
+      requireAdminAuditedMock.mockRejectedValueOnce(UNAUTHENTICATED);
       const { correctionId } = await correctedClassification();
 
       await expect(undoCorrection(formData({ classificationId: correctionId }))).rejects.toBe(
@@ -211,7 +247,7 @@ describe('admin taxonomy actions', () => {
     });
 
     it('rejects and mutates nothing when authenticated but not an admin', async () => {
-      requireAdminMock.mockRejectedValueOnce(NOT_ADMIN);
+      requireAdminAuditedMock.mockRejectedValueOnce(NOT_ADMIN);
       const { correctionId } = await correctedClassification();
 
       await expect(undoCorrection(formData({ classificationId: correctionId }))).rejects.toBe(
@@ -226,7 +262,7 @@ describe('admin taxonomy actions', () => {
     });
 
     it('genuinely commits for an allowlisted admin session', async () => {
-      requireAdminMock.mockResolvedValueOnce(ADMIN_SESSION);
+      requireAdminAuditedMock.mockResolvedValueOnce(ADMIN_SESSION);
       process.env.XTELO_WRITES_ENABLED = 'true';
       const { correctionId } = await correctedClassification();
 

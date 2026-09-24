@@ -70,6 +70,11 @@ export default {
       // stable identity (`githubId`); admin status is derived fresh here.
       const githubId = typeof token.githubId === 'string' ? token.githubId : undefined;
       session.user.isAdmin = githubId !== undefined && adminGithubIds().has(githubId);
+      // Exposed on `session.user` (not just the internal `token`) so Stage
+      // 11's admin audit trail can name a real actor — the same immutable
+      // numeric id `ADMIN_GITHUB_IDS` itself is keyed on, not a display name
+      // that could be absent, renamed, or ambiguous between two accounts.
+      session.user.githubId = githubId ?? null;
       return session;
     },
   },
@@ -79,6 +84,8 @@ declare module 'next-auth' {
   interface Session {
     user: {
       isAdmin: boolean;
+      /** GitHub's numeric user id, or `null` if somehow absent from the token — never a login name. */
+      githubId: string | null;
     } & DefaultSession['user'];
   }
 }

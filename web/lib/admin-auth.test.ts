@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 const authMock = vi.fn();
 vi.mock('../auth.js', () => ({ auth: () => authMock() }));
 
-const { requireAdmin } = await import('./admin-auth.js');
+const { requireAdmin, isDeniedError } = await import('./admin-auth.js');
 
 describe('requireAdmin', () => {
   it('redirects to sign-in when there is no session at all', async () => {
@@ -41,5 +41,16 @@ describe('requireAdmin', () => {
     const session = { user: { isAdmin: true, name: 'Test Admin' } };
     authMock.mockResolvedValueOnce(session);
     await expect(requireAdmin()).resolves.toBe(session);
+  });
+
+  it("attaches the denied actor's GitHub id for Stage 11's audit trail to read", async () => {
+    authMock.mockResolvedValueOnce({ user: { isAdmin: false, githubId: '424242' } });
+    try {
+      await requireAdmin();
+      expect.unreachable('requireAdmin() should have thrown for a non-admin session');
+    } catch (error) {
+      expect(isDeniedError(error)).toBe(true);
+      if (isDeniedError(error)) expect(error.deniedActorGithubId).toBe('424242');
+    }
   });
 });

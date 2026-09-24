@@ -10,13 +10,26 @@ import {
   rejectDuplicateCandidate,
 } from '../../../../../src/dedupe/membership-review.js';
 import { sourceListingRevisions, sourceListings } from '../../../../../src/db/schema/index.js';
-import { requireAdmin } from '../../../../lib/admin-auth.js';
+import {
+  auditedMutation,
+  recordFailure,
+  requireAdminAudited,
+} from '../../../../lib/admin-audit.js';
 import {
   readCandidateId,
   readMovingListingId,
   readSurvivorListingId,
 } from '../../../../lib/review-input.js';
 import { assertWritesEnabled } from '../../../../lib/writes.js';
+
+/** Best-effort, side-effect-free — `null` on a malformed field rather than throwing, so `requireAdminAudited` still runs the real auth check either way. */
+function safeCandidateId(form: FormData): string | null {
+  try {
+    return readCandidateId(form);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Admin's own wrapper around the SAME underlying business logic
@@ -67,81 +80,143 @@ function redirectToConflict(error: Error): never {
 }
 
 export async function acceptReviewPair(form: FormData): Promise<void> {
-  await requireAdmin();
+  // Read once, best-effort, before auth — reused below both for
+  // `requireAdminAudited`'s own refusal audit and as the `entityId` fallback
+  // if the STRICT re-read inside the try (below) is itself what throws.
+  const candidateIdForAudit = safeCandidateId(form);
+  const session = await requireAdminAudited(
+    'duplicate_accept',
+    'duplicate_candidate',
+    candidateIdForAudit,
+  );
   assertWritesEnabled();
 
-  const candidateId = readCandidateId(form);
-  const survivorListingId = readSurvivorListingId(form);
-  const movingListingId = readMovingListingId(form);
-
-  const survivorMembership = await getLiveMembership(db, survivorListingId);
-  if (survivorMembership === null) {
-    throw new Error(
-      `acceptReviewPair: listing ${survivorListingId} has no live membership to merge into.`,
-    );
-  }
-
   let conflict: Error | null = null;
+  let survivorOpportunityId: string | null = null;
   let previousOpportunityId: string | null = null;
+  // Computed once, shared by every audit row this attempt might write and by
+  // the mutation itself, so `admin_audit_events.occurred_at` matches the
+  // membership row's own `decided_at` exactly rather than drifting by a
+  // millisecond or two.
+  const at = new Date().toISOString();
   try {
-    const result = await acceptDuplicateCandidate(db, {
-      candidateId,
-      sourceListingId: movingListingId,
-      toOpportunityId: survivorMembership.opportunityId,
-      confidence: 1,
-      evidence: { reasons: ['confirmed by an admin reviewer on the duplicate-review screen'] },
-      actor: { decidedBy: 'human', version: 'admin:web' },
-      at: new Date().toISOString(),
+    // Every preflight step — field parsing AND the membership check — is now
+    // INSIDE this try, not before it (Codex, 2026-09-24): a genuinely
+    // authorized, writes-enabled admin whose attempt fails at ANY of these
+    // steps still needs a `failed` audit row, same as one that fails inside
+    // `auditedMutation` itself — all of it shares the one `catch` below.
+    const candidateId = readCandidateId(form);
+    const survivorListingId = readSurvivorListingId(form);
+    const movingListingId = readMovingListingId(form);
+
+    const survivorMembership = await getLiveMembership(db, survivorListingId);
+    if (survivorMembership === null) {
+      throw new Error(
+        `acceptReviewPair: listing ${survivorListingId} has no live membership to merge into.`,
+      );
+    }
+    survivorOpportunityId = survivorMembership.opportunityId;
+
+    const result = await auditedMutation({
+      actorGithubId: session.user.githubId ?? 'unknown',
+      entityType: 'duplicate_candidate',
+      entityId: candidateId,
+      action: 'duplicate_accept',
+      at,
+      mutate: (tx) =>
+        acceptDuplicateCandidate(tx, {
+          candidateId,
+          sourceListingId: movingListingId,
+          toOpportunityId: survivorMembership.opportunityId,
+          confidence: 1,
+          evidence: { reasons: ['confirmed by an admin reviewer on the duplicate-review screen'] },
+          actor: { decidedBy: 'human', version: 'admin:web' },
+          at,
+        }),
     });
     previousOpportunityId = result.previousOpportunityId;
   } catch (error) {
+    await recordFailure({
+      actorGithubId: session.user.githubId ?? 'unknown',
+      entityType: 'duplicate_candidate',
+      entityId: candidateIdForAudit,
+      action: 'duplicate_accept',
+      at,
+      error,
+    });
     if (!isKnownReviewConflict(error)) throw error;
     conflict = error;
   }
 
   if (conflict !== null) redirectToConflict(conflict);
 
-  revalidateReviewViews([survivorMembership.opportunityId, previousOpportunityId]);
+  revalidateReviewViews([survivorOpportunityId, previousOpportunityId]);
   redirect('/admin/duplicates');
 }
 
 export async function rejectReviewPair(form: FormData): Promise<void> {
-  await requireAdmin();
+  const candidateIdForAudit = safeCandidateId(form);
+  const session = await requireAdminAudited(
+    'duplicate_reject',
+    'duplicate_candidate',
+    candidateIdForAudit,
+  );
   assertWritesEnabled();
-
-  const candidateId = readCandidateId(form);
-  const movingListingId = readMovingListingId(form);
-
-  const [listing] = await db
-    .select({ title: sourceListingRevisions.titleRaw })
-    .from(sourceListings)
-    .innerJoin(
-      sourceListingRevisions,
-      eq(sourceListingRevisions.id, sourceListings.currentRevisionId),
-    )
-    .where(eq(sourceListings.id, movingListingId));
-
-  if (listing === undefined) {
-    throw new Error(
-      `rejectReviewPair: listing ${movingListingId} has no readable title — its current ` +
-        'revision could not be found. Resolve this pair directly (npm run browse) instead.',
-    );
-  }
 
   let conflict: Error | null = null;
   let splitOpportunityId: string | null = null;
   let previousOpportunityId: string | null = null;
+  // See acceptReviewPair's own comment: computed once, shared by every audit
+  // row this attempt might write and by the mutation itself.
+  const at = new Date().toISOString();
   try {
-    const result = await rejectDuplicateCandidate(db, {
-      candidateId,
-      splitOutListingId: movingListingId,
-      canonicalTitle: listing.title,
-      actor: { decidedBy: 'human', version: 'admin:web' },
-      at: new Date().toISOString(),
+    // Every preflight step — field parsing AND the title lookup — is now
+    // INSIDE this try, not before it — see acceptReviewPair's own comment.
+    const candidateId = readCandidateId(form);
+    const movingListingId = readMovingListingId(form);
+
+    const [listing] = await db
+      .select({ title: sourceListingRevisions.titleRaw })
+      .from(sourceListings)
+      .innerJoin(
+        sourceListingRevisions,
+        eq(sourceListingRevisions.id, sourceListings.currentRevisionId),
+      )
+      .where(eq(sourceListings.id, movingListingId));
+
+    if (listing === undefined) {
+      throw new Error(
+        `rejectReviewPair: listing ${movingListingId} has no readable title — its current ` +
+          'revision could not be found. Resolve this pair directly (npm run browse) instead.',
+      );
+    }
+
+    const result = await auditedMutation({
+      actorGithubId: session.user.githubId ?? 'unknown',
+      entityType: 'duplicate_candidate',
+      entityId: candidateId,
+      action: 'duplicate_reject',
+      at,
+      mutate: (tx) =>
+        rejectDuplicateCandidate(tx, {
+          candidateId,
+          splitOutListingId: movingListingId,
+          canonicalTitle: listing.title,
+          actor: { decidedBy: 'human', version: 'admin:web' },
+          at,
+        }),
     });
     splitOpportunityId = result.splitOpportunityId;
     previousOpportunityId = result.previousOpportunityId;
   } catch (error) {
+    await recordFailure({
+      actorGithubId: session.user.githubId ?? 'unknown',
+      entityType: 'duplicate_candidate',
+      entityId: candidateIdForAudit,
+      action: 'duplicate_reject',
+      at,
+      error,
+    });
     if (!isKnownReviewConflict(error)) throw error;
     conflict = error;
   }

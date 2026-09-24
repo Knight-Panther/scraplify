@@ -462,7 +462,17 @@ async function reassignListingWithin(
  * automated pass overwriting it.
  */
 export async function acceptDuplicateCandidate(
-  db: Database,
+  // `DatabaseOrTransaction`, not `Database` — widened for Phase 8B Stage 11
+  // (the admin audit trail), which needs to call this from INSIDE its own
+  // outer transaction so a mutation and its audit row commit atomically
+  // together (a nested `db.transaction()` call here becomes a SAVEPOINT
+  // within that outer one, not a second independent transaction — verified
+  // directly, not assumed, that rolling back the outer transaction also
+  // rolls back this function's own nested one). Purely a type widening: this
+  // function's body never touches anything `Database`-specific (`$client`),
+  // so nothing about its own behavior changes, and every existing caller
+  // passing the top-level `db` still satisfies the wider type trivially.
+  db: DatabaseOrTransaction,
   input: Omit<ReassignInput, 'decision'> & { candidateId: string },
 ): Promise<{ previousOpportunityId: string | null }> {
   return db.transaction(async (tx) => {
@@ -818,7 +828,8 @@ export async function resolveDuplicateCandidate(
  * pending, re-queuing a decision the reviewer had already made.
  */
 export async function rejectDuplicateCandidate(
-  db: Database,
+  // `DatabaseOrTransaction` — same reasoning as `acceptDuplicateCandidate`'s own comment above.
+  db: DatabaseOrTransaction,
   input: {
     candidateId: string;
     /** Which side to split out, if the pair turns out to share a cluster. */
