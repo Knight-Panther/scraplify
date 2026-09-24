@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation.js';
-import { toggleLocale } from '../app/actions.js';
+import { signOutAction, toggleLocale } from '../app/actions.js';
 import type { Locale } from '../lib/locale.js';
 import type { Surface } from '../lib/surface.js';
 
@@ -47,6 +47,21 @@ const NAV_KA = [
 ] as const;
 
 /**
+ * The `admin` surface's own nav (Stage 8) — none of `NAV_EN`/`NAV_KA`'s links
+ * exist there (`proxy.ts` 404s everything outside `/admin*`/`/api/auth*` on
+ * this surface), and `admin` is an ops dashboard for the one operator, not a
+ * bilingual product surface, so it gets one fixed English list rather than a
+ * locale variant. English only, deliberately: nothing about this list
+ * interacts with the `lib/locale.ts` cookie the way `NAV_EN`/`NAV_KA` do.
+ */
+const NAV_ADMIN = [
+  { href: '/admin', label: 'Dashboard' },
+  { href: '/admin/sources', label: 'Sources' },
+  { href: '/admin/duplicates', label: 'Duplicates' },
+  { href: '/admin/taxonomy', label: 'Taxonomy' },
+] as const;
+
+/**
  * Client only for the two things that genuinely need the browser: which
  * link is "active" (needs the current pathname) and the mobile menu's
  * open/closed state. `dbLabel`/`writesOn`/`surface` are passed in from the
@@ -80,7 +95,12 @@ export function SiteHeaderNav({
   // linking to them here would send a public visitor at a dead end. Sliced
   // from the same array rather than a second literal list, so the two
   // surfaces can never drift on the label/href for a link they share.
-  const nav = surface === 'public' ? navFull.slice(0, 2) : navFull;
+  //
+  // `admin` gets its own fixed list (Stage 8) rather than a slice of
+  // `navFull`: none of `navFull`'s links exist on that surface at all, unlike
+  // public's subset which genuinely is a subset of local's.
+  const nav =
+    surface === 'admin' ? NAV_ADMIN : surface === 'public' ? navFull.slice(0, 2) : navFull;
   // Per-locale, not one shared value: Georgian's longer nav words need
   // more room than English's (see the desktop-nav comment below), and a
   // single breakpoint sized for Georgian would needlessly drop English
@@ -178,42 +198,56 @@ export function SiteHeaderNav({
             </li>
           ))}
         </ul>
-        {/* Switches the landing page's (`/`) language — see `lib/locale.ts`.
-            Every other screen ignores this cookie and stays English, so the
-            action always redirects to `/` rather than the current path;
-            clicking it elsewhere would otherwise flip the cookie with no
-            visible effect. A real `<form>` submit, not a client `onClick`,
-            so it works with scripting off like the rest of this app's
-            controls (`saved/actions.ts`'s own note). Label shows the
-            language a click switches INTO, not the current one — "EN"/"KA"
-            are language codes, never translated. */}
-        <form action={toggleLocale}>
-          <button
-            type="submit"
-            className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]"
-            style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%)' }}
-            aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
-          >
-            {locale === 'ka' ? 'EN' : 'KA'}
-          </button>
-        </form>
+        {/* `admin` has no `lib/locale.ts`-reading screen at all (`/`, the
+            only page that cookie affects, is unreachable on this surface —
+            `proxy.ts` refuses it), so the locale toggle would flip a cookie
+            with no visible effect anywhere admin can reach. A sign-out
+            control fills the same slot instead — the one admin-specific
+            action this bar needs that public/local's shared nav has no
+            equivalent for. */}
+        {surface === 'admin' ? (
+          <SignOutButton className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]" />
+        ) : (
+          // Switches the landing page's (`/`) language — see `lib/locale.ts`.
+          // Every other screen ignores this cookie and stays English, so the
+          // action always redirects to `/` rather than the current path;
+          // clicking it elsewhere would otherwise flip the cookie with no
+          // visible effect. A real `<form>` submit, not a client `onClick`,
+          // so it works with scripting off like the rest of this app's
+          // controls (`saved/actions.ts`'s own note). Label shows the
+          // language a click switches INTO, not the current one — "EN"/"KA"
+          // are language codes, never translated.
+          <form action={toggleLocale}>
+            <button
+              type="submit"
+              className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]"
+              style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%)' }}
+              aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
+            >
+              {locale === 'ka' ? 'EN' : 'KA'}
+            </button>
+          </form>
+        )}
       </nav>
 
-      {/* Mobile: language toggle + popover trigger, both visible in the bar
-          itself rather than the toggle only living inside the popover —
-          a control a visitor needs in order to even read the rest of the
-          page (the nav labels are already in whichever language it picks)
-          shouldn't require opening the menu first to reach. */}
+      {/* Mobile: language toggle (or sign-out, on `admin`) + popover trigger,
+          both visible in the bar itself rather than living only inside the
+          popover — a control a visitor needs in order to even read the rest
+          of the page shouldn't require opening the menu first to reach. */}
       <div className={`ml-auto flex items-center ${deskHidden}`}>
-        <form action={toggleLocale}>
-          <button
-            type="submit"
-            className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]"
-            aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
-          >
-            {locale === 'ka' ? 'EN' : 'KA'}
-          </button>
-        </form>
+        {surface === 'admin' ? (
+          <SignOutButton className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]" />
+        ) : (
+          <form action={toggleLocale}>
+            <button
+              type="submit"
+              className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]"
+              aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
+            >
+              {locale === 'ka' ? 'EN' : 'KA'}
+            </button>
+          </form>
+        )}
         <button
           type="button"
           popoverTarget="site-nav-mobile"
@@ -288,6 +322,17 @@ export function SiteHeaderNav({
         </span>
       )}
     </header>
+  );
+}
+
+/** The `admin` surface's sign-out control — a real `<form>` submit, same reasoning as `toggleLocale`'s own form (works with scripting off). */
+function SignOutButton({ className }: { className: string }) {
+  return (
+    <form action={signOutAction}>
+      <button type="submit" className={className}>
+        Sign out
+      </button>
+    </form>
   );
 }
 
