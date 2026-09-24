@@ -159,6 +159,35 @@ if (profile === 'qa') {
   Object.assign(process.env, overlay);
 }
 
+/**
+ * `.env` is one shared file for every surface, but `AUTH_GITHUB_ID`/
+ * `AUTH_GITHUB_SECRET`/`AUTH_SECRET`/`ADMIN_GITHUB_IDS` must never reach a
+ * `local` or `public` process's environment at all — `web/instrumentation.ts`
+ * only READS them under `XTELO_SURFACE=admin`, but reading is not isolation:
+ * with no strip, a `public` process spawned by this launcher still carries
+ * all four in `process.env`, so compromising it through any unrelated
+ * vulnerability hands an attacker `AUTH_SECRET` (enough to forge a signed
+ * session for any id already in `ADMIN_GITHUB_IDS`) and the OAuth client
+ * secret itself. `AGENTS.md`'s hosted-edition section classifies a public
+ * process holding an admin credential as `[P1]` for exactly this reason.
+ * Placed HERE — immediately before `spawn`, after the QA-profile overlay
+ * above — rather than right after `loadEnvConfig`: an earlier version
+ * stripped before the overlay ran, so anything `.env.qa` set (including,
+ * hypothetically, `XTELO_SURFACE` itself) could reintroduce these vars or
+ * flip the surface after the check already ran (Codex, 2026-09-24). Checked
+ * against the raw env var rather than importing `web/lib/surface.ts`'s
+ * `currentSurface()` — this script has no TypeScript loader — so an unset or
+ * invalid `XTELO_SURFACE` strips too, same as every non-admin value;
+ * `currentSurface()`'s own fail-closed validation still runs inside the Next
+ * process afterward, on whatever's left.
+ */
+if (process.env.XTELO_SURFACE !== 'admin') {
+  delete process.env.AUTH_GITHUB_ID;
+  delete process.env.AUTH_GITHUB_SECRET;
+  delete process.env.AUTH_SECRET;
+  delete process.env.ADMIN_GITHUB_IDS;
+}
+
 const bin = path.join(repoRoot, 'node_modules', 'next', 'dist', 'bin', 'next');
 const child = spawn(process.execPath, [bin, ...nextArgs], {
   stdio: 'inherit',
