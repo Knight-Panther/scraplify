@@ -21,11 +21,8 @@ import {
   closeMissingListingsInTransaction,
   expireOverdueListings,
 } from '../../db/reconcile-source-listings.js';
-import {
-  type CrawlRunRow,
-  sourcePolicies as sourcePoliciesTable,
-  sources,
-} from '../../db/schema/index.js';
+import { type CrawlRunRow, sources } from '../../db/schema/index.js';
+import { type SyncSourcePolicyResult, syncSourcePolicy } from '../../db/source-policies.js';
 import type { Database } from '../../db/types.js';
 import {
   quarantineSourceListing,
@@ -43,6 +40,7 @@ import {
   UrlNotAllowedError,
 } from '../../net/http-fetcher.js';
 import { hrGePolicy, hrGeSource, isHrGeUrlAllowed } from '../../policies/hr-ge.js';
+import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
 import { recordRunAnomalies } from '../run-anomalies.js';
 import { classifyHrGeResponse, isHrGeRateLimited } from './challenge.js';
 import { HR_GE_DETAIL_PARSER_VERSION, parseHrGeDetailPage } from './detail.js';
@@ -124,7 +122,7 @@ export interface RunHrGeCrawlResult {
  * Idempotently ensures hr.ge's `sources`/`source_policies` rows exist —
  * mirrors jobs-ge's ensureJobsGeSourceSeeded exactly (src/adapters/jobs-ge/crawl.ts).
  */
-export async function ensureHrGeSourceSeeded(db: Database): Promise<void> {
+export async function ensureHrGeSourceSeeded(db: Database): Promise<SyncSourcePolicyResult> {
   await db
     .insert(sources)
     .values({
@@ -135,30 +133,13 @@ export async function ensureHrGeSourceSeeded(db: Database): Promise<void> {
     })
     .onConflictDoNothing();
 
-  await db
-    .insert(sourcePoliciesTable)
-    .values({
-      id: hrGePolicy.id,
-      sourceId: hrGePolicy.sourceId,
-      policyVersion: hrGePolicy.policyVersion,
-      allowedAcquisitionModes: hrGePolicy.allowedAcquisitionModes,
-      allowedPathPatterns: hrGePolicy.allowedPathPatterns,
-      disallowedPathPatterns: hrGePolicy.disallowedPathPatterns,
-      disallowedHosts: hrGePolicy.disallowedHosts,
-      allowedHosts: hrGePolicy.allowedHosts,
-      authenticationScope: hrGePolicy.authenticationScope,
-      rateLimit: hrGePolicy.rateLimit,
-      termsUrl: hrGePolicy.termsUrl,
-      robotsUrl: hrGePolicy.robotsUrl,
-      retention: hrGePolicy.retention,
-      display: hrGePolicy.display,
-      linkedResources: hrGePolicy.linkedResources,
-      reviewDate: hrGePolicy.reviewDate,
-      evidence: hrGePolicy.evidence,
-      notes: hrGePolicy.notes,
-      decisionOwner: hrGePolicy.decisionOwner,
-    })
-    .onConflictDoNothing();
+  // syncSourcePolicy, not a bare insert/upsert (per-commit Codex gate
+  // round 6, 2026-09-24) -- see the matching comment in
+  // src/adapters/jobs-ge/crawl.ts's ensureJobsGeSourceSeeded, and
+  // src/db/source-policies.ts's own doc comment, for the full reasoning.
+  // The outcome is returned, not discarded (round 7, 2026-09-25) -- see
+  // the matching comment on ensureJobsGeSourceSeeded.
+  return await syncSourcePolicy(db, hrGePolicy);
 }
 
 function buildSearchPostingUrl(page: number): string {
@@ -244,6 +225,9 @@ async function fetchAndRecord(
   try {
     fetchResult = await httpFetcher.fetch(url);
   } catch (err) {
+    // Not an ordinary fetch failure: no request was made, and the run must
+    // stop rather than record it and move on -- see jobs-ge's fetchAndRecord.
+    if (err instanceof PolicyRevisionSupersededError) throw err;
     caughtError = err;
   }
   const durationMs = Date.now() - startedAtMs;
@@ -491,7 +475,7 @@ export async function runHrGeCrawl(
   deps: RunHrGeCrawlDeps,
   options: RunHrGeCrawlOptions,
 ): Promise<RunHrGeCrawlResult> {
-  const { db, httpFetcher } = deps;
+  const { db } = deps;
   const now = deps.now ?? (() => new Date().toISOString());
   const maxDiscoveryShortfall = options.maxDiscoveryShortfall ?? DEFAULT_MAX_DISCOVERY_SHORTFALL;
   const maxQuarantineRate = options.maxQuarantineRate ?? DEFAULT_MAX_QUARANTINE_RATE;
@@ -510,7 +494,34 @@ export async function runHrGeCrawl(
     throw new Error('incrementalPages must be an integer between 1 and 200');
   }
 
-  await ensureHrGeSourceSeeded(db);
+  // Aborts before any network request when the sync is refused -- mirrors
+  // jobs-ge's ensureJobsGeSourceSeeded abort exactly (Codex-caught P1,
+  // 2026-09-25; see the fuller rationale there and in
+  // src/cli/run-hr-ge-crawl.ts, which wires this deployment's hardcoded
+  // hrGePolicy straight into the http fetcher with no re-read from the DB).
+  const policySync = await ensureHrGeSourceSeeded(db);
+  if (policySync.outcome === 'refused-stale') {
+    throw new Error(
+      `runHrGeCrawl: refusing to crawl -- this deployment's hrGePolicy was refused as stale ` +
+        `against the database's current revision for source ${hrGeSource.id}. Resync the policy ` +
+        `(a reviewDate bump if it's genuinely a newer revision) before crawling again.`,
+    );
+  }
+
+  // Re-validates the active policy revision before EVERY fetch this crawl
+  // makes, not just once at the top -- mirrors jobs-ge's own fix exactly.
+  // Bound to `policySync.currentRevisionId`, confirmed from WITHIN
+  // `syncSourcePolicy`'s own locked transaction rather than a separate
+  // query run afterward (Codex-caught P1, round 10 continued, 2026-09-25):
+  // a separate re-query would have its own race window against a
+  // concurrent sync. See src/adapters/policy-revalidation.ts for the full
+  // rationale.
+  const httpFetcher = withPolicyRevalidation(
+    deps.httpFetcher,
+    db,
+    hrGeSource.id,
+    policySync.currentRevisionId,
+  );
 
   const startedAt = now();
   const crawlRun = await startCrawlRun(db, {

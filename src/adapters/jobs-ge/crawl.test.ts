@@ -12,9 +12,10 @@ import {
   sourceListingRevisions,
   sourceListings,
 } from '../../db/schema/index.js';
+import { syncSourcePolicy } from '../../db/source-policies.js';
 import { cleanupTestSource, createTestSourceListing } from '../../db/test-support.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
-import { jobsGeSource } from '../../policies/jobs-ge.js';
+import { jobsGePolicy, jobsGeSource } from '../../policies/jobs-ge.js';
 import {
   CLAMP_CONFIRMATION_PROBE_OFFSET,
   ensureJobsGeSourceSeeded,
@@ -1105,12 +1106,33 @@ describe('runJobsGeCrawl', () => {
     // time this fails. Explicit bound methods rather than a Proxy over
     // `db`, to avoid `this`-binding hazards a Proxy could introduce against
     // Drizzle's internal implementation.
+    //
+    // Pre-seeded with the REAL db first (round 6 of the adversarial review,
+    // 2026-09-25): a genuinely first-ever sync always needs a real
+    // transaction to write it, which this mock's throw would catch
+    // immediately, before startCrawlRun ever runs, defeating the write-path
+    // failure this test exists to exercise.
+    //
+    // Counting db.transaction() calls and failing from the SECOND one
+    // onward (round 10, 2026-09-25, after syncSourcePolicy's unlocked
+    // no-op fast path was removed as a TOCTOU race -- Codex-caught P1):
+    // call 1 is now ensureJobsGeSourceSeeded's own re-sync of this run's
+    // already-current, unchanged policy, which always takes a real
+    // (harmless, nothing-to-write) transaction; call 2 is
+    // writeSourceListingRevision for this run's one listing, the write
+    // path this test actually exercises.
+    let transactionCalls = 0;
     const transactionFailingDb = {
       insert: db.insert.bind(db),
       select: db.select.bind(db),
       update: db.update.bind(db),
-      transaction: () => {
-        throw new Error('simulated database outage');
+      // biome-ignore lint/suspicious/noExplicitAny: matches drizzle's own transaction callback signature loosely enough to pass through to the real db.transaction without fighting its generics in a test-only stub.
+      transaction: (fn: any) => {
+        transactionCalls++;
+        if (transactionCalls >= 2) {
+          throw new Error('simulated database outage');
+        }
+        return db.transaction(fn);
       },
     } as unknown as typeof db;
 
@@ -1143,8 +1165,11 @@ describe('runJobsGeCrawl', () => {
     // crash between them could leave listings closed/expired while the run
     // itself stayed unsettled (reconciledAt still null), or let the catch
     // block relabel an already-reconciled run 'failed' with stale counts.
-    // Counting db.transaction() calls and failing the SECOND one (call 1 is
-    // writeSourceListingRevision for this run's one listing; call 2 is the
+    // Counting db.transaction() calls and failing the THIRD one (call 1 is
+    // ensureJobsGeSourceSeeded's own re-sync of this run's already-current,
+    // unchanged policy -- round 10, 2026-09-25, after syncSourcePolicy's
+    // unlocked no-op fast path was removed as a TOCTOU race; call 2 is
+    // writeSourceListingRevision for this run's one listing; call 3 is the
     // settlement transaction) simulates a total settlement failure and
     // proves nothing it would have written persisted.
     await ensureJobsGeSourceSeeded(db);
@@ -1170,7 +1195,7 @@ describe('runJobsGeCrawl', () => {
       // biome-ignore lint/suspicious/noExplicitAny: matches drizzle's own transaction callback signature loosely enough to pass through to the real db.transaction without fighting its generics in a test-only stub.
       transaction: (fn: any) => {
         transactionCalls++;
-        if (transactionCalls >= 2) {
+        if (transactionCalls >= 3) {
           throw new Error('simulated settlement failure');
         }
         return db.transaction(fn);
@@ -1223,6 +1248,14 @@ describe('runJobsGeCrawl', () => {
     // proving the outer catch block's failUnsettledCrawlRun leaves an
     // already-settled row alone instead of overwriting it with a false
     // 'failed' status and stale (pre-settlement) counts.
+    //
+    // `>= 3`, not `>= 2` (round 10, 2026-09-25, after syncSourcePolicy's
+    // unlocked no-op fast path was removed as a TOCTOU race -- Codex-caught
+    // P1): call 1 is now ensureJobsGeSourceSeeded's own re-sync of this
+    // run's already-current, unchanged policy; call 2 is
+    // writeSourceListingRevision for this run's one listing, meant to
+    // succeed normally; call 3 is the settlement transaction this test
+    // actually targets.
     await ensureJobsGeSourceSeeded(db);
     const expiredCandidate = await createTestSourceListing(jobsGeSource.id, {
       sourceRecordId: '8001',
@@ -1247,7 +1280,7 @@ describe('runJobsGeCrawl', () => {
       transaction: async (fn: any) => {
         transactionCalls++;
         const result = await db.transaction(fn); // really commits
-        if (transactionCalls >= 2) {
+        if (transactionCalls >= 3) {
           throw new Error('simulated lost commit acknowledgement');
         }
         return result;
@@ -1496,5 +1529,35 @@ describe('runJobsGeCrawl', () => {
         ),
       ).rejects.toThrow(/incrementalPages/);
     });
+  });
+
+  it("refuses to crawl, before any network request, when this deployment's policy is refused as stale", async () => {
+    // Codex-caught P1, round 8, 2026-09-25: ensureJobsGeSourceSeeded's
+    // 'refused-stale' outcome used to be discarded here, so a crawl
+    // proceeded under this deployment's own (stale) jobsGePolicy even when
+    // the database already held a newer, differently-content revision.
+    // Simulates that by syncing a newer revision directly first -- as if
+    // another deployment or an operator's `npm run sync-policies` had
+    // already activated a stricter policy this instance doesn't know about.
+    await ensureJobsGeSourceSeeded(db);
+    await syncSourcePolicy(db, {
+      ...jobsGePolicy,
+      reviewDate: '2026-09-20T00:00:00Z',
+      notes: 'a newer, more restrictive revision already active in the database',
+    });
+
+    const httpFetcher = new FakeHttpFetcher(new Map());
+    const spy = vi.spyOn(httpFetcher, 'fetch');
+
+    await expect(
+      runJobsGeCrawl(
+        { db, httpFetcher, now: () => '2026-09-21T00:00:00Z' },
+        { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 },
+      ),
+    ).rejects.toThrow(/refused as stale/);
+
+    expect(spy).not.toHaveBeenCalled();
+    const runs = await db.select().from(crawlRuns).where(eq(crawlRuns.sourceId, jobsGeSource.id));
+    expect(runs).toHaveLength(0);
   });
 });

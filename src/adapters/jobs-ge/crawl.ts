@@ -18,11 +18,8 @@ import {
   closeMissingListingsInTransaction,
   expireOverdueListings,
 } from '../../db/reconcile-source-listings.js';
-import {
-  type CrawlRunRow,
-  sourcePolicies as sourcePoliciesTable,
-  sources,
-} from '../../db/schema/index.js';
+import { type CrawlRunRow, sources } from '../../db/schema/index.js';
+import { type SyncSourcePolicyResult, syncSourcePolicy } from '../../db/source-policies.js';
 import type { Database } from '../../db/types.js';
 import {
   quarantineSourceListing,
@@ -40,6 +37,7 @@ import {
   UrlNotAllowedError,
 } from '../../net/http-fetcher.js';
 import { jobsGePolicy, jobsGeSource } from '../../policies/jobs-ge.js';
+import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
 import { recordRunAnomalies } from '../run-anomalies.js';
 import { JOBS_GE_DETAIL_PARSER_VERSION, parseJobsGeDetailPage } from './detail.js';
 import { type DiscoveredListing, parseAdsPage } from './discovery.js';
@@ -199,7 +197,7 @@ export interface RunJobsGeCrawlResult {
  * Safe to call on every run: onConflictDoNothing makes this a no-op after
  * the first time.
  */
-export async function ensureJobsGeSourceSeeded(db: Database): Promise<void> {
+export async function ensureJobsGeSourceSeeded(db: Database): Promise<SyncSourcePolicyResult> {
   await db
     .insert(sources)
     .values({
@@ -210,30 +208,21 @@ export async function ensureJobsGeSourceSeeded(db: Database): Promise<void> {
     })
     .onConflictDoNothing();
 
-  await db
-    .insert(sourcePoliciesTable)
-    .values({
-      id: jobsGePolicy.id,
-      sourceId: jobsGePolicy.sourceId,
-      policyVersion: jobsGePolicy.policyVersion,
-      allowedAcquisitionModes: jobsGePolicy.allowedAcquisitionModes,
-      allowedPathPatterns: jobsGePolicy.allowedPathPatterns,
-      disallowedPathPatterns: jobsGePolicy.disallowedPathPatterns,
-      disallowedHosts: jobsGePolicy.disallowedHosts,
-      allowedHosts: jobsGePolicy.allowedHosts,
-      authenticationScope: jobsGePolicy.authenticationScope,
-      rateLimit: jobsGePolicy.rateLimit,
-      termsUrl: jobsGePolicy.termsUrl,
-      robotsUrl: jobsGePolicy.robotsUrl,
-      retention: jobsGePolicy.retention,
-      display: jobsGePolicy.display,
-      linkedResources: jobsGePolicy.linkedResources,
-      reviewDate: jobsGePolicy.reviewDate,
-      evidence: jobsGePolicy.evidence,
-      notes: jobsGePolicy.notes,
-      decisionOwner: jobsGePolicy.decisionOwner,
-    })
-    .onConflictDoNothing();
+  // syncSourcePolicy, not a bare insert/upsert (per-commit Codex gate
+  // round 6, 2026-09-24): it's the one function that decides whether this
+  // policy content is actually new (append a revision + repoint
+  // sources.currentPolicyRevisionId), identical to what's already current
+  // (no-op), or older than what's already current (refused, so a stale
+  // worker can't silently downgrade a newer restriction) — see its own
+  // doc comment in src/db/source-policies.ts for the full reasoning,
+  // including why round 5's plain upsert-in-place (destroying prior
+  // revisions' evidence/rationale, contradicting docs/scraplify-
+  // concept.md §5.3's "versioned policy record" requirement) had to be
+  // replaced rather than kept. The outcome is returned, not discarded
+  // (round 7, 2026-09-25) — src/cli/sync-source-policies.ts needs to tell
+  // an operator "your edit was NOT applied" rather than logging success
+  // unconditionally regardless of what actually happened.
+  return await syncSourcePolicy(db, jobsGePolicy);
 }
 
 function buildAdsPageUrl(page: number): string {
@@ -301,6 +290,12 @@ async function fetchAndRecord(
   try {
     fetchResult = await httpFetcher.fetch(url);
   } catch (err) {
+    // Rethrown before any bookkeeping (Codex-caught P1, round 12): the
+    // revalidating fetcher throws this BEFORE making the request, so
+    // recording it as a failed fetch would log a request that never happened
+    // and keep the loop going across every remaining listing. Propagating it
+    // reaches runJobsGeCrawl's outer catch, which fails the run cleanly.
+    if (err instanceof PolicyRevisionSupersededError) throw err;
     caughtError = err;
   }
   const durationMs = Date.now() - startedAtMs;
@@ -528,7 +523,7 @@ export async function runJobsGeCrawl(
   deps: RunJobsGeCrawlDeps,
   options: RunJobsGeCrawlOptions,
 ): Promise<RunJobsGeCrawlResult> {
-  const { db, httpFetcher } = deps;
+  const { db } = deps;
   const now = deps.now ?? (() => new Date().toISOString());
   const minExpectedDiscoveredListings =
     options.minExpectedDiscoveredListings ?? DEFAULT_MIN_EXPECTED_DISCOVERED_LISTINGS;
@@ -548,7 +543,49 @@ export async function runJobsGeCrawl(
     throw new Error('incrementalPages must be an integer between 1 and 200');
   }
 
-  await ensureJobsGeSourceSeeded(db);
+  // Aborts before any network request when the sync is refused (Codex-caught
+  // P1, 2026-09-25): a `refused-stale` outcome means the DB's current policy
+  // revision is newer than, or a same-day conflict with, this deployment's
+  // own hardcoded `jobsGePolicy` -- exactly the object the CLI wires
+  // straight into the http fetcher's URL allowlist and rate limiter
+  // (src/cli/run-jobs-ge-crawl.ts), with no re-read from the DB. Continuing
+  // past a refusal would let a stale worker fetch under acquisition rules
+  // (host, path, or mode) that the current, more-restrictive policy already
+  // revoked -- the exact boundary docs/scraplify-concept.md:157-165 assigns
+  // to source policies, not merely a bookkeeping mismatch to warn about.
+  const policySync = await ensureJobsGeSourceSeeded(db);
+  if (policySync.outcome === 'refused-stale') {
+    throw new Error(
+      `runJobsGeCrawl: refusing to crawl -- this deployment's jobsGePolicy was refused as stale ` +
+        `against the database's current revision for source ${jobsGeSource.id}. Resync the policy ` +
+        `(a reviewDate bump if it's genuinely a newer revision) before crawling again.`,
+    );
+  }
+
+  // Re-validates the active policy revision before EVERY fetch this crawl
+  // makes, not just once at the top (Codex-caught P1, round 10, 2026-09-25):
+  // a full jobs.ge walk is ~5,666 requests at a mandatory 5s crawl delay
+  // (~7.9 hours) -- without this, a policy change or conflict landing
+  // minutes into that walk would leave it fetching under a superseded
+  // policy for the entire remaining duration, since nothing re-checked.
+  // Both discovery and detail fetches funnel through one
+  // `httpFetcher.fetch()` call site (`fetchAndRecord`), so wrapping it once
+  // here covers every request this run makes. Bound to
+  // `policySync.currentRevisionId` -- the id `syncSourcePolicy` itself just
+  // confirmed from WITHIN its own locked transaction, not a separate query
+  // run after that transaction already committed (Codex-caught P1, round
+  // 10 continued, 2026-09-25): a separate re-query here would have its own
+  // race, since another deployment's sync could land in the gap and hand
+  // this run a revision id that its actual `HttpFetcher` (built from this
+  // deployment's own un-re-read hardcoded policy) was never built from,
+  // making every later revalidation pass vacuously. See
+  // src/adapters/policy-revalidation.ts for the full rationale.
+  const httpFetcher = withPolicyRevalidation(
+    deps.httpFetcher,
+    db,
+    jobsGeSource.id,
+    policySync.currentRevisionId,
+  );
 
   const startedAt = now();
   const crawlRun = await startCrawlRun(db, {

@@ -441,6 +441,14 @@ export async function cleanupTestSource(
     await tx.delete(crawlRuns).where(eq(crawlRuns.sourceId, sourceId));
     await tx.delete(sourceListings).where(eq(sourceListings.sourceId, sourceId));
     await tx.delete(resources).where(eq(resources.sourceId, sourceId));
+    // sources.currentPolicyRevisionId FKs into source_policies.id, ON
+    // DELETE NO ACTION (round 6 of the adversarial review, 2026-09-24,
+    // src/db/source-policies.ts's syncSourcePolicy()) — a test that called
+    // it (directly or via setSourcePolicy() in public-views.test.ts) left
+    // this source's own row pointing AT one of the rows about to be
+    // deleted below. Null the pointer first, or the delete two lines down
+    // aborts this whole transaction with a foreign-key violation.
+    await tx.update(sources).set({ currentPolicyRevisionId: null }).where(eq(sources.id, sourceId));
     // Only ever populated for a fixed, real source id (e.g. jobsGeSource.id in
     // crawl.test.ts) — a throwaway createTestSource() id never has one, so
     // this delete is a routine no-op for every other test using this helper.

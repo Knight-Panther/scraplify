@@ -97,7 +97,18 @@ GRANT USAGE ON SCHEMA public TO scraplify_worker;
 
 -- Crawl (sources, listings, run bookkeeping).
 GRANT SELECT, INSERT, UPDATE ON public.sources TO scraplify_worker;
-GRANT SELECT, INSERT, UPDATE ON public.source_policies TO scraplify_worker;
+-- UPDATE, not just INSERT: syncSourcePolicy() (src/db/source-policies.ts)
+-- repoints sources.currentPolicyRevisionId on every genuinely new policy
+-- revision, and sets/clears sources.policyConflictAt when a same-reviewDate,
+-- differing-content sync is detected (round 9 of the adversarial review,
+-- 2026-09-25) -- both are columns on `sources`, never on `source_policies`.
+-- NOT UPDATE on source_policies below: it's an append-only revision log
+-- (round 6, 2026-09-24, reversing round 5's now-removed upsert-in-place
+-- design) -- syncSourcePolicy() only ever INSERTs a new revision row, never
+-- modifies an existing one, so granting UPDATE here would let a compromised
+-- or buggy worker silently rewrite historical policy evidence/decisions,
+-- undermining the audit trail docs/scraplify-concept.md §5.3 requires.
+GRANT SELECT, INSERT ON public.source_policies TO scraplify_worker;
 GRANT SELECT, INSERT, UPDATE ON public.source_listings TO scraplify_worker;
 GRANT SELECT, INSERT ON public.source_listing_revisions TO scraplify_worker;
 -- UPDATE, not just INSERT: upsertResource (src/db/ingest.ts) does

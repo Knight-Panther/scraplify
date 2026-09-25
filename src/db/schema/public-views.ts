@@ -10,7 +10,7 @@ import {
   sourceListingStatusEnum,
   sourceListings,
 } from './source-listings.js';
-import { sources } from './sources.js';
+import { sourcePolicies, sources } from './sources.js';
 
 /**
  * The public database role's entire visible surface (concept §30.2, Phase 8B
@@ -64,6 +64,59 @@ export const publicOpportunities = pgView('public_opportunities', {
  * `salaryRaw`, `sourceCategories`, `structuredAttributes`) so one view
  * covers both the list and detail routes. `formerMembers` (superseded
  * memberships) is the operator audit trail and is not exposed here.
+ *
+ * `description` is redacted IN THE VIEW ITSELF, not left to application code
+ * (adversarial review, 2026-09-24): `scraplify_public` is granted `SELECT`
+ * directly on this view, so a redaction living only in `src/browse/
+ * public-queries.ts` would be bypassed by any direct query against the view
+ * — a compromised public process, an operator's own ad hoc query, or a
+ * future caller that forgets to call the TypeScript helper. The `CASE`
+ * below resolves against `source_policies` (the same `display.
+ * mayRepublishFullContent` flag `src/policies/*.ts`'s `SourcePolicySchema`
+ * defines) and blanks `description` to `''` unless that flag is explicitly
+ * `true`.
+ *
+ * The `CASE` also requires `sources.policyConflictAt IS NULL` (Codex-caught
+ * P1, round 12, 2026-09-25): when `syncSourcePolicy()` detects a same-date,
+ * differing-content conflict, it flags `policyConflictAt` but deliberately
+ * leaves `currentPolicyRevisionId` pointed at whichever revision won the
+ * race — which could be the MORE PERMISSIVE one if a stale worker happened
+ * to sync first (see `src/db/source-policies.ts`'s own doc comment). Without
+ * this condition, a direct query against this view during that unresolved
+ * window would still read `mayRepublishFullContent` off whatever the
+ * pointer happens to hold and could republish full descriptions the
+ * genuinely-intended (but losing) revision meant to keep redacted — exactly
+ * the gap `docs/THREAT_MODEL.md`'s source-rights gate exists to close, and
+ * one the TypeScript layer alone cannot patch for a direct or compromised
+ * caller, since `scraplify_public` is granted `SELECT` on this view
+ * directly. Failing closed (redacted) during any unresolved conflict, not
+ * just once one is flagged, is deliberate: the whole point of a same-date
+ * conflict is that this deployment cannot tell which revision is correct.
+ *
+ * A plain `LEFT JOIN` through `sources.currentPolicyRevisionId` — an
+ * explicit FK to the ONE `source_policies` row currently in effect for
+ * that source — not a join on `source_id` at all (round 6 of the same
+ * adversarial review, 2026-09-24). `source_policies` is genuinely an
+ * append-only revision log again (`src/db/schema/sources.ts`'s own doc
+ * comment has the full history: round 5 tried making `source_id`
+ * `.unique()` to force exactly one row per source, which round 6 found
+ * broke `docs/scraplify-concept.md` §5.3's explicit "versioned policy
+ * record" requirement by destroying a prior revision's `evidence`/
+ * `decisionOwner` on every overwrite, AND left activation of a policy
+ * change coupled to whenever the next crawl happened to run — a real
+ * window, since scheduled crawls have silently stopped for a week before
+ * per this project's own incident history). `sources.
+ * currentPolicyRevisionId` is now the ONLY thing that says which revision
+ * is current; nothing about row count, ordering, or a tiebreak column
+ * decides it — `src/db/source-policies.ts`'s `syncSourcePolicy()` is the
+ * one function that ever moves that pointer, called by every crawl AND
+ * standalone (`npm run sync-policies`) so a policy edit activates the
+ * moment it's deployed, not whenever a crawl next happens to run. `LEFT
+ * JOIN`, not inner: a source with no current revision at all (before its
+ * first sync ever runs) must default closed (redacted), the same
+ * "defaulting closed" posture `public-queries.ts`'s own
+ * `mayRepublishFullContent()` already documents, not open by the absence
+ * of a row.
  */
 export const publicOpportunityMembers = pgView('public_opportunity_members', {
   opportunityId: uuid('opportunity_id').notNull(),
@@ -97,7 +150,12 @@ export const publicOpportunityMembers = pgView('public_opportunity_members', {
     ${sourceListings.firstSeenAt} as first_seen_at,
     ${sourceListings.lastSeenAt} as last_seen_at,
     ${sourceListingRevisions.applicationMethod} as application_method,
-    ${sourceListingRevisions.description} as description,
+    case
+      when (${sourcePolicies.display}->>'mayRepublishFullContent')::boolean is true
+        and ${sources.policyConflictAt} is null
+        then ${sourceListingRevisions.description}
+      else ''
+    end as description,
     ${sourceListingRevisions.locations} as locations,
     ${sourceListingRevisions.salaryRaw} as salary_raw,
     ${sourceListingRevisions.sourceCategories} as source_categories,
@@ -106,6 +164,7 @@ export const publicOpportunityMembers = pgView('public_opportunity_members', {
   inner join ${sourceListings} on ${sourceListings.id} = ${opportunitySourceMemberships.sourceListingId}
   inner join ${sources} on ${sources.id} = ${sourceListings.sourceId}
   inner join ${sourceListingRevisions} on ${sourceListingRevisions.id} = ${sourceListings.currentRevisionId}
+  left join ${sourcePolicies} on ${sourcePolicies.id} = ${sources.currentPolicyRevisionId}
   where ${opportunitySourceMemberships.supersededAt} is null
     and ${sourceListings.status} <> 'quarantined'
 `);

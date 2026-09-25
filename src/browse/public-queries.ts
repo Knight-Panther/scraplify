@@ -62,8 +62,23 @@ function mayRepublishFullContent(sourceSlug: string): boolean {
  * currently set this `false`): an omitted description reads to the existing
  * "no description on this board" rendering path
  * (`web/lib/opportunity-detail.ts`'s `Descriptions` filters out blank text),
- * so no new UI branch is needed to enforce this — the policy is enforced
- * once, here, rather than trusted to every future caller.
+ * so no new UI branch is needed to enforce this.
+ *
+ * A SECOND, independent layer, not the only one (adversarial review,
+ * 2026-09-24): `public_opportunity_members` (`src/db/schema/public-views.ts`)
+ * now redacts `description` in its own SQL, against the `source_policies`
+ * revision `sources.currentPolicyRevisionId` points at — the real
+ * database-level boundary, since `scraplify_public` is granted `SELECT`
+ * directly on that view, and a redaction living only here would be
+ * bypassed by any query that reached the view without going through this
+ * function. `member.description` arriving here is therefore already `''`
+ * for a policy-restricted source; this function stays as defense in depth
+ * (harmless on an already-blank string) rather than being removed, since it
+ * still reads the live TypeScript policy import directly, while the
+ * database side is only as fresh as the last `syncSourcePolicy()` call
+ * (`src/db/source-policies.ts` — every crawl, or `npm run sync-policies`
+ * on demand) — the two can briefly disagree between an edit and its next
+ * sync, never silently forever the way an insert-once table would.
  */
 function publicDescription(sourceSlug: string, description: string): string {
   return mayRepublishFullContent(sourceSlug) ? description : '';

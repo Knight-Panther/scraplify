@@ -1,0 +1,1 @@
+ALTER TABLE "sources" ADD COLUMN "policy_conflict_at" timestamp with time zone;
