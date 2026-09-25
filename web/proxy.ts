@@ -1,6 +1,7 @@
 import { type NextFetchEvent, type NextRequest, NextResponse } from 'next/server';
 import NextAuth, { type NextAuthRequest, type NextAuthResult } from 'next-auth';
 import authConfig from './auth.config.js';
+import { clientKey, processRateLimiter, rateClass } from './lib/rate-limit.js';
 import { contentSecurityPolicy, createNonce } from './lib/security-headers.js';
 import { currentSurface } from './lib/surface.js';
 import {
@@ -65,7 +66,26 @@ export default async function proxy(req: NextRequest, event: NextFetchEvent) {
   // surface, and an exact allowlist here means the matcher below never has
   // to guess by file extension (see its own comment for why that guess is
   // unsafe in this app specifically).
+  // The probes (Phase 8E) are exact paths that report states only; they
+  // skip rate limiting so a monitor never sees a 429 instead of the truth.
   if (isStaticAssetRoute(pathname) || isProbeRoute(pathname)) return NextResponse.next();
+
+  // Phase 8E: per-client limits on `public` and `admin`, before any work.
+  // The 429 carries no body: nothing about the limit beyond when to retry.
+  const limited = rateClass(surface, pathname);
+  if (limited !== null) {
+    const wait = processRateLimiter().take(
+      limited,
+      clientKey(req.headers.get('x-forwarded-for')),
+      Date.now(),
+    );
+    if (wait > 0) {
+      return new NextResponse(null, {
+        status: 429,
+        headers: { 'Retry-After': String(wait), 'Cache-Control': 'no-store' },
+      });
+    }
+  }
 
   // Phase 8E: every other response carries a per-request CSP. The request
   // copy is how Next finds the nonce to stamp on its own scripts while

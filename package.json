@@ -34,6 +34,7 @@
     "rank": "node --env-file-if-exists=.env dist/cli/rank.js",
     "taxonomy:backfill": "node --env-file-if-exists=.env dist/cli/backfill-taxonomy.js",
     "health:check": "node --env-file-if-exists=.env dist/cli/health-check.js",
+    "probe": "node dist/cli/probe.js",
     "matching:vendor-model": "node scripts/vendor-matching-model.mjs",
     "matching:embed-eval-corpus": "node --env-file-if-exists=.env dist/cli/embed-eval-corpus.js",
     "matching:build": "node --env-file-if-exists=.env dist/cli/build-matching-bundle.js",

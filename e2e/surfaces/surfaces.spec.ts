@@ -208,6 +208,61 @@ test.describe('XTELO_SURFACE=admin', () => {
 });
 
 /**
+ * Phase 8E rate limits, on a real server. Each test sends its own forwarded
+ * address, so it draws from its own buckets and cannot starve the other
+ * tests of theirs.
+ */
+test.describe('rate limits', () => {
+  async function statuses(
+    surface: SurfaceName,
+    path: string,
+    client: string,
+    count: number,
+  ): Promise<{ status: number; retryAfter: string | undefined }[]> {
+    const context = await request.newContext({
+      baseURL: origin(surface),
+      extraHTTPHeaders: { 'x-forwarded-for': `198.51.100.1, ${client}` },
+    });
+    try {
+      const replies = [];
+      for (let i = 0; i < count; i++) {
+        const response = await context.get(path, { maxRedirects: 0 });
+        replies.push({ status: response.status(), retryAfter: response.headers()['retry-after'] });
+      }
+      return replies;
+    } finally {
+      await context.dispose();
+    }
+  }
+
+  test('admin sign-in answers 429 with Retry-After once its bucket is empty', async () => {
+    const replies = await statuses('admin', '/api/auth/csrf', `203.0.113.${randomInt()}`, 21);
+    expect(replies.slice(0, 20).every((reply) => reply.status === 200)).toBe(true);
+    expect(replies[20]).toEqual({ status: 429, retryAfter: '6' });
+  });
+
+  test('the limit is per client: another address is still served', async () => {
+    await statuses('admin', '/api/auth/csrf', '203.0.113.250', 21);
+    const [other] = await statuses('admin', '/api/auth/csrf', '203.0.113.251', 1);
+    expect(other?.status).toBe(200);
+  });
+
+  test('probes are never limited', async () => {
+    const replies = await statuses('public', '/api/healthz', '203.0.113.252', 300);
+    expect(replies.every((reply) => reply.status === 200)).toBe(true);
+  });
+
+  test('local is never limited', async () => {
+    const replies = await statuses('local', '/api/matching/manifest', '203.0.113.253', 70);
+    expect(replies.some((reply) => reply.status === 429)).toBe(false);
+  });
+});
+
+function randomInt(): number {
+  return 1 + Math.floor(Math.random() * 200);
+}
+
+/**
  * Phase 8C delivery. These read whatever bundle the local database has
  * published: with none, the manifest's honest answer is a 404 and the
  * download checks are skipped rather than faked.
