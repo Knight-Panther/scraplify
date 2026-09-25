@@ -25,6 +25,7 @@ import type { Surface } from '../lib/surface.js';
 const NAV_EN = [
   { href: '/opportunities', label: 'Browse' },
   { href: '/listings', label: 'Listings' },
+  { href: '/cv-ranked', label: 'CV Ranked' },
   { href: '/profile', label: 'Profile' },
   { href: '/ranked', label: 'Ranked' },
   { href: '/drafts', label: 'Drafts' },
@@ -37,6 +38,7 @@ const NAV_EN = [
 const NAV_KA = [
   { href: '/opportunities', label: 'ვაკანსიები' },
   { href: '/listings', label: 'განცხადებები' },
+  { href: '/cv-ranked', label: 'CV რანჟირება' },
   { href: '/profile', label: 'პროფილი' },
   { href: '/ranked', label: 'რანჟირება' },
   { href: '/drafts', label: 'მონახაზები' },
@@ -93,8 +95,8 @@ export function SiteHeaderNav({
   const isActive = (href: string) =>
     href === '/' || href === '/admin' ? pathname === href : (pathname?.startsWith(href) ?? false);
   const navFull = locale === 'ka' ? NAV_KA : NAV_EN;
-  // Public hosted nav is `Browse | Listings` only (concept §30.1; `CV Ranked`
-  // stays withheld until Phase 8D actually builds it) — the other links
+  // Public hosted nav is `Browse | Listings | CV Ranked` only (concept
+  // §30.1; the first three entries of both lists) — the other links
   // (`/profile`, `/ranked`, `/drafts`, `/review`, `/taxonomy-review`,
   // `/health`) all 404 once Stage 6 allow-lists routes by surface, and
   // linking to them here would send a public visitor at a dead end. Sliced
@@ -105,7 +107,7 @@ export function SiteHeaderNav({
   // `navFull`: none of `navFull`'s links exist on that surface at all, unlike
   // public's subset which genuinely is a subset of local's.
   const nav =
-    surface === 'admin' ? NAV_ADMIN : surface === 'public' ? navFull.slice(0, 2) : navFull;
+    surface === 'admin' ? NAV_ADMIN : surface === 'public' ? navFull.slice(0, 3) : navFull;
   // Per-locale, not one shared value: Georgian's longer nav words need
   // more room than English's (see the desktop-nav comment below), and a
   // single breakpoint sized for Georgian would needlessly drop English
@@ -114,8 +116,8 @@ export function SiteHeaderNav({
   // name (`min-[1480px]:flex`, `min-[1720px]:flex`, ...) so Tailwind's
   // source scanner — which matches raw text, not evaluated JS — still
   // finds and generates both.
-  const deskFlex = locale === 'ka' ? 'min-[1720px]:flex' : 'min-[1480px]:flex';
-  const deskHidden = locale === 'ka' ? 'min-[1720px]:hidden' : 'min-[1480px]:hidden';
+  const deskFlex = locale === 'ka' ? 'min-[1810px]:flex' : 'min-[1560px]:flex';
+  const deskHidden = locale === 'ka' ? 'min-[1810px]:hidden' : 'min-[1560px]:hidden';
 
   return (
     <header className="flex h-[58px] items-stretch bg-[var(--color-browse-nav-yellow)] lg:h-[78px]">
@@ -180,7 +182,12 @@ export function SiteHeaderNav({
           English header measured 1434px wide in a 1345px client (overflowing),
           and fit with 11px to spare at 1460px, so 1480px; Georgian measured
           1664px in 1585px at 1600px, so 1720px. The comments above keep the
-          earlier numbers as history. */}
+          earlier numbers as history.
+
+          Raised again for the 10th link, "CV Ranked" (Phase 8D, 2026-09-26):
+          bisected on a real page load for the narrowest width where the
+          header stops overflowing — 1540px in English, 1789px in Georgian —
+          so 1560px and 1810px. */}
       <nav aria-label="Main" className={`ml-auto hidden items-stretch ${deskFlex}`}>
         <ul className="flex items-stretch">
           {nav.map((item, index) => (

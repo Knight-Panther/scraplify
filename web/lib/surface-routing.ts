@@ -12,13 +12,15 @@ function pathIs(pathname: string, prefix: string): boolean {
 /**
  * `public` surface: exactly the routes concept §30.1 defines its nav around,
  * plus the matching-bundle endpoints (Phase 8C) the browser matcher fetches:
- * `/api/matching/manifest` and `/api/matching/bundles/<id>/<file>`.
+ * `/api/matching/manifest` and `/api/matching/bundles/<id>/<file>`, and the
+ * browser-only CV Ranked page that uses them (Phase 8D).
  */
 export function isPublicRoute(pathname: string): boolean {
   return (
     pathname === '/' ||
     pathIs(pathname, '/opportunities') ||
     pathIs(pathname, '/listings') ||
+    pathIs(pathname, '/cv-ranked') ||
     pathIs(pathname, '/api/matching')
   );
 }

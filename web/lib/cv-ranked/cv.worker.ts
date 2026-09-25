@@ -81,7 +81,11 @@ self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
     message.type === 'process'
       ? process(message.file, message.now)
       : Promise.resolve().then(() =>
-          post({ type: 'ranked', ranking: rank(message.profile, message.now, message.limit) }),
+          post({
+            type: 'ranked',
+            id: message.id,
+            ranking: rank(message.profile, message.now, message.limit),
+          }),
         );
   run.catch((error: unknown) => {
     if (error instanceof BundleRefusal) {

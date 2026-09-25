@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { SiteFooter } from '../components/site-footer.js';
 import { SiteHeader } from '../components/site-header.js';
+import { CvSessionProvider } from '../lib/cv-ranked/session.js';
+import { currentSurface } from '../lib/surface.js';
 import { bebasNeue, notoGeorgian, spaceMono } from './fonts.js';
 import './globals.css';
 
@@ -44,7 +46,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </a>
         <SiteHeader />
         <div id="content" className="flex-1">
-          {children}
+          {/* The CV Ranked session (Phase 8D) lives above the routes so the
+              landing chooser can hand a running worker to /cv-ranked. Not on
+              `admin`, which has no CV Ranked route. */}
+          {currentSurface() === 'admin' ? (
+            children
+          ) : (
+            <CvSessionProvider>{children}</CvSessionProvider>
+          )}
         </div>
         <SiteFooter />
       </body>

@@ -14,7 +14,8 @@ import type { CvErrorCode, CvKind } from './document-checks.js';
 
 export type ToWorker =
   | { type: 'process'; file: File; now: number }
-  | { type: 'rank'; profile: MatchProfile; now: number; limit: number };
+  /** `id` echoes back on `ranked`, so the UI can drop a reply a newer edit superseded. */
+  | { type: 'rank'; id: number; profile: MatchProfile; now: number; limit: number };
 
 export type Stage = 'reading' | 'bundle' | 'ranking';
 
@@ -58,7 +59,7 @@ export type FromWorker =
       vocabulary: Vocabulary;
       ranking: RankingPayload;
     }
-  | { type: 'ranked'; ranking: RankingPayload }
+  | { type: 'ranked'; id: number; ranking: RankingPayload }
   | { type: 'error'; code: CvErrorCode; bundle?: BundleSummary };
 
 export const INITIAL_RESULT_LIMIT = 50;
