@@ -35,6 +35,7 @@
     "taxonomy:backfill": "node --env-file-if-exists=.env dist/cli/backfill-taxonomy.js",
     "health:check": "node --env-file-if-exists=.env dist/cli/health-check.js",
     "probe": "node dist/cli/probe.js",
+    "load-test": "node scripts/load-test.mjs",
     "matching:vendor-model": "node scripts/vendor-matching-model.mjs",
     "matching:embed-eval-corpus": "node --env-file-if-exists=.env dist/cli/embed-eval-corpus.js",
     "matching:build": "node --env-file-if-exists=.env dist/cli/build-matching-bundle.js",
@@ -52,6 +53,7 @@
   },
   "homepage": "https://github.com/Knight-Panther/scraplify#readme",
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@biomejs/biome": "^2.5.11",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",

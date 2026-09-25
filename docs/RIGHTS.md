@@ -1,0 +1,54 @@
+# Rights and licences
+
+Phase 8E release item (change.md §11: "Public deployment is gated on documented permission/terms for crawling and republishing each source. Technical access is not publication authority"). This file records what is known and what is still owed. Last checked 2026-09-26.
+
+## Verdict
+
+**Public deployment is blocked on the owner items below.** The code side is clean: every shipped dependency is under a permissive licence, and no model is shipped. The blockers are permission to republish each source, and the provenance of two site assets.
+
+## Sources
+
+Crawling behaviour follows each source's `robots.txt` and a versioned policy record (`source_policies`; concept §5.3). Robots rules do not grant permission to republish.
+
+| Source | robots.txt | Terms reviewed | Written permission or official feed | What the public site shows |
+| --- | --- | --- | --- | --- |
+| jobs.ge | allows listing pages; `Crawl-delay: 5` honoured | **owner to record** | **none yet** | title, employer, dates, a link back to jobs.ge. Descriptions are shown only where the source policy allows (redacted in SQL, Phase 8B). |
+| hr.ge | allows public paths | **owner to record** | **none yet** | the same, plus hr.ge's own category labels |
+
+Checked 2026-09-26: `terms_url` is empty in both live policy rows (acquisition reviews dated 2026-09-03 and 2026-09-05, owner "project owner"). Those reviews covered acquisition, not republication.
+
+**Owner action:** for each source, record the terms URL, the date it was read, and the decision in its `source_policies` row (`terms_url`, review date, notes, decision owner). Where practical, ask for written permission or an official feed first (concept §5.3). Until then, the public surface should not be announced.
+
+## Site assets
+
+| Asset | Licence | Status |
+| --- | --- | --- |
+| Noto Sans Georgian, Space Mono, Bebas Neue | SIL Open Font License 1.1 | Fine. `next/font` downloads them at build time and serves them from our own origin. |
+| `web/public/hero-bg.mp4` (landing background video) | **unknown** | **Owner action:** record where it came from and under what licence, or replace it. |
+| `web/public/logo.png`, `web/app/icon.svg` | **unknown** (presumed the owner's own) | **Owner action:** confirm. |
+
+## Models
+
+None shipped. Phase 8A closed lexical-first, so the public site ranks with `lexical-rank-v1` and a curated alias list, with no model weights. If a model is adopted later, its licence and redistribution terms go here before it ships (change.md §11).
+
+## Dependencies
+
+Production dependency tree (`npm ls --omit=dev --all`): 131 packages, all under permissive licences.
+
+| Licence | Packages |
+| --- | --- |
+| MIT | 85 |
+| BSD-2-Clause | 13 |
+| BSD-3-Clause | 12 |
+| Apache-2.0 | 8, including `pdfjs-dist@6.3.289` |
+| ISC | 7 |
+| Unlicense | `fast-sha256` |
+| BSD | `duck` |
+| MIT OR CC0-1.0 | `type-fest` |
+| MIT AND Zlib | `pako` |
+| MIT OR GPL-3.0-or-later | `jszip`. **Used under MIT.** |
+| Apache-2.0 AND LGPL-3.0-or-later | `@img/sharp-*` platform binaries. libvips is LGPL and dynamically linked, so the obligation is attribution and allowing it to be replaced, which an unmodified npm install already allows. |
+
+`npm audit` (all dependencies, 2026-09-26): **0 vulnerabilities.**
+
+To regenerate the inventory, walk `npm ls --omit=dev --all --long --json` and read each package's `license` field from its installed `package.json`. The Phase 8E commit that added this file records the exact one-liner used.
