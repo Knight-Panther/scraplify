@@ -1,4 +1,4 @@
-import { and, eq, gte, ilike, inArray, lte, or, type SQL, sql } from 'drizzle-orm';
+import { type AnyColumn, and, eq, gte, ilike, inArray, lte, or, type SQL, sql } from 'drizzle-orm';
 import {
   publicOpportunities,
   publicOpportunityMembers,
@@ -221,8 +221,15 @@ const PUBLIC_LATEST_OPEN_MEMBER_DEADLINE = sql`(
  * matching bundle) reuses this one definition instead of maintaining its own
  * lifecycle-status list.
  */
-export function publicEligibleMemberSql(asOf: string): SQL {
-  return sql`pom.status = 'active' and (pom.deadline_at is null or pom.deadline_at >= ${asOf})`;
+export function publicEligibleMemberSql(
+  asOf: string,
+  /** Which member columns to test: the `pom` alias the correlated subqueries here use, by default. */
+  columns: { status: SQL | AnyColumn; deadlineAt: SQL | AnyColumn } = {
+    status: sql`pom.status`,
+    deadlineAt: sql`pom.deadline_at`,
+  },
+): SQL {
+  return sql`${columns.status} = 'active' and (${columns.deadlineAt} is null or ${columns.deadlineAt} >= ${asOf})`;
 }
 
 /**
@@ -274,7 +281,7 @@ function deriveCanonicalStatus(members: readonly { status: string }[]): string {
 }
 
 /** Same "first member by `source_listing_id`" tie-break `resolveCanonicalOpportunity` uses. Caller guarantees `members.length > 0`. */
-function deriveCanonicalTitle(
+export function deriveCanonicalTitle(
   members: readonly { sourceListingId: string; title: string }[],
 ): string {
   return members.reduce((min, member) =>

@@ -51,9 +51,58 @@ Found by `npm run health:check` while closing out a Phase 7A follow-up (the taxo
 
 **Not addressed, deliberately out of scope here:** self-healing for a stuck `running` row is not built — `health:check` surfacing it (which it did, correctly, the moment someone looked) is this project's current design, not a gap this incident calls for closing on its own; that would be a `Phase 7B` "supervised repair" concern, not a same-day fix.
 
-## Current phase: Phase 8B — surfaces and admin boundary
+## Current phase: Phase 8C — matching bundle
 
-**Phase 8B exit gate complete (2026-09-25), merged via PR #21.** Every checklist item below is checked; the whole-branch Codex review is recorded as an owner waiver, not a pass. The next phase's branch moves this section to "Earlier phase".
+**Branch `phase-8c-matching-bundle`, started 2026-09-25 from `main` after PR #21 merged.** Scope (change.md §8/§13, concept §30.3): bundle schema and migrations, an artifact store and manifest, validation with atomic activation and rollback, admin matching health, CLI health integration, immutable delivery, then scheduling once the build is proven idempotent on its own. **Exit:** an interrupted or incompatible build never replaces active data, and every published row maps to a current public canonical revision and a real source.
+
+**Scope narrowed, stated rather than skipped:** no `embedding_models`/`opportunity_embeddings` tables and no vectors. Phase 8A closed lexical-first and approved no model, so the first contract, `lexical-v1`, carries render metadata, taxonomy and provenance only. Each row's `semanticInputHash` is where incremental embedding plugs in later. Recorded in concept §30.3 along with the 72h maximum bundle age.
+
+### What was built (2026-09-25)
+
+- **Schema, migration 0034** (additive): `matching_bundle_builds` (state `building`/`verified`/`failed`, bounded `error_code`, counts, exclusions, per-file checksums, a health-gate-override flag, and a GC marker) and `matching_bundle_publications` (the active pointer). A partial unique index allows one live publication per channel, and a `previous_publication_id` records the rollback relation. A `public_active_matching_bundle` view is the only matching object the public role can read. Applied to `scraplify_qa` and `scraplify` **as `scraplify_migration`**. The role scripts gained the grants: worker writes builds and publications and reads the two public views; admin gets read-only access; public reads the one view. Re-running the provisioning verification on both databases passed every check, including the full privilege matrix.
+- **`src/matching/bundle/`:**
+  - `contract.ts`: zod schemas for the manifest and rows; `validateArtifactSet` checks shape, supported schema, per-file SHA-256 and size, counts and cross-file ids.
+  - `artifact-store.ts`: `MatchingArtifactStore` with a filesystem implementation. It writes to a staging directory and renames it into place atomically, never overwrites a version, and builds every path from a validated uuid plus an allowlisted file name.
+  - `snapshot.ts`: one repeatable-read, read-only snapshot through the **public views** only, using the same `publicEligibleMemberSql` Browse uses (now parameterized by column, still one definition). It uses the same canonical-title rule as Browse, keeps only live taxonomy classifications, and records exclusions by reason.
+  - `build.ts`: an advisory lock (plus the dedupe lock), then `building` is committed first, then the upstream health gate, write, read-back validation, and a provenance-drift re-check against the live DB, then one activation transaction that also refuses a count collapse below half the active bundle. GC keeps the active bundle and two predecessors. Any failure records a bounded code, removes its files and leaves the prior bundle active; a crashed run's `building` row is marked `interrupted` next time.
+  - `rollback.ts`: re-verifies the target's files first.
+  - `status.ts`: health alerts for no bundle, aging past 36h, stale past 72h (critical), last build failed, and a possibly stuck build.
+- **CLI:** `npm run matching:build` (`--override-health-gate` and `--allow-count-drop` are both recorded, never silent) and `npm run matching:rollback`. `npm run health:check` now includes the bundle. `scripts/run-crawl.ps1` builds the bundle after each crawl, only when dedupe and taxonomy both succeeded, and a failed build fails the run.
+- **Delivery:**
+  - `GET /api/matching/manifest` returns the active pointer, file URLs and checksums, freshness, and `matchingAvailable: false` past 72h. It is `no-store`.
+  - `GET /api/matching/bundles/<id>/<file>` serves the active bundle only, re-checks bytes against the checksum before serving, and caches for a year as `immutable` with a SHA ETag.
+  - Both are `public`/`local` only: the proxy allow-list plus the handler's own surface check. A `public` process with no `XTELO_MATCHING_ARTIFACT_DIR` refuses (503) rather than guessing.
+- **`/admin/matching`** (read-only; nav plus dashboard card): the active bundle, when it was built, when its data was last seen on a source, the contract, the rollback target, and recent builds with their error explanations and exclusions.
+
+### Evidence
+
+- `src/matching/bundle/build.test.ts`, 12 tests against the real DB, each on its own channel, temp store and disposable source:
+  - only public and eligible rows are included (expired, quarantined and past-deadline are excluded, and a redacted description never reaches the file), with the current revision and real source;
+  - a byte-identical rebuild;
+  - an interruption after write leaves the prior bundle active and its files removed;
+  - an orphaned `building` row becomes `interrupted`;
+  - incompatible schema, failed health gate, count collapse and empty corpus each refuse while the active bundle is kept;
+  - a recorded health override;
+  - rollback twice, then refusal once the target's files were collected;
+  - a tampered rollback target is refused;
+  - the database refuses a second active pointer;
+  - health reporting;
+  - checksum mismatch and path traversal are rejected.
+- **Real build on the live corpus:** the plain `npm run matching:build` was **refused, `upstream_unhealthy`**. Both sources are 9 days past their last crawl, each with a crawl stuck as "running", an operational issue outside this phase. `--override-health-gate` then activated 2,522 opportunities (2.8 MB uncompressed; 1,888 with taxonomy; 25 cross-posted). The build took under a second, and the override is visible on `/admin/matching`. **2,522 equals Browse's own eligible count** by the same predicate, run separately in SQL.
+- The route suite grew to 81 tests, all passing: manifest and files on `public` and `local`, checksum-verified, correct cache headers, 404 for an inactive id, unknown file or traversal attempt; `/api/matching/manifest` refused on `admin`; `/admin/matching` in the admin auth matrix. A `public` `next start` connected **as `scraplify_public`** served the manifest and the 2.8 MB file with no permission errors.
+- Browser QA of `/admin/matching` at 390/768/1280/1920: no page overflow (at 390 the builds table scrolls inside its own container), real data only. "Data last seen on a source" was added after the first pass, because "Built 2 minutes ago" alone hid that the data was 9 days old.
+- `npm run typecheck`, `npm run lint` clean; `npm test` 1096/1099 (same 3 pre-existing `queries.test.ts` failures, which depend on live-DB data). Running on Opus: per-commit and whole-branch Codex review skipped by standing owner instruction.
+
+**Exit gate (8C):**
+- [x] An interrupted or incompatible build never replaces active data (build tests: interruption, orphan, incompatible schema, health gate, count collapse, empty; activation is one transaction behind a DB-enforced single pointer).
+- [x] Every published row maps to a current public canonical revision and a real source (the snapshot reads only the public views; a provenance-drift re-check before activation; the live build matched Browse's eligible count exactly).
+- [x] Schema and migrations, artifact store and manifest, validation, activation and rollback, admin matching health, CLI health integration, and immutable delivery are built and tested as above.
+- [x] Scheduling added only after standalone idempotency was proven (byte-identical rebuild test).
+- [ ] *(Narrower than change.md's list, by design)* Incremental embedding by semantic hash: deferred until a model passes Phase 8A's gate. The hash is in place.
+
+## Earlier phase: Phase 8B — surfaces and admin boundary
+
+**Phase 8B exit gate complete (2026-09-25), merged via PR #21.** Every checklist item below is checked; the whole-branch Codex review is recorded as an owner waiver, not a pass.
 
 **Phase 8A is merged (PR #19)**, concluding with an honest lexical-first recommendation for its one tested candidate (below, now "Earlier phase"). Phase 8B was chosen next by explicit project-owner decision — its own precondition (change.md §2: Phase 6 merged, or a clean worktree off reviewed `main`) is satisfied, same as 8A's was, and it does not depend on 8A's candidate-model outcome at all (change.md §16 defers "winning multilingual model" as a non-blocking decision).
 

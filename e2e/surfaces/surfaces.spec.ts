@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { expect, request, test } from '@playwright/test';
 import { encode } from 'next-auth/jwt';
 import {
@@ -33,7 +34,13 @@ const LOCAL_ONLY_ROUTES = [
   '/profile',
   '/taxonomy-review',
 ];
-const ADMIN_ROUTES = ['/admin', '/admin/duplicates', '/admin/taxonomy', '/admin/sources'];
+const ADMIN_ROUTES = [
+  '/admin',
+  '/admin/duplicates',
+  '/admin/taxonomy',
+  '/admin/sources',
+  '/admin/matching',
+];
 const SESSION_COOKIE = 'authjs.session-token';
 
 interface Reply {
@@ -130,7 +137,12 @@ test.describe('XTELO_SURFACE=public', () => {
 });
 
 test.describe('XTELO_SURFACE=admin', () => {
-  for (const path of [...PUBLIC_ROUTES, ...LOCAL_ONLY_ROUTES, '/adminx']) {
+  for (const path of [
+    ...PUBLIC_ROUTES,
+    ...LOCAL_ONLY_ROUTES,
+    '/adminx',
+    '/api/matching/manifest',
+  ]) {
     test(`refuses ${path} at the proxy`, async () => {
       await expectProxyRefusal('admin', path);
     });
@@ -178,4 +190,55 @@ test.describe('XTELO_SURFACE=admin', () => {
     const response = await get('admin', '/admin', forged);
     expect(response.status).toBe(307);
   });
+});
+
+/**
+ * Phase 8C delivery. These read whatever bundle the local database has
+ * published: with none, the manifest's honest answer is a 404 and the
+ * download checks are skipped rather than faked.
+ */
+test.describe('matching bundle delivery', () => {
+  for (const surface of ['public', 'local'] as const) {
+    test(`${surface} serves the active manifest uncached and its files immutably`, async () => {
+      const context = await request.newContext({ baseURL: origin(surface) });
+      try {
+        const manifest = await context.get('/api/matching/manifest', { maxRedirects: 0 });
+        if (manifest.status() === 404) {
+          expect(await manifest.json()).toEqual({ error: 'no_active_bundle' });
+          test.skip(true, 'no bundle published in this database');
+          return;
+        }
+        expect(manifest.status()).toBe(200);
+        expect(manifest.headers()['cache-control']).toBe('no-store');
+        const body = (await manifest.json()) as {
+          bundleId: string;
+          manifest: { url: string; sha256: string };
+          files: Record<string, { url: string; sha256: string; bytes: number }>;
+        };
+
+        for (const { url, sha256 } of [body.manifest, ...Object.values(body.files)]) {
+          expect(url.startsWith(`/api/matching/bundles/${body.bundleId}/`)).toBe(true);
+          const file = await context.get(url, { maxRedirects: 0 });
+          expect(file.status()).toBe(200);
+          expect(file.headers()['cache-control']).toBe('public, max-age=31536000, immutable');
+          expect(file.headers().etag).toBe(`"${sha256}"`);
+          const digest = createHash('sha256')
+            .update(await file.body())
+            .digest('hex');
+          expect(digest).toBe(sha256);
+        }
+
+        // Not the active bundle, an unknown file, or a traversal attempt: all 404.
+        for (const path of [
+          `/api/matching/bundles/${randomUUID()}/opportunities.json`,
+          `/api/matching/bundles/${body.bundleId}/secrets.json`,
+          `/api/matching/bundles/${body.bundleId}/..%2F..%2F.env`,
+        ]) {
+          expect((await context.get(path, { maxRedirects: 0 })).status(), path).toBe(404);
+        }
+      } finally {
+        await context.dispose();
+      }
+    });
+  }
 });

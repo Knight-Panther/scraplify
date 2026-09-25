@@ -59,6 +59,7 @@ const NAV_ADMIN = [
   { href: '/admin/sources', label: 'Sources' },
   { href: '/admin/duplicates', label: 'Duplicates' },
   { href: '/admin/taxonomy', label: 'Taxonomy' },
+  { href: '/admin/matching', label: 'Matching' },
 ] as const;
 
 /**

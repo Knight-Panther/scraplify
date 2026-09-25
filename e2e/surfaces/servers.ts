@@ -19,7 +19,11 @@ export const NON_ADMIN_GITHUB_ID = '1';
 
 export const SERVERS = {
   local: { port: 3100, env: { XTELO_SURFACE: 'local' } },
-  public: { port: 3101, env: { XTELO_SURFACE: 'public' } },
+  // The public process must be told where bundles live (it refuses to guess).
+  public: {
+    port: 3101,
+    env: { XTELO_SURFACE: 'public', XTELO_MATCHING_ARTIFACT_DIR: '.matching-artifacts' },
+  },
   admin: {
     port: 3102,
     env: {

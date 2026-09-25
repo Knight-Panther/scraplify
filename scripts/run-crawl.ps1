@@ -38,7 +38,8 @@ $repositoryRoot = $repositoryRoot.Trim()
 $crawlEntryPoint = "dist/cli/run-$Source-crawl.js"
 $dedupeEntryPoint = 'dist/cli/run-dedupe.js'
 $taxonomyEntryPoint = 'dist/cli/backfill-taxonomy.js'
-foreach ($entryPoint in @($crawlEntryPoint, $dedupeEntryPoint, $taxonomyEntryPoint)) {
+$bundleEntryPoint = 'dist/cli/build-matching-bundle.js'
+foreach ($entryPoint in @($crawlEntryPoint, $dedupeEntryPoint, $taxonomyEntryPoint, $bundleEntryPoint)) {
     if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot $entryPoint) -PathType Leaf)) {
         throw "Build output not found: $entryPoint. Run 'npm run build' in $repositoryRoot first."
     }
@@ -130,11 +131,25 @@ try {
     $taxonomyExitCode = Invoke-LoggedNode @('--env-file=.env', $taxonomyEntryPoint)
     Write-LogLine "----- taxonomy backfill exit code $taxonomyExitCode -----"
 
+    # Phase 8C: rebuild the public matching bundle, but only once dedupe and
+    # taxonomy have both settled for this crawl (change.md section 10) - a
+    # bundle built on a half-finished pass would publish exactly that. The
+    # builder has its own health gate and advisory lock and never replaces
+    # the active bundle on failure; a failure still fails this run below.
+    $bundleExitCode = 0
+    if ($dedupeExitCode -eq 0 -and $taxonomyExitCode -eq 0) {
+        Write-LogLine "----- $(Get-Date -Format o) matching bundle -----"
+        $bundleExitCode = Invoke-LoggedNode @('--env-file=.env', $bundleEntryPoint)
+        Write-LogLine "----- matching bundle exit code $bundleExitCode -----"
+    } else {
+        Write-LogLine "----- matching bundle skipped: dedupe or taxonomy failed -----"
+    }
+
     # concept section 19.1: a failed or skipped run must never pass
     # silently. A crawl that itself succeeded but left a failed dedupe or
     # classification pass behind is not a clean run either, so it must not
     # exit 0. The crawl's own failure code wins when there are several.
-    foreach ($stepExitCode in @($dedupeExitCode, $taxonomyExitCode)) {
+    foreach ($stepExitCode in @($dedupeExitCode, $taxonomyExitCode, $bundleExitCode)) {
         if ($exitCode -eq 0 -and $stepExitCode -ne 0) {
             $exitCode = $stepExitCode
         }
