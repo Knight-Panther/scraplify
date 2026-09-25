@@ -207,7 +207,8 @@ function detect(
     for (const position of index.get(head) ?? []) {
       if (!form.every((stem, offset) => stems[position + offset] === stem)) continue;
       occurrences++;
-      if (first === null || position < first.index) first = { index: position, length: form.length };
+      if (first === null || position < first.index)
+        first = { index: position, length: form.length };
     }
   }
   return first === null ? null : { ...first, occurrences };
