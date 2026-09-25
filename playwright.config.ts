@@ -15,8 +15,9 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
-  // Needs three production servers of its own: `playwright.surfaces.config.ts`.
-  testIgnore: 'surfaces/**',
+  // Each needs production servers of its own: `playwright.surfaces.config.ts`
+  // and `playwright.privacy.config.ts`.
+  testIgnore: ['surfaces/**', 'privacy/**'],
   fullyParallel: true,
   retries: 0,
   use: {
