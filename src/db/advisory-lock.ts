@@ -19,6 +19,7 @@ export const ADVISORY_LOCKS = {
    * and collide on `taxonomy_terms_code_unique`, failing one of them.
    */
   taxonomyBackfill: { key: 7_417_002n, name: 'taxonomy backfill' },
+  matchingBundle: { key: 7_417_003n, name: 'matching bundle' },
 } as const satisfies Record<string, AdvisoryLock>;
 
 /** Long enough to outlast any real pass (a whole-corpus dedupe took 35.5s, a taxonomy backfill 22.5s) many times over. */

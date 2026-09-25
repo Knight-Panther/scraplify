@@ -132,6 +132,15 @@ GRANT SELECT, INSERT, UPDATE ON public.taxonomy_terms TO scraplify_worker;
 GRANT SELECT, INSERT, UPDATE ON public.source_taxonomy_mappings TO scraplify_worker;
 GRANT SELECT, INSERT, UPDATE ON public.listing_classifications TO scraplify_worker;
 
+-- Phase 8C: the matching-bundle builder (`npm run matching:build`/
+-- `matching:rollback`). It records builds and moves the active-publication
+-- pointer, and it reads its corpus through the same public views the public
+-- site uses, so nothing the public role cannot see can reach a bundle.
+GRANT SELECT, INSERT, UPDATE ON public.matching_bundle_builds TO scraplify_worker;
+GRANT SELECT, INSERT, UPDATE ON public.matching_bundle_publications TO scraplify_worker;
+GRANT SELECT ON public.public_opportunities TO scraplify_worker;
+GRANT SELECT ON public.public_opportunity_members TO scraplify_worker;
+
 
 -- =========================================================================
 -- 2. scraplify_admin — "only implemented review/operations mutations"
@@ -208,6 +217,11 @@ GRANT SELECT, UPDATE, DELETE ON public.opportunity_decisions TO scraplify_admin;
 -- every admin mutation's outcome (succeeded/refused/failed), not proxied
 -- through any other table.
 GRANT SELECT, INSERT ON public.admin_audit_events TO scraplify_admin;
+
+-- Phase 8C: `/admin/matching` reads build history and the active pointer.
+-- Read-only — activation and rollback stay worker/CLI operations.
+GRANT SELECT ON public.matching_bundle_builds TO scraplify_admin;
+GRANT SELECT ON public.matching_bundle_publications TO scraplify_admin;
 
 
 -- =========================================================================

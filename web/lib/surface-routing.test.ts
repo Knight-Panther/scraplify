@@ -8,12 +8,17 @@ import {
 } from './surface-routing.js';
 
 describe('isPublicRoute', () => {
-  it.each(['/', '/opportunities', '/opportunities/abc-123', '/listings', '/listings/held'])(
-    'allows %s',
-    (pathname) => {
-      expect(isPublicRoute(pathname)).toBe(true);
-    },
-  );
+  it.each([
+    '/',
+    '/opportunities',
+    '/opportunities/abc-123',
+    '/listings',
+    '/listings/held',
+    '/api/matching/manifest',
+    '/api/matching/bundles/abc/opportunities.json',
+  ])('allows %s', (pathname) => {
+    expect(isPublicRoute(pathname)).toBe(true);
+  });
 
   it.each(['/admin', '/admin/sources', '/api/auth/session', '/profile', '/health', '/review'])(
     'refuses %s',
@@ -28,6 +33,8 @@ describe('isPublicRoute', () => {
     // `/opportunities` — `pathIs` requires an exact match or a `/` boundary.
     expect(isPublicRoute('/opportunitiesarchive')).toBe(false);
     expect(isPublicRoute('/listingsx')).toBe(false);
+    expect(isPublicRoute('/api/matchingx')).toBe(false);
+    expect(isPublicRoute('/api')).toBe(false);
   });
 });
 

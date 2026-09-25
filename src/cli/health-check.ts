@@ -1,6 +1,8 @@
 import { getSourceHealth } from '../browse/queries.js';
 import { assessSourceHealth, hasCriticalAlert } from '../browse/source-health.js';
 import { db } from '../db/client.js';
+import { PUBLIC_MATCHING_CHANNEL } from '../matching/bundle/contract.js';
+import { assessMatchingHealth, getMatchingBundleStatus } from '../matching/bundle/status.js';
 
 /**
  * `npm run health:check` — prints every source's alerts and exits 1 if any is
@@ -10,6 +12,10 @@ import { db } from '../db/client.js';
  * else built (concept §27 leaves the notification channel open). A person can
  * run it, and a scheduled task or any wrapper can fail on it, instead of health
  * only being visible to someone who remembers to open `/health`.
+ *
+ * Phase 8C adds the public matching bundle as one more line: a stale active
+ * bundle is critical (CV matching is refused past its age limit), anything
+ * else is a warning.
  */
 async function main(): Promise<void> {
   const now = new Date().toISOString();
@@ -27,7 +33,16 @@ async function main(): Promise<void> {
     }
   }
 
-  if (hasCriticalAlert(alerts)) {
+  const matchingAlerts = assessMatchingHealth(
+    await getMatchingBundleStatus(db, PUBLIC_MATCHING_CHANNEL),
+    now,
+  );
+  console.log(matchingAlerts.length === 0 ? 'matching bundle: ok' : 'matching bundle');
+  for (const alert of matchingAlerts) {
+    console.log(`  ${alert.level.padEnd(8)} ${alert.code}  ${alert.message}`);
+  }
+
+  if (hasCriticalAlert(alerts) || matchingAlerts.some((alert) => alert.level === 'critical')) {
     process.exitCode = 1;
   }
 }

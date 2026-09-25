@@ -9,9 +9,18 @@ function pathIs(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-/** `public` surface: exactly the routes concept §30.1 defines its nav around. */
+/**
+ * `public` surface: exactly the routes concept §30.1 defines its nav around,
+ * plus the matching-bundle endpoints (Phase 8C) the browser matcher fetches:
+ * `/api/matching/manifest` and `/api/matching/bundles/<id>/<file>`.
+ */
 export function isPublicRoute(pathname: string): boolean {
-  return pathname === '/' || pathIs(pathname, '/opportunities') || pathIs(pathname, '/listings');
+  return (
+    pathname === '/' ||
+    pathIs(pathname, '/opportunities') ||
+    pathIs(pathname, '/listings') ||
+    pathIs(pathname, '/api/matching')
+  );
 }
 
 /**

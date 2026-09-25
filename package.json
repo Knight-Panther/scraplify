@@ -34,6 +34,8 @@
     "health:check": "node --env-file-if-exists=.env dist/cli/health-check.js",
     "matching:vendor-model": "node scripts/vendor-matching-model.mjs",
     "matching:embed-eval-corpus": "node --env-file-if-exists=.env dist/cli/embed-eval-corpus.js",
+    "matching:build": "node --env-file-if-exists=.env dist/cli/build-matching-bundle.js",
+    "matching:rollback": "node --env-file-if-exists=.env dist/cli/rollback-matching-bundle.js",
     "matching:parity-check": "node scripts/matching-parity/bundle-worker.mjs && node scripts/matching-parity/check.mjs",
     "dev:web:qa": "node scripts/next.mjs dev web --profile qa -H 127.0.0.1 -p 3001"
   },

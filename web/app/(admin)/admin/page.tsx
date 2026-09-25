@@ -42,6 +42,11 @@ export default async function AdminDashboardPage() {
           title="Taxonomy"
           description="Inspect and correct how listings are categorized."
         />
+        <DashboardLink
+          href="/admin/matching"
+          title="Matching"
+          description="The public matching bundle — what is published for CV matching, when it was built, and whether the last build succeeded."
+        />
       </ul>
     </main>
   );
