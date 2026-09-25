@@ -180,7 +180,8 @@ const SKILLS: readonly Row[] = [
   ['Tableau', 'Tableau', []],
   ['Google Analytics', 'Google Analytics', []],
   ['SEO', 'SEO', []],
-  ['IFRS', 'ფასს', ['ifrs']],
+  // No Georgian form: the abbreviation ფასს stems to ფას and collides with ფასი (price).
+  ['IFRS', 'IFRS', ['ifrs']],
   [
     'Driving licence',
     'მართვის მოწმობა',

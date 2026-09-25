@@ -111,9 +111,13 @@ function Row({ result, rank }: { result: RankedRow; rank: number }) {
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <a
               href={`/opportunities/${row.opportunityId}`}
+              // A new tab: navigating this one would end the in-memory session.
+              target="_blank"
+              rel="noopener"
               className="max-w-[var(--measure)] leading-[1.6] text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-accent"
             >
               {row.title}
+              <span className="sr-only"> (opens in a new tab)</span>
             </a>
             <span
               className="numeric text-sm"

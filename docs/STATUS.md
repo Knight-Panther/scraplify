@@ -1,12 +1,12 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-25 (`main` at `823c7be`, PR #22).
+Last updated: 2026-09-26 (PR #23, Phase 8D).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
 ## Current phase: Phase 8D — browser CV Ranked
 
-**Exit gate met; not yet merged** (push, PR and whole-branch review outstanding). **Branch:** `phase-8d-browser-cv-ranked`. **Scope** (change.md §7/§13, concept §30): a lazy, self-hosted Web Worker that parses a PDF/DOCX CV in the browser, a memory-only profile provider, the landing CV chooser with client navigation to `/cv-ranked`, a combined profile/preferences/results UI, cleanup states, lexical/taxonomy ranking with explanations against the Phase 8C `lexical-v1` bundle (`GET /api/matching/manifest`), failure and fallback states, and privacy/no-network tests. No semantic vectors: Phase 8A approved no model, so this ships honest lexical/taxonomy matching and must not call it "semantic".
+**Merged** (PR #23, 2026-09-26). Whole-branch review: one Opus high-effort pass (owner chose it over the Codex adversarial review), no P0/P1. **Branch:** `phase-8d-browser-cv-ranked`. **Scope** (change.md §7/§13, concept §30): a lazy, self-hosted Web Worker that parses a PDF/DOCX CV in the browser, a memory-only profile provider, the landing CV chooser with client navigation to `/cv-ranked`, a combined profile/preferences/results UI, cleanup states, lexical/taxonomy ranking with explanations against the Phase 8C `lexical-v1` bundle (`GET /api/matching/manifest`), failure and fallback states, and privacy/no-network tests. No semantic vectors: Phase 8A approved no model, so this ships honest lexical/taxonomy matching and must not call it "semantic".
 
 **Exit:** a canary CV produces only allowlisted same-origin `GET` requests for public assets (no upload, no mutation) and leaves no canary text, file metadata, candidate row or ranking in server logs or the database. ✔ `npm run test:e2e:privacy` passes against a `public` production server, and a deliberate file-name leak into a URL made it fail.
 
@@ -20,6 +20,15 @@ This file is the **current-state index**: what is done, what is open, and what g
 4. **`/cv-ranked` UI** (`professional-frontend` skill first): a chooser for a direct or refreshed visit ("no prior session was kept"), progress with cancel, an editable profile (roles, fields, skills, locations) showing evidence, and ranked results with per-row explanations and source links. It also covers change/clear CV, and the failure, stale-bundle, unavailable and no-results states. **Done.** Browser-checked at 390/768/1280/1920 with no body overflow: add/remove/toggle terms, a location filter (with "States no location" on rows that name none), show more, clear, cancel mid-processing, and the stub-PDF, renamed-file, empty-DOCX and `.txt` failures, each with its own message. `web-design-guidelines` review: fixed the MB non-breaking spaces; URL state is deliberately absent (no CV-derived value may enter a URL). Known limit, not a bug: the corpus holds about six developer vacancies, so an English developer CV finds 7 matches.
 5. **Privacy proof**: a Playwright canary-CV test. It records every request and asserts only allowlisted same-origin `GET`s (page, `_next` assets, manifest, bundle file), no request body, and no canary in URLs. Afterwards it greps the server log for the canary and scans the DB (candidate tables' row counts are unchanged, and the canary appears in no text column). `docs/THREAT_MODEL.md` gets the browser-CV section. Strict CSP headers are 8E (hosting) work, but the worker needs no `eval` or remote origin, so they will fit. **Done.** The request capture includes the worker's own fetches: the test asserts it saw the worker script, the manifest and the bundle. Beyond the plan, it also asserts no cookie, Web Storage, IndexedDB or Cache Storage entry holds the canary. `docs/THREAT_MODEL.md` §7.1 records each mitigation with its evidence and residuals: declared zip sizes can lie, and the CSP is still to come.
 6. **Browser QA** at 390/768/1280/1920 with real Georgian and English CVs; the exit gate is ticked here. **Done** (during stage 4, with text PDFs generated from synthetic Georgian and English CVs, plus the DOCX fixture).
+
+**Review follow-ups.** Two P2s were fixed before merge: result titles now open in a new tab, because a same-tab navigation ended the in-memory session; and the Georgian IFRS form `ფასს` was dropped, because it stems to `ფას` and matched `ფასი` (price). Still open:
+- P2: the 45 s timeout also counts the bundle download, and its message blames the file.
+- P2: a DOCX whose declared zip sizes lie can still exhaust memory inside mammoth (THREAT_MODEL §7.1 residual).
+- P3: loose aliases (delivery → Courier, bare "hr", "head of").
+- P3: duplicate location terms across languages.
+- P3: `showMore` uses a stale-closure setState.
+- P3: a wrong comment on `RankingPayload.total`.
+- P3: consider `isEvalSupported: false` for PDF.js.
 
 Invoke the `professional-frontend` skill before UI work.
 
@@ -51,7 +60,7 @@ Invoke the `professional-frontend` skill before UI work.
 | 8A — private matching feasibility | merged | #19, #20 | Closed **lexical-first**: `multilingual-e5-small` is 118 MB (int8), cold load 126 s against a 20 s gate. Node/browser parity was proven (cosine 0.997+). The 300+ human-labelled set was never built (a human task). |
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
-| 8D — browser CV Ranked | in progress | — | — |
+| 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 listed in the 8D section. |
 | 8E — hosted readiness | not started | — | Production OAuth app, per-process role credentials, TLS/CSP/rate limits, probes, restore drill, rights/licences. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
@@ -98,8 +107,7 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 ## Upcoming, most valuable first
 
 1. **Restore crawl freshness** (see the operational issues above). Every downstream freshness claim depends on it.
-2. **Phase 8D — browser CV Ranked** (current phase above).
-3. **Phase 8E — hosted readiness.** Real deployment evidence; a local demo is not hosted readiness.
-4. **Phase 7B — supervised repair**, once 7A schedules have run for days: stuck-run self-healing, parser-repair proposals and canaries, `pg-boss` only if heterogeneous durable work appears.
-5. **Phase 1C remainder:** full-coverage runs per source, closure against live data, coverage and overlap reports.
-6. **Model re-evaluation for semantic matching** (8A follow-up): a smaller multilingual candidate plus the 300+ human-labelled judgments. Only then add `embedding_models`/`opportunity_embeddings` and a vector bundle contract.
+2. **Phase 8E — hosted readiness.** Real deployment evidence; a local demo is not hosted readiness.
+3. **Phase 7B — supervised repair**, once 7A schedules have run for days: stuck-run self-healing, parser-repair proposals and canaries, `pg-boss` only if heterogeneous durable work appears.
+4. **Phase 1C remainder:** full-coverage runs per source, closure against live data, coverage and overlap reports.
+5. **Model re-evaluation for semantic matching** (8A follow-up): a smaller multilingual candidate plus the 300+ human-labelled judgments. Only then add `embedding_models`/`opportunity_embeddings` and a vector bundle contract.
