@@ -1,6 +1,9 @@
 import { CandidateClaimKind } from '../../../../../src/domain/candidate.js';
 import { db } from '../../../../../src/db/client.js';
-import { loadCandidateProfile, type LoadedProfile } from '../../../../../src/ranking/profile-store.js';
+import {
+  loadCandidateProfile,
+  type LoadedProfile,
+} from '../../../../../src/ranking/profile-store.js';
 import { SubmitButton } from '../../../../components/submit-button.js';
 import { claimKindLabel } from '../../../../lib/labels.js';
 import { UUID } from '../../../../lib/profile-input.js';
