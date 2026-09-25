@@ -1,0 +1,44 @@
+# One Xtelo web process per surface (Phase 8E): `xtelo-web@public` listens on
+# 127.0.0.1:3000 and `xtelo-web@admin` on 127.0.0.1:3001, matching
+# deploy/Caddyfile. Each reads only its own environment file, so the public
+# process never holds an admin secret or a write-capable database password
+# (web/lib/startup-checks.ts refuses to start if it does).
+#
+#   sudo systemctl enable --now xtelo-web@public xtelo-web@admin
+
+[Unit]
+Description=Xtelo web (%i surface)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xtelo
+Group=xtelo
+WorkingDirectory=/opt/xtelo/current
+EnvironmentFile=/etc/xtelo/%i.env
+Environment=NODE_ENV=production
+Environment=XTELO_SURFACE=%i
+ExecStart=/usr/bin/node scripts/next.mjs start web -H 127.0.0.1 -p ${XTELO_PORT}
+Restart=on-failure
+RestartSec=5
+
+# Hardening: read-only system, no privilege gain, network only.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Next's own runtime cache is the only thing it writes.
+ReadWritePaths=/opt/xtelo/current/web/.next/cache
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,50 @@
+# Xtelo reverse proxy (Phase 8E, change.md §6: "A production reverse proxy
+# maps public and admin hostnames to separate loopback ports/processes").
+#
+# Caddy obtains and renews TLS certificates itself. Set PUBLIC_HOST,
+# ADMIN_HOST and ACME_EMAIL in its environment; see docs/RUNBOOK.md.
+#
+# What the app relies on from this file:
+# - HSTS. The app sets every other security header itself, including the
+#   per-request CSP, but a loopback process cannot know it is behind TLS.
+# - X-Forwarded-For. Caddy ignores the header from untrusted clients and
+#   sets it to the real peer address, which is the entry the app's rate
+#   limiter uses (web/lib/rate-limit.ts).
+# - The web processes listen on 127.0.0.1 only, so this is their only way in.
+
+{
+	email {$ACME_EMAIL}
+}
+
+(common) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Caddy's own; nothing identifies the server software.
+		-Server
+	}
+	log {
+		# Request lines only. Never a body; the CV never reaches the server anyway.
+		output file /var/log/caddy/xtelo-{args[0]}.log {
+			roll_size 50MiB
+			roll_keep 10
+		}
+	}
+}
+
+{$PUBLIC_HOST} {
+	import common public
+	# The public site accepts no uploads: every request is a GET.
+	request_body {
+		max_size 64KB
+	}
+	reverse_proxy 127.0.0.1:3000
+}
+
+{$ADMIN_HOST} {
+	import common admin
+	request_body {
+		max_size 1MB
+	}
+	reverse_proxy 127.0.0.1:3001
+}

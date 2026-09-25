@@ -22,7 +22,12 @@ export const SERVERS = {
   // The public process must be told where bundles live (it refuses to guess).
   public: {
     port: 3101,
-    env: { XTELO_SURFACE: 'public', XTELO_MATCHING_ARTIFACT_DIR: '.matching-artifacts' },
+    env: {
+      XTELO_SURFACE: 'public',
+      XTELO_MATCHING_ARTIFACT_DIR: '.matching-artifacts',
+      // CI has only the owner credential; see web/lib/startup-checks.ts.
+      XTELO_E2E_ALLOW_WRITABLE_PUBLIC_ROLE: '1',
+    },
   },
   admin: {
     port: 3102,

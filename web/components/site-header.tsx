@@ -1,3 +1,4 @@
+import { cvRankedEnabled } from '../lib/cv-ranked/availability.js';
 import { currentLocale } from '../lib/locale.js';
 import { currentSurface } from '../lib/surface.js';
 import { databaseLabel, writesEnabled } from '../lib/writes.js';
@@ -26,5 +27,13 @@ export async function SiteHeader() {
   // browser (Codex, 2026-09-24).
   const dbLabel = surface === 'local' ? databaseLabel() : '';
   const writesOn = surface === 'local' ? writesEnabled() : false;
-  return <SiteHeaderNav dbLabel={dbLabel} writesOn={writesOn} locale={locale} surface={surface} />;
+  return (
+    <SiteHeaderNav
+      dbLabel={dbLabel}
+      writesOn={writesOn}
+      locale={locale}
+      surface={surface}
+      cvRanked={cvRankedEnabled()}
+    />
+  );
 }

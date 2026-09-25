@@ -1,0 +1,26 @@
+# One scheduled crawl pipeline run for a source (Phase 8E): crawl, dedupe,
+# taxonomy, then the matching bundle. The same steps and exit rules as
+# scripts/run-crawl.ps1 on the Windows operator machine; see
+# deploy/run-pipeline.sh. Triggered by xtelo-pipeline@<source>.timer.
+
+[Unit]
+Description=Xtelo crawl pipeline (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=xtelo
+Group=xtelo
+WorkingDirectory=/opt/xtelo/current
+EnvironmentFile=/etc/xtelo/worker.env
+ExecStart=/opt/xtelo/current/deploy/run-pipeline.sh %i
+# A crawl can run for hours; never let two overlap (the crawler's own run
+# lock refuses a second one anyway).
+TimeoutStartSec=12h
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/xtelo/bundles /var/log/xtelo

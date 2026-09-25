@@ -1,0 +1,16 @@
+# Daily crawl pipeline per source, like the Windows schedule
+# (scripts/register-crawl-schedule.ps1).
+#
+#   sudo systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer
+
+[Unit]
+Description=Daily Xtelo crawl pipeline (%i)
+
+[Timer]
+OnCalendar=*-*-* 16:10:00 UTC
+RandomizedDelaySec=10min
+# Runs once at boot if the machine was off at the scheduled time.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

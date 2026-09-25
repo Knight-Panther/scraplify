@@ -5,19 +5,20 @@ import {
   publicSourceOverview,
 } from '../../../src/browse/public-queries.js';
 import {
-  type OpportunityView,
   countOpportunities,
   getSourceHealth,
+  type OpportunityView,
   searchOpportunities,
 } from '../../../src/browse/queries.js';
 import { db } from '../../../src/db/client.js';
 import { CvChooser } from '../../components/cv-chooser.js';
 import { HeroTicker } from '../../components/hero-ticker.js';
 import { HeroVideo } from '../../components/hero-video.js';
+import { cvRankedEnabled } from '../../lib/cv-ranked/availability.js';
 import { count, relativeTime } from '../../lib/format.js';
 import { type HeadlineRun, type HeroCopy, heroCopy } from '../../lib/hero-copy.js';
 import { sourceLabel } from '../../lib/labels.js';
-import { type Locale, currentLocale } from '../../lib/locale.js';
+import { currentLocale, type Locale } from '../../lib/locale.js';
 import { type OpportunityRow, toRow } from '../../lib/opportunity-row.js';
 import { currentSurface } from '../../lib/surface.js';
 import { lastCompletedSync } from '../../lib/sync.js';
@@ -183,15 +184,18 @@ export default async function Page() {
 
             {/* Phase 8D: the CV is read in this tab's worker and the page
                 client-navigates to /cv-ranked. Rendered even when the live
-                hero data failed — it needs only the public bundle. */}
-            <div className="mt-5 animate-hero-fade-up [animation-delay:820ms] [animation-duration:700ms]">
-              <CvChooser
-                navigate
-                label={copy.rankByCv}
-                note={copy.rankByCvNote}
-                className="inline-flex h-[46px] w-fit items-center rounded-[var(--radius)] border border-[var(--color-browse-accent)] px-[22px] text-[15px] font-semibold text-[var(--color-browse-accent)] transition-colors duration-150 hover:bg-[var(--color-browse-accent)] hover:text-[var(--color-browse-ink)]"
-              />
-            </div>
+                hero data failed — it needs only the public bundle. Absent
+                while the Phase 8E switch has CV Ranked off. */}
+            {cvRankedEnabled() && (
+              <div className="mt-5 animate-hero-fade-up [animation-delay:820ms] [animation-duration:700ms]">
+                <CvChooser
+                  navigate
+                  label={copy.rankByCv}
+                  note={copy.rankByCvNote}
+                  className="inline-flex h-[46px] w-fit items-center rounded-[var(--radius)] border border-[var(--color-browse-accent)] px-[22px] text-[15px] font-semibold text-[var(--color-browse-accent)] transition-colors duration-150 hover:bg-[var(--color-browse-accent)] hover:text-[var(--color-browse-ink)]"
+                />
+              </div>
+            )}
 
             {hero.ok && (
               <div className="mt-11 flex animate-hero-fade-up flex-wrap gap-x-12 gap-y-6 border-t border-[var(--color-browse-border)] pt-6 [animation-delay:880ms] [animation-duration:700ms]">

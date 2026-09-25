@@ -14,7 +14,12 @@ export default defineConfig({
   webServer: {
     command: `node e2e/privacy/start-public-server.mjs ${PRIVACY_SERVER_LOG} ${PRIVACY_PORT}`,
     url: `http://127.0.0.1:${PRIVACY_PORT}/icon.svg`,
-    env: { XTELO_SURFACE: 'public', XTELO_MATCHING_ARTIFACT_DIR: '.matching-artifacts' },
+    env: {
+      XTELO_SURFACE: 'public',
+      XTELO_MATCHING_ARTIFACT_DIR: '.matching-artifacts',
+      // CI has only the owner credential; see web/lib/startup-checks.ts.
+      XTELO_E2E_ALLOW_WRITABLE_PUBLIC_ROLE: '1',
+    },
     reuseExistingServer: false,
     timeout: 60_000,
   },

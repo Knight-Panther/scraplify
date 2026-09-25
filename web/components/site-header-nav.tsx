@@ -81,11 +81,14 @@ export function SiteHeaderNav({
   writesOn,
   locale,
   surface,
+  cvRanked,
 }: {
   dbLabel: string;
   writesOn: boolean;
   locale: Locale;
   surface: Surface;
+  /** False while `XTELO_CV_RANKED=off` (Phase 8E rollback switch). */
+  cvRanked: boolean;
 }) {
   const pathname = usePathname();
   // Exact match for both root links ('/' and admin's own '/admin'
@@ -106,8 +109,9 @@ export function SiteHeaderNav({
   // `admin` gets its own fixed list (Stage 8) rather than a slice of
   // `navFull`: none of `navFull`'s links exist on that surface at all, unlike
   // public's subset which genuinely is a subset of local's.
-  const nav =
+  const surfaceNav =
     surface === 'admin' ? NAV_ADMIN : surface === 'public' ? navFull.slice(0, 3) : navFull;
+  const nav = cvRanked ? surfaceNav : surfaceNav.filter((item) => item.href !== '/cv-ranked');
   // Per-locale, not one shared value: Georgian's longer nav words need
   // more room than English's (see the desktop-nav comment below), and a
   // single breakpoint sized for Georgian would needlessly drop English

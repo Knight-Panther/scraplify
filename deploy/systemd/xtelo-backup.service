@@ -1,0 +1,16 @@
+# Nightly database backup (Phase 8E); see deploy/backup-db.sh.
+
+[Unit]
+Description=Xtelo database backup
+
+[Service]
+Type=oneshot
+User=xtelo
+Group=xtelo
+EnvironmentFile=/etc/xtelo/backup.env
+ExecStart=/opt/xtelo/current/deploy/backup-db.sh
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/backups/xtelo

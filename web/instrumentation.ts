@@ -1,4 +1,11 @@
 import { parseAdminGithubIds } from './auth.config.js';
+import { cvRankedEnabled } from './lib/cv-ranked/availability.js';
+import {
+  publicConfigProblems,
+  SKIP_ROLE_CHECK_ENV,
+  WRITABLE_RELATIONS_SQL,
+  writableRoleProblem,
+} from './lib/startup-checks.js';
 import { currentSurface } from './lib/surface.js';
 
 /**
@@ -38,8 +45,14 @@ const REQUIRED_ADMIN_ENV_VARS = [
 // (surface-boundary-reviewer, 2026-09-24).
 const MIN_AUTH_SECRET_LENGTH = 32;
 
-export function register(): void {
+export async function register(): Promise<void> {
   const surface = currentSurface();
+  // Throws on a mistyped XTELO_CV_RANKED before any request is served.
+  cvRankedEnabled();
+  if (surface === 'public') {
+    await checkPublic();
+    return;
+  }
   if (surface !== 'admin') return;
 
   const missing = REQUIRED_ADMIN_ENV_VARS.filter((name) => !process.env[name]);
@@ -83,5 +96,30 @@ export function register(): void {
         "checks GitHub's immutable numeric user id, not a username — look it up at " +
         'https://api.github.com/users/<username> (the `id` field).',
     );
+  }
+}
+
+/**
+ * Phase 8E: the public process refuses to start without its bundle
+ * directory, while holding any admin credential, or when its database role
+ * can write. See `lib/startup-checks.ts`. The role check needs Node (a real
+ * connection), so it runs in the Node runtime only.
+ */
+async function checkPublic(): Promise<void> {
+  const problems = publicConfigProblems(process.env);
+  if (process.env.NEXT_RUNTIME === 'nodejs' && problems.length === 0) {
+    if (process.env[SKIP_ROLE_CHECK_ENV] === '1') {
+      console.warn(
+        `${SKIP_ROLE_CHECK_ENV}=1: the public role check is OFF. This is for the e2e suites only.`,
+      );
+    } else {
+      const { db } = await import('../src/db/client.js');
+      const result = await db.$client.query<{ name: string }>(WRITABLE_RELATIONS_SQL);
+      const problem = writableRoleProblem(result.rows.map((row) => row.name));
+      if (problem !== null) problems.push(problem);
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(`XTELO_SURFACE=public refuses to start: ${problems.join('; ')}.`);
   }
 }
