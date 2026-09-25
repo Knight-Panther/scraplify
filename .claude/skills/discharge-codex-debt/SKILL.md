@@ -52,8 +52,8 @@ on top, then record the result next to the original OWED note.
 4. **Triage each result against the code as it is now, not as it was.** A
    finding may already be fixed by a later commit. Say so, with the commit
    that fixed it, rather than re-fixing it. For findings that are still live:
-   - Fix P0/P1 **and** P2 and below. This user's gate policy is that lower
-     severities get fixed too, not skipped.
+   - Fix P0/P1 only. P2 and below are recorded, not implemented (the
+     owner's gate policy since 2026-09-25).
    - Implementation fixes go on a branch, never directly on `main` (the
      pre-commit hook enforces this). If the owed commit's phase is already
      merged, ask which branch the fix belongs on.
