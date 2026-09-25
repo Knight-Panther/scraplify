@@ -22,6 +22,7 @@
     "test:e2e": "node --env-file-if-exists=.env node_modules/@playwright/test/cli.js test",
     "test:e2e:surfaces": "npm run build:web && node node_modules/@playwright/test/cli.js test -c playwright.surfaces.config.ts",
     "test:e2e:privacy": "npm run build:web && node --env-file-if-exists=.env node_modules/@playwright/test/cli.js test -c playwright.privacy.config.ts",
+    "ui:check": "npm run test:e2e && npm run test:e2e:surfaces",
     "test:watch": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs",
     "db:generate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs migrate",

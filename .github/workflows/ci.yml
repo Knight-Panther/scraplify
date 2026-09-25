@@ -65,6 +65,16 @@ jobs:
       - name: Test
         run: npm test
 
+      # ubuntu-latest ships Google Chrome pre-installed, which is what
+      # `playwright.config.ts`'s `channel: 'chrome'` uses — no Playwright
+      # Chromium download needed, so this doesn't need outbound access to
+      # Playwright's own CDN the way it would locally.
+      - name: E2E design-system checks
+        run: npm run test:e2e
+
+      - name: E2E surface routing checks
+        run: npm run test:e2e:surfaces
+
       - name: Build
         run: npm run build
 
