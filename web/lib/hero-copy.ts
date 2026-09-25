@@ -43,6 +43,9 @@ export interface HeroCopy {
   sourceStatusLabel: (status: string) => Label;
   pause: string;
   play: string;
+  /** The CV chooser (Phase 8D): the button, and the one-line privacy note under it. */
+  rankByCv: string;
+  rankByCvNote: string;
 }
 
 const EN: HeroCopy = {
@@ -70,6 +73,8 @@ const EN: HeroCopy = {
   sourceStatusLabel: listingStatusLabel,
   pause: 'Pause',
   play: 'Play',
+  rankByCv: 'Rank by your CV',
+  rankByCvNote: 'PDF or DOCX. Read in this browser, never uploaded.',
 };
 
 // Headline text supplied directly by the project owner — not a Claude
@@ -118,6 +123,8 @@ const KA: HeroCopy = {
   sourceStatusLabel: kaSourceStatusLabel,
   pause: 'პაუზა',
   play: 'დაკვრა',
+  rankByCv: 'დაალაგე შენი CV-ით',
+  rankByCvNote: 'PDF ან DOCX. მუშავდება ამ ბრაუზერში და არსად იტვირთება.',
 };
 
 // Mirrors `listingStatusLabels` in `labels.ts` (same five

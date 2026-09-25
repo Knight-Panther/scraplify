@@ -23,7 +23,7 @@ import {
  */
 
 const STATIC_ASSETS = ['/icon.svg', '/logo.png', '/hero-bg.mp4'];
-const PUBLIC_ROUTES = ['/', '/opportunities', '/listings'];
+const PUBLIC_ROUTES = ['/', '/opportunities', '/listings', '/cv-ranked'];
 const LOCAL_ONLY_ROUTES = [
   '/saved',
   '/review',

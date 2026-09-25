@@ -11,6 +11,7 @@ import {
   searchOpportunities,
 } from '../../../src/browse/queries.js';
 import { db } from '../../../src/db/client.js';
+import { CvChooser } from '../../components/cv-chooser.js';
 import { HeroTicker } from '../../components/hero-ticker.js';
 import { HeroVideo } from '../../components/hero-video.js';
 import { count, relativeTime } from '../../lib/format.js';
@@ -178,6 +179,18 @@ export default async function Page() {
               >
                 {copy.noAccountNeeded}
               </span>
+            </div>
+
+            {/* Phase 8D: the CV is read in this tab's worker and the page
+                client-navigates to /cv-ranked. Rendered even when the live
+                hero data failed — it needs only the public bundle. */}
+            <div className="mt-5 animate-hero-fade-up [animation-delay:820ms] [animation-duration:700ms]">
+              <CvChooser
+                navigate
+                label={copy.rankByCv}
+                note={copy.rankByCvNote}
+                className="inline-flex h-[46px] w-fit items-center rounded-[var(--radius)] border border-[var(--color-browse-accent)] px-[22px] text-[15px] font-semibold text-[var(--color-browse-accent)] transition-colors duration-150 hover:bg-[var(--color-browse-accent)] hover:text-[var(--color-browse-ink)]"
+              />
             </div>
 
             {hero.ok && (
