@@ -88,6 +88,21 @@ test.describe('every surface', () => {
         expect((await get(surface, asset)).status).toBe(200);
       });
     }
+
+    test(`${surface} answers the liveness probe`, async () => {
+      const reply = await get(surface, '/api/healthz');
+      expect(reply.status).toBe(200);
+      expect(JSON.parse(reply.body.toString())).toEqual({ status: 'ok' });
+    });
+
+    test(`${surface} answers the readiness probe with states only`, async () => {
+      const reply = await get(surface, '/api/readyz');
+      expect(reply.status).toBe(200);
+      const body = JSON.parse(reply.body.toString());
+      expect(body).toMatchObject({ status: 'ready', surface, database: 'ok' });
+      expect(Object.keys(body).sort()).toEqual(['database', 'matching', 'status', 'surface']);
+      if (surface === 'admin') expect(body.matching).toBe('not_served');
+    });
   }
 });
 

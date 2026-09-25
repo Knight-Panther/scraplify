@@ -44,7 +44,7 @@ export interface RankedRow {
 export interface RankingPayload {
   version: string;
   results: RankedRow[];
-  /** Matches beyond `results`, for a "show more" control. */
+  /** Every match, of which `results` is the first `limit`; more than its length means "show more". */
   total: number;
   stats: RankingStats;
 }

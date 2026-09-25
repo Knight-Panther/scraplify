@@ -4,36 +4,34 @@ Last updated: 2026-09-26 (PR #23, Phase 8D).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
-## Current phase: Phase 8D — browser CV Ranked
+## Current phase: Phase 8E — hosted readiness
 
-**Merged** (PR #23, 2026-09-26). Whole-branch review: one Opus high-effort pass (owner chose it over the Codex adversarial review), no P0/P1. **Branch:** `phase-8d-browser-cv-ranked`. **Scope** (change.md §7/§13, concept §30): a lazy, self-hosted Web Worker that parses a PDF/DOCX CV in the browser, a memory-only profile provider, the landing CV chooser with client navigation to `/cv-ranked`, a combined profile/preferences/results UI, cleanup states, lexical/taxonomy ranking with explanations against the Phase 8C `lexical-v1` bundle (`GET /api/matching/manifest`), failure and fallback states, and privacy/no-network tests. No semantic vectors: Phase 8A approved no model, so this ships honest lexical/taxonomy matching and must not call it "semantic".
+**In progress.** **Branch:** `phase-8e-hosted-readiness`. **Scope** (change.md §10, §11, §13, §15): production runbook and restore rehearsal, least-privilege secrets, schedules and heartbeats, two hosted profiles and domains, TLS/CSP/rate limits/probes, an alert channel, load/accessibility/security evidence, rights and licences, and rollback drills.
 
-**Exit:** a canary CV produces only allowlisted same-origin `GET` requests for public assets (no upload, no mutation) and leaves no canary text, file metadata, candidate row or ranking in server logs or the database. ✔ `npm run test:e2e:privacy` passes against a `public` production server, and a deliberate file-name leak into a URL made it fail.
-
-**What the `lexical-v1` bundle can and cannot support** (checked 2026-09-25 against the active bundle: 2,522 rows, 2.8 MB): each row has a title, organization, deadline, locations and hr.ge taxonomy labels (Georgian only), and no description text. About 75% of rows (hr.ge) carry taxonomy and locations; jobs.ge rows carry a title only. So ranking can use role↔title, profession/industry fields↔taxonomy, and skills↔title. It **cannot** check language or work mode, because no bundle field states either. The UI will not offer those as filters rather than offer filters that do nothing. English CVs reach Georgian titles and labels only through a small curated bilingual alias list, and that list is recorded as a matching lexicon, never shown as data.
+**Exit:** every release item has current evidence. A local demo is not hosted readiness. The owner has asked for everything that does not need a host to be finished first; the stages below are ordered that way, and the ones that need a host or an owner decision are marked.
 
 **Stage plan:**
 
-1. **Pure lexical core** (`src/matching/lexical/`, browser-safe with no Node imports; the zod bundle schemas are split out of `contract.ts` so the browser can import them without `node:crypto`). It covers Georgian-aware tokenizing and suffix stemming, the lexicon (fields and locations derived from the bundle, plus curated EN↔KA role, skill and city aliases), `deriveProfile(text)` (suggestions, each with its local evidence snippet), and `rankOpportunities(profile, rows, now)`. `rankOpportunities` applies hard filters only on stated data (a passed deadline; a location preference only when the row states a location), scores only the components that apply to a row, and returns explanations built only from named matches. The versioned name is `lexical-rank-v1`. Vitest unit tests cover it. **Done** (`558094b`).
-2. **Worker** (`web/lib/cv-ranked/`): a Turbopack module worker, created only on explicit CV choice, so landing and Browse load none of it. It runs pinned `pdfjs-dist@6.3.289` in-thread (fake worker via `globalThis.pdfjsWorker`, no nested or remote worker) and mammoth's browser build. Checks: extension plus magic bytes, 8 MiB, ≤40 pages, ≤200k chars, a DOCX decompressed-size cap, and a 45 s timeout. Encrypted, image-only and empty files are rejected. The worker reads `GET /api/matching/manifest` and then the listed file, verifies SHA-256 with SubtleCrypto, and refuses stale or incompatible bundles. Errors cross to the UI as bounded codes only. **Done** (`302b03d`). In a real browser under Turbopack the worker loads as same-origin `_next/static` chunks only; a text PDF (Georgian or English) and a DOCX each reach ranked results in 0.4–1.3 s including the 2.8 MB bundle download and SHA-256 check.
-3. **Memory-only provider + landing chooser**: a client context in the root layout owns the worker and its state. Nothing goes to storage, cookies, the URL or the server. The landing CV chooser starts processing and client-navigates to `/cv-ranked`. `/cv-ranked` is allowed on `public` and `local` (proxy allow-list + route tests) and added to both navs. **Done.** The provider is not mounted on `admin`. The tenth nav link moved the desktop-nav breakpoints to 1560px (en) and 1810px (ka), bisected on real page loads. The surface-boundary-reviewer found no P0/P1.
-4. **`/cv-ranked` UI** (`professional-frontend` skill first): a chooser for a direct or refreshed visit ("no prior session was kept"), progress with cancel, an editable profile (roles, fields, skills, locations) showing evidence, and ranked results with per-row explanations and source links. It also covers change/clear CV, and the failure, stale-bundle, unavailable and no-results states. **Done.** Browser-checked at 390/768/1280/1920 with no body overflow: add/remove/toggle terms, a location filter (with "States no location" on rows that name none), show more, clear, cancel mid-processing, and the stub-PDF, renamed-file, empty-DOCX and `.txt` failures, each with its own message. `web-design-guidelines` review: fixed the MB non-breaking spaces; URL state is deliberately absent (no CV-derived value may enter a URL). Known limit, not a bug: the corpus holds about six developer vacancies, so an English developer CV finds 7 matches.
-5. **Privacy proof**: a Playwright canary-CV test. It records every request and asserts only allowlisted same-origin `GET`s (page, `_next` assets, manifest, bundle file), no request body, and no canary in URLs. Afterwards it greps the server log for the canary and scans the DB (candidate tables' row counts are unchanged, and the canary appears in no text column). `docs/THREAT_MODEL.md` gets the browser-CV section. Strict CSP headers are 8E (hosting) work, but the worker needs no `eval` or remote origin, so they will fit. **Done.** The request capture includes the worker's own fetches: the test asserts it saw the worker script, the manifest and the bundle. Beyond the plan, it also asserts no cookie, Web Storage, IndexedDB or Cache Storage entry holds the canary. `docs/THREAT_MODEL.md` §7.1 records each mitigation with its evidence and residuals: declared zip sizes can lie, and the CSP is still to come.
-6. **Browser QA** at 390/768/1280/1920 with real Georgian and English CVs; the exit gate is ticked here. **Done** (during stage 4, with text PDFs generated from synthetic Georgian and English CVs, plus the DOCX fixture).
-
-**Review follow-ups.** Two P2s were fixed before merge: result titles now open in a new tab, because a same-tab navigation ended the in-memory session; and the Georgian IFRS form `ფასს` was dropped, because it stems to `ფას` and matched `ფასი` (price). Still open:
-- P2: the 45 s timeout also counts the bundle download, and its message blames the file.
-- P2: a DOCX whose declared zip sizes lie can still exhaust memory inside mammoth (THREAT_MODEL §7.1 residual).
-- P3: loose aliases (delivery → Courier, bare "hr", "head of").
-- P3: duplicate location terms across languages.
-- P3: `showMore` uses a stale-closure setState.
-- P3: a wrong comment on `RankingPayload.total`.
-- P3: consider `isEvalSupported: false` for PDF.js.
-
-Invoke the `professional-frontend` skill before UI work.
+1. **Security headers and a strict CSP.** A per-response nonce with `'strict-dynamic'`, set in `web/proxy.ts` (`web/lib/security-headers.ts`), plus static headers in `web/next.config.ts`: nosniff, frame DENY, referrer policy, permissions policy, COOP/CORP, and no `X-Powered-By`. Only `connect-src` and `worker-src` `'self'`, no `unsafe-eval` in production, and `form-action` allows GitHub on `admin` only. HSTS belongs to the TLS proxy. **Done.**
+   - Every rendered script carries the nonce.
+   - `e2e/csp.spec.ts`: six local pages hydrate with no violation.
+   - The privacy suite runs the CV worker, PDF.js and mammoth under the production policy with no violation, and asserts the headers. Setting `connect-src 'none'` made it fail, so the policy is enforced inside the worker too.
+2. **Probes.** `GET /api/healthz` is liveness with no DB access. `GET /api/readyz` returns 503 only when the DB is unreachable. It reports the matching bundle's state (`ok`/`stale`/`unavailable`/`not_served`) without failing on it, since change.md §15 keeps the catalogue up through a builder outage. Both are served on every surface and return states only. **Done.** Unit tests cover the logic; the surfaces e2e went from 84 to 90 checks, all passing, on three real servers. Still to do: a synthetic probe command (`npm run probe -- <origin>`) for landing, Browse, detail, manifest and bundle download.
+3. **Rate limits.** An app-level per-client limiter on the public surface, with stricter limits on bundle downloads, plus the reverse-proxy limits. **Not started.**
+4. **Deployment profiles.** A reverse-proxy config for two hostnames mapped to two loopback processes (HSTS, TLS), an env template per surface, and a fail-closed startup check for each surface's required configuration. **Not started.**
+5. **Runbook and drills.** A deploy, rollback and incident runbook; a local restore rehearsal (`scripts/restore-db-drill.ps1`) and a bundle-rollback drill, with evidence. **Not started.**
+6. **Evidence.** Automated accessibility checks, a load test against a `public` production build, a dependency licence inventory, and `npm audit`. **Not started.**
+7. **Needs a host or an owner decision:**
+   - the hosting provider and domains;
+   - a production GitHub OAuth app;
+   - per-process role passwords on the host;
+   - the alert channel (change.md §10: only once health signals are stable);
+   - written permission or terms for republishing each source;
+   - hosted probe and restore evidence.
 
 ## Open operational issues (not phase work, but blocking real freshness)
 
+- **2026-09-26 update:** the Task Scheduler tasks fire again (both ran at 2026-09-25 20:10), but each crawl exits 1 at once. It refuses to start because of its own stale `running` row from 2026-09-16 (`crawl_runs` `77c999c9…` hr.ge and `2d030dcf…` jobs.ge). No crawl process was running. Dedupe and taxonomy still run after it. **Owner action:** settle the two rows as the crawler's own message says, `update crawl_runs set status = 'failed', reconciled_at = now() where id in ('77c999c9-0e6b-4452-9f49-abbd2ebd92c4', '2d030dcf-69a8-41a2-b756-439c487381e0') and status = 'running' and reconciled_at is null`. The next scheduled run (20:10 daily) then crawls. The automation was not allowed to write this to the real DB.
 - **Scheduled crawls have not run for 9+ days** (`npm run health:check`, 2026-09-25): both `jobs-ge` and `hr-ge` are critical `run_overdue`, each with a `crawl_runs` row stuck `running`. This is the second time. The first time, both schedules silently stopped after their first run on 2026-09-16 and were found on 2026-09-23 (a battery-power setting). That root cause was fixed, but the recovery was never confirmed. Because of the stale crawls, the Phase 8C bundle health gate correctly refuses to publish. The one active public bundle was built with `--override-health-gate`, which is recorded on the build and shown on `/admin/matching`. Needs: check the Task Scheduler registration (`scripts/register-crawl-schedule.ps1`), settle the stuck runs, and run one crawl per source. Self-healing of a stuck `running` row is Phase 7B work and is not built.
 - **Neither source has ever completed a full-coverage crawl** (jobs.ge ≈ 7.9h, hr.ge ≈ 2.75h), so closure of vanished listings has never run against live data (Phase 1C items 1, 2, 4).
 
@@ -60,8 +58,8 @@ Invoke the `professional-frontend` skill before UI work.
 | 8A — private matching feasibility | merged | #19, #20 | Closed **lexical-first**: `multilingual-e5-small` is 118 MB (int8), cold load 126 s against a 20 s gate. Node/browser parity was proven (cosine 0.997+). The 300+ human-labelled set was never built (a human task). |
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
-| 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 listed in the 8D section. |
-| 8E — hosted readiness | not started | — | Production OAuth app, per-process role credentials, TLS/CSP/rate limits, probes, restore drill, rights/licences. |
+| 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
+| 8E — hosted readiness | **in progress** | — | Production OAuth app, per-process role credentials, TLS/CSP/rate limits, probes, restore drill, rights/licences. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 
@@ -74,7 +72,27 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 - **Admin surface:** `/admin`, `/admin/sources`, `/admin/duplicates`, `/admin/taxonomy`, `/admin/matching`, behind GitHub OAuth + `ADMIN_GITHUB_IDS`, with `requireAdmin()` at the data layer and a three-outcome admin audit trail.
 - **Database roles:** `scraplify_public`, `_worker`, `_admin`, `_migration` created and verified on both local DBs (`scripts/sql/phase-8b-*.sql`; passwords in gitignored `.env.roles`). Migrations 0034+ are applied as `scraplify_migration`. Local dev and tests still use the broad owner credential on purpose.
 - **Matching bundle:** `npm run matching:build` / `matching:rollback`; the active bundle is served by `GET /api/matching/manifest`; the maximum bundle age is 72h (concept §30.3).
-- **Tests:** `npm test` (vitest, real DB; 3 `queries.test.ts` tests fail locally only because the live DB's review queue is larger than the test's 500-row page; they pass in CI), `npm run test:e2e:surfaces` (three real servers, 84 route checks), `npm run test:e2e` (design-system rendering checks).
+- **Tests:** `npm test` (vitest, real DB; 3 `queries.test.ts` tests fail locally only because the live DB's review queue is larger than the test's 500-row page; they pass in CI), `npm run test:e2e:surfaces` (three real servers, 90 route and probe checks), `npm run test:e2e` (design-system rendering, viewport overflow, CSP/hydration), `npm run test:e2e:privacy` (canary CV against a `public` production build).
+
+## Phase 8D — browser CV Ranked (merged 2026-09-26, PR #23)
+
+- **Browser-only CV Ranked:** a lazy Turbopack worker parses a PDF (pinned `pdfjs-dist@6.3.289`, in-thread) or a DOCX (mammoth). The public `lexical-v1` bundle is fetched, checked with SHA-256 and zod, and ranked with `lexical-rank-v1` (`src/matching/lexical/`), with an evidence-backed, editable profile and per-row explanations.
+- **State:** memory-only, in a root-layout provider (not on `admin`). Nothing goes to storage, cookies, the URL or the server. `/cv-ranked` is on `public` and `local`.
+- **Evidence:**
+  - `npm run test:e2e:privacy`: a canary CV, only allowlisted same-origin GETs, no canary in storage, server log or any DB text column, candidate tables unchanged;
+  - browser QA at 390/768/1280/1920 with Georgian and English CVs;
+  - `docs/THREAT_MODEL.md` §7.1.
+- **Review:** one Opus high-effort pass in place of the Codex adversarial review (owner decision), with no P0/P1. Fixed before or after merge:
+  - result links open in a new tab, so the session survives;
+  - the colliding Georgian IFRS form was dropped;
+  - a timeout during the index download is reported as a network failure;
+  - the `RankingPayload.total` comment.
+- **Open:**
+  - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
+  - P3: loose aliases (delivery, bare "hr", "head of").
+  - P3: duplicate location terms across languages.
+  - Moot: `isEvalSupported` no longer exists in PDF.js 6, and the production CSP has no `unsafe-eval`.
+- The full stage record is in `status-history.md`.
 
 ## Phase 8C — matching bundle (merged 2026-09-25, PR #22)
 
@@ -107,7 +125,7 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 ## Upcoming, most valuable first
 
 1. **Restore crawl freshness** (see the operational issues above). Every downstream freshness claim depends on it.
-2. **Phase 8E — hosted readiness.** Real deployment evidence; a local demo is not hosted readiness.
+2. **Phase 8E — hosted readiness** (current phase above). Real deployment evidence; a local demo is not hosted readiness.
 3. **Phase 7B — supervised repair**, once 7A schedules have run for days: stuck-run self-healing, parser-repair proposals and canaries, `pg-boss` only if heterogeneous durable work appears.
 4. **Phase 1C remainder:** full-coverage runs per source, closure against live data, coverage and overlap reports.
 5. **Model re-evaluation for semantic matching** (8A follow-up): a smaller multilingual candidate plus the 300+ human-labelled judgments. Only then add `embedding_models`/`opportunity_embeddings` and a vector bundle contract.

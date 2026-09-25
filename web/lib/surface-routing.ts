@@ -26,6 +26,15 @@ export function isPublicRoute(pathname: string): boolean {
 }
 
 /**
+ * The hosted liveness and readiness probes (Phase 8E), served on every
+ * surface so each process can be probed on its own port. Exact paths only:
+ * they report states, never data.
+ */
+export function isProbeRoute(pathname: string): boolean {
+  return pathname === '/api/healthz' || pathname === '/api/readyz';
+}
+
+/**
  * The sign-in flow itself — deliberately unauthenticated. Requiring a
  * session to reach the route that creates one would lock every admin out.
  */

@@ -8,6 +8,29 @@ import type { NextConfig } from 'next';
  */
 const repoRoot = path.join(import.meta.dirname, '..');
 
+/**
+ * Phase 8E security headers that need no per-request value, set on every
+ * response. The CSP needs a per-request nonce, so `proxy.ts` sets it (see
+ * `lib/security-headers.ts`). These live here because Next compiles this
+ * config on its own and it cannot import app modules.
+ *
+ * HSTS is not here: it belongs to the TLS-terminating reverse proxy
+ * (`deploy/Caddyfile`), since a plain-HTTP loopback process cannot know
+ * whether it is being served over HTTPS.
+ */
+const STATIC_SECURITY_HEADERS: { key: string; value: string }[] = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  {
+    key: 'Permissions-Policy',
+    value:
+      'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), display-capture=(), browsing-topics=()',
+  },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+  { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+];
+
 const config: NextConfig = {
   outputFileTracingRoot: repoRoot,
   turbopack: { root: repoRoot },
@@ -23,6 +46,12 @@ const config: NextConfig = {
   // programmatic type checker. `npm run typecheck` covers web/ as its own step,
   // and CI runs it separately so a failure says which check failed.
   typescript: { ignoreBuildErrors: true },
+  // Phase 8E: headers with no per-request value, on every response. The CSP
+  // needs a per-request nonce, so `proxy.ts` sets it instead.
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: '/:path*', headers: STATIC_SECURITY_HEADERS }];
+  },
   // No eslint key: Next 16 removed it. Biome is this repo's linter and ESLint is
   // deliberately not installed, so there is nothing for Next to run anyway.
 };
