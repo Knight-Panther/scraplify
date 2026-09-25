@@ -2,6 +2,7 @@
 
 import { cookies } from 'next/headers.js';
 import { redirect } from 'next/navigation.js';
+import { signOut } from '../auth.js';
 import { LOCALE_COOKIE, currentLocale } from '../lib/locale.js';
 
 /**
@@ -20,4 +21,17 @@ export async function toggleLocale(): Promise<void> {
     sameSite: 'lax',
   });
   redirect('/');
+}
+
+/**
+ * The admin nav's own sign-out control (`site-header-nav.tsx`). Lives here
+ * rather than under `web/lib/admin-auth.ts` for the same reason
+ * `toggleLocale` lives here rather than under `lib/locale.ts`: this file is
+ * this app's one shared, cross-surface nav-action module. No `requireAdmin()`
+ * guard — signing out of a session that may not even be an admin session
+ * (or may not exist at all) is harmless either way, and Auth.js's own
+ * `signOut()` already no-ops correctly against an absent session.
+ */
+export async function signOutAction(): Promise<void> {
+  await signOut({ redirectTo: '/api/auth/signin' });
 }

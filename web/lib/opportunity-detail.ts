@@ -1,5 +1,5 @@
 import { sourceDayKey } from './format.js';
-import type { OpportunityDetailView, OpportunityMemberDetail } from '../../src/browse/queries.js';
+import type { OpportunityDetailView } from '../../src/browse/queries.js';
 
 /**
  * The detail screen's derivations, kept out of the component so they can be
@@ -180,7 +180,17 @@ export interface OpportunityDetail {
   }[];
 }
 
-function column(member: OpportunityMemberDetail): BoardColumn {
+/**
+ * Narrowed to exactly the fields it reads, not `OpportunityMemberDetail`
+ * itself, so `web/lib/public-opportunity-detail.ts` (which has no dedupe
+ * fields to satisfy that full interface) can reuse it unchanged.
+ */
+export function column(member: {
+  sourceListingId: string;
+  sourceSlug: string;
+  canonicalUrl: string;
+  status: string;
+}): BoardColumn {
   return {
     sourceListingId: member.sourceListingId,
     sourceSlug: member.sourceSlug,
@@ -210,17 +220,17 @@ function identity(cell: Cell): string {
   }
 }
 
-function text(value: string | null | undefined): Cell | null {
+export function text(value: string | null | undefined): Cell | null {
   if (value === null || value === undefined) return null;
   const trimmed = value.trim();
   return trimmed === '' ? null : { kind: 'text', value: trimmed };
 }
 
-function date(iso: string | null): Cell | null {
+export function date(iso: string | null): Cell | null {
   return iso === null ? null : { kind: 'date', iso };
 }
 
-function row(
+export function row(
   key: string,
   label: string,
   note: string,
@@ -290,7 +300,7 @@ function evidenceReasons(evidence: unknown): string[] {
   return asStrings(asRecord(evidence).reasons);
 }
 
-function locationText(value: unknown): Cell | null {
+export function locationText(value: unknown): Cell | null {
   const places = asStrings(value);
   return places.length === 0 ? null : { kind: 'text', value: places.join(' · ') };
 }
@@ -347,7 +357,7 @@ function mailAddress(raw: string): string | null {
   return MAIL_ADDRESS.test(raw) ? raw : null;
 }
 
-function applyRoute(value: unknown): ApplyRoute {
+export function applyRoute(value: unknown): ApplyRoute {
   const method = asRecord(value);
   const type = method.type;
   const raw = typeof method.value === 'string' ? method.value.trim() : '';
@@ -422,7 +432,7 @@ const EXTRA_TRUE_FLAGS: readonly { key: string; label: string; value: string }[]
   },
 ];
 
-function extraFields(attributes: unknown): ExtraField[] {
+export function extraFields(attributes: unknown): ExtraField[] {
   const record = asRecord(attributes);
   const fields: ExtraField[] = [];
 
@@ -452,7 +462,7 @@ function extraFields(attributes: unknown): ExtraField[] {
  * current corpus — so it is written to handle either bound alone rather than
  * assuming the pair that no listing has yet supplied.
  */
-function experienceField(attributes: unknown): ExtraField | null {
+export function experienceField(attributes: unknown): ExtraField | null {
   const record = asRecord(attributes);
   const from = typeof record.workExperienceFrom === 'number' ? record.workExperienceFrom : null;
   const to = typeof record.workExperienceTo === 'number' ? record.workExperienceTo : null;

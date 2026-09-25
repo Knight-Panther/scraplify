@@ -109,7 +109,12 @@ export const hrGePolicy = SourcePolicySchema.parse({
     notes:
       'Disabled by default (§16): no attachments/external pages fetched yet. Revisit once Phase 4 observes what hr.ge listings actually attach, if anything.',
   },
-  reviewDate: '2026-09-05T00:00:00Z',
+  // 2026-09-06, not 2026-09-05: ead2a9f (2026-09-06) revised rateLimit.notes
+  // with that day's measurement but never bumped this date, so databases
+  // seeded before it hold a different revision under the same reviewDate --
+  // which syncSourcePolicy's tie rule would flag as a conflict and use to
+  // block every hr.ge crawl (Codex-caught P1, round 12, 2026-09-25).
+  reviewDate: '2026-09-06T00:00:00Z',
   evidence: [
     'docs/scraplify-concept.md §5.2 (site reconnaissance confirmed 2026-09-02)',
     'https://www.hr.ge/robots.txt (fetched 2026-09-02; re-fetched 2026-09-05 — unchanged content, plus Ratelimit-* response headers)',

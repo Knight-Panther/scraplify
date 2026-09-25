@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { checkApprovalCurrentAction } from '../app/drafts/actions.js';
+import { checkApprovalCurrentAction } from '../app/(local)/drafts/actions.js';
 import { CopyButton } from './copy-button.js';
 import { SubmitButton } from './submit-button.js';
 

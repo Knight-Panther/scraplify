@@ -8,7 +8,7 @@
 
 **Authority:** before production implementation, merge the accepted decisions into `docs/scraplify-concept.md` and create evidence-based phase entries in `docs/STATUS.md`. The concept document remains the repository's source of truth.
 
-**Reconciled:** 2026-09-23 — this file's decisions are summarized and made authoritative in `docs/scraplify-concept.md` §30, and `docs/STATUS.md`'s "Upcoming phases" now records Phase 8 as planned/not-started per this file's §2 precondition. This file is kept in full as the implementation handoff Phase 8A–8E build against — §13's stage-by-stage deliverables, §14's test/gate lists, and §19's references are not duplicated in the concept doc. Do not delete this file or let it silently drift from §30; if a decision recorded here changes, update §30 in the same change.
+**Reconciled:** 2026-09-23 — this file's decisions are summarized and made authoritative in `docs/scraplify-concept.md` §30. *(That reconciliation recorded Phase 8 as planned/not-started per this file's §2 precondition — true on 2026-09-23 when this note was written, no longer true: 8A is merged and 8B is in progress. `docs/STATUS.md`'s current-phase section is the actual-progress record; check there, not this line.)* This file is kept in full as the implementation handoff Phase 8A–8E build against — §13's stage-by-stage deliverables, §14's test/gate lists, and §19's references are not duplicated in the concept doc. Do not delete this file or let it silently drift from §30; if a decision recorded here changes, update §30 in the same change.
 
 ## 1. Decision summary
 

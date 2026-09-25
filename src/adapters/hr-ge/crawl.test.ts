@@ -9,10 +9,11 @@ import {
   sourceListingRevisions,
   sourceListings,
 } from '../../db/schema/index.js';
+import { syncSourcePolicy } from '../../db/source-policies.js';
 import { cleanupTestSource } from '../../db/test-support.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
-import { hrGeSource } from '../../policies/hr-ge.js';
-import { runHrGeCrawl } from './crawl.js';
+import { hrGePolicy, hrGeSource } from '../../policies/hr-ge.js';
+import { ensureHrGeSourceSeeded, runHrGeCrawl } from './crawl.js';
 
 // Wraps the REAL getCrawlCursor by default (every other test in this file
 // relies on its genuine behavior) — only the round-7 regression test below
@@ -1180,5 +1181,29 @@ describe('runHrGeCrawl', () => {
     const [run] = await db.select().from(crawlRuns).where(eq(crawlRuns.sourceId, hrGeSource.id));
     expect(run?.status).toBe('failed');
     expect(run?.reconciledAt).not.toBeNull();
+  });
+
+  it("refuses to crawl, before any network request, when this deployment's policy is refused as stale", async () => {
+    // Codex-caught P1, round 8, 2026-09-25 — mirrors the jobs-ge test of the
+    // same name exactly; see there for the fuller rationale. Simulates
+    // another deployment or operator sync having already activated a newer,
+    // differently-content policy this instance doesn't know about.
+    await ensureHrGeSourceSeeded(db);
+    await syncSourcePolicy(db, {
+      ...hrGePolicy,
+      reviewDate: '2026-09-20T00:00:00Z',
+      notes: 'a newer, more restrictive revision already active in the database',
+    });
+
+    const httpFetcher = new FakeHttpFetcher(new Map());
+    const spy = vi.spyOn(httpFetcher, 'fetch');
+
+    await expect(
+      runHrGeCrawl({ db, httpFetcher, now: () => '2026-09-21T00:00:00Z' }, BASE_OPTIONS),
+    ).rejects.toThrow(/refused as stale/);
+
+    expect(spy).not.toHaveBeenCalled();
+    const runs = await db.select().from(crawlRuns).where(eq(crawlRuns.sourceId, hrGeSource.id));
+    expect(runs).toHaveLength(0);
   });
 });

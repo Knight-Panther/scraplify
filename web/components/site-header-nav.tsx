@@ -1,8 +1,9 @@
 'use client';
 
 import { usePathname } from 'next/navigation.js';
-import { toggleLocale } from '../app/actions.js';
+import { signOutAction, toggleLocale } from '../app/actions.js';
 import type { Locale } from '../lib/locale.js';
+import type { Surface } from '../lib/surface.js';
 
 /**
  * The site's nav links, one list shared by the desktop bar and the mobile
@@ -46,30 +47,64 @@ const NAV_KA = [
 ] as const;
 
 /**
+ * The `admin` surface's own nav (Stage 8) — none of `NAV_EN`/`NAV_KA`'s links
+ * exist there (`proxy.ts` 404s everything outside `/admin*`/`/api/auth*` on
+ * this surface), and `admin` is an ops dashboard for the one operator, not a
+ * bilingual product surface, so it gets one fixed English list rather than a
+ * locale variant. English only, deliberately: nothing about this list
+ * interacts with the `lib/locale.ts` cookie the way `NAV_EN`/`NAV_KA` do.
+ */
+const NAV_ADMIN = [
+  { href: '/admin', label: 'Dashboard' },
+  { href: '/admin/sources', label: 'Sources' },
+  { href: '/admin/duplicates', label: 'Duplicates' },
+  { href: '/admin/taxonomy', label: 'Taxonomy' },
+] as const;
+
+/**
  * Client only for the two things that genuinely need the browser: which
  * link is "active" (needs the current pathname) and the mobile menu's
- * open/closed state. `dbLabel`/`writesOn` are passed in from the server
- * parent (`site-header.tsx`) rather than computed here — this component
- * used to call `databaseLabel()`/`writesEnabled()` directly when it was
- * still the whole `SiteNav`, and because those read server-only env vars,
- * running them again on the client (undefined there) produced a real
+ * open/closed state. `dbLabel`/`writesOn`/`surface` are passed in from the
+ * server parent (`site-header.tsx`) rather than computed here — this
+ * component used to call `databaseLabel()`/`writesEnabled()` directly when
+ * it was still the whole `SiteNav`, and because those read server-only env
+ * vars, running them again on the client (undefined there) produced a real
  * hydration mismatch: the server said "scraplify", the client said "no
- * database". Passing the already-resolved strings down avoids that class of
+ * database". Passing the already-resolved values down avoids that class of
  * bug entirely rather than working around its symptom.
  */
 export function SiteHeaderNav({
   dbLabel,
   writesOn,
   locale,
+  surface,
 }: {
   dbLabel: string;
   writesOn: boolean;
   locale: Locale;
+  surface: Surface;
 }) {
   const pathname = usePathname();
+  // Exact match for both root links ('/' and admin's own '/admin'
+  // dashboard) — otherwise `startsWith` also matches every child route
+  // (`/admin/sources`, ...), highlighting two nav items at once (Codex,
+  // 2026-09-24).
   const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : (pathname?.startsWith(href) ?? false);
-  const nav = locale === 'ka' ? NAV_KA : NAV_EN;
+    href === '/' || href === '/admin' ? pathname === href : (pathname?.startsWith(href) ?? false);
+  const navFull = locale === 'ka' ? NAV_KA : NAV_EN;
+  // Public hosted nav is `Browse | Listings` only (concept §30.1; `CV Ranked`
+  // stays withheld until Phase 8D actually builds it) — the other links
+  // (`/profile`, `/ranked`, `/drafts`, `/review`, `/taxonomy-review`,
+  // `/health`) all 404 once Stage 6 allow-lists routes by surface, and
+  // linking to them here would send a public visitor at a dead end. Sliced
+  // from the same array rather than a second literal list, so the two
+  // surfaces can never drift on the label/href for a link they share.
+  //
+  // `admin` gets its own fixed list (Stage 8) rather than a slice of
+  // `navFull`: none of `navFull`'s links exist on that surface at all, unlike
+  // public's subset which genuinely is a subset of local's.
+  const nav =
+    surface === 'admin' ? NAV_ADMIN : surface === 'public' ? navFull.slice(0, 2) : navFull;
   // Per-locale, not one shared value: Georgian's longer nav words need
   // more room than English's (see the desktop-nav comment below), and a
   // single breakpoint sized for Georgian would needlessly drop English
@@ -92,7 +127,11 @@ export function SiteHeaderNav({
           Explicit width/height (the real 2172×724 asset, scaled by the
           `h-*`/`w-auto` classes) avoid layout shift the way `next/image`
           would have handled automatically. */}
-      <a href="/" className="flex items-center pl-4 lg:pl-8">
+      {/* `/` is refused outright on the `admin` surface (`proxy.ts`'s admin
+          branch only ever passes `/admin*`/`/api/auth*`) — the wordmark must
+          target `/admin` there instead of the shared default (Codex,
+          2026-09-24). */}
+      <a href={surface === 'admin' ? '/admin' : '/'} className="flex items-center pl-4 lg:pl-8">
         {/* biome-ignore lint/performance/noImgElement: next/image doesn't
             type-check under this repo's nodenext resolution (see comment
             above); a fixed-size static logo has no LCP/bandwidth case for
@@ -167,42 +206,56 @@ export function SiteHeaderNav({
             </li>
           ))}
         </ul>
-        {/* Switches the landing page's (`/`) language — see `lib/locale.ts`.
-            Every other screen ignores this cookie and stays English, so the
-            action always redirects to `/` rather than the current path;
-            clicking it elsewhere would otherwise flip the cookie with no
-            visible effect. A real `<form>` submit, not a client `onClick`,
-            so it works with scripting off like the rest of this app's
-            controls (`saved/actions.ts`'s own note). Label shows the
-            language a click switches INTO, not the current one — "EN"/"KA"
-            are language codes, never translated. */}
-        <form action={toggleLocale}>
-          <button
-            type="submit"
-            className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]"
-            style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%)' }}
-            aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
-          >
-            {locale === 'ka' ? 'EN' : 'KA'}
-          </button>
-        </form>
+        {/* `admin` has no `lib/locale.ts`-reading screen at all (`/`, the
+            only page that cookie affects, is unreachable on this surface —
+            `proxy.ts` refuses it), so the locale toggle would flip a cookie
+            with no visible effect anywhere admin can reach. A sign-out
+            control fills the same slot instead — the one admin-specific
+            action this bar needs that public/local's shared nav has no
+            equivalent for. */}
+        {surface === 'admin' ? (
+          <SignOutButton className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]" />
+        ) : (
+          // Switches the landing page's (`/`) language — see `lib/locale.ts`.
+          // Every other screen ignores this cookie and stays English, so the
+          // action always redirects to `/` rather than the current path;
+          // clicking it elsewhere would otherwise flip the cookie with no
+          // visible effect. A real `<form>` submit, not a client `onClick`,
+          // so it works with scripting off like the rest of this app's
+          // controls (`saved/actions.ts`'s own note). Label shows the
+          // language a click switches INTO, not the current one — "EN"/"KA"
+          // are language codes, never translated.
+          <form action={toggleLocale}>
+            <button
+              type="submit"
+              className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]"
+              style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%)' }}
+              aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
+            >
+              {locale === 'ka' ? 'EN' : 'KA'}
+            </button>
+          </form>
+        )}
       </nav>
 
-      {/* Mobile: language toggle + popover trigger, both visible in the bar
-          itself rather than the toggle only living inside the popover —
-          a control a visitor needs in order to even read the rest of the
-          page (the nav labels are already in whichever language it picks)
-          shouldn't require opening the menu first to reach. */}
+      {/* Mobile: language toggle (or sign-out, on `admin`) + popover trigger,
+          both visible in the bar itself rather than living only inside the
+          popover — a control a visitor needs in order to even read the rest
+          of the page shouldn't require opening the menu first to reach. */}
       <div className={`ml-auto flex items-center ${deskHidden}`}>
-        <form action={toggleLocale}>
-          <button
-            type="submit"
-            className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]"
-            aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
-          >
-            {locale === 'ka' ? 'EN' : 'KA'}
-          </button>
-        </form>
+        {surface === 'admin' ? (
+          <SignOutButton className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]" />
+        ) : (
+          <form action={toggleLocale}>
+            <button
+              type="submit"
+              className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]"
+              aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
+            >
+              {locale === 'ka' ? 'EN' : 'KA'}
+            </button>
+          </form>
+        )}
         <button
           type="button"
           popoverTarget="site-nav-mobile"
@@ -247,29 +300,47 @@ export function SiteHeaderNav({
       {/* Matches the desktop nav's own threshold above — this badge already
           lived only alongside the full desktop nav, so the two breakpoints
           staying equal keeps that relationship. It is a "nice to have"
-          dev/env indicator, not something a real page depends on seeing, so
-          it simply doesn't render at all below the shared threshold rather
-          than needing its own separate fit budget. */}
-      <span
-        className={`my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 ${deskFlex}`}
-      >
-        <span>{dbLabel}</span>
+          operator dev/env indicator (which database, whether writes are on),
+          not something a real page depends on seeing, so it simply doesn't
+          render at all below the shared threshold rather than needing its
+          own separate fit budget — and not on any surface but `local` at
+          all: a hosted public visitor has no business knowing which
+          database or write-mode this instance runs, and `admin` gets its
+          own dashboard chrome once Stage 8 builds it, not this operator
+          debug strip. */}
+      {surface === 'local' && (
         <span
-          title={
-            writesOn
-              ? 'This instance can modify the database. It should be pointed at a disposable copy, not the live corpus.'
-              : 'Read-only. Set XTELO_WRITES_ENABLED=true against a disposable database to make changes.'
-          }
-          className={
-            writesOn
-              ? 'rounded-full border border-[var(--color-browse-ink)]/40 px-2 py-0.5 text-[var(--color-browse-ink)]'
-              : 'rounded-full border border-[var(--color-browse-ink)]/20 px-2 py-0.5 text-[var(--color-browse-ink)]/70'
-          }
+          className={`my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 ${deskFlex}`}
         >
-          {writesOn ? 'writes on' : 'read-only'}
+          <span>{dbLabel}</span>
+          <span
+            title={
+              writesOn
+                ? 'This instance can modify the database. It should be pointed at a disposable copy, not the live corpus.'
+                : 'Read-only. Set XTELO_WRITES_ENABLED=true against a disposable database to make changes.'
+            }
+            className={
+              writesOn
+                ? 'rounded-full border border-[var(--color-browse-ink)]/40 px-2 py-0.5 text-[var(--color-browse-ink)]'
+                : 'rounded-full border border-[var(--color-browse-ink)]/20 px-2 py-0.5 text-[var(--color-browse-ink)]/70'
+            }
+          >
+            {writesOn ? 'writes on' : 'read-only'}
+          </span>
         </span>
-      </span>
+      )}
     </header>
+  );
+}
+
+/** The `admin` surface's sign-out control — a real `<form>` submit, same reasoning as `toggleLocale`'s own form (works with scripting off). */
+function SignOutButton({ className }: { className: string }) {
+  return (
+    <form action={signOutAction}>
+      <button type="submit" className={className}>
+        Sign out
+      </button>
+    </form>
   );
 }
 

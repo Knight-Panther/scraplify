@@ -1208,7 +1208,7 @@ Acceptance criteria:
 
 ## 30. Hosted edition and private browser CV matching (amendment, 2026-09-23)
 
-**Status of this section:** accepted direction, not yet implemented. Phase 8 has not started as of this amendment — see `docs/STATUS.md`'s "Upcoming phases" for the actual precondition and current state. This section is the authoritative summary; `change.md` (repository root) is the full implementation handoff this amendment reconciles from — architecture diagrams, per-phase deliverables, test/gate lists, and primary references live there and are not duplicated here. Read `change.md` before starting Phase 8A. Keep this section and `change.md` in agreement: if a later decision changes one, update the other in the same change.
+**Status of this section:** accepted direction, in progress. Phase 8A (private matching feasibility) merged; Phase 8B (surfaces and admin boundary) is in progress — see `docs/STATUS.md`'s current-phase section for exactly how far. This section is the authoritative summary; `change.md` (repository root) is the full implementation handoff this amendment reconciles from — architecture diagrams, per-phase deliverables, test/gate lists, and primary references live there and are not duplicated here. Read `change.md` before starting any Phase 8 sub-phase. Keep this section and `change.md` in agreement: if a later decision changes one, update the other in the same change.
 
 ### 30.1 Decision summary
 

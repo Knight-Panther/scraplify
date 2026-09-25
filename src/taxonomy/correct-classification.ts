@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq } from 'drizzle-orm';
 import { listingClassifications } from '../db/schema/index.js';
-import type { Database, DatabaseOrTransaction } from '../db/types.js';
+import type { DatabaseOrTransaction } from '../db/types.js';
 
 /**
  * The id of the row that represents a (revision, term) pair's CURRENT
@@ -79,7 +79,17 @@ export interface CorrectClassificationResult {
  * what makes `undoClassificationCorrection` possible.
  */
 export async function correctClassification(
-  db: Database,
+  // `DatabaseOrTransaction`, not `Database` — widened for Phase 8B Stage 11
+  // (the admin audit trail), which calls this from INSIDE its own outer
+  // transaction so a mutation and its audit row commit atomically together
+  // (a nested `db.transaction()` here becomes a SAVEPOINT within that outer
+  // one — verified directly, not assumed, that rolling back the outer
+  // transaction also rolls back this function's own nested one). Purely a
+  // type widening: this function's body never touches anything
+  // `Database`-specific (`$client`), so its own behavior is unchanged, and
+  // every existing caller passing the top-level `db` still satisfies the
+  // wider type trivially.
+  db: DatabaseOrTransaction,
   input: CorrectClassificationInput,
 ): Promise<CorrectClassificationResult> {
   return db.transaction(async (tx) => {
@@ -136,7 +146,8 @@ export async function correctClassification(
  * correction with no undo path at all is a real gap).
  */
 export async function undoClassificationCorrection(
-  db: Database,
+  // `DatabaseOrTransaction` — same reasoning as `correctClassification`'s own comment above.
+  db: DatabaseOrTransaction,
   input: { classificationId: string; at: string },
 ): Promise<void> {
   await db.transaction(async (tx) => {
