@@ -307,6 +307,22 @@ BEGIN
     WHERE r.rolname = '<CURRENT_OWNER_ROLE>'
       AND n.nspname IN ('public', 'drizzle')
       AND c.relkind IN ('r', 'v', 'm', 'S')
+      -- A sequence owned by a table column (serial/identity, e.g.
+      -- drizzle.__drizzle_migrations_id_seq) cannot be re-owned directly —
+      -- "cannot change owner of sequence ... linked to table" — it moves
+      -- with its table instead. Found running this script against the real
+      -- `scraplify` DB (2026-09-25): whether it failed depended only on the
+      -- order pg_class returned rows in, so the QA rehearsal passed first.
+      AND NOT (
+        c.relkind = 'S'
+        AND EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend d
+          WHERE d.classid = 'pg_catalog.pg_class'::regclass
+            AND d.objid = c.oid
+            AND d.refclassid = 'pg_catalog.pg_class'::regclass
+            AND d.deptype IN ('a', 'i')
+        )
+      )
   LOOP
     EXECUTE format(
       'ALTER %s %I.%I OWNER TO scraplify_migration',
