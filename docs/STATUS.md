@@ -6,7 +6,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 
 ## Current phase: Phase 8E — hosted readiness
 
-**In progress.** **Branch:** `phase-8e-hosted-readiness`. **Scope** (change.md §10, §11, §13, §15): production runbook and restore rehearsal, least-privilege secrets, schedules and heartbeats, two hosted profiles and domains, TLS/CSP/rate limits/probes, an alert channel, load/accessibility/security evidence, rights and licences, and rollback drills.
+**In progress: every item that needs no host is done (stages 1–6); stage 7 is owner and host work.** **Branch:** `phase-8e-hosted-readiness`. **Scope** (change.md §10, §11, §13, §15): production runbook and restore rehearsal, least-privilege secrets, schedules and heartbeats, two hosted profiles and domains, TLS/CSP/rate limits/probes, an alert channel, load/accessibility/security evidence, rights and licences, and rollback drills.
 
 **Exit:** every release item has current evidence. A local demo is not hosted readiness. The owner has asked for everything that does not need a host to be finished first; the stages below are ordered that way, and the ones that need a host or an owner decision are marked.
 
@@ -16,18 +16,42 @@ This file is the **current-state index**: what is done, what is open, and what g
    - Every rendered script carries the nonce.
    - `e2e/csp.spec.ts`: six local pages hydrate with no violation.
    - The privacy suite runs the CV worker, PDF.js and mammoth under the production policy with no violation, and asserts the headers. Setting `connect-src 'none'` made it fail, so the policy is enforced inside the worker too.
-2. **Probes.** `GET /api/healthz` is liveness with no DB access. `GET /api/readyz` returns 503 only when the DB is unreachable. It reports the matching bundle's state (`ok`/`stale`/`unavailable`/`not_served`) without failing on it, since change.md §15 keeps the catalogue up through a builder outage. Both are served on every surface and return states only. **Done.** Unit tests cover the logic; the surfaces e2e went from 84 to 90 checks, all passing, on three real servers. Still to do: a synthetic probe command (`npm run probe -- <origin>`) for landing, Browse, detail, manifest and bundle download.
-3. **Rate limits.** An app-level per-client limiter on the public surface, with stricter limits on bundle downloads, plus the reverse-proxy limits. **Not started.**
-4. **Deployment profiles.** A reverse-proxy config for two hostnames mapped to two loopback processes (HSTS, TLS), an env template per surface, and a fail-closed startup check for each surface's required configuration. **Not started.**
-5. **Runbook and drills.** A deploy, rollback and incident runbook; a local restore rehearsal (`scripts/restore-db-drill.ps1`) and a bundle-rollback drill, with evidence. **Not started.**
-6. **Evidence.** Automated accessibility checks, a load test against a `public` production build, a dependency licence inventory, and `npm audit`. **Not started.**
-7. **Needs a host or an owner decision:**
+2. **Probes.** `GET /api/healthz` is liveness with no DB access. `GET /api/readyz` returns 503 only when the DB is unreachable. It reports the matching bundle's state (`ok`/`stale`/`unavailable`/`not_served`) without failing on it, since change.md §15 keeps the catalogue up through a builder outage. Both are served on every surface, return states only, and are never rate-limited. `npm run probe -- <origin>` walks a visitor's path: readiness, landing with nonce CSP, Browse, a detail page, the manifest, and the bundle download with checksum check. **Done.** Unit tests cover the logic, the surfaces e2e checks all three servers, and the probe prints `probe: ok` against a `public` production server.
+3. **Rate limits.** Per-client token buckets in `web/proxy.ts` (`web/lib/rate-limit.ts`) on `public` and `admin`:
+   - pages 240 burst at 4/s;
+   - manifest 60 at 1/s;
+   - bundle 20 at 1 per 30 s;
+   - admin sign-in 20 at 1 per 6 s.
+
+   They key on the last `X-Forwarded-For` entry only, and memory is bounded. Caddy adds request-body caps. **Done.** The surfaces e2e shows a real 429 with `Retry-After`, per-client isolation, and no limit on probes or on `local`.
+4. **Deployment profiles and fail-closed startup.**
+   - `deploy/Caddyfile`: two hosts to two loopback ports, HSTS, body caps. Validated with the official `caddy:2` image.
+   - `deploy/systemd/`: web units per surface, hardened; pipeline and backup units with timers.
+   - `deploy/run-pipeline.sh`: the same steps and exit rules as `run-crawl.ps1`, tested with stub steps. `deploy/backup-db.sh` is its backup counterpart. Both are shellcheck-clean.
+   - `deploy/env/*.template`: one per process.
+
+   `public` now refuses to start without its bundle directory, with any admin credential present, or on a DB role that can write:
+   - a real-DB test shows the owner is refused and `scraplify_public` can write nothing;
+   - a real `next start` on the owner credential refused, naming 33 relations.
+
+   `XTELO_CV_RANKED=off` is the rollback switch from change.md §15 step 1; a typo refuses startup. It was checked on a real `public` build and in the browser at 390 and 1280. **Done.**
+5. **Runbook and drills.** `docs/RUNBOOK.md`: shape, first deploy in change.md §15's order, upgrades, health signals, rollback, backup and restore, incidents, secret rotation. The restore drill passed on 2026-09-26 on a fresh backup of the real corpus: every table's count matched. **Done** locally. The bundle rollback is covered by the Phase 8C real-DB tests (two rollbacks, a tampered target refused); the one live bundle has no predecessor to repoint to. Hosted drills are owed.
+6. **Evidence.**
+   - **Accessibility.** axe WCAG 2.1 A/AA on the `public` server (`e2e/surfaces/a11y.spec.ts`, pinned `@axe-core/playwright@4.13.0`) found 0 violations on landing, Browse, Listings, CV Ranked and a detail page.
+   - **Load** (`npm run load-test`). One `public` process serves Browse in about 110 ms p50 to a single client. At 20 concurrent loops it serves about 22 req/s, all 200, with Browse p50 about 1.2 s from queueing.
+   - **Dependencies.** `npm audit` finds 0 vulnerabilities; 131 production packages, all permissive (`docs/RIGHTS.md`).
+   - `docs/THREAT_MODEL.md` §7.2 records every control with its evidence and residuals.
+
+   **Done.** P3, operator-only: `local`'s hover-revealed Save/Dismiss controls sit at 35% opacity until hover or focus, which axe flags as contrast. They do not exist on `public`.
+7. **Needs a host or an owner decision** (nothing else is left):
+   - **source republication permission:** `terms_url` is empty for both sources, which blocks public launch (`docs/RIGHTS.md`);
+   - the hero video's and logo's provenance;
    - the hosting provider and domains;
    - a production GitHub OAuth app;
-   - per-process role passwords on the host;
-   - the alert channel (change.md §10: only once health signals are stable);
-   - written permission or terms for republishing each source;
-   - hosted probe and restore evidence.
+   - role passwords on the host;
+   - off-host backup storage;
+   - the alert channel;
+   - hosted probe, restore and rollback evidence.
 
 ## Open operational issues (not phase work, but blocking real freshness)
 
@@ -59,7 +83,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | **in progress** | — | Production OAuth app, per-process role credentials, TLS/CSP/rate limits, probes, restore drill, rights/licences. |
+| 8E — hosted readiness | **in progress**; host-independent work done | — | Remaining: host, domains, OAuth app, role passwords, alert channel, source permissions (`docs/RIGHTS.md`), hosted drills. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 
