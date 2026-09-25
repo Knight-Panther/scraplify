@@ -23,8 +23,12 @@ on top, then record the result next to the original OWED note.
    reported reset time.
 
 2. **Build the owed list. Read it, don't guess.**
-   - Find every `OWED` mention in `docs/STATUS.md` (`rg -n "OWED" docs/STATUS.md`),
-     plus any unchecked exit-gate line that says "recorded OWED".
+   - Find every `OWED` mention in `docs/STATUS.md` and in its archive
+     `docs/status-history.md`, which holds every record through 2026-09-25
+     (`rg -n "OWED" docs/STATUS.md docs/status-history.md`), plus any
+     unchecked exit-gate line that says "recorded OWED". The archive is
+     frozen: record a discharge in `docs/STATUS.md`, naming the archived
+     note it settles, never by editing the archive.
    - Drop each one that a later paragraph already records as **discharged**
      or **WAIVED**. Read the text around each mention, since this file often
      resolves an OWED note a few paragraphs later.
@@ -56,7 +60,7 @@ on top, then record the result next to the original OWED note.
    - Each fix commit goes through the normal gate. Don't use `--no-verify`
      now that Codex is back.
 
-5. **Record the discharge in `docs/STATUS.md`**, next to (not replacing) each
+5. **Record the discharge in `docs/STATUS.md`** (for an archived note, as a new line naming it; next to it for a live one), not replacing each
    original OWED note: date, the exact `codex review --commit <sha>` command,
    the findings, and for each one whether it was fixed here (with SHA), already
    fixed earlier (with SHA), or not applicable (with the reason). Update the
