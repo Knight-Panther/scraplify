@@ -60,8 +60,7 @@ This file is the **current-state index**: what is done, what is open, and what g
    - `docs/THREAT_MODEL.md` §7.2 records every control with its evidence and residuals.
 
    **Done.** P3, operator-only: `local`'s hover-revealed Save/Dismiss controls sit at 35% opacity until hover or focus, which axe flags as contrast. They do not exist on `public`.
-7. **Needs a host or an owner decision** (nothing else is left):
-   - **hr.ge republication permission**, which blocks public launch (`docs/RIGHTS.md`). jobs.ge permission is granted (owner, 2026-09-26), and the hero video and logo come from free sources;
+7. **Needs a host or an owner decision** (nothing else is left). Source rights are settled: the owner has permission from jobs.ge and hr.ge (2026-09-26, `docs/RIGHTS.md`).
    - the hosting provider and domains;
    - a production GitHub OAuth app;
    - role passwords on the host;
@@ -109,7 +108,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, alert channel, hr.ge permission (`docs/RIGHTS.md`), hosted drills. Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
+| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, alert channel, hosted drills. Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
 | 7C — incremental crawling and retention | merged; retention deferred | #25 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.

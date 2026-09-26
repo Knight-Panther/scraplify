@@ -4,7 +4,7 @@ Phase 8E release item (change.md §11: "Public deployment is gated on documented
 
 ## Verdict
 
-**Public deployment is blocked only on hr.ge's republication permission.** The code side is clean: every shipped dependency is under a permissive licence, and the one shipped model is MIT-derived (see Models). The owner has permission from jobs.ge (recorded 2026-09-26), and the site assets come from free sources.
+**Nothing rights-related blocks public deployment.** The owner has permission from both jobs.ge and hr.ge (both recorded 2026-09-26). The code side is clean: every shipped dependency is under a permissive licence, and the one shipped model is MIT-derived (see Models). The site assets come from free sources.
 
 ## Sources
 
@@ -13,11 +13,11 @@ Crawling behaviour follows each source's `robots.txt` and a versioned policy rec
 | Source | robots.txt | Terms reviewed | Written permission or official feed | What the public site shows |
 | --- | --- | --- | --- | --- |
 | jobs.ge | allows listing pages; `Crawl-delay: 5` honoured | settled by permission | **granted:** the owner has full permission from jobs.ge (recorded 2026-09-26). Settled; not to be re-questioned. | title, employer, dates, a link back to jobs.ge. Descriptions are shown only where the source policy allows (redacted in SQL, Phase 8B). |
-| hr.ge | allows public paths | **owner to record** | **none yet** | the same, plus hr.ge's own category labels |
+| hr.ge | allows public paths | settled by permission | **granted:** the owner has full permission from hr.ge (recorded 2026-09-26). Settled; not to be re-questioned. | the same, plus hr.ge's own category labels |
 
 Checked 2026-09-26: `terms_url` is empty in both live policy rows (acquisition reviews dated 2026-09-03 and 2026-09-05, owner "project owner"). Those reviews covered acquisition, not republication.
 
-**Owner action (hr.ge only):** record the terms URL, the date it was read, and the decision in its `source_policies` row (`terms_url`, review date, notes, decision owner). Where practical, ask for written permission or an official feed first (concept §5.3). Until then, the public surface should not be announced.
+No owner action remains for either source.
 
 ## Site assets
 
