@@ -4,7 +4,7 @@ Phase 8E release item (change.md §11: "Public deployment is gated on documented
 
 ## Verdict
 
-**Public deployment is blocked on the owner items below.** The code side is clean: every shipped dependency is under a permissive licence, and no model is shipped. The blockers are permission to republish each source, and the provenance of two site assets.
+**Public deployment is blocked only on hr.ge's republication permission.** The code side is clean: every shipped dependency is under a permissive licence, and no model is shipped. The owner has permission from jobs.ge (recorded 2026-09-26), and the site assets come from free sources.
 
 ## Sources
 
@@ -12,20 +12,20 @@ Crawling behaviour follows each source's `robots.txt` and a versioned policy rec
 
 | Source | robots.txt | Terms reviewed | Written permission or official feed | What the public site shows |
 | --- | --- | --- | --- | --- |
-| jobs.ge | allows listing pages; `Crawl-delay: 5` honoured | **owner to record** | **none yet** | title, employer, dates, a link back to jobs.ge. Descriptions are shown only where the source policy allows (redacted in SQL, Phase 8B). |
+| jobs.ge | allows listing pages; `Crawl-delay: 5` honoured | settled by permission | **granted:** the owner has full permission from jobs.ge (recorded 2026-09-26). Settled; not to be re-questioned. | title, employer, dates, a link back to jobs.ge. Descriptions are shown only where the source policy allows (redacted in SQL, Phase 8B). |
 | hr.ge | allows public paths | **owner to record** | **none yet** | the same, plus hr.ge's own category labels |
 
 Checked 2026-09-26: `terms_url` is empty in both live policy rows (acquisition reviews dated 2026-09-03 and 2026-09-05, owner "project owner"). Those reviews covered acquisition, not republication.
 
-**Owner action:** for each source, record the terms URL, the date it was read, and the decision in its `source_policies` row (`terms_url`, review date, notes, decision owner). Where practical, ask for written permission or an official feed first (concept §5.3). Until then, the public surface should not be announced.
+**Owner action (hr.ge only):** record the terms URL, the date it was read, and the decision in its `source_policies` row (`terms_url`, review date, notes, decision owner). Where practical, ask for written permission or an official feed first (concept §5.3). Until then, the public surface should not be announced.
 
 ## Site assets
 
 | Asset | Licence | Status |
 | --- | --- | --- |
 | Noto Sans Georgian, Space Mono, Bebas Neue | SIL Open Font License 1.1 | Fine. `next/font` downloads them at build time and serves them from our own origin. |
-| `web/public/hero-bg.mp4` (landing background video) | **unknown** | **Owner action:** record where it came from and under what licence, or replace it. |
-| `web/public/logo.png`, `web/app/icon.svg` | **unknown** (presumed the owner's own) | **Owner action:** confirm. |
+| `web/public/hero-bg.mp4` (landing background video) | free source (owner, 2026-09-26) | Fine. 5.8 MB: re-encode if it slows the landing page. |
+| `web/public/logo.png`, `web/app/icon.svg` | free source (owner, 2026-09-26) | Fine. |
 
 ## Models
 

@@ -44,8 +44,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 
    **Done.** P3, operator-only: `local`'s hover-revealed Save/Dismiss controls sit at 35% opacity until hover or focus, which axe flags as contrast. They do not exist on `public`.
 7. **Needs a host or an owner decision** (nothing else is left):
-   - **source republication permission:** `terms_url` is empty for both sources, which blocks public launch (`docs/RIGHTS.md`);
-   - the hero video's and logo's provenance;
+   - **hr.ge republication permission**, which blocks public launch (`docs/RIGHTS.md`). jobs.ge permission is granted (owner, 2026-09-26), and the hero video and logo come from free sources;
    - the hosting provider and domains;
    - a production GitHub OAuth app;
    - role passwords on the host;
@@ -83,7 +82,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | **in progress**; host-independent work done | — | Remaining: host, domains, OAuth app, role passwords, alert channel, source permissions (`docs/RIGHTS.md`), hosted drills. |
+| 8E — hosted readiness | **in progress**; host-independent work done | — | Remaining: host, domains, OAuth app, role passwords, alert channel, hr.ge permission (`docs/RIGHTS.md`), hosted drills. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 
