@@ -38,6 +38,16 @@ import {
 } from '../../net/http-fetcher.js';
 import { jobsGePolicy, jobsGeSource } from '../../policies/jobs-ge.js';
 import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
+import {
+  DEFAULT_CANARY_SAMPLE_SIZE,
+  loadKnownListings,
+  needsDetailFetch,
+  pickCanaries,
+  type RefetchMode,
+  type RefetchStats,
+  rateGuardOk,
+  setDiscoveryFingerprint,
+} from '../refetch.js';
 import { recordRunAnomalies } from '../run-anomalies.js';
 import { JOBS_GE_DETAIL_PARSER_VERSION, parseJobsGeDetailPage } from './detail.js';
 import { type DiscoveredListing, parseAdsPage } from './discovery.js';
@@ -142,6 +152,8 @@ export interface RunJobsGeCrawlDeps {
   httpFetcher: HttpFetcher;
   /** Injectable clock, defaults to the real wall clock. Tests supply a fixed/advancing one for determinism. */
   now?: () => string;
+  /** Canary sampling (Phase 7C); defaults to Math.random. */
+  random?: () => number;
 }
 
 export interface RunJobsGeCrawlOptions {
@@ -182,10 +194,19 @@ export interface RunJobsGeCrawlOptions {
    * `mass_closure_suspected` incident; the CLI's `--allow-mass-closure`.
    */
   allowMassClosure?: boolean;
+  /**
+   * Phase 7C. `changed` (the default) fetches a detail page only for a new
+   * listing, a changed list-page fingerprint, or a canary; `all` fetches
+   * every listed vacancy, for use after a parser change.
+   */
+  refetch?: RefetchMode;
+  /** Canaries per `changed` run; see DEFAULT_CANARY_SAMPLE_SIZE. */
+  canarySampleSize?: number;
 }
 
 export interface RunJobsGeCrawlResult {
   crawlRun: CrawlRunRow;
+  refetch: RefetchStats;
 }
 
 /**
@@ -599,6 +620,14 @@ export async function runJobsGeCrawl(
     fullCoverage: !incremental,
   });
 
+  const refetch: RefetchStats = {
+    mode: options.refetch ?? 'changed',
+    fetched: 0,
+    skipped: 0,
+    adopted: 0,
+    canaries: 0,
+    canaryChanged: 0,
+  };
   const counts: CrawlRunCounts = {
     discoveredCount: 0,
     vipCount: 0,
@@ -606,6 +635,7 @@ export async function runJobsGeCrawl(
     newCount: 0,
     changedCount: 0,
     unchangedCount: 0,
+    skippedCount: 0,
     missingCount: 0,
     expiredCount: 0,
     reopenedCount: 0,
@@ -649,6 +679,31 @@ export async function runJobsGeCrawl(
     );
     const offset = Math.max(0, cursorIndex);
     const rotatedListings = [...orderedListings.slice(offset), ...orderedListings.slice(0, offset)];
+
+    // Phase 7C: decide every listing's detail fetch up front, from one
+    // lookup of what is stored, then turn a random sample of the skipped
+    // ones back into fetches (the canaries).
+    const decisions = new Map<string, 'fetch' | 'adopt' | 'skip'>();
+    if (refetch.mode === 'changed') {
+      const known = await loadKnownListings(
+        db,
+        jobsGeSource.id,
+        orderedListings.map((listing) => listing.sourceRecordId),
+      );
+      for (const listing of orderedListings) {
+        decisions.set(
+          listing.sourceRecordId,
+          needsDetailFetch(known.get(listing.sourceRecordId), listing.fingerprint, startedAt),
+        );
+      }
+    }
+    const canaries = pickCanaries(
+      [...decisions].filter(([, decision]) => decision === 'skip').map(([id]) => id),
+      options.canarySampleSize ?? DEFAULT_CANARY_SAMPLE_SIZE,
+      deps.random,
+    );
+    for (const id of canaries) decisions.set(id, 'fetch');
+    refetch.canaries = canaries.size;
     let resumeAt: string | null = null;
     let hasResumeDecision = false;
     for (const [index, listing] of rotatedListings.entries()) {
@@ -658,6 +713,24 @@ export async function runJobsGeCrawl(
         sourceRecordId: listing.sourceRecordId,
         canonicalSourceUrl: listing.url,
       };
+      const decision = decisions.get(listing.sourceRecordId) ?? 'fetch';
+      if (decision !== 'fetch') {
+        // Still on the list: seen, so closure never counts it missing.
+        await touchSourceListingSeen(db, identity, now());
+        if (decision === 'adopt' && listing.fingerprint !== null) {
+          await setDiscoveryFingerprint(
+            db,
+            jobsGeSource.id,
+            listing.sourceRecordId,
+            listing.fingerprint,
+          );
+          refetch.adopted++;
+        }
+        counts.skippedCount++;
+        refetch.skipped++;
+        continue;
+      }
+      refetch.fetched++;
       const attemptedAt = now();
       const { outcome, resource, fetchResult } = await fetchAndRecord(
         db,
@@ -752,17 +825,34 @@ export async function runJobsGeCrawl(
       // 'stale' isn't bucketed here — see write-source-listing-revision.ts;
       // it shouldn't occur within one sequential, single-writer run.
       if (writeResult.reopened) counts.reopenedCount++;
+      if (writeResult.outcome !== 'stale' && listing.fingerprint !== null) {
+        await setDiscoveryFingerprint(
+          db,
+          jobsGeSource.id,
+          listing.sourceRecordId,
+          listing.fingerprint,
+        );
+      }
+      if (canaries.has(listing.sourceRecordId) && writeResult.outcome === 'changed') {
+        refetch.canaryChanged++;
+      }
     }
 
     // Computed only after every listing has been processed — quarantineRate
     // needs the final quarantinedCount, so this can't be decided right
     // after discovery the way discoveredCount/complete alone could be
     // (adversarial review, 2026-09-05, round 3).
-    const quarantineRate = listings.size > 0 ? counts.quarantinedCount / listings.size : 0;
+    // Over detail pages FETCHED, not listings discovered (Phase 7C): with
+    // most listings skipped, a parser break on every fetched page would
+    // otherwise read as a few percent. The canaries keep a real run's
+    // sample above 20 fetches (see `rateGuardOk`).
+    const quarantineRate = refetch.fetched > 0 ? counts.quarantinedCount / refetch.fetched : 0;
     // Same denominator, same zero-guard, computed alongside quarantineRate
     // for the same reason: needs the final failedCount, so can't be decided
     // right after discovery (adversarial review, 2026-09-05, round 9).
-    const fetchFailureRate = listings.size > 0 ? counts.failedCount / listings.size : 0;
+    const fetchFailureRate = refetch.fetched > 0 ? counts.failedCount / refetch.fetched : 0;
+    const quarantineOk = rateGuardOk(counts.quarantinedCount, refetch.fetched, maxQuarantineRate);
+    const fetchFailureOk = rateGuardOk(counts.failedCount, refetch.fetched, maxFetchFailureRate);
 
     // A systemic pagination/caching regression that serves identical
     // content at every page number queried (including the distant
@@ -830,8 +920,8 @@ export async function runJobsGeCrawl(
       (incremental
         ? listings.size >= MIN_EXPECTED_INCREMENTAL_LISTINGS
         : listings.size >= minExpectedDiscoveredListings) &&
-      quarantineRate <= maxQuarantineRate &&
-      fetchFailureRate <= maxFetchFailureRate &&
+      quarantineOk &&
+      fetchFailureOk &&
       (incremental || baselineOk) &&
       (incremental || vipOk) &&
       (incremental || standardOk) &&
@@ -853,12 +943,8 @@ export async function runJobsGeCrawl(
           { name: 'baseline', ok: baselineOk, countGuard: true },
           { name: 'vipPartition', ok: vipOk, countGuard: true },
           { name: 'standardPartition', ok: standardOk, countGuard: true },
-          { name: 'quarantineRate', ok: quarantineRate <= maxQuarantineRate, countGuard: false },
-          {
-            name: 'fetchFailureRate',
-            ok: fetchFailureRate <= maxFetchFailureRate,
-            countGuard: false,
-          },
+          { name: 'quarantineRate', ok: quarantineOk, countGuard: false },
+          { name: 'fetchFailureRate', ok: fetchFailureOk, countGuard: false },
         ],
         discoveredCount: listings.size,
         baselineDiscoveredCount: lastCompletedRun?.discoveredCount ?? null,
@@ -939,7 +1025,7 @@ export async function runJobsGeCrawl(
         reconciledAt: finishedAt,
       });
     });
-    return { crawlRun: finalRun };
+    return { crawlRun: finalRun, refetch };
   } catch (err) {
     // A 'failed' run never reaches reconciliation and never will — nothing
     // to hold the lock for, so it's released immediately rather than left

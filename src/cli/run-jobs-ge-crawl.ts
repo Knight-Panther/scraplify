@@ -1,12 +1,13 @@
 import { sql } from 'drizzle-orm';
 import { runJobsGeCrawl } from '../adapters/jobs-ge/crawl.js';
-import { db } from '../db/client.js';
+import { db, pool } from '../db/client.js';
+import { acquireCrawlProcessLock } from '../db/crawl-process-lock.js';
 import { CrawlAlreadyRunningError } from '../db/ingest.js';
 import { logger } from '../logger.js';
 import { createHttpFetcher } from '../net/http-fetcher.js';
 import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
-import { isJobsGeUrlAllowed, jobsGePolicy } from '../policies/jobs-ge.js';
+import { isJobsGeUrlAllowed, jobsGePolicy, jobsGeSource } from '../policies/jobs-ge.js';
 import { parseJobsGeOptions } from './jobs-ge-options.js';
 
 /**
@@ -38,6 +39,26 @@ async function main(): Promise<void> {
     throw err;
   }
 
+  // The fourth preflight check (lock). A live crawl process for this source
+  // holds this lock; getting it means none does, so any run still
+  // unsettled was left by a process that died, and is settled as failed
+  // here instead of blocking every later run (src/db/crawl-process-lock.ts).
+  const lock = await acquireCrawlProcessLock(pool, jobsGeSource.id);
+  if (lock === null) {
+    logger.error(
+      { sourceId: jobsGeSource.id },
+      'jobs.ge crawl: another crawl process for this source is running — skipping this invocation',
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (lock.settledOrphanRunIds.length > 0) {
+    logger.warn(
+      { crawlRunIds: lock.settledOrphanRunIds },
+      'jobs.ge crawl: settled runs left unsettled by a crawl process that died, as failed',
+    );
+  }
+
   const httpFetcher = createHttpFetcher({
     isUrlAllowed: isJobsGeUrlAllowed,
     rateLimiter: createRateLimiter(jobsGePolicy.rateLimit),
@@ -46,10 +67,10 @@ async function main(): Promise<void> {
 
   const startedAtMs = Date.now();
   try {
-    // The fourth preflight check (lock): startCrawlRun's partial unique
-    // index rejects a second concurrent run for this source, surfaced here
-    // as CrawlAlreadyRunningError — see the catch block below.
-    const { crawlRun } = await runJobsGeCrawl({ db, httpFetcher }, options);
+    // Behind the process lock, startCrawlRun's partial unique index still
+    // rejects a second unsettled run for this source, surfaced here as
+    // CrawlAlreadyRunningError — see the catch block below.
+    const { crawlRun, refetch } = await runJobsGeCrawl({ db, httpFetcher }, options);
 
     logger.info(
       {
@@ -66,6 +87,10 @@ async function main(): Promise<void> {
         newCount: crawlRun.newCount,
         changedCount: crawlRun.changedCount,
         unchangedCount: crawlRun.unchangedCount,
+        skippedCount: crawlRun.skippedCount,
+        // Phase 7C: detail pages fetched, bootstrap adoptions, canaries and
+        // canaries whose content had changed under an unchanged fingerprint.
+        refetch,
         missingCount: crawlRun.missingCount,
         expiredCount: crawlRun.expiredCount,
         reopenedCount: crawlRun.reopenedCount,
@@ -88,21 +113,12 @@ async function main(): Promise<void> {
       // No new crawl_runs row was created here, so there is nothing THIS
       // invocation could mark failed — but this must still exit non-zero
       // (adversarial review, 2026-09-05, round 8): concept §19.1 requires a
-      // skipped run to never pass silently, and process.exitCode was
-      // previously left at 0 here, which would make Task Scheduler report
-      // indefinite silent "success" both for the routine case (a previous
-      // run for this source is still genuinely in flight) and for the
-      // stale-lock case (an earlier run crashed before ever reaching
-      // reconciledAt — see docs/STATUS.md's round-2 notes — and every
-      // future invocation will keep hitting this same branch until that
-      // row is cleared by hand: `update crawl_runs set status = 'failed',
-      // reconciled_at = now() where source_id = <id> and reconciled_at is
-      // null`). This process cannot tell those two cases apart on its own,
-      // so it surfaces both as a loud, actionable failure rather than
-      // guessing.
+      // skipped run to never pass silently. With the process lock held,
+      // this only happens when a crawl process from before the lock
+      // existed is still running, or a run was started outside this CLI.
       logger.error(
         { sourceId: err.sourceId },
-        "jobs.ge crawl: a run is already in progress for this source, or an earlier run crashed before settling — skipping this invocation. If no crawl is actually running, clear the stale lock: update crawl_runs set status = 'failed', reconciled_at = now() where source_id = '<id>' and reconciled_at is null",
+        'jobs.ge crawl: an unsettled run exists for this source that no lock-holding process owns — skipping this invocation',
       );
       process.exitCode = 1;
       return;
@@ -111,6 +127,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     await httpFetcher.close();
+    await lock.release();
   }
 }
 

@@ -1560,4 +1560,157 @@ describe('runJobsGeCrawl', () => {
     const runs = await db.select().from(crawlRuns).where(eq(crawlRuns.sourceId, jobsGeSource.id));
     expect(runs).toHaveLength(0);
   });
+
+  describe('refetch=changed (Phase 7C)', () => {
+    /** Rows with the list fields the fingerprint reads: title, employer, published, deadline. */
+    function listPages(
+      rows: Array<{ id: string; deadline?: string }>,
+    ): Array<readonly [string, HttpFetchResult]> {
+      const row = ({ id, deadline = '02 ოქტომბერი' }: { id: string; deadline?: string }) =>
+        `<tr><td></td><td><a href="/ge/?view=jobs&id=${id}">Listing ${id}</a></td><td></td>` +
+        `<td>Employer ${id}</td><td>02 სექტემბერი</td><td>${deadline}</td></tr>`;
+      const html = `<html><body><div class="vipEntries"><table></table></div>
+        <table id="job_list_table">${rows.map(row).join('')}</table></body></html>`;
+      return [1, 2, 2 + CLAMP_CONFIRMATION_PROBE_OFFSET].map(
+        (page) => [adsPageUrl(page), htmlResponse(adsPageUrl(page), html)] as const,
+      );
+    }
+
+    function responsesFor(
+      rows: Array<{ id: string; deadline?: string }>,
+    ): Map<string, HttpFetchResult | Error> {
+      return new Map<string, HttpFetchResult | Error>([
+        ...listPages(rows),
+        ...rows.map(
+          ({ id }) => [detailUrl(id), htmlResponse(detailUrl(id), mailtoDetailHtml(id))] as const,
+        ),
+      ]);
+    }
+
+    /** Runs a crawl and returns the detail URLs it fetched, in order. */
+    async function crawl(
+      responses: Map<string, HttpFetchResult | Error>,
+      clock: () => string,
+      overrides: Partial<Parameters<typeof runJobsGeCrawl>[1]> = {},
+    ) {
+      const httpFetcher = new FakeHttpFetcher(responses);
+      const spy = vi.spyOn(httpFetcher, 'fetch');
+      const result = await runJobsGeCrawl(
+        { db, httpFetcher, now: clock },
+        {
+          missingStreakThreshold: 2,
+          minExpectedDiscoveredListings: 1,
+          canarySampleSize: 0,
+          ...overrides,
+        },
+      );
+      const detailFetches = spy.mock.calls
+        .map(([url]) => url)
+        .filter((url) => url.includes('view=jobs'));
+      return { ...result, detailFetches };
+    }
+
+    const threeRows = [{ id: '1001' }, { id: '1002' }, { id: '1003' }];
+
+    it('skips every unchanged listing on a second run, and fetches only the canaries', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+      const first = await crawl(responsesFor(threeRows), clock);
+      expect(first.detailFetches).toHaveLength(3);
+      expect(first.refetch).toMatchObject({ fetched: 3, skipped: 0 });
+
+      const second = await crawl(responsesFor(threeRows), clock);
+      expect(second.crawlRun.status).toBe('completed');
+      expect(second.detailFetches).toHaveLength(0);
+      expect(second.crawlRun.skippedCount).toBe(3);
+      expect(second.crawlRun.unchangedCount).toBe(0);
+      expect(second.crawlRun.missingCount).toBe(0);
+
+      const third = await crawl(responsesFor(threeRows), clock, { canarySampleSize: 1 });
+      expect(third.crawlRun.status).toBe('completed');
+      expect(third.detailFetches).toHaveLength(1);
+      expect(third.refetch).toMatchObject({ canaries: 1, canaryChanged: 0, skipped: 2 });
+      expect(third.crawlRun.unchangedCount).toBe(1);
+    });
+
+    it('fetches a listing whose deadline changed on the list page, and only that one', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+      await crawl(responsesFor(threeRows), clock);
+
+      const second = await crawl(
+        responsesFor([{ id: '1001' }, { id: '1002', deadline: '30 ოქტომბერი' }, { id: '1003' }]),
+        clock,
+      );
+      expect(second.detailFetches).toEqual([detailUrl('1002')]);
+      expect(second.crawlRun.skippedCount).toBe(2);
+    });
+
+    it('still takes a listing that disappears to missing_suspected and then closed', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+      await crawl(responsesFor(threeRows), clock);
+      const remaining = [{ id: '1001' }, { id: '1003' }];
+
+      const second = await crawl(responsesFor(remaining), clock);
+      expect(second.crawlRun.status).toBe('completed');
+      expect(second.detailFetches).toHaveLength(0);
+      expect(second.crawlRun.missingCount).toBe(1);
+
+      const third = await crawl(responsesFor(remaining), clock);
+      expect(third.crawlRun.status).toBe('completed');
+
+      const rows = await db
+        .select({ id: sourceListings.sourceRecordId, status: sourceListings.status })
+        .from(sourceListings)
+        .where(eq(sourceListings.sourceId, jobsGeSource.id));
+      const status = new Map(rows.map((row) => [row.id, row.status]));
+      expect(status.get('1002')).toBe('closed');
+      expect(status.get('1001')).toBe('active');
+      expect(status.get('1003')).toBe('active');
+    });
+
+    it('marks the run partial when the few pages it does fetch fail to parse', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+      await crawl(responsesFor(threeRows), clock);
+
+      const responses = responsesFor([...threeRows, { id: '1004' }]);
+      responses.set(
+        detailUrl('1004'),
+        htmlResponse(detailUrl('1004'), '<html><body>broken template</body></html>'),
+      );
+      const second = await crawl(responses, clock, { maxQuarantineRate: 0.1 });
+      expect(second.detailFetches).toEqual([detailUrl('1004')]);
+      expect(second.crawlRun.quarantinedCount).toBe(1);
+      expect(second.crawlRun.status).toBe('partial');
+      expect(second.crawlRun.missingCount).toBe(0);
+    });
+
+    it('fetches every listing with refetch=all', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+      await crawl(responsesFor(threeRows), clock);
+
+      const second = await crawl(responsesFor(threeRows), clock, { refetch: 'all' });
+      expect(second.detailFetches).toHaveLength(3);
+      expect(second.crawlRun.skippedCount).toBe(0);
+      expect(second.crawlRun.unchangedCount).toBe(3);
+    });
+
+    it('adopts fingerprints without fetching for listings fetched within 7 days (bootstrap)', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 4, 12, 0, 0));
+      await crawl(responsesFor(threeRows), clock);
+      // As if these revisions predate Phase 7C.
+      await db
+        .update(sourceListings)
+        .set({ discoveryFingerprint: null })
+        .where(eq(sourceListings.sourceId, jobsGeSource.id));
+
+      const second = await crawl(responsesFor(threeRows), clock);
+      expect(second.detailFetches).toHaveLength(0);
+      expect(second.refetch.adopted).toBe(3);
+
+      const rows = await db
+        .select({ fingerprint: sourceListings.discoveryFingerprint })
+        .from(sourceListings)
+        .where(eq(sourceListings.sourceId, jobsGeSource.id));
+      expect(rows.every((row) => row.fingerprint !== null)).toBe(true);
+    });
+  });
 });

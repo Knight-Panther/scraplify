@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { hrGeSource, isHrGeUrlAllowed } from '../../policies/hr-ge.js';
+import { discoveryFingerprint } from '../discovery-fingerprint.js';
 import { extractNgState, findNgStateEntry } from './ng-state.js';
 
 /** One listing found on a `/search-posting?pg=N` discovery page. */
@@ -16,6 +17,13 @@ export interface DiscoveredListing {
   readonly publishDate: string | null;
   readonly renewalDate: string | null;
   readonly deadlineDate: string | null;
+  /**
+   * Title, employer, publish, renewal and deadline dates and locations
+   * (Phase 7C). Not `isPriority` or `listingSection`: a paid promotion
+   * ending flips those constantly and is never shown. Null for a
+   * sitemap-only candidate, which has no list fields and is always fetched.
+   */
+  readonly fingerprint: string | null;
 }
 
 export interface ParsedSearchPostingPage {
@@ -136,15 +144,30 @@ export function parseSearchPostingPage(html: string): ParsedSearchPostingPage {
     if (!isHrGeUrlAllowed(url)) continue;
 
     seenIds.add(sourceRecordId);
+    const title = typeof record.title === 'string' ? record.title : '';
+    const publishDate = typeof record.publishDate === 'string' ? record.publishDate : null;
+    const renewalDate = typeof record.renewalDate === 'string' ? record.renewalDate : null;
+    const deadlineDate = typeof record.deadlineDate === 'string' ? record.deadlineDate : null;
+    const locations = Array.isArray(record.locations)
+      ? record.locations.filter((location): location is string => typeof location === 'string')
+      : [];
     listings.push({
       sourceRecordId,
       url,
-      title: typeof record.title === 'string' ? record.title : '',
+      title,
       isPriority: record.isPriority === true,
       listingSection: typeof record.listingSection === 'number' ? record.listingSection : 0,
-      publishDate: typeof record.publishDate === 'string' ? record.publishDate : null,
-      renewalDate: typeof record.renewalDate === 'string' ? record.renewalDate : null,
-      deadlineDate: typeof record.deadlineDate === 'string' ? record.deadlineDate : null,
+      publishDate,
+      renewalDate,
+      deadlineDate,
+      fingerprint: discoveryFingerprint([
+        title,
+        typeof record.customerName === 'string' ? record.customerName : null,
+        publishDate,
+        renewalDate,
+        deadlineDate,
+        locations,
+      ]),
     });
   }
 

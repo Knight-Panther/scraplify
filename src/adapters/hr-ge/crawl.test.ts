@@ -149,6 +149,7 @@ interface ItemSpec {
   title?: string;
   isPriority?: boolean;
   publishDate?: string;
+  deadlineDate?: string;
 }
 
 function buildSearchPostingHtml(items: ItemSpec[], totalCount: number): string {
@@ -164,7 +165,7 @@ function buildSearchPostingHtml(items: ItemSpec[], totalCount: number): string {
     listingSection: 0,
     publishDate: item.publishDate ?? '2026-09-01T00:00:00',
     renewalDate: null,
-    deadlineDate: '2026-12-01T00:00:00',
+    deadlineDate: item.deadlineDate ?? '2026-12-01T00:00:00',
   }));
   const ngState = JSON.stringify({
     1: {
@@ -1205,5 +1206,118 @@ describe('runHrGeCrawl', () => {
     expect(spy).not.toHaveBeenCalled();
     const runs = await db.select().from(crawlRuns).where(eq(crawlRuns.sourceId, hrGeSource.id));
     expect(runs).toHaveLength(0);
+  });
+
+  describe('refetch=changed (Phase 7C)', () => {
+    function responsesFor(
+      items: ItemSpec[],
+      sitemapIds?: string[],
+    ): Map<string, HttpFetchResult | Error> {
+      const ids = [...items.map((item) => item.id), ...(sitemapIds ?? [])];
+      return new Map<string, HttpFetchResult | Error>([
+        [
+          searchPostingUrl(1),
+          htmlResponse(searchPostingUrl(1), buildSearchPostingHtml(items, items.length)),
+        ],
+        [searchPostingUrl(2), notFoundResponse(searchPostingUrl(2))],
+        ...(sitemapIds === undefined
+          ? []
+          : [[SITEMAP_URL, htmlResponse(SITEMAP_URL, sitemapXml(ids))] as const]),
+        ...ids.map(
+          (id) => [detailUrl(id), htmlResponse(detailUrl(id), buildDetailHtml({ id }))] as const,
+        ),
+      ]);
+    }
+
+    /** Runs a crawl and returns the detail URLs it fetched, in order. */
+    async function crawl(
+      responses: Map<string, HttpFetchResult | Error>,
+      clock: () => string,
+      overrides: Partial<Parameters<typeof runHrGeCrawl>[1]> = {},
+    ) {
+      const httpFetcher = new FakeHttpFetcher(responses);
+      const spy = vi.spyOn(httpFetcher, 'fetch');
+      const result = await runHrGeCrawl(
+        { db, httpFetcher, now: clock },
+        { ...BASE_OPTIONS, missingStreakThreshold: 2, canarySampleSize: 0, ...overrides },
+      );
+      const detailFetches = spy.mock.calls
+        .map(([url]) => url)
+        .filter((url) => url.includes('/announcement/'));
+      return { ...result, detailFetches };
+    }
+
+    const threeItems: ItemSpec[] = [{ id: '1001' }, { id: '1002' }, { id: '1003' }];
+
+    it('skips every unchanged listing on a second run, and fetches only the canaries', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 5, 12, 0, 0));
+      const first = await crawl(responsesFor(threeItems), clock);
+      expect(first.detailFetches).toHaveLength(3);
+
+      const second = await crawl(responsesFor(threeItems), clock);
+      expect(second.crawlRun.status).toBe('completed');
+      expect(second.detailFetches).toHaveLength(0);
+      expect(second.crawlRun.skippedCount).toBe(3);
+      expect(second.crawlRun.missingCount).toBe(0);
+
+      const third = await crawl(responsesFor(threeItems), clock, { canarySampleSize: 1 });
+      expect(third.detailFetches).toHaveLength(1);
+      expect(third.refetch).toMatchObject({ canaries: 1, canaryChanged: 0, skipped: 2 });
+    });
+
+    it('ignores a promotion ending (isPriority) but fetches a changed deadline', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 5, 12, 0, 0));
+      await crawl(responsesFor([{ id: '1001', isPriority: true }, { id: '1002' }]), clock);
+
+      const second = await crawl(
+        responsesFor([
+          { id: '1001', isPriority: false },
+          { id: '1002', deadlineDate: '2026-12-31T00:00:00' },
+        ]),
+        clock,
+      );
+      expect(second.detailFetches).toEqual([detailUrl('1002')]);
+      expect(second.crawlRun.skippedCount).toBe(1);
+    });
+
+    it('always fetches a sitemap-only candidate: the fetch is its existence check', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 5, 12, 0, 0));
+      const options = { skipSitemapCrossCheck: false };
+      await crawl(responsesFor([{ id: '1001' }], ['1002']), clock, options);
+
+      const second = await crawl(responsesFor([{ id: '1001' }], ['1002']), clock, options);
+      expect(second.detailFetches).toEqual([detailUrl('1002')]);
+    });
+
+    it('still takes a listing that disappears to missing_suspected and then closed', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 5, 12, 0, 0));
+      await crawl(responsesFor(threeItems), clock);
+      const remaining: ItemSpec[] = [{ id: '1001' }, { id: '1003' }];
+
+      const second = await crawl(responsesFor(remaining), clock);
+      expect(second.crawlRun.status).toBe('completed');
+      expect(second.detailFetches).toHaveLength(0);
+      expect(second.crawlRun.missingCount).toBe(1);
+
+      await crawl(responsesFor(remaining), clock);
+      expect((await findListingByRecordId('1002'))?.status).toBe('closed');
+      expect((await findListingByRecordId('1001'))?.status).toBe('active');
+    });
+
+    it('marks the run partial when the few pages it does fetch fail to parse', async () => {
+      const clock = makeClock(Date.UTC(2026, 8, 5, 12, 0, 0));
+      await crawl(responsesFor(threeItems), clock);
+
+      const responses = responsesFor([...threeItems, { id: '1004' }]);
+      responses.set(
+        detailUrl('1004'),
+        htmlResponse(detailUrl('1004'), '<html><body>broken template</body></html>'),
+      );
+      const second = await crawl(responses, clock, { maxQuarantineRate: 0.1 });
+      expect(second.detailFetches).toEqual([detailUrl('1004')]);
+      expect(second.crawlRun.quarantinedCount).toBe(1);
+      expect(second.crawlRun.status).toBe('partial');
+      expect(second.crawlRun.missingCount).toBe(0);
+    });
   });
 });

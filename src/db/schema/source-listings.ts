@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   foreignKey,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -127,6 +128,14 @@ export const sourceListings = pgTable(
     sourceDeadlineAt: timestamp('source_deadline_at', { mode: 'string', withTimezone: true }),
     /** Mirrors SourceListingSchema.lastReconciledAt — see its comment there. */
     lastReconciledAt: timestamp('last_reconciled_at', { mode: 'string', withTimezone: true }),
+    /**
+     * Phase 7C: sha256 of the list-page fields this listing had at its last
+     * successful detail fetch (each adapter's `discoveryFingerprint`). A
+     * run fetches the detail page again only when this differs, so it is
+     * crawler bookkeeping, not a fact about the listing, and is not in
+     * SourceListingSchema. Null until the first fetch after Phase 7C.
+     */
+    discoveryFingerprint: text('discovery_fingerprint'),
   },
   (table) => [
     // §12.1's identity rule, enforced in the database rather than only in
@@ -145,6 +154,11 @@ export const sourceListings = pgTable(
     uniqueIndex('source_listings_canonical_url_idx')
       .on(table.sourceId, table.canonicalSourceUrl)
       .where(sql`${table.sourceRecordId} is null`),
+    // Closure and expiry scan only open listings; once dead rows outnumber
+    // live ones this keeps those scans off them (Phase 7C retention).
+    index('source_listings_open_by_source_idx')
+      .on(table.sourceId)
+      .where(sql`${table.status} in ('discovered', 'active', 'missing_suspected')`),
     foreignKey({
       name: 'source_listings_current_revision_ownership_fk',
       columns: [table.id, table.currentRevisionId],

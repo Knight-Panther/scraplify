@@ -102,3 +102,32 @@ describe('parseSearchPostingPage', () => {
     expect(result.totalCount).toBe(1);
   });
 });
+
+describe('parseSearchPostingPage: fingerprints (Phase 7C)', () => {
+  const html = loadFixture('search-posting-pg1.html');
+  const all = (page: string) =>
+    new Map(parseSearchPostingPage(page).listings.map((l) => [l.sourceRecordId, l.fingerprint]));
+
+  it('is stable across parses and distinguishes listings', () => {
+    const first = all(html);
+    expect(all(html)).toEqual(first);
+    expect(new Set(first.values()).size).toBe(first.size);
+  });
+
+  it('ignores priority: a paid promotion ending changes no fingerprint', () => {
+    const demoted = html.replaceAll('"isPriority":true', '"isPriority":false');
+    expect(demoted).not.toBe(html);
+    expect(all(demoted)).toEqual(all(html));
+  });
+
+  it('changes when the deadline changes', () => {
+    const before = all(html);
+    const moved = html.replace(
+      '"deadlineDate":"2026-09-30T23:59:00"',
+      '"deadlineDate":"2026-10-30T23:59:00"',
+    );
+    const after = all(moved);
+    const changed = [...after].filter(([key, value]) => before.get(key) !== value);
+    expect(changed).toHaveLength(1);
+  });
+});
