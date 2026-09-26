@@ -1,12 +1,30 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-26 (PR #24, Phase 8E host-independent work and hybrid CV matching).
+Last updated: 2026-09-27 (Phase 7C built: incremental crawling and crawl self-healing, PR open).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
 ## Current phase: Phase 7C — incremental crawling and retention
 
-**Next, owner-approved 2026-09-26.** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md). Fetch detail pages only for new or changed list rows, keep the full list walk so closure still works, add a canary sample, and add a retention job. A crawl drops from hours to about 15–30 min. Show the owner the migration before applying it to the real DB.
+**Built 2026-09-27 on `phase-7c-incremental-crawl`; retention deferred.** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md).
+
+- **Plan steps 1–5 and 8 are done.** Migration 0035 is additive: `source_listings.discovery_fingerprint`, `crawl_runs.skipped_count`, a partial index on open listings and `fetch_attempts(attempted_at)`. It is applied to `scraplify_qa`. **It is not applied to `scraplify` yet**: the automation was not allowed to write the real DB, so the owner runs it (see "Owner action" below).
+  - Both discovery parsers compute a list-page fingerprint, and `needsDetailFetch` decides per listing: `fetch`, `adopt` (bootstrap) or `skip`.
+  - 20 random canaries are fetched each run.
+  - The quarantine and fetch-failure guards divide by pages fetched.
+  - `--refetch=changed` is the default; `--refetch=all` is for use after a parser change.
+  - Tests: units for the decision, canaries and guard; fingerprint fixtures; per-source crawl runs covering skip, canary, changed deadline, hr.ge priority flip ignored, sitemap candidate always fetched, disappearance still reaching `closed`, parse failure still making the run `partial`, `refetch=all`, and bootstrap. Full suite: 1,311 pass.
+- **Also built: crawl self-healing** (the part of 7B that blocked every schedule). Each crawl process holds a session-level Postgres advisory lock for its whole life (`src/db/crawl-process-lock.ts`). A process that gets the lock settles any unsettled run for its source as `failed`, because no live process owns it. A process that can't get the lock skips, as before. A shutdown mid-crawl (this happened on 2026-09-26) no longer blocks later runs.
+- **Live check (step 7), on `scraplify_qa` against the real sites**, with `--mode incremental --pages 1` run twice:
+  - hr.ge run 1: 100 fetched, 349 s. Run 2: **80 skipped, 20 canaries fetched, 0 canaries changed, 76 s**. The fingerprints are stable on live pages.
+  - jobs.ge run 1: 310 fetched, 1,628 s (27 min at the 5 s crawl delay). Run 2: **290 skipped, 20 canaries fetched, 0 canaries changed, 105 s** (15× faster).
+- **Step 6 (retention) is deferred.** The corpus starts on 2026-09-02, so its 90- and 180-day rules would delete nothing before December. It is not needed for the MVP; build it before 2026-12.
+- **Owner action to go live:**
+  1. Merge the PR.
+  2. Apply migration 0035 to `scraplify` as `scraplify_migration` (additive, no data change).
+  3. Run `npm run build`, so the scheduled `dist/` has 7C and the lock.
+
+  The next scheduled crawl settles the dead jobs.ge run `df60e7db…` (its process died in the 2026-09-26 shutdown) by itself. It then adopts fingerprints, without fetching, for listings fetched in the last 7 days (all of hr.ge and about 3,000 jobs.ge listings from the 2026-09-26 runs, if applied by 2026-10-03), and fetches the rest once.
 
 ## Phase 8E — hosted readiness (host-independent work merged 2026-09-26, PR #24)
 
@@ -69,7 +87,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 ## Open operational issues (not phase work, but blocking real freshness)
 
 - **Resolved 2026-09-26:** the two stale `running` rows from 2026-09-16 were settled (`reconciled_at` 2026-09-26 08:12 UTC) and a full jobs.ge crawl started (`df60e7db…`, still running at 17:40 local). Earlier note, kept for context: the Task Scheduler tasks fire again (both ran at 2026-09-25 20:10), but each crawl exits 1 at once. It refuses to start because of its own stale `running` row from 2026-09-16 (`crawl_runs` `77c999c9…` hr.ge and `2d030dcf…` jobs.ge). No crawl process was running. Dedupe and taxonomy still run after it. **Owner action:** settle the two rows as the crawler's own message says, `update crawl_runs set status = 'failed', reconciled_at = now() where id in ('77c999c9-0e6b-4452-9f49-abbd2ebd92c4', '2d030dcf-69a8-41a2-b756-439c487381e0') and status = 'running' and reconciled_at is null`. The next scheduled run (20:10 daily) then crawls. The automation was not allowed to write this to the real DB.
-- **Scheduled crawls have not run for 9+ days** (`npm run health:check`, 2026-09-25): both `jobs-ge` and `hr-ge` are critical `run_overdue`, each with a `crawl_runs` row stuck `running`. This is the second time. The first time, both schedules silently stopped after their first run on 2026-09-16 and were found on 2026-09-23 (a battery-power setting). That root cause was fixed, but the recovery was never confirmed. Because of the stale crawls, the Phase 8C bundle health gate correctly refuses to publish. The one active public bundle was built with `--override-health-gate`, which is recorded on the build and shown on `/admin/matching`. Needs: check the Task Scheduler registration (`scripts/register-crawl-schedule.ps1`), settle the stuck runs, and run one crawl per source. Self-healing of a stuck `running` row is Phase 7B work and is not built.
+- **Scheduled crawls have not run for 9+ days** (`npm run health:check`, 2026-09-25): both `jobs-ge` and `hr-ge` are critical `run_overdue`, each with a `crawl_runs` row stuck `running`. This is the second time. The first time, both schedules silently stopped after their first run on 2026-09-16 and were found on 2026-09-23 (a battery-power setting). That root cause was fixed, but the recovery was never confirmed. Because of the stale crawls, the Phase 8C bundle health gate correctly refuses to publish. The one active public bundle was built with `--override-health-gate`, which is recorded on the build and shown on `/admin/matching`. Needs: check the Task Scheduler registration (`scripts/register-crawl-schedule.ps1`), settle the stuck runs, and run one crawl per source. **Self-healing of a stuck `running` row is built as of 2026-09-27** (Phase 7C branch, advisory lock); it takes effect once `dist/` is rebuilt.
 - **Neither source has ever completed a full-coverage crawl** (jobs.ge ≈ 7.9h, hr.ge ≈ 2.75h), so closure of vanished listings has never run against live data (Phase 1C items 1, 2, 4).
 
 ## Phase index
@@ -97,7 +115,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
 | 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, alert channel, hr.ge permission (`docs/RIGHTS.md`), hosted drills. Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
-| 7C — incremental crawling and retention | **next** | — | Plan in `docs/PHASE_7C_PLAN.md`. |
+| 7C — incremental crawling and retention | **built, PR open**; retention deferred | — | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 is on `scraplify_qa` only until the owner applies it to `scraplify`. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 
