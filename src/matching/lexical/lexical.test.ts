@@ -134,6 +134,17 @@ describe('deriveProfile', () => {
     expect(userTerm('role', 'delivery')?.id).toBe('role:courier');
   });
 
+  it('reads a long Georgian SME advisor title as the specific role, not bare advisor', () => {
+    const { terms } = deriveProfile(
+      'მცირე და საშუალო ბიზნესის განვითარების მრჩეველი, 2021 წლიდან.',
+      vocabulary,
+    );
+    const ids = terms.map((term) => term.id);
+    expect(ids).toContain('role:sme business advisor');
+    expect(ids).not.toContain('role:advisor');
+    expect(ids).toContain('skill:sme');
+  });
+
   it('suggests nothing without supporting text', () => {
     expect(deriveProfile('', vocabulary).terms).toEqual([]);
     expect(deriveProfile('Hobbies: hiking.', vocabulary).terms).toEqual([]);
@@ -156,6 +167,19 @@ describe('rankOpportunities', () => {
     );
     expect(results.map((r) => r.row.opportunityId)).toEqual([accountant.opportunityId]);
     expect(results[0]?.reasons[0]).toMatchObject({ kind: 'role', exact: true });
+  });
+
+  it('lets a Georgian SME advisor CV reach a title written with "SME"', () => {
+    const sme = row({ title: 'SME ბიზნეს მრჩეველი' });
+    const client = row({ title: 'კლიენტთა მრჩეველი' });
+    const derived = deriveProfile(
+      'მცირე და საშუალო ბიზნესის განვითარების მრჩეველი',
+      buildVocabulary([sme, client]),
+    );
+    const { results } = rankOpportunities(derived, indexOpportunities([sme, client]), {
+      now: NOW,
+    });
+    expect(results.map((r) => r.row.opportunityId)).toEqual([sme.opportunityId]);
   });
 
   it('drops a row whose deadline passed after the bundle was built', () => {

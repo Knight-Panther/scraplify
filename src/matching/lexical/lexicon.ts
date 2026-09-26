@@ -69,7 +69,11 @@ const ROLES: readonly Row[] = [
     'დიზაინერი',
     ['graphic designer', 'ui designer', 'ux designer', 'გრაფიკული დიზაინერი'],
   ],
-  ['Project manager', 'პროექტის მენეჯერი', ['project management', 'პროექტების მენეჯერი']],
+  [
+    'Project manager',
+    'პროექტის მენეჯერი',
+    ['project management', 'პროექტების მენეჯერი', 'პროექტების მართვა'],
+  ],
   ['Product manager', 'პროდუქტის მენეჯერი', []],
   ['Sales manager', 'გაყიდვების მენეჯერი', ['sales management', 'account manager']],
   [
@@ -147,6 +151,21 @@ const ROLES: readonly Row[] = [
     ['loan officer', 'credit officer', 'საკრედიტო ოფიცერი', 'საკრედიტო ექსპერტი'],
   ],
   ['Banker', 'ბანკირი', ['banking', 'bank teller']],
+  [
+    'SME business advisor',
+    'SME ბიზნეს მრჩეველი',
+    [
+      'sme advisor',
+      'sme adviser',
+      'sme business adviser',
+      'business development advisor',
+      'business development adviser',
+      'ბიზნესის განვითარების მრჩეველი',
+      'მცირე და საშუალო ბიზნესის მრჩეველი',
+      'მცირე და საშუალო ბიზნესის განვითარების მრჩეველი',
+    ],
+  ],
+  ['Advisor', 'მრჩეველი', ['adviser'], true],
   ['Real estate agent', 'უძრავი ქონების აგენტი', ['realtor', 'real estate']],
   ['Journalist', 'ჟურნალისტი', ['reporter']],
   ['Architect', 'არქიტექტორი', []],
@@ -175,6 +194,17 @@ const CONTEXT_FORMS: Readonly<Record<string, readonly string[]>> = {
 };
 
 const SKILLS: readonly Row[] = [
+  // The corpus writes this segment both ways ("SME ბიზნეს მრჩეველი", "ასოცირებული
+  // ბანკირი / მცირე და საშუალო ბიზნესი"), so either wording in a CV meets both.
+  [
+    'SME',
+    'მცირე და საშუალო ბიზნესი',
+    [
+      'small and medium business',
+      'small and medium enterprises',
+      'small and medium-sized enterprises',
+    ],
+  ],
   ['Excel', 'ექსელი', ['ms excel', 'microsoft excel']],
   ['Microsoft Office', 'MS Office', ['ms office', 'microsoft office']],
   ['SQL', 'SQL', ['mysql', 'postgresql', 'postgres', 'ms sql']],
