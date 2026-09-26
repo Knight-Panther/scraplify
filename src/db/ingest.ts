@@ -369,6 +369,7 @@ export interface CrawlRunCounts {
   newCount: number;
   changedCount: number;
   unchangedCount: number;
+  skippedCount: number;
   missingCount: number;
   expiredCount: number;
   reopenedCount: number;

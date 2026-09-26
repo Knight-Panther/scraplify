@@ -49,7 +49,7 @@ async function main(): Promise<void> {
     // The fourth preflight check (lock): startCrawlRun's partial unique
     // index rejects a second concurrent run for this source, surfaced here
     // as CrawlAlreadyRunningError — see the catch block below.
-    const { crawlRun } = await runJobsGeCrawl({ db, httpFetcher }, options);
+    const { crawlRun, refetch } = await runJobsGeCrawl({ db, httpFetcher }, options);
 
     logger.info(
       {
@@ -66,6 +66,10 @@ async function main(): Promise<void> {
         newCount: crawlRun.newCount,
         changedCount: crawlRun.changedCount,
         unchangedCount: crawlRun.unchangedCount,
+        skippedCount: crawlRun.skippedCount,
+        // Phase 7C: detail pages fetched, bootstrap adoptions, canaries and
+        // canaries whose content had changed under an unchanged fingerprint.
+        refetch,
         missingCount: crawlRun.missingCount,
         expiredCount: crawlRun.expiredCount,
         reopenedCount: crawlRun.reopenedCount,

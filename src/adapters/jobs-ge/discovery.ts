@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { isJobsGeUrlAllowed, jobsGeSource } from '../../policies/jobs-ge.js';
+import { discoveryFingerprint } from '../discovery-fingerprint.js';
 
 export type AdsPagePartition = 'vip' | 'standard';
 
@@ -11,6 +12,12 @@ export interface DiscoveredListing {
   readonly url: string;
   readonly title: string;
   readonly partition: AdsPagePartition;
+  /**
+   * Title, employer, published and deadline text as the row shows them
+   * (Phase 7C). Not the partition: VIP placement is paid promotion, not a
+   * change to the vacancy.
+   */
+  readonly fingerprint: string;
 }
 
 export interface ParsedAdsPage {
@@ -68,11 +75,17 @@ function extractSectionListings(
       if (id === null || seenIds.has(id)) return;
       seenIds.add(id);
 
+      const title = anchor.text().trim();
+      // Cells: 1 title, 3 employer, 4 published, 5 deadline (the fixtures;
+      // RECON_NOTES.md). If the layout shifts, every fingerprint changes
+      // once and that run re-fetches everything, which is the safe side.
+      const cell = (index: number) => $(row).find('td').eq(index).text();
       listings.push({
         sourceRecordId: id,
         url,
-        title: anchor.text().trim(),
+        title,
         partition,
+        fingerprint: discoveryFingerprint([title, cell(3), cell(4), cell(5)]),
       });
     });
 

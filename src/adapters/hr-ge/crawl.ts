@@ -41,6 +41,16 @@ import {
 } from '../../net/http-fetcher.js';
 import { hrGePolicy, hrGeSource, isHrGeUrlAllowed } from '../../policies/hr-ge.js';
 import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
+import {
+  DEFAULT_CANARY_SAMPLE_SIZE,
+  loadKnownListings,
+  needsDetailFetch,
+  pickCanaries,
+  type RefetchMode,
+  type RefetchStats,
+  rateGuardOk,
+  setDiscoveryFingerprint,
+} from '../refetch.js';
 import { recordRunAnomalies } from '../run-anomalies.js';
 import { classifyHrGeResponse, isHrGeRateLimited } from './challenge.js';
 import { HR_GE_DETAIL_PARSER_VERSION, parseHrGeDetailPage } from './detail.js';
@@ -94,6 +104,8 @@ export interface RunHrGeCrawlDeps {
   httpFetcher: HttpFetcher;
   /** Injectable clock, defaults to the real wall clock. Tests supply a fixed/advancing one for determinism. */
   now?: () => string;
+  /** Canary sampling (Phase 7C); defaults to Math.random. */
+  random?: () => number;
 }
 
 export interface RunHrGeCrawlOptions {
@@ -112,10 +124,19 @@ export interface RunHrGeCrawlOptions {
    * `mass_closure_suspected` incident; the CLI's `--allow-mass-closure`.
    */
   allowMassClosure?: boolean;
+  /**
+   * Phase 7C. `changed` (the default) fetches a detail page only for a new
+   * listing, a changed list-page fingerprint, a sitemap-only candidate or a
+   * canary; `all` fetches every listed vacancy, for use after a parser change.
+   */
+  refetch?: RefetchMode;
+  /** Canaries per `changed` run; see DEFAULT_CANARY_SAMPLE_SIZE. */
+  canarySampleSize?: number;
 }
 
 export interface RunHrGeCrawlResult {
   crawlRun: CrawlRunRow;
+  refetch: RefetchStats;
 }
 
 /**
@@ -422,6 +443,9 @@ function toRecoveredListing(candidate: { sourceRecordId: string; url: string }):
     publishDate: null,
     renewalDate: null,
     deadlineDate: null,
+    // No list fields to fingerprint: the detail fetch is the existence
+    // check, so a recovered candidate is always fetched (Phase 7C).
+    fingerprint: null,
   };
 }
 
@@ -530,6 +554,14 @@ export async function runHrGeCrawl(
     fullCoverage: !incremental,
   });
 
+  const refetch: RefetchStats = {
+    mode: options.refetch ?? 'changed',
+    fetched: 0,
+    skipped: 0,
+    adopted: 0,
+    canaries: 0,
+    canaryChanged: 0,
+  };
   const counts: CrawlRunCounts = {
     discoveredCount: 0,
     vipCount: 0,
@@ -537,6 +569,7 @@ export async function runHrGeCrawl(
     newCount: 0,
     changedCount: 0,
     unchangedCount: 0,
+    skippedCount: 0,
     missingCount: 0,
     expiredCount: 0,
     reopenedCount: 0,
@@ -627,17 +660,62 @@ export async function runHrGeCrawl(
       ...orderedListings.slice(0, rotationOffset),
     ];
 
+    // Phase 7C: decide every listing's detail fetch up front, from one
+    // lookup of what is stored, then turn a random sample of the skipped
+    // ones back into fetches (the canaries). Sitemap-only candidates have
+    // no fingerprint, so they are always fetched: the fetch is their
+    // existence check.
+    const decisions = new Map<string, 'fetch' | 'adopt' | 'skip'>();
+    if (refetch.mode === 'changed') {
+      const known = await loadKnownListings(
+        db,
+        hrGeSource.id,
+        orderedListings.map((listing) => listing.sourceRecordId),
+      );
+      for (const listing of orderedListings) {
+        decisions.set(
+          listing.sourceRecordId,
+          needsDetailFetch(known.get(listing.sourceRecordId), listing.fingerprint, startedAt),
+        );
+      }
+    }
+    const canaries = pickCanaries(
+      [...decisions].filter(([, decision]) => decision === 'skip').map(([id]) => id),
+      options.canarySampleSize ?? DEFAULT_CANARY_SAMPLE_SIZE,
+      deps.random,
+    );
+    for (const id of canaries) decisions.set(id, 'fetch');
+    refetch.canaries = canaries.size;
+
     let resumeAt: string | null = null;
     let hasResumeDecision = false;
     let attemptedCount = 0;
     for (const [index, listing] of rotatedListings.entries()) {
       if (control.stopped) break;
-      attemptedCount++;
       const identity = {
         sourceId: hrGeSource.id,
         sourceRecordId: listing.sourceRecordId,
         canonicalSourceUrl: listing.url,
       };
+      const decision = decisions.get(listing.sourceRecordId) ?? 'fetch';
+      if (decision !== 'fetch') {
+        // Still on the list: seen, so closure never counts it missing.
+        await touchSourceListingSeen(db, identity, now());
+        if (decision === 'adopt' && listing.fingerprint !== null) {
+          await setDiscoveryFingerprint(
+            db,
+            hrGeSource.id,
+            listing.sourceRecordId,
+            listing.fingerprint,
+          );
+          refetch.adopted++;
+        }
+        counts.skippedCount++;
+        refetch.skipped++;
+        continue;
+      }
+      attemptedCount++;
+      refetch.fetched++;
       const attemptedAt = now();
       const { outcome, resource, fetchResult } = await fetchAndRecord(
         db,
@@ -760,12 +838,28 @@ export async function runHrGeCrawl(
       else if (writeResult.outcome === 'changed') counts.changedCount++;
       else if (writeResult.outcome === 'unchanged') counts.unchangedCount++;
       if (writeResult.reopened) counts.reopenedCount++;
+      if (writeResult.outcome !== 'stale' && listing.fingerprint !== null) {
+        await setDiscoveryFingerprint(
+          db,
+          hrGeSource.id,
+          listing.sourceRecordId,
+          listing.fingerprint,
+        );
+      }
+      if (canaries.has(listing.sourceRecordId) && writeResult.outcome === 'changed') {
+        refetch.canaryChanged++;
+      }
     }
 
+    // Over detail pages fetched (attemptedCount), which Phase 7C makes far
+    // fewer than listings discovered. The canaries keep a real run's sample
+    // above 20 fetches (see `rateGuardOk`).
     const quarantineRate =
       listings.size > 0 ? counts.quarantinedCount / Math.max(attemptedCount, 1) : 0;
     const fetchFailureRate =
       listings.size > 0 ? counts.failedCount / Math.max(attemptedCount, 1) : 0;
+    const quarantineOk = rateGuardOk(counts.quarantinedCount, attemptedCount, maxQuarantineRate);
+    const fetchFailureOk = rateGuardOk(counts.failedCount, attemptedCount, maxFetchFailureRate);
 
     // totalCount-based completeness: stronger evidence than a fixed floor
     // since hr.ge states its own expected count on the same response
@@ -805,8 +899,8 @@ export async function runHrGeCrawl(
       complete &&
       fullIndexSweep &&
       (incremental || totalCountOk) &&
-      quarantineRate <= maxQuarantineRate &&
-      fetchFailureRate <= maxFetchFailureRate &&
+      quarantineOk &&
+      fetchFailureOk &&
       (incremental || baselineOk) &&
       !control.stopped;
 
@@ -825,12 +919,8 @@ export async function runHrGeCrawl(
           { name: 'discoveryComplete', ok: complete, countGuard: true },
           { name: 'totalCount', ok: totalCountOk, countGuard: true },
           { name: 'baseline', ok: baselineOk, countGuard: true },
-          { name: 'quarantineRate', ok: quarantineRate <= maxQuarantineRate, countGuard: false },
-          {
-            name: 'fetchFailureRate',
-            ok: fetchFailureRate <= maxFetchFailureRate,
-            countGuard: false,
-          },
+          { name: 'quarantineRate', ok: quarantineOk, countGuard: false },
+          { name: 'fetchFailureRate', ok: fetchFailureOk, countGuard: false },
         ],
         discoveredCount: observedIds.size,
         baselineDiscoveredCount: lastCompletedRun?.discoveredCount ?? null,
@@ -898,7 +988,7 @@ export async function runHrGeCrawl(
         reconciledAt: finishedAt,
       });
     });
-    return { crawlRun: finalRun };
+    return { crawlRun: finalRun, refetch };
   } catch (err) {
     await failUnsettledCrawlRun(db, crawlRun.id, {
       finishedAt: now(),

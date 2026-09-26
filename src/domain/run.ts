@@ -47,6 +47,8 @@ export const CrawlRunSchema = z.object({
   newCount: z.int().nonnegative(),
   changedCount: z.int().nonnegative(),
   unchangedCount: z.int().nonnegative(),
+  /** Listed, but not detail-fetched because its list-page fingerprint was unchanged (Phase 7C). */
+  skippedCount: z.int().nonnegative(),
   missingCount: z.int().nonnegative(),
   expiredCount: z.int().nonnegative(),
   reopenedCount: z.int().nonnegative(),

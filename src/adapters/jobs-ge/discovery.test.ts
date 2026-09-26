@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as cheerio from 'cheerio';
 import { describe, expect, it } from 'vitest';
 import { parseAdsPage } from './discovery.js';
 
@@ -86,6 +87,7 @@ describe('parseAdsPage: partition assignment and dedup, on minimal synthetic mar
         url: 'https://www.jobs.ge/ge/?view=jobs&id=1',
         title: 'VIP listing',
         partition: 'vip',
+        fingerprint: expect.any(String),
       },
     ]);
     expect(standard).toEqual([
@@ -94,6 +96,7 @@ describe('parseAdsPage: partition assignment and dedup, on minimal synthetic mar
         url: 'https://www.jobs.ge/ge/?view=jobs&id=2',
         title: 'Standard listing',
         partition: 'standard',
+        fingerprint: expect.any(String),
       },
     ]);
   });
@@ -133,5 +136,55 @@ describe('parseAdsPage: partition assignment and dedup, on minimal synthetic mar
 
     expect(vip).toEqual([]);
     expect(standard).toHaveLength(1);
+  });
+});
+
+describe('parseAdsPage: fingerprints (Phase 7C)', () => {
+  const html = loadFixture('ads-page-1.html');
+  const all = (page: string) => {
+    const { vip, standard } = parseAdsPage(page);
+    return new Map([...vip, ...standard].map((l) => [l.sourceRecordId, l.fingerprint]));
+  };
+
+  it('is stable across parses and distinguishes listings', () => {
+    const first = all(html);
+    expect(all(html)).toEqual(first);
+    expect(new Set(first.values()).size).toBeGreaterThan(first.size * 0.9);
+  });
+
+  it('changes when a shown field changes, and only for that listing', () => {
+    const $ = cheerio.load(html);
+    const row = $('#job_list_table tr')
+      .filter((_, r) => $(r).find('a[href*="view=jobs"]').length > 0)
+      .first();
+    const id =
+      new URL(
+        row.find('a[href*="view=jobs"]').attr('href') ?? '',
+        'https://www.jobs.ge',
+      ).searchParams.get('id') ?? '';
+    row.find('td').eq(5).text('30 ნოემბერი');
+    const before = all(html);
+    const after = all($.html());
+    expect(after.get(id)).not.toBe(before.get(id));
+    expect(
+      [...after].filter(([key, value]) => before.get(key) !== value).map(([key]) => key),
+    ).toEqual([id]);
+  });
+
+  it('ignores placement: a VIP row moved to the standard table keeps its fingerprint', () => {
+    const $ = cheerio.load(html);
+    const row = $('.vipEntries tr')
+      .filter((_, r) => $(r).find('a[href*="view=jobs"]').length > 0)
+      .first();
+    const id =
+      new URL(
+        row.find('a[href*="view=jobs"]').attr('href') ?? '',
+        'https://www.jobs.ge',
+      ).searchParams.get('id') ?? '';
+    const before = all(html).get(id);
+    $('#job_list_table').append(row.clone());
+    row.remove();
+    const moved = parseAdsPage($.html());
+    expect(moved.standard.find((l) => l.sourceRecordId === id)?.fingerprint).toBe(before);
   });
 });

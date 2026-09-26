@@ -38,7 +38,7 @@ async function main(): Promise<void> {
 
   const startedAtMs = Date.now();
   try {
-    const { crawlRun } = await runHrGeCrawl({ db, httpFetcher }, options);
+    const { crawlRun, refetch } = await runHrGeCrawl({ db, httpFetcher }, options);
 
     logger.info(
       {
@@ -55,6 +55,10 @@ async function main(): Promise<void> {
         newCount: crawlRun.newCount,
         changedCount: crawlRun.changedCount,
         unchangedCount: crawlRun.unchangedCount,
+        skippedCount: crawlRun.skippedCount,
+        // Phase 7C: detail pages fetched, bootstrap adoptions, canaries and
+        // canaries whose content had changed under an unchanged fingerprint.
+        refetch,
         missingCount: crawlRun.missingCount,
         expiredCount: crawlRun.expiredCount,
         reopenedCount: crawlRun.reopenedCount,

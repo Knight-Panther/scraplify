@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  index,
   integer,
   pgEnum,
   pgTable,
@@ -66,6 +67,8 @@ export const crawlRuns = pgTable(
     newCount: integer('new_count').notNull().default(0),
     changedCount: integer('changed_count').notNull().default(0),
     unchangedCount: integer('unchanged_count').notNull().default(0),
+    /** Listed but not detail-fetched: fingerprint unchanged (Phase 7C). */
+    skippedCount: integer('skipped_count').notNull().default(0),
     missingCount: integer('missing_count').notNull().default(0),
     expiredCount: integer('expired_count').notNull().default(0),
     reopenedCount: integer('reopened_count').notNull().default(0),
@@ -95,20 +98,25 @@ export const crawlRuns = pgTable(
 );
 
 /** Mirrors FetchAttemptSchema. */
-export const fetchAttempts = pgTable('fetch_attempts', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  crawlRunId: uuid('crawl_run_id')
-    .notNull()
-    .references(() => crawlRuns.id),
-  resourceId: uuid('resource_id')
-    .notNull()
-    .references(() => resources.id),
-  attemptedAt: timestamp('attempted_at', { mode: 'string', withTimezone: true }).notNull(),
-  statusCode: integer('status_code'),
-  durationMs: integer('duration_ms'),
-  outcome: fetchOutcomeEnum('outcome').notNull(),
-  errorKind: text('error_kind'),
-});
+export const fetchAttempts = pgTable(
+  'fetch_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    crawlRunId: uuid('crawl_run_id')
+      .notNull()
+      .references(() => crawlRuns.id),
+    resourceId: uuid('resource_id')
+      .notNull()
+      .references(() => resources.id),
+    attemptedAt: timestamp('attempted_at', { mode: 'string', withTimezone: true }).notNull(),
+    statusCode: integer('status_code'),
+    durationMs: integer('duration_ms'),
+    outcome: fetchOutcomeEnum('outcome').notNull(),
+    errorKind: text('error_kind'),
+  },
+  // For the retention delete (older than 90 days) and the health queries.
+  (table) => [index('fetch_attempts_attempted_at_idx').on(table.attemptedAt)],
+);
 
 export type CrawlRunRow = typeof crawlRuns.$inferSelect;
 export type NewCrawlRunRow = typeof crawlRuns.$inferInsert;
