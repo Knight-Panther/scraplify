@@ -2,6 +2,13 @@ import type { HttpFetchResult } from './http-fetcher.js';
 
 export interface FetchControl {
   stopped: boolean;
+  /**
+   * sha256 of the previous detail page this run fetched. Two listings never
+   * share a byte-identical detail page, so a repeat is a soft block: a source
+   * answering every request with the same short page and a 200 (jobs.ge,
+   * 2026-09-27). Adapters that detect it treat it like a 429.
+   */
+  lastDetailBodyHash?: string;
 }
 
 function header(result: HttpFetchResult, name: string): string | undefined {

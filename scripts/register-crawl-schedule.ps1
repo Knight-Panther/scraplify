@@ -80,15 +80,35 @@ $nodePath = $nodeCommand.Source
 
 $taskName = "Scraplify - $Source crawl"
 
+# -WindowStyle Hidden (2026-09-27): the task runs in the logged-on user's
+# session, so without it every crawl opened a PowerShell window on the
+# desktop, and closing that window killed the crawl mid-run (exit
+# 0xC000013A, both sources on 2026-09-27 at 00:31). Hidden, there is no
+# window to close; logs/ is where a run is followed.
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$wrapperScript`" -Source $Source -NodePath `"$nodePath`"" `
+    -Argument "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"$wrapperScript`" -Source $Source -NodePath `"$nodePath`"" `
     -WorkingDirectory $repositoryRoot
 
 # No -RepetitionDuration: omitting it repeats indefinitely. The earlier
 # `[TimeSpan]::MaxValue` serializes to P99999999DT23H59M59S, which Task
 # Scheduler on Windows 11 rejects as out of range (found 2026-09-16, the first
 # time this script was actually run).
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+#
+# The daily default starts at the next 16:10 UTC (20:10 in Tbilisi), the time
+# src/crawl-schedule.ts declares and the site's "next update" countdown
+# shows. Before 2026-09-27 it started one minute after registration, so
+# re-running this script silently moved the schedule. A custom interval
+# still starts in about a minute.
+if ($IntervalMinutes -eq $sourceDefaults.IntervalMinutes) {
+    $firstRunUtc = [DateTime]::UtcNow.Date.AddHours(16).AddMinutes(10)
+    if ($firstRunUtc -le [DateTime]::UtcNow) {
+        $firstRunUtc = $firstRunUtc.AddDays(1)
+    }
+    $firstRun = $firstRunUtc.ToLocalTime()
+} else {
+    $firstRun = (Get-Date).AddMinutes(1)
+}
+$trigger = New-ScheduledTaskTrigger -Once -At $firstRun `
     -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
 
 $settings = New-ScheduledTaskSettingsSet `
@@ -123,7 +143,7 @@ if ($repetition -ne ('PT{0}M' -f $IntervalMinutes) -and $repetition -ne [System.
     throw "Scheduled task '$taskName' registered with repetition interval '$repetition', expected every $IntervalMinutes minute(s)."
 }
 
-Write-Host "Scheduled task '$taskName' registered: fires every $IntervalMinutes minute(s), starting in about 1 minute."
+Write-Host "Scheduled task '$taskName' registered: fires every $IntervalMinutes minute(s), first at $($firstRun.ToString('yyyy-MM-dd HH:mm')) local time, in a hidden window."
 Write-Host "Resolved node to: $nodePath (baked into the scheduled action, so unattended runs don't depend on fnm's PATH hook firing)."
 Write-Host "Each run is a full $Source crawl (discovery + every listing detail) followed by dedupe and taxonomy passes, measured at $($sourceDefaults.Description) end to end - not a quick poll."
 if ($IntervalMinutes -lt $sourceDefaults.RuntimeMinutes) {

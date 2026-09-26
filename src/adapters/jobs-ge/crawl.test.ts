@@ -178,6 +178,33 @@ describe('runJobsGeCrawl', () => {
     expect(spy).toHaveBeenCalledTimes(3);
   });
 
+  it('stops on a soft block (the same detail page for different listings), without quarantining the rest', async () => {
+    // jobs.ge, 2026-09-27: past about 5 requests a second every request got
+    // the same short page with a 200, and 971 listings were quarantined.
+    const ids = ['1001', '1002', '1003', '1004'];
+    const blockPage = '<html><body>please wait</body></html>';
+    const responses = new Map<string, HttpFetchResult | Error>([
+      ...discoveryPages([], ids),
+      [detailUrl('1001'), htmlResponse(detailUrl('1001'), mailtoDetailHtml('1001'))],
+      ...ids.slice(1).map((id) => [detailUrl(id), htmlResponse(detailUrl(id), blockPage)] as const),
+    ]);
+    const httpFetcher = new FakeHttpFetcher(responses);
+    const spy = vi.spyOn(httpFetcher, 'fetch');
+
+    const result = await runJobsGeCrawl(
+      { db, httpFetcher, now: () => '2026-09-05T12:00:00Z' },
+      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1, maxQuarantineRate: 1 },
+    );
+
+    expect(result.crawlRun.status).toBe('partial');
+    expect(result.crawlRun.newCount).toBe(1);
+    // The first block page cannot be told from a broken page yet; the repeat can.
+    expect(result.crawlRun.quarantinedCount).toBe(1);
+    expect(result.crawlRun.missingCount).toBe(0);
+    expect(spy).not.toHaveBeenCalledWith(detailUrl('1004'));
+    expect(await getCrawlCursor(db, jobsGeSource.id)).toBe('1003');
+  });
+
   it('retains a rejected detail cursor, honors cooldown, and resumes after the reset', async () => {
     const ids = ['1001', '1002', '1003'];
     const responses = new Map<string, HttpFetchResult | Error>([
@@ -830,7 +857,7 @@ describe('runJobsGeCrawl', () => {
         (id) =>
           [
             detailUrl(id),
-            htmlResponse(detailUrl(id), '<html><body>broken template</body></html>'),
+            htmlResponse(detailUrl(id), `<html><body>broken template ${id}</body></html>`),
           ] as const,
       ),
     ]);
