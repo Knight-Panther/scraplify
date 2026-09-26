@@ -1,6 +1,6 @@
+import { type CrawlStatusSnapshot, getCrawlStatus } from '../../../src/browse/crawl-status.js';
 import {
   publicCountOpportunities,
-  publicLastSeen,
   publicSearchOpportunities,
   publicSourceOverview,
 } from '../../../src/browse/public-queries.js';
@@ -11,17 +11,17 @@ import {
   searchOpportunities,
 } from '../../../src/browse/queries.js';
 import { db } from '../../../src/db/client.js';
+import { CrawlStatus } from '../../components/crawl-status.js';
 import { CvChooser } from '../../components/cv-chooser.js';
 import { HeroTicker } from '../../components/hero-ticker.js';
 import { HeroVideo } from '../../components/hero-video.js';
 import { cvRankedEnabled } from '../../lib/cv-ranked/availability.js';
-import { count, relativeTime } from '../../lib/format.js';
+import { count } from '../../lib/format.js';
 import { type HeadlineRun, type HeroCopy, heroCopy } from '../../lib/hero-copy.js';
 import { sourceLabel } from '../../lib/labels.js';
 import { currentLocale, type Locale } from '../../lib/locale.js';
 import { type OpportunityRow, toRow } from '../../lib/opportunity-row.js';
 import { currentSurface } from '../../lib/surface.js';
-import { lastCompletedSync } from '../../lib/sync.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,12 +57,23 @@ export const dynamic = 'force-dynamic';
  * silently glossed over.
  */
 export default async function Page() {
-  const [hero, locale] = await Promise.all([loadHeroData(), currentLocale()]);
+  const [hero, crawlStatus, locale] = await Promise.all([
+    loadHeroData(),
+    loadCrawlStatus(),
+    currentLocale(),
+  ]);
   const copy = heroCopy(locale);
 
   return (
     <main>
-      <section className="relative flex min-h-[calc(100svh-58px)] flex-col justify-end overflow-hidden border-b border-[var(--color-browse-border)] bg-[var(--color-browse-ink)] lg:min-h-[calc(100svh-78px)]">
+      {/* On a two-column desktop the hero fills exactly the screen between
+          the 78px header and the 59px footer, so the whole page, ticker and
+          footer included, is visible without scrolling (owner request,
+          2026-09-27). Headline size and vertical spacing scale with the
+          viewport height there for the same reason. Still min-h, not h: a
+          window too short for even the smallest sizes scrolls instead of
+          clipping. Narrower screens stack and scroll as before. */}
+      <section className="relative flex min-h-[calc(100svh-58px)] flex-col justify-end overflow-hidden border-b border-[var(--color-browse-border)] bg-[var(--color-browse-ink)] lg:min-h-[calc(100svh-137px)]">
         <HeroVideo />
         {/* Legibility overlay, not the source reference's grid+glow layers —
             those exist as an alternative background for a page with no
@@ -82,7 +93,7 @@ export default async function Page() {
           }}
         />
 
-        <div className="relative mx-auto grid w-full max-w-[1440px] grid-cols-1 items-end gap-11 px-8 pt-14 min-[1060px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] min-[1060px]:gap-14 min-[1060px]:pt-16">
+        <div className="relative mx-auto grid w-full max-w-[1440px] grid-cols-1 items-end gap-11 px-8 pt-14 min-[1060px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] min-[1060px]:gap-14 min-[1060px]:pt-[3svh]">
           <div>
             {hero.ok && (
               <p className="numeric flex animate-hero-fade-up items-center gap-[9px] text-[11px] text-[var(--color-browse-accent)] uppercase [animation-duration:600ms]">
@@ -90,15 +101,7 @@ export default async function Page() {
                   aria-hidden="true"
                   className="h-1.5 w-1.5 flex-none animate-hero-pulse rounded-full bg-[var(--color-browse-accent)]"
                 />
-                <span className="tracking-[0.22em]">
-                  {hero.boardsLabel}
-                  {hero.lastSync !== undefined && (
-                    <>
-                      {' '}
-                      · {hero.lastSyncLabel} {relativeTime(hero.lastSync)}
-                    </>
-                  )}
-                </span>
+                <span className="tracking-[0.22em]">{hero.boardsLabel}</span>
               </p>
             )}
 
@@ -128,8 +131,8 @@ export default async function Page() {
                     // the English hero's 0.86. Smaller type does shrink the
                     // descenders in absolute px, but the rule is written as
                     // a ratio, not a pixel budget, so it still applies.
-                    'font-[family-name:var(--font-display-ka)] text-[clamp(20px,3.1vw,43px)] leading-[1.4]'
-                  : 'font-[family-name:var(--font-display)] text-[clamp(46px,7.4vw,104px)] leading-[0.86] uppercase'
+                    'font-[family-name:var(--font-display-ka)] text-[clamp(20px,3.1vw,43px)] leading-[1.4] min-[1060px]:text-[clamp(20px,min(3.1vw,calc(4.6svh-8px)),43px)]'
+                  : 'font-[family-name:var(--font-display)] text-[clamp(46px,7.4vw,104px)] leading-[0.86] uppercase min-[1060px]:text-[clamp(40px,min(7.4vw,calc(10.5svh-28px)),104px)]'
               }`}
             >
               {copy.headline.map((runs, index) => (
@@ -144,61 +147,66 @@ export default async function Page() {
 
             <div
               aria-hidden="true"
-              className="mt-[26px] h-0.5 w-full animate-hero-sweep bg-[var(--color-browse-accent)]"
+              className="mt-[26px] h-0.5 w-full animate-hero-sweep min-[1060px]:mt-[2svh] bg-[var(--color-browse-accent)]"
             />
 
-            <p className="mt-[22px] max-w-[52ch] animate-hero-fade-up text-base text-[var(--color-browse-text-muted)] leading-[var(--leading-body)] [animation-delay:640ms] [animation-duration:700ms]">
+            <p className="mt-[22px] max-w-[64ch] animate-hero-fade-up min-[1060px]:mt-[2svh] text-base text-[var(--color-browse-text-muted)] leading-[var(--leading-body)] [animation-delay:640ms] [animation-duration:700ms]">
               {copy.subhead}
             </p>
 
-            <div className="mt-[30px] flex animate-hero-fade-up flex-wrap items-center gap-3 [animation-delay:760ms] [animation-duration:700ms]">
-              <a
-                href="/opportunities?status=active"
-                className="inline-flex h-[50px] items-center rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-[26px] text-[15px] font-bold text-[var(--color-browse-ink)] transition-colors duration-150 hover:bg-[var(--color-browse-accent-hover)]"
-              >
-                {copy.browseOpenings}
-              </a>
-              {/* "Get daily alerts" in the design reference has no backend
+            {/* One row: the two links with "no account needed" under them,
+                and the CV chooser with its privacy note under it. */}
+            <div className="mt-[30px] flex animate-hero-fade-up flex-wrap items-start gap-3 [animation-delay:760ms] [animation-duration:700ms] min-[1060px]:mt-[3svh]">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex flex-wrap gap-3">
+                  <a
+                    href="/opportunities?status=active"
+                    className="inline-flex h-[50px] items-center rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-5 text-[15px] font-bold text-[var(--color-browse-ink)] transition-colors duration-150 hover:bg-[var(--color-browse-accent-hover)]"
+                  >
+                    {copy.browseOpenings}
+                  </a>
+                  {/* "Get daily alerts" in the design reference has no backend
                   anywhere in this app (no route, no schema) — a disabled or
                   dead-linked button would violate this product's own
                   never-invented rule as much as fake data would. Real second
                   destination instead: both params are genuine and round-trip
                   through parseOpportunityQuery. */}
-              <a
-                href="/opportunities?status=active&closing=7"
-                className="inline-flex h-[50px] items-center rounded-[var(--radius)] border border-[var(--color-browse-border-control)] px-[22px] text-[15px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-border-control-hover)] hover:text-white"
-              >
-                {copy.closingSoon}
-              </a>
-              {/* `.numeric` is Space Mono, which has no Georgian coverage
+                  <a
+                    href="/opportunities?status=active&closing=7"
+                    className="inline-flex h-[50px] items-center rounded-[var(--radius)] border border-[var(--color-browse-border-control)] px-[18px] text-[15px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-border-control-hover)] hover:text-white"
+                  >
+                    {copy.closingSoon}
+                  </a>
+                </div>
+                {/* `.numeric` is Space Mono, which has no Georgian coverage
                   (fonts.ts) — kept only for the English copy, which used it
                   for SynapseX's monospace chrome look; Georgian falls back
                   to the default `--font-sans` (Noto Sans Georgian), which
                   actually covers it. */}
-              <span
-                className={`${locale === 'en' ? 'numeric' : ''} text-xs text-[var(--color-browse-text-muted)]`}
-              >
-                {copy.noAccountNeeded}
-              </span>
-            </div>
+                <span
+                  className={`${locale === 'en' ? 'numeric' : ''} text-xs text-[var(--color-browse-text-muted)]`}
+                >
+                  {copy.noAccountNeeded}
+                </span>
+              </div>
 
-            {/* Phase 8D: the CV is read in this tab's worker and the page
-                client-navigates to /cv-ranked. Rendered even when the live
-                hero data failed — it needs only the public bundle. Absent
-                while the Phase 8E switch has CV Ranked off. */}
-            {cvRankedEnabled() && (
-              <div className="mt-5 animate-hero-fade-up [animation-delay:820ms] [animation-duration:700ms]">
+              {/* Phase 8D: the CV is read in this tab's worker and the page
+                  client-navigates to /cv-ranked. Rendered even when the live
+                  hero data failed — it needs only the public bundle. Absent
+                  while the Phase 8E switch has CV Ranked off. */}
+              {cvRankedEnabled() && (
                 <CvChooser
                   navigate
+                  noteFitsButton
                   label={copy.rankByCv}
                   note={copy.rankByCvNote}
-                  className="inline-flex h-[46px] w-fit items-center rounded-[var(--radius)] border border-[var(--color-browse-accent)] px-[22px] text-[15px] font-semibold text-[var(--color-browse-accent)] transition-colors duration-150 hover:bg-[var(--color-browse-accent)] hover:text-[var(--color-browse-ink)]"
+                  className="inline-flex h-[50px] w-fit items-center rounded-[var(--radius)] border border-[var(--color-browse-accent)] px-[18px] text-[15px] font-semibold text-[var(--color-browse-accent)] transition-colors duration-150 hover:bg-[var(--color-browse-accent)] hover:text-[var(--color-browse-ink)]"
                 />
-              </div>
-            )}
+              )}
+            </div>
 
             {hero.ok && (
-              <div className="mt-11 flex animate-hero-fade-up flex-wrap gap-x-12 gap-y-6 border-t border-[var(--color-browse-border)] pt-6 [animation-delay:880ms] [animation-duration:700ms]">
+              <div className="mt-11 flex animate-hero-fade-up flex-wrap gap-x-12 gap-y-6 border-t border-[var(--color-browse-border)] pt-6 [animation-delay:880ms] [animation-duration:700ms] min-[1060px]:mt-[3svh] min-[1060px]:pt-[2svh]">
                 <Stat value={hero.openCount} label={copy.statOpenVacancies} locale={locale} />
                 <Stat value={hero.boardsCount} label={copy.statBoardsMerged} locale={locale} />
                 <Stat value={hero.trackedCount} label={copy.statListingsTracked} locale={locale} />
@@ -206,14 +214,30 @@ export default async function Page() {
             )}
           </div>
 
-          {hero.ok && (
+          {(hero.ok || crawlStatus !== null) && (
             <div className="animate-hero-fade-up [animation-delay:700ms] [animation-duration:800ms]">
-              <NewestPanel
-                rows={hero.panelRows}
-                openCount={hero.openCount}
-                copy={copy}
-                locale={locale}
-              />
+              {/* Each board's last full update and a countdown to its next
+                  scheduled one, above the newest listings it vouches for.
+                  Its own query, so it shows even when the hero data failed. */}
+              {crawlStatus !== null && (
+                <div className="mb-6">
+                  <CrawlStatus
+                    initial={crawlStatus.sources}
+                    initialNowMs={crawlStatus.nowMs}
+                    locale={locale}
+                    pollUrl="/api/crawl-status"
+                    tone="hero"
+                  />
+                </div>
+              )}
+              {hero.ok && (
+                <NewestPanel
+                  rows={hero.panelRows}
+                  openCount={hero.openCount}
+                  copy={copy}
+                  locale={locale}
+                />
+              )}
             </div>
           )}
         </div>
@@ -238,16 +262,6 @@ type HeroData =
       boardsLabel: string;
       boardsCount: number;
       trackedCount: number;
-      lastSync: string | undefined;
-      /**
-       * `lastSync`'s own honest label. `lastCompletedSync` (local) is a real
-       * full-coverage crawl completion, worth calling "synced"; `publicLastSeen`
-       * (public) is only the newest per-listing confirmation the public role can
-       * see — a single incrementally-confirmed listing can advance it with most
-       * of the catalogue still stale, so calling that "synced" too would assert
-       * a full-coverage guarantee this role has no way to back (Codex, 2026-09-24).
-       */
-      lastSyncLabel: string;
       openCount: number;
       panelRows: PanelRow[];
       tickerRows: OpportunityRow[];
@@ -282,17 +296,12 @@ const HEADLINE_DELAY_CLASSES = [
 async function loadBoardOverview(surface: ReturnType<typeof currentSurface>): Promise<{
   sortedSlugs: string[];
   trackedCount: number;
-  lastSync: string | undefined;
-  lastSyncLabel: string;
 }> {
   if (surface === 'public') {
     const overview = await publicSourceOverview(db);
     return {
       sortedSlugs: overview.map((source) => source.sourceSlug).sort(),
       trackedCount: overview.reduce((sum, source) => sum + source.trackedCount, 0),
-      lastSync: publicLastSeen(overview),
-      // Deliberately not "synced" — see `HeroData.lastSyncLabel`'s own comment.
-      lastSyncLabel: 'last confirmed',
     };
   }
   const health = await getSourceHealth(db);
@@ -305,28 +314,22 @@ async function loadBoardOverview(surface: ReturnType<typeof currentSurface>): Pr
     (sum, source) => sum + Object.values(source.listingsByStatus).reduce((a, b) => a + b, 0),
     0,
   );
-  return {
-    sortedSlugs,
-    trackedCount,
-    lastSync: lastCompletedSync(health),
-    lastSyncLabel: 'synced',
-  };
+  return { sortedSlugs, trackedCount };
 }
 
 async function loadHeroData(): Promise<HeroData> {
   try {
     const surface = currentSurface();
     const genuinelyOpenAsOf = new Date().toISOString();
-    const [{ sortedSlugs, trackedCount, lastSync, lastSyncLabel }, openCount, eligible] =
-      await Promise.all([
-        loadBoardOverview(surface),
-        surface === 'public'
-          ? publicCountOpportunities(db, { genuinelyOpenAsOf })
-          : countOpportunities(db, { genuinelyOpenAsOf }),
-        surface === 'public'
-          ? publicSearchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN })
-          : searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
-      ]);
+    const [{ sortedSlugs, trackedCount }, openCount, eligible] = await Promise.all([
+      loadBoardOverview(surface),
+      surface === 'public'
+        ? publicCountOpportunities(db, { genuinelyOpenAsOf })
+        : countOpportunities(db, { genuinelyOpenAsOf }),
+      surface === 'public'
+        ? publicSearchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN })
+        : searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
+    ]);
 
     const nowMs = Date.parse(genuinelyOpenAsOf);
     // Per-source "is THIS member genuinely open," not just the opportunity
@@ -359,8 +362,6 @@ async function loadHeroData(): Promise<HeroData> {
       boardsLabel: sortedSlugs.map((slug) => sourceLabel(slug)).join(' + '),
       boardsCount: sortedSlugs.length,
       trackedCount,
-      lastSync,
-      lastSyncLabel,
       openCount,
       panelRows,
       tickerRows,
@@ -371,6 +372,23 @@ async function loadHeroData(): Promise<HeroData> {
     // see the `hero.ok` checks above.
     console.error('landing hero: failed to load live data', err);
     return { ok: false };
+  }
+}
+
+/**
+ * Each board's crawl snapshot for `CrawlStatus`, with the clock it was read
+ * at so the first render matches on server and client. Null when the query
+ * fails: the line is left out rather than guessed.
+ */
+async function loadCrawlStatus(): Promise<{
+  sources: CrawlStatusSnapshot[];
+  nowMs: number;
+} | null> {
+  try {
+    return { sources: await getCrawlStatus(db), nowMs: Date.now() };
+  } catch (err) {
+    console.error('landing: failed to load crawl status', err);
+    return null;
   }
 }
 
@@ -452,12 +470,16 @@ function NewestPanel({
           </p>
         ) : (
           <>
-            {rows.map((panelRow) => (
+            {rows.map((panelRow, index) => (
               <NewestRow
                 key={panelRow.row.opportunityId}
                 panelRow={panelRow}
                 copy={copy}
                 locale={locale}
+                // Three rows on a short desktop screen, so the page still
+                // fits one screen (the column is otherwise the taller one in
+                // Georgian, whose update lines wrap). "See all" follows.
+                hideWhenShort={index >= 3}
               />
             ))}
             <a
@@ -477,15 +499,21 @@ function NewestRow({
   panelRow,
   copy,
   locale,
+  hideWhenShort = false,
 }: {
   panelRow: PanelRow;
   copy: HeroCopy;
   locale: Locale;
+  hideWhenShort?: boolean;
 }) {
   const { row, openSourceSlugs } = panelRow;
   const employers = row.employers.join(' · ');
   return (
-    <div className="flex items-start gap-3.5 border-b border-[var(--color-browse-border)] px-[18px] py-4 last:border-b-0">
+    <div
+      className={`flex items-start gap-3.5 border-b border-[var(--color-browse-border)] px-[18px] py-4 last:border-b-0 ${
+        hideWhenShort ? 'lg:[@media(max-height:760px)]:hidden' : ''
+      }`}
+    >
       <span
         aria-hidden="true"
         className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-[var(--color-browse-accent)]"

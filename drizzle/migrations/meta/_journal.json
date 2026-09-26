@@ -253,6 +253,13 @@
       "when": 1790431215787,
       "tag": "0035_puzzling_shocker",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790452347360,
+      "tag": "0036_funny_wilson_fisk",
+      "breakpoints": true
     }
   ]
 }

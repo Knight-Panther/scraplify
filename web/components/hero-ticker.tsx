@@ -125,7 +125,7 @@ export function HeroTicker({
   return (
     <div
       ref={wrapperRef}
-      className="group relative mt-14 w-full overflow-hidden border-t border-[var(--color-browse-border)] bg-[var(--color-browse-panel)]"
+      className="group relative mt-14 w-full overflow-hidden lg:mt-[3svh] border-t border-[var(--color-browse-border)] bg-[var(--color-browse-panel)]"
     >
       {/* Nothing to toggle once the OS preference has already frozen the
           strip — a "Pause" button over already-stationary content is a

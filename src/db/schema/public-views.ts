@@ -5,6 +5,7 @@ import {
   opportunitySourceMemberships,
   opportunityTypeEnum,
 } from './opportunities.js';
+import { crawlRunStatusEnum, crawlRuns } from './runs.js';
 import {
   sourceListingRevisions,
   sourceListingStatusEnum,
@@ -215,4 +216,41 @@ export const publicSourceListings = pgView('public_source_listings', {
   inner join ${sources} on ${sources.id} = ${sourceListings.sourceId}
   inner join ${sourceListingRevisions} on ${sourceListingRevisions.id} = ${sourceListings.currentRevisionId}
   where ${sourceListings.status} <> 'quarantined'
+`);
+
+/**
+ * Each source's crawl freshness, for the "last update / next update" line on
+ * the landing pages: its newest run's start and status, and when its newest
+ * `completed` run finished. Deliberately nothing else from `crawl_runs`: no
+ * run ids, counts, error state or history. Granted to `scraplify_public`
+ * like the views above (`scripts/sql/phase-8b-public-role.sql`).
+ */
+export const publicCrawlStatus = pgView('public_crawl_status', {
+  sourceSlug: text('source_slug').notNull(),
+  lastRunStartedAt: timestamp('last_run_started_at', { mode: 'string', withTimezone: true }),
+  lastRunStatus: crawlRunStatusEnum('last_run_status'),
+  lastCompletedAt: timestamp('last_completed_at', { mode: 'string', withTimezone: true }),
+}).as(sql`
+  select
+    ${sources.slug} as source_slug,
+    latest.started_at as last_run_started_at,
+    latest.status as last_run_status,
+    completed.finished_at as last_completed_at
+  from ${sources}
+  left join lateral (
+    select ${crawlRuns.startedAt} as started_at, ${crawlRuns.status} as status
+    from ${crawlRuns}
+    where ${crawlRuns.sourceId} = ${sources.id}
+    order by ${crawlRuns.startedAt} desc
+    limit 1
+  ) latest on true
+  left join lateral (
+    select ${crawlRuns.finishedAt} as finished_at
+    from ${crawlRuns}
+    where ${crawlRuns.sourceId} = ${sources.id}
+      and ${crawlRuns.status} = 'completed'
+      and ${crawlRuns.finishedAt} is not null
+    order by ${crawlRuns.finishedAt} desc
+    limit 1
+  ) completed on true
 `);

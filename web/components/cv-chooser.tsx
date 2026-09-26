@@ -22,11 +22,17 @@ export function CvChooser({
   label,
   note,
   navigate = false,
+  noteFitsButton = false,
   className,
 }: {
   label: string;
   note: string;
   navigate?: boolean;
+  /**
+   * The note wraps within the button's width instead of widening the
+   * chooser: on the landing page it sits in one row with other buttons.
+   */
+  noteFitsButton?: boolean;
   className: string;
 }) {
   const { start } = useCvSession();
@@ -34,7 +40,7 @@ export function CvChooser({
   const noteId = useId();
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={`flex flex-col gap-1.5 ${noteFitsButton ? 'w-fit' : ''}`}>
       <label
         className={`${className} cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-4 has-[:focus-visible]:outline-[var(--color-browse-accent)]`}
       >
@@ -55,7 +61,10 @@ export function CvChooser({
           }}
         />
       </label>
-      <span id={noteId} className="text-xs text-[var(--color-browse-text-muted)]">
+      <span
+        id={noteId}
+        className={`text-xs text-[var(--color-browse-text-muted)] ${noteFitsButton ? 'w-0 min-w-full' : ''}`}
+      >
         {note}
       </span>
     </div>

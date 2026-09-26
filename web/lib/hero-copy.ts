@@ -6,11 +6,9 @@ import type { Locale } from './locale.js';
  *
  * Scope is deliberately narrow: brand and source names ("Xtelo", "jobs.ge",
  * "hr.ge") are never translated here — they're rendered from
- * `sourceLabel`/hardcoded strings elsewhere, not from this file — and the
- * "synced X ago" kicker fragment stays English in both locales, because it
- * runs through `relativeTime` (`lib/format.ts`), which is shared by every
- * other screen and hardcoded to `Intl.RelativeTimeFormat('en', ...)`.
- * Localizing that would ripple into screens this change doesn't touch.
+ * `sourceLabel`/hardcoded strings elsewhere, not from this file. The
+ * per-board "last update / next update" line has its own copy
+ * (`lib/crawl-status-copy.ts`).
  */
 /** One visual line of the hero headline, as one or more coloured runs —
  * a line can straddle the plain/accent boundary (Georgian's does, see KA
