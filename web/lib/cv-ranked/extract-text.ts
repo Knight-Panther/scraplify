@@ -1,6 +1,6 @@
-import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs';
+import { docxText as docxToText } from '../../../src/cv-parsing/docx-text.js';
 import { CvError, type CvKind, LIMITS, letterCount, sniffKind } from './document-checks.js';
 import type { DocumentSummary } from './protocol.js';
 
@@ -69,8 +69,7 @@ async function pdfText(bytes: Uint8Array): Promise<{ text: string; pages: number
 async function docxText(bytes: Uint8Array): Promise<string> {
   try {
     const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    const result = await mammoth.extractRawText({ arrayBuffer: buffer as ArrayBuffer });
-    return result.value;
+    return await docxToText({ arrayBuffer: buffer as ArrayBuffer });
   } catch {
     throw new CvError('unreadable');
   }
