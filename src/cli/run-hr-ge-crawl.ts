@@ -1,12 +1,13 @@
 import { sql } from 'drizzle-orm';
 import { runHrGeCrawl } from '../adapters/hr-ge/crawl.js';
-import { db } from '../db/client.js';
+import { db, pool } from '../db/client.js';
+import { acquireCrawlProcessLock } from '../db/crawl-process-lock.js';
 import { CrawlAlreadyRunningError } from '../db/ingest.js';
 import { logger } from '../logger.js';
 import { createHttpFetcher } from '../net/http-fetcher.js';
 import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
-import { hrGePolicy, isHrGeUrlAllowed } from '../policies/hr-ge.js';
+import { hrGePolicy, hrGeSource, isHrGeUrlAllowed } from '../policies/hr-ge.js';
 import { parseHrGeOptions } from './hr-ge-options.js';
 
 /**
@@ -28,6 +29,22 @@ async function main(): Promise<void> {
       'hr.ge crawl: database preflight check failed — aborting rather than skipping silently',
     );
     throw err;
+  }
+
+  const lock = await acquireCrawlProcessLock(pool, hrGeSource.id);
+  if (lock === null) {
+    logger.error(
+      { sourceId: hrGeSource.id },
+      'hr.ge crawl: another crawl process for this source is running — skipping this invocation',
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (lock.settledOrphanRunIds.length > 0) {
+    logger.warn(
+      { crawlRunIds: lock.settledOrphanRunIds },
+      'hr.ge crawl: settled runs left unsettled by a crawl process that died, as failed',
+    );
   }
 
   const httpFetcher = createHttpFetcher({
@@ -75,7 +92,7 @@ async function main(): Promise<void> {
     if (err instanceof CrawlAlreadyRunningError) {
       logger.error(
         { sourceId: err.sourceId },
-        "hr.ge crawl: a run is already in progress for this source, or an earlier run crashed before settling — skipping this invocation. If no crawl is actually running, clear the stale lock: update crawl_runs set status = 'failed', reconciled_at = now() where source_id = '<id>' and reconciled_at is null",
+        'hr.ge crawl: an unsettled run exists for this source that no lock-holding process owns — skipping this invocation',
       );
       process.exitCode = 1;
       return;
@@ -84,6 +101,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     await httpFetcher.close();
+    await lock.release();
   }
 }
 
