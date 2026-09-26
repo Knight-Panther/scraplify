@@ -1,14 +1,14 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-27 (Phase 7C built: incremental crawling and crawl self-healing, PR open).
+Last updated: 2026-09-27 (Phase 7C merged: incremental crawling and crawl self-healing, PR #25).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
 ## Current phase: Phase 7C — incremental crawling and retention
 
-**Built 2026-09-27 on `phase-7c-incremental-crawl`; retention deferred.** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md).
+**Merged 2026-09-27 (PR #25); retention deferred.** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md).
 
-- **Plan steps 1–5 and 8 are done.** Migration 0035 is additive: `source_listings.discovery_fingerprint`, `crawl_runs.skipped_count`, a partial index on open listings and `fetch_attempts(attempted_at)`. It is applied to `scraplify_qa`. **It is not applied to `scraplify` yet**: the automation was not allowed to write the real DB, so the owner runs it (see "Owner action" below).
+- **Plan steps 1–5 and 8 are done.** Migration 0035 is additive: `source_listings.discovery_fingerprint`, `crawl_runs.skipped_count`, a partial index on open listings and `fetch_attempts(attempted_at)`. It is applied to `scraplify_qa` and, with the owner's OK on 2026-09-27, to `scraplify` as `scraplify_migration` (columns and indexes verified; 9,701 listings untouched).
   - Both discovery parsers compute a list-page fingerprint, and `needsDetailFetch` decides per listing: `fetch`, `adopt` (bootstrap) or `skip`.
   - 20 random canaries are fetched each run.
   - The quarantine and fetch-failure guards divide by pages fetched.
@@ -19,12 +19,7 @@ This file is the **current-state index**: what is done, what is open, and what g
   - hr.ge run 1: 100 fetched, 349 s. Run 2: **80 skipped, 20 canaries fetched, 0 canaries changed, 76 s**. The fingerprints are stable on live pages.
   - jobs.ge run 1: 310 fetched, 1,628 s (27 min at the 5 s crawl delay). Run 2: **290 skipped, 20 canaries fetched, 0 canaries changed, 105 s** (15× faster).
 - **Step 6 (retention) is deferred.** The corpus starts on 2026-09-02, so its 90- and 180-day rules would delete nothing before December. It is not needed for the MVP; build it before 2026-12.
-- **Owner action to go live:**
-  1. Merge the PR.
-  2. Apply migration 0035 to `scraplify` as `scraplify_migration` (additive, no data change).
-  3. Run `npm run build`, so the scheduled `dist/` has 7C and the lock.
-
-  The next scheduled crawl settles the dead jobs.ge run `df60e7db…` (its process died in the 2026-09-26 shutdown) by itself. It then adopts fingerprints, without fetching, for listings fetched in the last 7 days (all of hr.ge and about 3,000 jobs.ge listings from the 2026-09-26 runs, if applied by 2026-10-03), and fetches the rest once.
+- **Merged in PR #25 and built into `dist/` on 2026-09-27.** The next scheduled crawl settles the dead jobs.ge run `df60e7db…` (its process died in the 2026-09-26 shutdown) by itself. It then adopts fingerprints, without fetching, for listings fetched in the last 7 days (all of hr.ge and about 3,000 jobs.ge listings from the 2026-09-26 runs, if applied by 2026-10-03), and fetches the rest once.
 
 ## Phase 8E — hosted readiness (host-independent work merged 2026-09-26, PR #24)
 
@@ -115,7 +110,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
 | 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, alert channel, hr.ge permission (`docs/RIGHTS.md`), hosted drills. Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
-| 7C — incremental crawling and retention | **built, PR open**; retention deferred | — | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 is on `scraplify_qa` only until the owner applies it to `scraplify`. |
+| 7C — incremental crawling and retention | merged; retention deferred | #25 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 
