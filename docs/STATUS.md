@@ -1,12 +1,16 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-26 (PR #23, Phase 8D).
+Last updated: 2026-09-26 (PR #24, Phase 8E host-independent work and hybrid CV matching).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
-## Current phase: Phase 8E — hosted readiness
+## Current phase: Phase 7C — incremental crawling and retention
 
-**In progress: every item that needs no host is done (stages 1–6); stage 7 is owner and host work.** **Branch:** `phase-8e-hosted-readiness`. **Scope** (change.md §10, §11, §13, §15): production runbook and restore rehearsal, least-privilege secrets, schedules and heartbeats, two hosted profiles and domains, TLS/CSP/rate limits/probes, an alert channel, load/accessibility/security evidence, rights and licences, and rollback drills.
+**Next, owner-approved 2026-09-26.** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md). Fetch detail pages only for new or changed list rows, keep the full list walk so closure still works, add a canary sample, and add a retention job. A crawl drops from hours to about 15–30 min. Show the owner the migration before applying it to the real DB.
+
+## Phase 8E — hosted readiness (host-independent work merged 2026-09-26, PR #24)
+
+**Stages 1–6 done and merged; stage 7 is owner and host work and stays open.** **Scope** (change.md §10, §11, §13, §15): production runbook and restore rehearsal, least-privilege secrets, schedules and heartbeats, two hosted profiles and domains, TLS/CSP/rate limits/probes, an alert channel, load/accessibility/security evidence, rights and licences, and rollback drills.
 
 **Exit:** every release item has current evidence. A local demo is not hosted readiness. The owner has asked for everything that does not need a host to be finished first; the stages below are ordered that way, and the ones that need a host or an owner decision are marked.
 
@@ -52,7 +56,7 @@ This file is the **current-state index**: what is done, what is open, and what g
    - the alert channel;
    - hosted probe, restore and rollback evidence.
 
-## Open operational issues (not phase work, but blocking real freshness)
+**CV matching, also on this branch.** Evidence discipline plus a 32-CV synthetic regression suite (P@10 .397 → .709), then semantic matching:
 
 - **Decided 2026-09-26: semantic CV matching uses E1** (`e1b`: multilingual-e5-small distilled into a static table, 256 dims, int8, 8.5 MB). On 1,270 judged CV–vacancy pairs (34 CVs), lexical plus E1 scores nDCG@10 .788 against .709 for lexical alone. It is the best of the three candidates (Potion-multilingual .752, static-similarity-MRL .743), the smallest, the best at Georgian tokenization, and MIT-licensed. The other candidates are closed.
 - **Wired 2026-09-26: CV Ranked ranks with `hybrid-v1`** (`src/matching/semantic/hybrid.ts`). Weighted reciprocal-rank fusion of the lexical ranker (weight 1) with three quarter-weight lists: lexical matching against each title's dictionary English key (whole roles only), and E1 title similarity to the profile's active roles and the CV's short lines, Georgian titles and English keys. Similarity lists keep rows within 0.9 of their best cosine. Judged with the production code: nDCG@10 .798 (lexical .709; Russian CV .698 from 0). Non-relevant similarity-only rows in the suite's top 20s went from 56 to 18 with the floor. Pair-level similarity is noisy (static model), which is why it only ever ranks after word matches.
@@ -60,9 +64,11 @@ This file is the **current-state index**: what is done, what is open, and what g
   - If the model fails to load or verify, CV Ranked ranks by words alone and says so.
   - Switching off or removing a CV-derived term also drops the CV lines containing it from similarity.
   - Browser-checked on the dev server with a synthetic English CV: results in 2.4 s (localhost), only the four expected GETs, no console errors, no overflow at 390/768/1280/1920. Still owed: the privacy e2e (`npm run test:e2e:privacy`, updated to allow the two model files) against a production build, and a cold-load measurement on a throttled mid-range profile for the 20 s gate (the ~8 MB gzipped model is ≈6.4 s at 10 Mbps on paper).
-- **Next: Phase 7C, incremental crawling and retention** (owner-approved 2026-09-26). Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md). Fetch detail pages only for new or changed list rows, keep the full list walk so closure still works, add a canary sample, and add a retention job. A crawl drops from hours to about 15–30 min.
+- **Matching work stops here for the MVP** (owner, 2026-09-26). The next real lever, if matching quality is revisited, is vacancy-side: skills and roles extracted from descriptions at bundle-build time and shipped as term ids, never as text (descriptions are not republishable). No more model tuning.
 
-- **2026-09-26 update:** the Task Scheduler tasks fire again (both ran at 2026-09-25 20:10), but each crawl exits 1 at once. It refuses to start because of its own stale `running` row from 2026-09-16 (`crawl_runs` `77c999c9…` hr.ge and `2d030dcf…` jobs.ge). No crawl process was running. Dedupe and taxonomy still run after it. **Owner action:** settle the two rows as the crawler's own message says, `update crawl_runs set status = 'failed', reconciled_at = now() where id in ('77c999c9-0e6b-4452-9f49-abbd2ebd92c4', '2d030dcf-69a8-41a2-b756-439c487381e0') and status = 'running' and reconciled_at is null`. The next scheduled run (20:10 daily) then crawls. The automation was not allowed to write this to the real DB.
+## Open operational issues (not phase work, but blocking real freshness)
+
+- **Resolved 2026-09-26:** the two stale `running` rows from 2026-09-16 were settled (`reconciled_at` 2026-09-26 08:12 UTC) and a full jobs.ge crawl started (`df60e7db…`, still running at 17:40 local). Earlier note, kept for context: the Task Scheduler tasks fire again (both ran at 2026-09-25 20:10), but each crawl exits 1 at once. It refuses to start because of its own stale `running` row from 2026-09-16 (`crawl_runs` `77c999c9…` hr.ge and `2d030dcf…` jobs.ge). No crawl process was running. Dedupe and taxonomy still run after it. **Owner action:** settle the two rows as the crawler's own message says, `update crawl_runs set status = 'failed', reconciled_at = now() where id in ('77c999c9-0e6b-4452-9f49-abbd2ebd92c4', '2d030dcf-69a8-41a2-b756-439c487381e0') and status = 'running' and reconciled_at is null`. The next scheduled run (20:10 daily) then crawls. The automation was not allowed to write this to the real DB.
 - **Scheduled crawls have not run for 9+ days** (`npm run health:check`, 2026-09-25): both `jobs-ge` and `hr-ge` are critical `run_overdue`, each with a `crawl_runs` row stuck `running`. This is the second time. The first time, both schedules silently stopped after their first run on 2026-09-16 and were found on 2026-09-23 (a battery-power setting). That root cause was fixed, but the recovery was never confirmed. Because of the stale crawls, the Phase 8C bundle health gate correctly refuses to publish. The one active public bundle was built with `--override-health-gate`, which is recorded on the build and shown on `/admin/matching`. Needs: check the Task Scheduler registration (`scripts/register-crawl-schedule.ps1`), settle the stuck runs, and run one crawl per source. Self-healing of a stuck `running` row is Phase 7B work and is not built.
 - **Neither source has ever completed a full-coverage crawl** (jobs.ge ≈ 7.9h, hr.ge ≈ 2.75h), so closure of vanished listings has never run against live data (Phase 1C items 1, 2, 4).
 
@@ -90,7 +96,8 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | **in progress**; host-independent work done | — | Remaining: host, domains, OAuth app, role passwords, alert channel, hr.ge permission (`docs/RIGHTS.md`), hosted drills. |
+| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, alert channel, hr.ge permission (`docs/RIGHTS.md`), hosted drills. Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule); CV Ranked privacy e2e and a throttled cold-load check for the model are owed. |
+| 7C — incremental crawling and retention | **next** | — | Plan in `docs/PHASE_7C_PLAN.md`. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 
@@ -156,7 +163,8 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 ## Upcoming, most valuable first
 
 1. **Restore crawl freshness** (see the operational issues above). Every downstream freshness claim depends on it.
-2. **Phase 8E — hosted readiness** (current phase above). Real deployment evidence; a local demo is not hosted readiness.
-3. **Phase 7B — supervised repair**, once 7A schedules have run for days: stuck-run self-healing, parser-repair proposals and canaries, `pg-boss` only if heterogeneous durable work appears.
-4. **Phase 1C remainder:** full-coverage runs per source, closure against live data, coverage and overlap reports.
-5. **Model re-evaluation for semantic matching** (8A follow-up): a smaller multilingual candidate plus the 300+ human-labelled judgments. Only then add `embedding_models`/`opportunity_embeddings` and a vector bundle contract.
+2. **Phase 7C — incremental crawling and retention** (current phase above).
+3. **Phase 8E stage 7 — hosting** (owner and host work). Real deployment evidence; a local demo is not hosted readiness.
+4. **Phase 7B — supervised repair**, once 7A schedules have run for days: stuck-run self-healing, parser-repair proposals and canaries, `pg-boss` only if heterogeneous durable work appears.
+5. **Phase 1C remainder:** full-coverage runs per source, closure against live data, coverage and overlap reports.
+6. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (see the 8E section). The model question is closed (E1).
