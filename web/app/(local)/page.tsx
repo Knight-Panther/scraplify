@@ -66,7 +66,14 @@ export default async function Page() {
 
   return (
     <main>
-      <section className="relative flex min-h-[calc(100svh-58px)] flex-col justify-end overflow-hidden border-b border-[var(--color-browse-border)] bg-[var(--color-browse-ink)] lg:min-h-[calc(100svh-78px)]">
+      {/* On a two-column desktop the hero fills exactly the screen between
+          the 78px header and the 59px footer, so the whole page, ticker and
+          footer included, is visible without scrolling (owner request,
+          2026-09-27). Headline size and vertical spacing scale with the
+          viewport height there for the same reason. Still min-h, not h: a
+          window too short for even the smallest sizes scrolls instead of
+          clipping. Narrower screens stack and scroll as before. */}
+      <section className="relative flex min-h-[calc(100svh-58px)] flex-col justify-end overflow-hidden border-b border-[var(--color-browse-border)] bg-[var(--color-browse-ink)] lg:min-h-[calc(100svh-137px)]">
         <HeroVideo />
         {/* Legibility overlay, not the source reference's grid+glow layers —
             those exist as an alternative background for a page with no
@@ -86,7 +93,7 @@ export default async function Page() {
           }}
         />
 
-        <div className="relative mx-auto grid w-full max-w-[1440px] grid-cols-1 items-end gap-11 px-8 pt-14 min-[1060px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] min-[1060px]:gap-14 min-[1060px]:pt-16">
+        <div className="relative mx-auto grid w-full max-w-[1440px] grid-cols-1 items-end gap-11 px-8 pt-14 min-[1060px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] min-[1060px]:gap-14 min-[1060px]:pt-[3svh]">
           <div>
             {hero.ok && (
               <p className="numeric flex animate-hero-fade-up items-center gap-[9px] text-[11px] text-[var(--color-browse-accent)] uppercase [animation-duration:600ms]">
@@ -124,8 +131,8 @@ export default async function Page() {
                     // the English hero's 0.86. Smaller type does shrink the
                     // descenders in absolute px, but the rule is written as
                     // a ratio, not a pixel budget, so it still applies.
-                    'font-[family-name:var(--font-display-ka)] text-[clamp(20px,3.1vw,43px)] leading-[1.4]'
-                  : 'font-[family-name:var(--font-display)] text-[clamp(46px,7.4vw,104px)] leading-[0.86] uppercase'
+                    'font-[family-name:var(--font-display-ka)] text-[clamp(20px,3.1vw,43px)] leading-[1.4] min-[1060px]:text-[clamp(20px,min(3.1vw,calc(4.6svh-8px)),43px)]'
+                  : 'font-[family-name:var(--font-display)] text-[clamp(46px,7.4vw,104px)] leading-[0.86] uppercase min-[1060px]:text-[clamp(40px,min(7.4vw,calc(10.5svh-28px)),104px)]'
               }`}
             >
               {copy.headline.map((runs, index) => (
@@ -140,91 +147,97 @@ export default async function Page() {
 
             <div
               aria-hidden="true"
-              className="mt-[26px] h-0.5 w-full animate-hero-sweep bg-[var(--color-browse-accent)]"
+              className="mt-[26px] h-0.5 w-full animate-hero-sweep min-[1060px]:mt-[2svh] bg-[var(--color-browse-accent)]"
             />
 
-            <p className="mt-[22px] max-w-[52ch] animate-hero-fade-up text-base text-[var(--color-browse-text-muted)] leading-[var(--leading-body)] [animation-delay:640ms] [animation-duration:700ms]">
+            <p className="mt-[22px] max-w-[64ch] animate-hero-fade-up min-[1060px]:mt-[2svh] text-base text-[var(--color-browse-text-muted)] leading-[var(--leading-body)] [animation-delay:640ms] [animation-duration:700ms]">
               {copy.subhead}
             </p>
 
-            <div className="mt-[30px] flex animate-hero-fade-up flex-wrap items-center gap-3 [animation-delay:760ms] [animation-duration:700ms]">
-              <a
-                href="/opportunities?status=active"
-                className="inline-flex h-[50px] items-center rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-[26px] text-[15px] font-bold text-[var(--color-browse-ink)] transition-colors duration-150 hover:bg-[var(--color-browse-accent-hover)]"
-              >
-                {copy.browseOpenings}
-              </a>
-              {/* "Get daily alerts" in the design reference has no backend
+            {/* One row: the two links with "no account needed" under them,
+                and the CV chooser with its privacy note under it. */}
+            <div className="mt-[30px] flex animate-hero-fade-up flex-wrap items-start gap-3 [animation-delay:760ms] [animation-duration:700ms] min-[1060px]:mt-[3svh]">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex flex-wrap gap-3">
+                  <a
+                    href="/opportunities?status=active"
+                    className="inline-flex h-[50px] items-center rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-5 text-[15px] font-bold text-[var(--color-browse-ink)] transition-colors duration-150 hover:bg-[var(--color-browse-accent-hover)]"
+                  >
+                    {copy.browseOpenings}
+                  </a>
+                  {/* "Get daily alerts" in the design reference has no backend
                   anywhere in this app (no route, no schema) — a disabled or
                   dead-linked button would violate this product's own
                   never-invented rule as much as fake data would. Real second
                   destination instead: both params are genuine and round-trip
                   through parseOpportunityQuery. */}
-              <a
-                href="/opportunities?status=active&closing=7"
-                className="inline-flex h-[50px] items-center rounded-[var(--radius)] border border-[var(--color-browse-border-control)] px-[22px] text-[15px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-border-control-hover)] hover:text-white"
-              >
-                {copy.closingSoon}
-              </a>
-              {/* `.numeric` is Space Mono, which has no Georgian coverage
+                  <a
+                    href="/opportunities?status=active&closing=7"
+                    className="inline-flex h-[50px] items-center rounded-[var(--radius)] border border-[var(--color-browse-border-control)] px-[18px] text-[15px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-border-control-hover)] hover:text-white"
+                  >
+                    {copy.closingSoon}
+                  </a>
+                </div>
+                {/* `.numeric` is Space Mono, which has no Georgian coverage
                   (fonts.ts) — kept only for the English copy, which used it
                   for SynapseX's monospace chrome look; Georgian falls back
                   to the default `--font-sans` (Noto Sans Georgian), which
                   actually covers it. */}
-              <span
-                className={`${locale === 'en' ? 'numeric' : ''} text-xs text-[var(--color-browse-text-muted)]`}
-              >
-                {copy.noAccountNeeded}
-              </span>
-            </div>
+                <span
+                  className={`${locale === 'en' ? 'numeric' : ''} text-xs text-[var(--color-browse-text-muted)]`}
+                >
+                  {copy.noAccountNeeded}
+                </span>
+              </div>
 
-            {/* Phase 8D: the CV is read in this tab's worker and the page
-                client-navigates to /cv-ranked. Rendered even when the live
-                hero data failed — it needs only the public bundle. Absent
-                while the Phase 8E switch has CV Ranked off. */}
-            {cvRankedEnabled() && (
-              <div className="mt-5 animate-hero-fade-up [animation-delay:820ms] [animation-duration:700ms]">
+              {/* Phase 8D: the CV is read in this tab's worker and the page
+                  client-navigates to /cv-ranked. Rendered even when the live
+                  hero data failed — it needs only the public bundle. Absent
+                  while the Phase 8E switch has CV Ranked off. */}
+              {cvRankedEnabled() && (
                 <CvChooser
                   navigate
+                  noteFitsButton
                   label={copy.rankByCv}
                   note={copy.rankByCvNote}
-                  className="inline-flex h-[46px] w-fit items-center rounded-[var(--radius)] border border-[var(--color-browse-accent)] px-[22px] text-[15px] font-semibold text-[var(--color-browse-accent)] transition-colors duration-150 hover:bg-[var(--color-browse-accent)] hover:text-[var(--color-browse-ink)]"
+                  className="inline-flex h-[50px] w-fit items-center rounded-[var(--radius)] border border-[var(--color-browse-accent)] px-[18px] text-[15px] font-semibold text-[var(--color-browse-accent)] transition-colors duration-150 hover:bg-[var(--color-browse-accent)] hover:text-[var(--color-browse-ink)]"
                 />
-              </div>
-            )}
+              )}
+            </div>
 
             {hero.ok && (
-              <div className="mt-11 flex animate-hero-fade-up flex-wrap gap-x-12 gap-y-6 border-t border-[var(--color-browse-border)] pt-6 [animation-delay:880ms] [animation-duration:700ms]">
+              <div className="mt-11 flex animate-hero-fade-up flex-wrap gap-x-12 gap-y-6 border-t border-[var(--color-browse-border)] pt-6 [animation-delay:880ms] [animation-duration:700ms] min-[1060px]:mt-[3svh] min-[1060px]:pt-[2svh]">
                 <Stat value={hero.openCount} label={copy.statOpenVacancies} locale={locale} />
                 <Stat value={hero.boardsCount} label={copy.statBoardsMerged} locale={locale} />
                 <Stat value={hero.trackedCount} label={copy.statListingsTracked} locale={locale} />
               </div>
             )}
-
-            {/* Each board's last full update and a countdown to its next
-                scheduled one; the freshness claim on this page. Its own
-                query, so it shows even when the hero data above failed. */}
-            {crawlStatus !== null && (
-              <div className="mt-6 animate-hero-fade-up [animation-delay:940ms] [animation-duration:700ms]">
-                <CrawlStatus
-                  initial={crawlStatus.sources}
-                  initialNowMs={crawlStatus.nowMs}
-                  locale={locale}
-                  pollUrl="/api/crawl-status"
-                  tone="hero"
-                />
-              </div>
-            )}
           </div>
 
-          {hero.ok && (
+          {(hero.ok || crawlStatus !== null) && (
             <div className="animate-hero-fade-up [animation-delay:700ms] [animation-duration:800ms]">
-              <NewestPanel
-                rows={hero.panelRows}
-                openCount={hero.openCount}
-                copy={copy}
-                locale={locale}
-              />
+              {/* Each board's last full update and a countdown to its next
+                  scheduled one, above the newest listings it vouches for.
+                  Its own query, so it shows even when the hero data failed. */}
+              {crawlStatus !== null && (
+                <div className="mb-6">
+                  <CrawlStatus
+                    initial={crawlStatus.sources}
+                    initialNowMs={crawlStatus.nowMs}
+                    locale={locale}
+                    pollUrl="/api/crawl-status"
+                    tone="hero"
+                  />
+                </div>
+              )}
+              {hero.ok && (
+                <NewestPanel
+                  rows={hero.panelRows}
+                  openCount={hero.openCount}
+                  copy={copy}
+                  locale={locale}
+                />
+              )}
             </div>
           )}
         </div>
@@ -457,12 +470,16 @@ function NewestPanel({
           </p>
         ) : (
           <>
-            {rows.map((panelRow) => (
+            {rows.map((panelRow, index) => (
               <NewestRow
                 key={panelRow.row.opportunityId}
                 panelRow={panelRow}
                 copy={copy}
                 locale={locale}
+                // Three rows on a short desktop screen, so the page still
+                // fits one screen (the column is otherwise the taller one in
+                // Georgian, whose update lines wrap). "See all" follows.
+                hideWhenShort={index >= 3}
               />
             ))}
             <a
@@ -482,15 +499,21 @@ function NewestRow({
   panelRow,
   copy,
   locale,
+  hideWhenShort = false,
 }: {
   panelRow: PanelRow;
   copy: HeroCopy;
   locale: Locale;
+  hideWhenShort?: boolean;
 }) {
   const { row, openSourceSlugs } = panelRow;
   const employers = row.employers.join(' · ');
   return (
-    <div className="flex items-start gap-3.5 border-b border-[var(--color-browse-border)] px-[18px] py-4 last:border-b-0">
+    <div
+      className={`flex items-start gap-3.5 border-b border-[var(--color-browse-border)] px-[18px] py-4 last:border-b-0 ${
+        hideWhenShort ? 'lg:[@media(max-height:760px)]:hidden' : ''
+      }`}
+    >
       <span
         aria-hidden="true"
         className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-[var(--color-browse-accent)]"

@@ -114,30 +114,36 @@ export function CrawlStatus({
     <section aria-label={copy.heading}>
       <ul className={`flex flex-col gap-1.5 leading-[var(--leading-body)] ${classes.list}`}>
         {views.map((view) => (
-          <li key={view.sourceSlug} className="flex flex-wrap items-baseline gap-x-2">
-            <span className="flex min-w-[5.25rem] items-center gap-2">
+          // Two columns, so a line that wraps (Georgian, or a narrow
+          // column) continues under the text rather than under the dot.
+          // Spacing, not a "·", separates the two parts: a separator would
+          // dangle at the end of a wrapped line.
+          <li
+            key={view.sourceSlug}
+            className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-baseline gap-x-2"
+          >
+            <span className="flex items-center gap-2">
               <StateDot view={view} dotClass={classes.dot} />
               <span className={classes.source} translate="no">
                 {sourceLabel(view.sourceSlug)}
               </span>
             </span>
-            <span>
-              {copy.lastUpdate}{' '}
-              {view.lastUpdatedAt === null ? (
-                copy.noUpdateYet
-              ) : (
-                <time dateTime={view.lastUpdatedAt} className="tabular-nums">
-                  {updateDateTime(view.lastUpdatedAt, locale)}
-                </time>
-              )}
-              {view.lastAttemptIncomplete && view.state.kind !== 'updating' && (
-                <> ({copy.lastAttemptIncomplete})</>
-              )}
+            <span className="flex flex-wrap gap-x-4">
+              <span>
+                {copy.lastUpdate}{' '}
+                {view.lastUpdatedAt === null ? (
+                  copy.noUpdateYet
+                ) : (
+                  <time dateTime={view.lastUpdatedAt} className="whitespace-nowrap tabular-nums">
+                    {updateDateTime(view.lastUpdatedAt, locale)}
+                  </time>
+                )}
+                {view.lastAttemptIncomplete && view.state.kind !== 'updating' && (
+                  <> ({copy.lastAttemptIncomplete})</>
+                )}
+              </span>
+              <StateText view={view} nowMs={nowMs} locale={locale} />
             </span>
-            <span aria-hidden="true" className="hidden sm:inline">
-              ·
-            </span>
-            <StateText view={view} nowMs={nowMs} locale={locale} />
           </li>
         ))}
       </ul>
@@ -177,7 +183,7 @@ function StateText({
       <time
         dateTime={view.nextUpdateAt}
         title={updateDateTime(view.nextUpdateAt, locale)}
-        className="tabular-nums"
+        className="whitespace-nowrap tabular-nums"
       >
         {countdown(Date.parse(view.nextUpdateAt), nowMs, locale)}
       </time>
