@@ -1,8 +1,9 @@
 import { promisify } from 'node:util';
 import { brotliDecompress, gunzip, inflate, zstdDecompress } from 'node:zlib';
-import { Agent, request } from 'undici';
 import type { Dispatcher } from 'undici';
+import { Agent, request } from 'undici';
 import { classifyIpAddress } from '../domain/index.js';
+import { logger } from '../logger.js';
 import type { RateLimiter } from './rate-limiter.js';
 import { createSsrfSafeLookup, SsrfBlockedError } from './ssrf-lookup.js';
 
@@ -19,6 +20,31 @@ const decompressors = {
 };
 
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+/** The source is telling us to slow down. */
+const BACK_OFF_STATUS_CODES = new Set([429, 503]);
+const BACK_OFF_BASE_MS = 5_000;
+const BACK_OFF_MAX_MS = 60_000;
+
+/**
+ * Spacing after the source pushes back: its Retry-After when it sends one,
+ * otherwise 5 s doubling with each push-back this run, capped at 60 s.
+ */
+export function backOffSpacingMs(
+  retryAfter: string | string[] | undefined,
+  previousBackOffs: number,
+  now: number = Date.now(),
+): number {
+  const exponential = BACK_OFF_BASE_MS * 2 ** previousBackOffs;
+  const value = Array.isArray(retryAfter) ? retryAfter[0] : retryAfter;
+  let requested = 0;
+  if (value !== undefined) {
+    const trimmed = value.trim();
+    requested = /^\d+$/.test(trimmed)
+      ? Number(trimmed) * 1000
+      : Math.max(0, (Date.parse(trimmed) || now) - now);
+  }
+  return Math.min(BACK_OFF_MAX_MS, Math.max(exponential, requested));
+}
 
 export class UrlNotAllowedError extends Error {
   readonly code = 'ERR_URL_NOT_ALLOWED';
@@ -225,6 +251,18 @@ export function createHttpFetcher(options: HttpFetcherOptions): HttpFetcher {
         // fetch start mid-transfer, violating maxConcurrency and a
         // crawl-delay meant to be measured from completion (see
         // rate-limiter.ts's own acquire() contract).
+        if (BACK_OFF_STATUS_CODES.has(response.statusCode)) {
+          const spacingMs = backOffSpacingMs(
+            response.headers['retry-after'],
+            options.rateLimiter.backOffCount,
+          );
+          options.rateLimiter.backOff(spacingMs);
+          logger.warn(
+            { url: currentUrl, status: response.statusCode, spacingMs },
+            'source is rate-limiting this crawler: slowing down for the rest of this run',
+          );
+        }
+
         const location = response.headers.location;
         const locationValue = Array.isArray(location) ? location[0] : location;
         if (REDIRECT_STATUS_CODES.has(response.statusCode) && locationValue !== undefined) {

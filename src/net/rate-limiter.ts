@@ -14,6 +14,15 @@ export interface RateLimiter {
    * from when acquire() resolved.
    */
   acquire(): Promise<() => void>;
+  /**
+   * The source pushed back (429/503): from now on, requests start at least
+   * `spacingMs` apart, counted from the one in flight. Only ever raises the
+   * spacing; the limiter lives for one crawl process, so the next run
+   * starts at the policy's own pace again.
+   */
+  backOff(spacingMs: number): void;
+  /** How many times backOff() has been called: reported in the run's log. */
+  readonly backOffCount: number;
 }
 
 /**
@@ -38,8 +47,8 @@ export interface RateLimiter {
  */
 export function createRateLimiter(rateLimit: RateLimitConfig): RateLimiter {
   const { maxConcurrency } = rateLimit;
-  const minSpacingMs =
-    rateLimit.crawlDelaySeconds === null ? 0 : rateLimit.crawlDelaySeconds * 1000;
+  let minSpacingMs = rateLimit.crawlDelaySeconds === null ? 0 : rateLimit.crawlDelaySeconds * 1000;
+  let backOffCount = 0;
 
   let active = 0;
   let earliestNextStart = 0;
@@ -81,5 +90,17 @@ export function createRateLimiter(rateLimit: RateLimitConfig): RateLimiter {
     });
   }
 
-  return { acquire };
+  function backOff(spacingMs: number): void {
+    backOffCount++;
+    minSpacingMs = Math.max(minSpacingMs, spacingMs);
+    earliestNextStart = Math.max(earliestNextStart, Date.now() + spacingMs);
+  }
+
+  return {
+    acquire,
+    backOff,
+    get backOffCount() {
+      return backOffCount;
+    },
+  };
 }

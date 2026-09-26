@@ -1542,7 +1542,8 @@ describe('runJobsGeCrawl', () => {
     await ensureJobsGeSourceSeeded(db);
     await syncSourcePolicy(db, {
       ...jobsGePolicy,
-      reviewDate: '2026-09-20T00:00:00Z',
+      // A day after this deployment's own revision, whatever that is.
+      reviewDate: new Date(Date.parse(jobsGePolicy.reviewDate) + 86_400_000).toISOString(),
       notes: 'a newer, more restrictive revision already active in the database',
     });
 

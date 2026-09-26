@@ -1,7 +1,8 @@
-import { MockAgent } from 'undici';
 import { brotliCompressSync, gzipSync, zstdCompressSync } from 'node:zlib';
+import { MockAgent } from 'undici';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  backOffSpacingMs,
   createHttpFetcher,
   ResponseTooLargeError,
   TooManyRedirectsError,
@@ -324,5 +325,54 @@ describe('createHttpFetcher', () => {
     // The injected mockAgent must still be usable — close() must have been a no-op on it.
     mockAgent.get(ORIGIN).intercept({ path: '/still-open', method: 'GET' }).reply(200, 'ok');
     await expect(fetcher.fetch(`${ORIGIN}/still-open`)).resolves.toMatchObject({ status: 200 });
+  });
+
+  it('backs the limiter off when the source answers 429 or 503, and still returns the response', async () => {
+    mockAgent.get(ORIGIN).intercept({ path: '/limited', method: 'GET' }).reply(429, 'slow down');
+    mockAgent
+      .get(ORIGIN)
+      .intercept({ path: '/busy', method: 'GET' })
+      .reply(503, 'busy', { headers: { 'retry-after': '30' } });
+    mockAgent.get(ORIGIN).intercept({ path: '/ok', method: 'GET' }).reply(200, 'ok');
+    const backOffs: number[] = [];
+    const tracked: RateLimiter = {
+      acquire: () => rateLimiter.acquire(),
+      backOff: (ms) => {
+        backOffs.push(ms);
+        rateLimiter.backOff(0);
+      },
+      get backOffCount() {
+        return rateLimiter.backOffCount;
+      },
+    };
+    const fetcher = createHttpFetcher({
+      isUrlAllowed: allowAll,
+      rateLimiter: tracked,
+      userAgent: USER_AGENT,
+      dispatcher: mockAgent,
+    });
+
+    await expect(fetcher.fetch(`${ORIGIN}/limited`)).resolves.toMatchObject({ status: 429 });
+    await expect(fetcher.fetch(`${ORIGIN}/busy`)).resolves.toMatchObject({ status: 503 });
+    await expect(fetcher.fetch(`${ORIGIN}/ok`)).resolves.toMatchObject({ status: 200 });
+    expect(backOffs).toEqual([5_000, 30_000]);
+  });
+});
+
+describe('backOffSpacingMs', () => {
+  it('doubles from 5 s with each push-back this run, capped at 60 s', () => {
+    expect(backOffSpacingMs(undefined, 0)).toBe(5_000);
+    expect(backOffSpacingMs(undefined, 1)).toBe(10_000);
+    expect(backOffSpacingMs(undefined, 3)).toBe(40_000);
+    expect(backOffSpacingMs(undefined, 9)).toBe(60_000);
+  });
+
+  it('honours a longer Retry-After, in seconds or as a date, within the cap', () => {
+    expect(backOffSpacingMs('30', 0)).toBe(30_000);
+    expect(backOffSpacingMs('1', 0)).toBe(5_000);
+    expect(backOffSpacingMs('3600', 0)).toBe(60_000);
+    const now = Date.parse('2026-09-26T20:00:00Z');
+    expect(backOffSpacingMs('Sat, 26 Sep 2026 20:00:20 GMT', 0, now)).toBe(20_000);
+    expect(backOffSpacingMs('not a date', 0, now)).toBe(5_000);
   });
 });

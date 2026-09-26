@@ -47,9 +47,10 @@ async function main(): Promise<void> {
     );
   }
 
+  const rateLimiter = createRateLimiter(hrGePolicy.rateLimit);
   const httpFetcher = createHttpFetcher({
     isUrlAllowed: isHrGeUrlAllowed,
-    rateLimiter: createRateLimiter(hrGePolicy.rateLimit),
+    rateLimiter,
     userAgent: resolveUserAgent(),
   });
 
@@ -76,6 +77,8 @@ async function main(): Promise<void> {
         // Phase 7C: detail pages fetched, bootstrap adoptions, canaries and
         // canaries whose content had changed under an unchanged fingerprint.
         refetch,
+        // Times the source answered 429/503 and the crawl slowed down.
+        rateLimitBackOffs: rateLimiter.backOffCount,
         missingCount: crawlRun.missingCount,
         expiredCount: crawlRun.expiredCount,
         reopenedCount: crawlRun.reopenedCount,
