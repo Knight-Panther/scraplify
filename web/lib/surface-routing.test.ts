@@ -18,6 +18,7 @@ describe('isPublicRoute', () => {
     '/cv-ranked',
     '/api/matching/manifest',
     '/api/matching/bundles/abc/opportunities.json',
+    '/api/crawl-status',
   ])('allows %s', (pathname) => {
     expect(isPublicRoute(pathname)).toBe(true);
   });
@@ -38,6 +39,8 @@ describe('isPublicRoute', () => {
     expect(isPublicRoute('/cv-rankedx')).toBe(false);
     expect(isPublicRoute('/api/matchingx')).toBe(false);
     expect(isPublicRoute('/api')).toBe(false);
+    expect(isPublicRoute('/api/crawl-statusx')).toBe(false);
+    expect(isPublicRoute('/api/crawl-status/x')).toBe(false);
   });
 });
 

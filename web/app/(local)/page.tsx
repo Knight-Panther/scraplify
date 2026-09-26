@@ -1,6 +1,6 @@
+import { type CrawlStatusSnapshot, getCrawlStatus } from '../../../src/browse/crawl-status.js';
 import {
   publicCountOpportunities,
-  publicLastSeen,
   publicSearchOpportunities,
   publicSourceOverview,
 } from '../../../src/browse/public-queries.js';
@@ -11,17 +11,17 @@ import {
   searchOpportunities,
 } from '../../../src/browse/queries.js';
 import { db } from '../../../src/db/client.js';
+import { CrawlStatus } from '../../components/crawl-status.js';
 import { CvChooser } from '../../components/cv-chooser.js';
 import { HeroTicker } from '../../components/hero-ticker.js';
 import { HeroVideo } from '../../components/hero-video.js';
 import { cvRankedEnabled } from '../../lib/cv-ranked/availability.js';
-import { count, relativeTime } from '../../lib/format.js';
+import { count } from '../../lib/format.js';
 import { type HeadlineRun, type HeroCopy, heroCopy } from '../../lib/hero-copy.js';
 import { sourceLabel } from '../../lib/labels.js';
 import { currentLocale, type Locale } from '../../lib/locale.js';
 import { type OpportunityRow, toRow } from '../../lib/opportunity-row.js';
 import { currentSurface } from '../../lib/surface.js';
-import { lastCompletedSync } from '../../lib/sync.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +57,11 @@ export const dynamic = 'force-dynamic';
  * silently glossed over.
  */
 export default async function Page() {
-  const [hero, locale] = await Promise.all([loadHeroData(), currentLocale()]);
+  const [hero, crawlStatus, locale] = await Promise.all([
+    loadHeroData(),
+    loadCrawlStatus(),
+    currentLocale(),
+  ]);
   const copy = heroCopy(locale);
 
   return (
@@ -90,15 +94,7 @@ export default async function Page() {
                   aria-hidden="true"
                   className="h-1.5 w-1.5 flex-none animate-hero-pulse rounded-full bg-[var(--color-browse-accent)]"
                 />
-                <span className="tracking-[0.22em]">
-                  {hero.boardsLabel}
-                  {hero.lastSync !== undefined && (
-                    <>
-                      {' '}
-                      · {hero.lastSyncLabel} {relativeTime(hero.lastSync)}
-                    </>
-                  )}
-                </span>
+                <span className="tracking-[0.22em]">{hero.boardsLabel}</span>
               </p>
             )}
 
@@ -204,6 +200,21 @@ export default async function Page() {
                 <Stat value={hero.trackedCount} label={copy.statListingsTracked} locale={locale} />
               </div>
             )}
+
+            {/* Each board's last full update and a countdown to its next
+                scheduled one; the freshness claim on this page. Its own
+                query, so it shows even when the hero data above failed. */}
+            {crawlStatus !== null && (
+              <div className="mt-6 animate-hero-fade-up [animation-delay:940ms] [animation-duration:700ms]">
+                <CrawlStatus
+                  initial={crawlStatus.sources}
+                  initialNowMs={crawlStatus.nowMs}
+                  locale={locale}
+                  pollUrl="/api/crawl-status"
+                  tone="hero"
+                />
+              </div>
+            )}
           </div>
 
           {hero.ok && (
@@ -238,16 +249,6 @@ type HeroData =
       boardsLabel: string;
       boardsCount: number;
       trackedCount: number;
-      lastSync: string | undefined;
-      /**
-       * `lastSync`'s own honest label. `lastCompletedSync` (local) is a real
-       * full-coverage crawl completion, worth calling "synced"; `publicLastSeen`
-       * (public) is only the newest per-listing confirmation the public role can
-       * see — a single incrementally-confirmed listing can advance it with most
-       * of the catalogue still stale, so calling that "synced" too would assert
-       * a full-coverage guarantee this role has no way to back (Codex, 2026-09-24).
-       */
-      lastSyncLabel: string;
       openCount: number;
       panelRows: PanelRow[];
       tickerRows: OpportunityRow[];
@@ -282,17 +283,12 @@ const HEADLINE_DELAY_CLASSES = [
 async function loadBoardOverview(surface: ReturnType<typeof currentSurface>): Promise<{
   sortedSlugs: string[];
   trackedCount: number;
-  lastSync: string | undefined;
-  lastSyncLabel: string;
 }> {
   if (surface === 'public') {
     const overview = await publicSourceOverview(db);
     return {
       sortedSlugs: overview.map((source) => source.sourceSlug).sort(),
       trackedCount: overview.reduce((sum, source) => sum + source.trackedCount, 0),
-      lastSync: publicLastSeen(overview),
-      // Deliberately not "synced" — see `HeroData.lastSyncLabel`'s own comment.
-      lastSyncLabel: 'last confirmed',
     };
   }
   const health = await getSourceHealth(db);
@@ -305,28 +301,22 @@ async function loadBoardOverview(surface: ReturnType<typeof currentSurface>): Pr
     (sum, source) => sum + Object.values(source.listingsByStatus).reduce((a, b) => a + b, 0),
     0,
   );
-  return {
-    sortedSlugs,
-    trackedCount,
-    lastSync: lastCompletedSync(health),
-    lastSyncLabel: 'synced',
-  };
+  return { sortedSlugs, trackedCount };
 }
 
 async function loadHeroData(): Promise<HeroData> {
   try {
     const surface = currentSurface();
     const genuinelyOpenAsOf = new Date().toISOString();
-    const [{ sortedSlugs, trackedCount, lastSync, lastSyncLabel }, openCount, eligible] =
-      await Promise.all([
-        loadBoardOverview(surface),
-        surface === 'public'
-          ? publicCountOpportunities(db, { genuinelyOpenAsOf })
-          : countOpportunities(db, { genuinelyOpenAsOf }),
-        surface === 'public'
-          ? publicSearchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN })
-          : searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
-      ]);
+    const [{ sortedSlugs, trackedCount }, openCount, eligible] = await Promise.all([
+      loadBoardOverview(surface),
+      surface === 'public'
+        ? publicCountOpportunities(db, { genuinelyOpenAsOf })
+        : countOpportunities(db, { genuinelyOpenAsOf }),
+      surface === 'public'
+        ? publicSearchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN })
+        : searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
+    ]);
 
     const nowMs = Date.parse(genuinelyOpenAsOf);
     // Per-source "is THIS member genuinely open," not just the opportunity
@@ -359,8 +349,6 @@ async function loadHeroData(): Promise<HeroData> {
       boardsLabel: sortedSlugs.map((slug) => sourceLabel(slug)).join(' + '),
       boardsCount: sortedSlugs.length,
       trackedCount,
-      lastSync,
-      lastSyncLabel,
       openCount,
       panelRows,
       tickerRows,
@@ -371,6 +359,23 @@ async function loadHeroData(): Promise<HeroData> {
     // see the `hero.ok` checks above.
     console.error('landing hero: failed to load live data', err);
     return { ok: false };
+  }
+}
+
+/**
+ * Each board's crawl snapshot for `CrawlStatus`, with the clock it was read
+ * at so the first render matches on server and client. Null when the query
+ * fails: the line is left out rather than guessed.
+ */
+async function loadCrawlStatus(): Promise<{
+  sources: CrawlStatusSnapshot[];
+  nowMs: number;
+} | null> {
+  try {
+    return { sources: await getCrawlStatus(db), nowMs: Date.now() };
+  } catch (err) {
+    console.error('landing: failed to load crawl status', err);
+    return null;
   }
 }
 

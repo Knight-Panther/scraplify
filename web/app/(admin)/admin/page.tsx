@@ -1,3 +1,6 @@
+import { getCrawlStatus } from '../../../../src/browse/crawl-status.js';
+import { db } from '../../../../src/db/client.js';
+import { CrawlStatus } from '../../../components/crawl-status.js';
 import { requireAdmin } from '../../../lib/admin-auth.js';
 
 export const dynamic = 'force-dynamic';
@@ -15,6 +18,12 @@ export const metadata = { title: 'Admin · Xtelo' };
  */
 export default async function AdminDashboardPage() {
   const session = await requireAdmin();
+  // Fail-soft like the landing page: a missing grant or a slow query leaves
+  // the line out rather than taking the dashboard root down with it.
+  const crawlStatus = await getCrawlStatus(db).catch((err: unknown) => {
+    console.error('admin: failed to load crawl status', err);
+    return null;
+  });
 
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
@@ -25,6 +34,14 @@ export default async function AdminDashboardPage() {
           <span className="text-foreground">{session.user.name ?? session.user.email}</span>.
         </p>
       </header>
+
+      {/* Each board's last full update and next scheduled one. No poll
+          endpoint on this surface: the widget re-renders this page instead. */}
+      {crawlStatus !== null && (
+        <div className="mt-6">
+          <CrawlStatus initial={crawlStatus} initialNowMs={Date.now()} locale="en" tone="admin" />
+        </div>
+      )}
 
       <ul className="mt-8 flex flex-col gap-3">
         <DashboardLink

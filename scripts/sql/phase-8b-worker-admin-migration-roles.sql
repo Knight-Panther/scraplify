@@ -222,6 +222,9 @@ GRANT SELECT, INSERT ON public.admin_audit_events TO scraplify_admin;
 -- Read-only — activation and rollback stay worker/CLI operations.
 GRANT SELECT ON public.matching_bundle_builds TO scraplify_admin;
 GRANT SELECT ON public.matching_bundle_publications TO scraplify_admin;
+-- Migration 0036: `/admin` shows each board's last and next update from
+-- this view. A grant on the base tables does not cover a view.
+GRANT SELECT ON public.public_crawl_status TO scraplify_admin;
 
 
 -- =========================================================================

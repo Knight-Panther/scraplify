@@ -94,6 +94,9 @@ GRANT SELECT ON public.public_source_listings TO scraplify_public;
 -- Phase 8C (migration 0034): the one active public matching bundle, for
 -- `GET /api/matching/manifest`. No build history or other channels.
 GRANT SELECT ON public.public_active_matching_bundle TO scraplify_public;
+-- Migration 0036: each source's newest run start and status and its last
+-- completed update, for the landing pages' "last update / next update".
+GRANT SELECT ON public.public_crawl_status TO scraplify_public;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --
