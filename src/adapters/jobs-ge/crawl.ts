@@ -320,7 +320,18 @@ async function fetchAndRecord(
     caughtError = err;
   }
   const durationMs = Date.now() - startedAtMs;
-  const outcome = classifyOutcome(caughtError, fetchResult);
+  let outcome = classifyOutcome(caughtError, fetchResult);
+  // Soft block (2026-09-27): at about 5 requests a second, jobs.ge began
+  // answering every request with the same 77-byte page and a 200, and 971
+  // listings were quarantined as unparseable. Two listings never share a
+  // byte-identical detail page, so a repeat of the previous one is that
+  // page: stop the run as for a 429, and the listing is retried next run
+  // instead of quarantined.
+  if (role === 'OPPORTUNITY' && outcome === 'success' && fetchResult !== null) {
+    const bodyHash = sha256(fetchResult.body);
+    if (bodyHash === control.lastDetailBodyHash) outcome = 'retry';
+    control.lastDetailBodyHash = bodyHash;
+  }
   const backoffUntil =
     fetchResult === null
       ? null

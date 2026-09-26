@@ -10,7 +10,7 @@ export const jobsGeSource = SourceSchema.parse({
 export const jobsGePolicy = SourcePolicySchema.parse({
   id: 'e3f8b6a2-7a9d-4c1b-9e6c-1a2b3c4d5e6f',
   sourceId: jobsGeSource.id,
-  policyVersion: 'v2',
+  policyVersion: 'v3',
   // Server-rendered HTML; browser is a recorded escalation only (§10.1).
   allowedAcquisitionModes: ['http', 'browser'],
   // jobs.ge serves the same listing content at three locale-prefixed
@@ -42,16 +42,18 @@ export const jobsGePolicy = SourcePolicySchema.parse({
   disallowedHosts: [],
   authenticationScope: 'none',
   rateLimit: {
-    // v2 (2026-09-26): no spacing of our own. robots.txt still says
-    // "Crawl-delay: 5", but it is a generic file last modified 2019-03-08,
-    // and the owner has jobs.ge's permission (docs/RIGHTS.md). One request
-    // at a time, so the pace is jobs.ge's own response time (about 0.36 s).
-    // If jobs.ge answers 429/503, the fetcher backs off for the rest of the
-    // run and the run's log reports it (src/net/http-fetcher.ts).
-    crawlDelaySeconds: 0,
+    // v3 (2026-09-27): 2 s. v2 had no spacing of our own (robots.txt's
+    // "Crawl-delay: 5" is a generic file from 2019 and the owner has
+    // jobs.ge's permission, docs/RIGHTS.md). Its first run went at about 5
+    // requests a second, and after about 40 s jobs.ge answered every request
+    // with the same 77-byte page and a 200: a soft block, not a 429. 5 s
+    // never triggered it. 2 s is a guess between the two; the crawl now
+    // stops on a repeated detail page (src/adapters/jobs-ge/crawl.ts), so
+    // too fast shows as a stopped run, not as quarantined listings.
+    crawlDelaySeconds: 2,
     maxConcurrency: 1,
     notes:
-      'No crawl delay of our own since v2 (2026-09-26, owner decision): robots.txt Crawl-delay: 5 is a generic file unchanged since 2019-03-08, and the owner has permission from jobs.ge. One request in flight; a 429/503 makes the crawl back off (5 s doubling, or Retry-After, capped at 60 s) for the rest of that run, logged and counted as rateLimitBackOffs.',
+      'v3 (2026-09-27): 2 s between requests, one in flight. v2 (no delay, owner decision 2026-09-26) was soft-blocked by jobs.ge after about 40 s at ~5 req/s: every request got the same 77-byte page with HTTP 200. robots.txt Crawl-delay: 5 is a generic 2019 file and the owner has permission from jobs.ge, so 5 s is not required. A repeated detail page stops the run like a 429; a 429 still records a source back-off, and a 503 slows the rest of the run (rateLimitBackOffs).',
   },
   // Not yet reviewed — an explicit unknown, not a guess.
   termsUrl: null,
@@ -75,7 +77,7 @@ export const jobsGePolicy = SourcePolicySchema.parse({
     notes:
       'Disabled by default (§16): no attachments/external pages fetched yet. Revisit once Phase 4 observes what jobs.ge listings actually attach, if anything.',
   },
-  reviewDate: '2026-09-26T00:00:00Z',
+  reviewDate: '2026-09-27T00:00:00Z',
   evidence: [
     'docs/scraplify-concept.md §5.1 (site reconnaissance confirmed 2026-09-02)',
     'https://www.jobs.ge/robots.txt (fetched 2026-09-02; re-fetched 2026-09-26: unchanged, Last-Modified 2019-03-08)',

@@ -23,9 +23,9 @@ describe('source policy records', () => {
     expect(jobsGeSource.id).not.toBe(hrGeSource.id);
   });
 
-  it('jobs.ge policy has no delay of its own (v2, owner decision) and keeps its disallowed path', () => {
-    expect(jobsGePolicy.policyVersion).toBe('v2');
-    expect(jobsGePolicy.rateLimit.crawlDelaySeconds).toBe(0);
+  it('jobs.ge policy spaces requests 2 s apart (v3, after the v2 soft block) and keeps its disallowed path', () => {
+    expect(jobsGePolicy.policyVersion).toBe('v3');
+    expect(jobsGePolicy.rateLimit.crawlDelaySeconds).toBe(2);
     expect(jobsGePolicy.rateLimit.maxConcurrency).toBe(1);
     expect(isPathAllowed(jobsGePolicy, '/data/clients/report.csv')).toBe(false);
     expect(isPathAllowed(jobsGePolicy, '/')).toBe(true);
