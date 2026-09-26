@@ -1,6 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CvError, inspectZip, LIMITS, letterCount, sniffKind } from './document-checks.js';
+import {
+  CvError,
+  dominantScript,
+  inspectZip,
+  LIMITS,
+  letterCount,
+  sniffKind,
+} from './document-checks.js';
 
 const fixture = (name: string) =>
   new Uint8Array(
@@ -102,5 +109,14 @@ describe('inspectZip', () => {
 describe('letterCount', () => {
   it('counts Georgian and Latin letters but not digits, bullets or spaces', () => {
     expect(letterCount('ბუღალტერი CV • 2024 —')).toBe(11);
+  });
+});
+
+describe('dominantScript', () => {
+  it('names the alphabet most letters are in', () => {
+    expect(dominantScript('ბუღალტერი, 5 წელი. Excel, 1C')).toBe('georgian');
+    expect(dominantScript('Accountant, 5 years. თბილისი')).toBe('latin');
+    expect(dominantScript('Бухгалтер, опыт 5 лет. Excel, 1C')).toBe('other');
+    expect(dominantScript('ᲑᲣᲦᲐᲚᲢᲔᲠᲘ')).toBe('georgian');
   });
 });

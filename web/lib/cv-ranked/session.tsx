@@ -102,12 +102,15 @@ export function CvSessionProvider({ children }: { children: ReactNode }) {
       });
       worker.current = created;
       rankId.current = 0;
-      setState({ status: 'processing', stage: 'reading' });
+      let stage: Stage = 'reading';
+      setState({ status: 'processing', stage });
 
       // The 45 s budget covers reading and the first ranking. A hostile file
-      // that hangs a parser is stopped by terminating the whole thread.
+      // that hangs a parser is stopped by terminating the whole thread. The
+      // file is read by then if the index download is what is still running,
+      // so that case is reported as a network failure, not a slow file.
       timeout.current = setTimeout(() => {
-        if (worker.current === created) fail('timeout');
+        if (worker.current === created) fail(stage === 'bundle' ? 'network' : 'timeout');
       }, LIMITS.timeoutMs);
 
       created.addEventListener('message', (event: MessageEvent<FromWorker>) => {
@@ -115,7 +118,8 @@ export function CvSessionProvider({ children }: { children: ReactNode }) {
         const message = event.data;
         switch (message.type) {
           case 'progress':
-            setState({ status: 'processing', stage: message.stage });
+            stage = message.stage;
+            setState({ status: 'processing', stage });
             return;
           case 'ready':
             if (timeout.current !== null) clearTimeout(timeout.current);

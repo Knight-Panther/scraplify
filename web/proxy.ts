@@ -1,14 +1,17 @@
-import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
+import { type NextFetchEvent, type NextRequest, NextResponse } from 'next/server';
 import NextAuth, { type NextAuthRequest, type NextAuthResult } from 'next-auth';
 import authConfig from './auth.config.js';
+import { clientKey, processRateLimiter, rateClass } from './lib/rate-limit.js';
+import { contentSecurityPolicy, createNonce } from './lib/security-headers.js';
+import { currentSurface } from './lib/surface.js';
 import {
   isAdminAuthRoute,
   isAdminDashboardRoute,
+  isProbeRoute,
   isPublicRoute,
   isStaticAssetRoute,
   resolveAdminAccess,
 } from './lib/surface-routing.js';
-import { currentSurface } from './lib/surface.js';
 
 /**
  * A SEPARATE `NextAuth(...)` instance from `auth.ts`'s, built directly from
@@ -63,18 +66,63 @@ export default async function proxy(req: NextRequest, event: NextFetchEvent) {
   // surface, and an exact allowlist here means the matcher below never has
   // to guess by file extension (see its own comment for why that guess is
   // unsafe in this app specifically).
-  if (isStaticAssetRoute(pathname)) return NextResponse.next();
+  // The probes (Phase 8E) are exact paths that report states only; they
+  // skip rate limiting so a monitor never sees a 429 instead of the truth.
+  if (isStaticAssetRoute(pathname) || isProbeRoute(pathname)) return NextResponse.next();
+
+  // Phase 8E: per-client limits on `public` and `admin`, before any work.
+  // The 429 carries no body: nothing about the limit beyond when to retry.
+  const limited = rateClass(surface, pathname);
+  if (limited !== null) {
+    const wait = processRateLimiter().take(
+      limited,
+      clientKey(req.headers.get('x-forwarded-for')),
+      Date.now(),
+    );
+    if (wait > 0) {
+      return new NextResponse(null, {
+        status: 429,
+        headers: { 'Retry-After': String(wait), 'Cache-Control': 'no-store' },
+      });
+    }
+  }
+
+  // Phase 8E: every other response carries a per-request CSP. The request
+  // copy is how Next finds the nonce to stamp on its own scripts while
+  // rendering; the response copy is what the browser enforces.
+  const csp = contentSecurityPolicy({
+    nonce: createNonce(),
+    surface,
+    dev: process.env.NODE_ENV === 'development',
+  });
+  const response = await route(req, event, surface, pathname, csp);
+  response.headers.set('Content-Security-Policy', csp);
+  return response;
+}
+
+async function route(
+  req: NextRequest,
+  event: NextFetchEvent,
+  surface: ReturnType<typeof currentSurface>,
+  pathname: string,
+  csp: string,
+): Promise<Response> {
+  const pass = (): NextResponse => {
+    const headers = new Headers(req.headers);
+    headers.set('Content-Security-Policy', csp);
+    return NextResponse.next({ request: { headers } });
+  };
 
   if (surface === 'local') {
-    return isAdminAuthRoute(pathname) ? refuse() : NextResponse.next();
+    return isAdminAuthRoute(pathname) ? refuse() : pass();
   }
 
   if (surface === 'public') {
-    return isPublicRoute(pathname) ? NextResponse.next() : refuse();
+    return isPublicRoute(pathname) ? pass() : refuse();
   }
 
   // admin
-  if (isAdminAuthRoute(pathname)) return NextResponse.next();
+  if (isAdminAuthRoute(pathname)) return pass();
   if (!isAdminDashboardRoute(pathname)) return refuse();
 
   // Explicitly 2-parameter and typed to match `NextAuthMiddleware` (an
@@ -84,7 +132,7 @@ export default async function proxy(req: NextRequest, event: NextFetchEvent) {
   // type entirely.
   return auth((authedReq: NextAuthRequest, _event: NextFetchEvent) => {
     const decision = resolveAdminAccess(authedReq.auth);
-    if (decision === 'allow') return NextResponse.next();
+    if (decision === 'allow') return pass();
     if (decision === 'deny') return refuse();
     // Includes the query string, not just pathname — a deep link like
     // `/admin/taxonomy?text=manager&show=100` would otherwise silently drop

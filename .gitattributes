@@ -1,5 +1,7 @@
 * text=auto
 *.sh text eol=lf
+# Linux host files (Phase 8E): systemd and Caddy reject or misread CRLF.
+deploy/** text eol=lf
 .githooks/* text eol=lf
 *.ps1 text eol=crlf
 *.md text eol=lf
@@ -33,3 +35,8 @@ src/adapters/*/fixtures/** linguist-vendored
 # Real .docx/.pdf fixtures whose bytes matter — magic-byte checks and zip
 # structure must round-trip exactly, same reasoning as hr-ge's fixtures above.
 src/cv-parsing/fixtures/** -text
+
+# The browser matching model (src/matching/models/static-e1.ts) is pinned by
+# SHA-256 and verified before it is served and again in the browser, so its
+# files must round-trip byte-for-byte on every platform.
+matching-models/** -text

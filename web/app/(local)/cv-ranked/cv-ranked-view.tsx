@@ -4,7 +4,12 @@ import { useEffect, useRef } from 'react';
 import { CvChooser } from '../../../components/cv-chooser.js';
 import { count, relativeTime } from '../../../lib/format.js';
 import { sourceLabel } from '../../../lib/labels.js';
-import { ERROR_MESSAGES, PRIVACY_PROMISE, STAGES } from '../../../lib/cv-ranked/copy.js';
+import {
+  ERROR_MESSAGES,
+  OTHER_SCRIPT_NOTE,
+  PRIVACY_PROMISE,
+  STAGES,
+} from '../../../lib/cv-ranked/copy.js';
 import type { BundleSummary } from '../../../lib/cv-ranked/protocol.js';
 import { type CvSessionState, useCvSession } from '../../../lib/cv-ranked/session.js';
 import { ProfileEditor } from './profile-editor.js';
@@ -163,13 +168,21 @@ function Body({
                 className="text-accent underline underline-offset-2 hover:text-foreground lg:hidden"
               >
                 Jump to <span className="numeric">{count(state.ranking.stats.matched)}</span>{' '}
-                matches
+                {state.ranking.stats.matched === 1 ? 'match' : 'matches'}
               </a>
               <button type="button" onClick={reset} className={quietButtonClass}>
                 Clear CV
               </button>
             </div>
           </div>
+          {state.document.script === 'other' && (
+            <p
+              role="note"
+              className="rounded-[var(--radius)] border border-border-strong bg-surface px-4 py-3 text-sm"
+            >
+              {OTHER_SCRIPT_NOTE}
+            </p>
+          )}
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] lg:gap-10">
             <ProfileEditor
               profile={state.profile}

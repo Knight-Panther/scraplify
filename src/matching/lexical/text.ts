@@ -9,7 +9,7 @@
  */
 
 /** Bump when any rule here changes; it is part of `LEXICAL_RANK_VERSION`. */
-export const LEXICAL_TEXT_VERSION = 'v1';
+export const LEXICAL_TEXT_VERSION = 'v2';
 
 export interface Token {
   /** The stemmed matching key. */
@@ -21,9 +21,18 @@ export interface Token {
 
 /**
  * Letters and digits, plus `+` and `#` so "C++" and "C#" survive as skills
- * rather than collapsing to "c". Everything else separates tokens.
+ * rather than collapsing to "c". Everything else separates tokens, except
+ * the invisible characters below.
+ *
+ * Soft hyphens, zero-width spaces/joiners, word joiners and BOMs sit INSIDE
+ * words in real documents (Word's optional hyphen arrives from mammoth as
+ * U+00AD; PDFs carry zero-width spaces), and splitting on them turned
+ * "ბუღალ\u00ADტერი" into two tokens that match nothing. They stay inside the
+ * match, so offsets still point at the original text, and are dropped from
+ * the key.
  */
-const TOKEN = /[\p{L}\p{N}+#]+/gu;
+const TOKEN = /[\p{L}\p{N}+#\u00AD\u200B-\u200D\u2060\uFEFF]+/gu;
+export const INVISIBLE = /[\u00AD\u200B-\u200D\u2060\uFEFF]/gu;
 const GEORGIAN = /[Ⴀ-ჿᲐ-Ჿ]/u;
 
 /**
@@ -102,7 +111,7 @@ export function tokenize(text: string): Token[] {
   // which is what the snippet helper then quotes.
   const tokens: Token[] = [];
   for (const match of normalized.matchAll(TOKEN)) {
-    const raw = match[0].toLowerCase();
+    const raw = match[0].replace(INVISIBLE, '').toLowerCase();
     // A token that is only `+`/`#` carries no meaning on its own.
     if (!/[\p{L}\p{N}]/u.test(raw)) continue;
     tokens.push({ stem: stem(raw), start: match.index, end: match.index + match[0].length });

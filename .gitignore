@@ -66,3 +66,7 @@ backups/
 # Build artifact, not source (scripts/matching-parity/bundle-worker.mjs
 # regenerates it from worker.mjs) — run that before scripts/matching-parity/check.mjs.
 scripts/matching-parity/worker.bundle.mjs
+
+# Local research spikes: large model files and private eval data (the
+# owner's CV). Results that matter are recorded in docs/STATUS.md.
+spike/

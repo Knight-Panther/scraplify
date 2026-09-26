@@ -1,7 +1,14 @@
-import mammoth from 'mammoth';
 import * as pdfjs from 'pdfjs-dist';
 import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs';
-import { CvError, type CvKind, LIMITS, letterCount, sniffKind } from './document-checks.js';
+import { docxText as docxToText } from '../../../src/cv-parsing/docx-text.js';
+import {
+  CvError,
+  type CvKind,
+  dominantScript,
+  LIMITS,
+  letterCount,
+  sniffKind,
+} from './document-checks.js';
 import type { DocumentSummary } from './protocol.js';
 
 /**
@@ -69,8 +76,7 @@ async function pdfText(bytes: Uint8Array): Promise<{ text: string; pages: number
 async function docxText(bytes: Uint8Array): Promise<string> {
   try {
     const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    const result = await mammoth.extractRawText({ arrayBuffer: buffer as ArrayBuffer });
-    return result.value;
+    return await docxToText({ arrayBuffer: buffer as ArrayBuffer });
   } catch {
     throw new CvError('unreadable');
   }
@@ -95,5 +101,8 @@ export async function extractText(file: File): Promise<{ text: string; summary: 
   // A scanned PDF yields page furniture at most. Change.md §7: ask for a
   // text PDF or DOCX rather than upload it anywhere for OCR.
   if (letterCount(text) < LIMITS.minimumLetters) throw new CvError('no_text');
-  return { text, summary: { kind, pages, characters: text.length } };
+  return {
+    text,
+    summary: { kind, pages, characters: text.length, script: dominantScript(text) },
+  };
 }

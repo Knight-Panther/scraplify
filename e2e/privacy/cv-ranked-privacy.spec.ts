@@ -17,6 +17,9 @@ import { PRIVACY_ORIGIN, PRIVACY_SERVER_LOG } from './server.js';
  * - every request the page AND its worker made is a same-origin GET with no
  *   body, to an allowlisted public path, with no canary anywhere in its URL;
  * - no cookie, Web Storage, IndexedDB or Cache Storage entry holds it;
+ * - the page ran under the Phase 8E nonce CSP with no violation at all, so
+ *   the policy that stops an injected script from exfiltrating the CV is
+ *   both present and compatible with the worker, PDF.js and mammoth;
  * - the server's own captured output does not contain it;
  * - no text or JSON column in any database table contains it, and the
  *   candidate/ranking tables have exactly the rows they had before.
@@ -36,6 +39,7 @@ const ALLOWED_PATHS: readonly RegExp[] = [
   /^\/_next\/static\//,
   /^\/api\/matching\/manifest$/,
   /^\/api\/matching\/bundles\/[0-9a-f-]{36}\/opportunities\.json$/,
+  /^\/api\/matching\/models\/static-e1-v1\/(model\.json|table\.int8)$/,
   /^\/(icon\.svg|logo\.png|hero-bg\.mp4|favicon\.ico)$/,
 ];
 
@@ -113,8 +117,23 @@ test('a canary CV stays in the browser', async ({ browser }) => {
   const requests: Request[] = [];
   context.on('request', (request) => requests.push(request));
   const page = await context.newPage();
+  // A violation is reported on the page console, including the worker's.
+  const cspViolations: string[] = [];
+  page.on('console', (message) => {
+    if (/Content.Security.Policy/i.test(message.text())) cspViolations.push(message.text());
+  });
 
-  await page.goto('/', { waitUntil: 'networkidle' });
+  const landing = await page.goto('/', { waitUntil: 'networkidle' });
+  expect(landing?.headers()['content-security-policy']).toMatch(
+    /script-src 'self' 'nonce-[A-Za-z0-9+/]+=*' 'strict-dynamic'; .*worker-src 'self'/,
+  );
+  expect(landing?.headers()).toMatchObject({
+    'x-content-type-options': 'nosniff',
+    'x-frame-options': 'DENY',
+    'referrer-policy': 'strict-origin-when-cross-origin',
+    'cross-origin-opener-policy': 'same-origin',
+  });
+  expect(landing?.headers()['x-powered-by']).toBeUndefined();
   const firstCvRequest = requests.length;
   await page
     .locator('input[type=file]')
@@ -169,6 +188,13 @@ test('a canary CV stays in the browser', async ({ browser }) => {
   await page.getByRole('button', { name: 'Clear CV' }).click();
   await expect(page.getByText('Choose a CV', { exact: true })).toBeVisible();
 
+  // A direct load of /cv-ranked is policed too, with its own fresh nonce.
+  const direct = await page.goto('/cv-ranked', { waitUntil: 'networkidle' });
+  const directPolicy = direct?.headers()['content-security-policy'] ?? '';
+  expect(directPolicy).toContain("'strict-dynamic'");
+  expect(directPolicy).not.toBe(landing?.headers()['content-security-policy']);
+  expect(cspViolations, 'no Content Security Policy violation').toEqual([]);
+
   // --- Network --------------------------------------------------------------
   const cvRequests = requests.slice(firstCvRequest);
   const seen = cvRequests.map((request) => new URL(request.url()).pathname);
@@ -177,6 +203,13 @@ test('a canary CV stays in the browser', async ({ browser }) => {
     seen.some((path) => path.startsWith('/api/matching/bundles/')),
     'the worker fetched the bundle file',
   ).toBe(true);
+  expect(
+    seen.filter((path) => path.startsWith('/api/matching/models/')).sort(),
+    'the worker fetched both model files',
+  ).toEqual([
+    '/api/matching/models/static-e1-v1/model.json',
+    '/api/matching/models/static-e1-v1/table.int8',
+  ]);
   expect(
     seen.some((path) => path.startsWith('/_next/static/') && path.includes('worker')),
     'the worker script itself was observed',

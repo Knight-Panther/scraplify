@@ -1,4 +1,4 @@
-import mammoth from 'mammoth';
+import { docxText } from './docx-text.js';
 
 /**
  * Turns an uploaded CV file into something `extract-claims.ts` can hand to
@@ -76,14 +76,14 @@ export async function readDocument(input: {
     const isZip = input.buffer.subarray(0, ZIP_MAGIC.length).equals(ZIP_MAGIC);
     if (!isZip)
       throw new UnsupportedCvFormatError('file extension is .docx but the content is not');
-    let extracted: { value: string };
+    let extracted: string;
     try {
-      extracted = await mammoth.extractRawText({ buffer: input.buffer });
+      extracted = await docxText({ buffer: input.buffer });
     } catch {
       // mammoth's own error may echo file structure details; never surface it.
       throw new UnsupportedCvFormatError('the .docx file could not be read');
     }
-    const text = extracted.value.trim();
+    const text = extracted.trim();
     if (text.length === 0) throw new EmptyCvTextError();
     return { kind: 'text', text };
   }

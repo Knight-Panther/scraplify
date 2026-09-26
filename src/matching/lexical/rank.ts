@@ -19,7 +19,7 @@ import { findPhrase, LEXICAL_TEXT_VERSION, phraseStems } from './text.js';
  * checked, because nothing in a row states them.
  */
 
-export const LEXICAL_RANK_VERSION = `lexical-rank-v1+text-${LEXICAL_TEXT_VERSION}`;
+export const LEXICAL_RANK_VERSION = `lexical-rank-v2+text-${LEXICAL_TEXT_VERSION}`;
 
 /**
  * Component weights. Role against title is the strongest signal both boards
@@ -34,6 +34,24 @@ export const WEIGHTS = { role: 0.5, field: 0.3, skill: 0.2 } as const;
  * `src/ranking/score-opportunity.ts` uses for the operator's own ranking.
  */
 export const ROLE_SIMILARITY_THRESHOLD = 0.55;
+/**
+ * Credit for a title that shares only a multi-word role's head noun — its
+ * last word in both English and Georgian ("data analyst" → "ფინანსური
+ * ანალიტიკოსი"). Above the threshold, well below a contained match, so
+ * near-misses rank after every exact title instead of not at all.
+ */
+export const HEAD_NOUN_SIMILARITY = 0.6;
+const MIN_HEAD_NOUN_CHARS = 4;
+
+function sharesHeadNoun(form: readonly string[], titleStems: readonly string[]): boolean {
+  const head = form[form.length - 1];
+  return (
+    form.length > 1 &&
+    head !== undefined &&
+    head.length >= MIN_HEAD_NOUN_CHARS &&
+    titleStems.includes(head)
+  );
+}
 /** Two matched skills saturate the skill component. */
 const SKILLS_FOR_FULL_SCORE = 2;
 
@@ -95,7 +113,7 @@ export interface RankingResult {
   stats: RankingStats;
 }
 
-function active(profile: MatchProfile, kind: ProfileTerm['kind']): ProfileTerm[] {
+export function activeTerms(profile: MatchProfile, kind: ProfileTerm['kind']): ProfileTerm[] {
   return profile.terms.filter((term) => term.kind === kind && term.active);
 }
 
@@ -103,15 +121,47 @@ function anyForm(term: ProfileTerm, haystacks: readonly string[][]): boolean {
   return term.forms.some((form) => haystacks.some((stems) => findPhrase(stems, form) !== -1));
 }
 
+export type HardFilterResult =
+  | { excluded: 'deadline' | 'location' }
+  | { excluded: null; location: MatchReason | null; locationUnstated: boolean };
+
+/**
+ * The hard filters, only on data the row actually states. Shared with the
+ * hybrid ranker so a row it reaches by similarity alone is excluded exactly
+ * as a word match would be.
+ */
+export function hardFilter(
+  opportunity: IndexedOpportunity,
+  locations: readonly ProfileTerm[],
+  now: number,
+): HardFilterResult {
+  // The bundle holds only publicly eligible rows, but it is up to 72h old:
+  // a deadline can pass between build and now.
+  if (opportunity.deadlineMs !== null && opportunity.deadlineMs < now) {
+    return { excluded: 'deadline' };
+  }
+  if (locations.length === 0) return { excluded: null, location: null, locationUnstated: false };
+  if (opportunity.locationStems.length === 0) {
+    return { excluded: null, location: null, locationUnstated: true };
+  }
+  const hit = locations.find((term) => anyForm(term, opportunity.locationStems));
+  if (hit === undefined) return { excluded: 'location' };
+  return {
+    excluded: null,
+    location: { kind: 'location', term: hit.label },
+    locationUnstated: false,
+  };
+}
+
 export function rankOpportunities(
   profile: MatchProfile,
   opportunities: readonly IndexedOpportunity[],
   options: { now: number },
 ): RankingResult {
-  const roles = active(profile, 'role');
-  const fields = active(profile, 'field');
-  const skills = active(profile, 'skill');
-  const locations = active(profile, 'location');
+  const roles = activeTerms(profile, 'role');
+  const fields = activeTerms(profile, 'field');
+  const skills = activeTerms(profile, 'skill');
+  const locations = activeTerms(profile, 'location');
   const stats: RankingStats = {
     considered: opportunities.length,
     excludedDeadline: 0,
@@ -121,27 +171,14 @@ export function rankOpportunities(
   const results: RankedOpportunity[] = [];
 
   for (const opportunity of opportunities) {
-    // --- Hard filters, only on data the row actually states ---------------
-    // The bundle holds only publicly eligible rows, but it is up to 72h old:
-    // a deadline can pass between build and now.
-    if (opportunity.deadlineMs !== null && opportunity.deadlineMs < options.now) {
-      stats.excludedDeadline++;
+    const filter = hardFilter(opportunity, locations, options.now);
+    if (filter.excluded !== null) {
+      if (filter.excluded === 'deadline') stats.excludedDeadline++;
+      else stats.excludedLocation++;
       continue;
     }
-    const reasons: MatchReason[] = [];
-    let locationUnstated = false;
-    if (locations.length > 0) {
-      if (opportunity.locationStems.length === 0) {
-        locationUnstated = true;
-      } else {
-        const hit = locations.find((term) => anyForm(term, opportunity.locationStems));
-        if (hit === undefined) {
-          stats.excludedLocation++;
-          continue;
-        }
-        reasons.push({ kind: 'location', term: hit.label });
-      }
-    }
+    const reasons: MatchReason[] = filter.location === null ? [] : [filter.location];
+    const { locationUnstated } = filter;
 
     // --- Scored components, each counted only where it can apply ----------
     let weighted = 0;
@@ -159,7 +196,10 @@ export function rankOpportunities(
           // (Jaccard penalises the length gap), so containment wins outright.
           const similarity = contained
             ? 1
-            : trigramSimilarity(form.join(' '), opportunity.titleKey);
+            : Math.max(
+                trigramSimilarity(form.join(' '), opportunity.titleKey),
+                sharesHeadNoun(form, opportunity.titleStems) ? HEAD_NOUN_SIMILARITY : 0,
+              );
           if (similarity > best) {
             best = similarity;
             bestTerm = term;

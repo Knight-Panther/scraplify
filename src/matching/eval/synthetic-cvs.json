@@ -1,0 +1,379 @@
+[
+  {
+    "id": "en-accountant-01",
+    "lang": "en",
+    "profession": "Mid-level accountant",
+    "text": "Nino Kapanadze\nTbilisi, Georgia | +995 555 12 34 56 | nino.kapanadze@example.com\n\nOBJECTIVE\nDetail-oriented Accountant seeking a position as Chief Accountant with a growing manufacturing company.\n\nSUMMARY\nAccountant with 6 years of experience in full-cycle bookkeeping, VAT reporting, and payroll for SMEs. Known as a key driver of process improvements in the finance department and comfortable managing audit trail documentation for external auditors.\n\nEXPERIENCE\nAccountant, Kolkhida Trading LLC, Tbilisi — Mar 2020 to present\n- Maintained general ledger, bank reconciliations, and accounts payable/receivable for a 40-employee import company.\n- Prepared monthly VAT and profit tax declarations under Georgian tax code.\n- Reported to the Director on cash flow forecasts every month.\n- Coordinated with external auditors during the annual audit.\n\nJunior Accountant, Sunrise Logistics, Tbilisi — Jun 2017 to Feb 2020\n- Processed supplier invoices and reconciled petty cash.\n- Assisted with year-end closing and inventory valuation.\n\nEDUCATION\nBA in Finance and Credit, Tbilisi State University, 2017\n\nSKILLS\n1C accounting software, MS Excel (advanced), IFRS basics, payroll processing, tax reporting\n\nLANGUAGES\nGeorgian (native), English (upper-intermediate), Russian (intermediate)",
+    "expectRoleKeys": ["accountant"],
+    "forbidRoleKeys": ["director", "auditor"],
+    "relevantTitleRegex": "ბუღალტ|აუდიტ",
+    "edgeCases": [
+      "reported to the director trap",
+      "audit trail trap",
+      "key driver trap",
+      "objective differs from title (chief accountant)"
+    ]
+  },
+  {
+    "id": "en-driver-02",
+    "lang": "en",
+    "profession": "Category C truck driver",
+    "text": "Zaza Beridze\nRustavi, Georgia | zaza.beridze@example.com | +995 599 87 65 43\n\nSUMMARY\nProfessional driver with 10 years behind the wheel, category B and C licence, clean record, experienced with long-distance cargo delivery across Georgia and to Armenia.\n\nEXPERIENCE\nDriver-Expeditor, Trans Kavkasia Ltd, Rustavi — 2016 to present\n- Delivered goods on fixed routes across Tbilisi, Rustavi, and Gori using a company truck.\n- Maintained delivery logs and vehicle inspection reports.\n- Conducted pre-trip vehicle inspections and reported maintenance issues promptly to the fleet manager.\n- Was a key driver of on-time delivery rates, consistently above 98%.\n\nDelivery Driver, Georgian Beverages Co, Tbilisi — 2013 to 2016\n- Delivered beverage crates to retail outlets, handled cash-on-delivery collections.\n\nEDUCATION\nVocational certificate, Auto Mechanics College, Tbilisi, 2012\n\nSKILLS\nCategory B and C driving licence, vehicle maintenance basics, route planning, GPS navigation, defensive driving, load securing\n\nLANGUAGES\nGeorgian (native), Russian (fluent), English (basic)",
+    "expectRoleKeys": ["driver"],
+    "forbidRoleKeys": [],
+    "relevantTitleRegex": "მძღოლ|ექსპედიტორ",
+    "edgeCases": [
+      "key driver of metrics trap",
+      "tab-free plain formatting",
+      "category C licence detail"
+    ]
+  },
+  {
+    "id": "en-developer-03",
+    "lang": "en",
+    "profession": "Software developer / backend",
+    "text": "Levan Tsereteli\nTbilisi | levan.tsereteli@example.com | github.com/ltsereteli\n\nSUMMARY\nBackend Software Developer with 5 years building REST APIs in Node.js and PHP/Laravel. Comfortable owning a service from database schema to deployment.\n\nEXPERIENCE\nSoftware Developer, Fintech Solutions Georgia, Tbilisi — 2021 to present\n- Built and maintained microservices in Node.js and PostgreSQL for a payments platform.\n- Set up a data warehouse for analytics reporting used by the finance team.\n- Wrote unit and integration tests; customer support tickets about API errors dropped 40% after refactoring the error handling layer.\n- Used Docker and Git for CI/CD pipelines.\n- Participated in code reviews and documented API endpoints for other teams.\n\nJunior Developer, WebCraft Studio, Tbilisi — 2019 to 2021\n- Developed features in PHP/Laravel for e-commerce clients.\n- Did basic front-end work in HTML/CSS and JavaScript.\n\nEDUCATION\nBSc in Computer Science, Georgian Technical University, 2019\n\nSKILLS\nNode.js, PHP, Laravel, JavaScript, SQL, PostgreSQL, Docker, Git, REST APIs\n\nLANGUAGES\nGeorgian (native), English (fluent)",
+    "expectRoleKeys": ["software developer"],
+    "forbidRoleKeys": ["warehouse worker", "customer service"],
+    "relevantTitleRegex": "პროგრამისტ|დეველოპერ",
+    "edgeCases": ["data warehouse trap", "customer support tickets trap", "backend specialisation"]
+  },
+  {
+    "id": "en-nurse-04",
+    "lang": "en",
+    "profession": "Registered nurse",
+    "text": "Ekaterine Lomidze\nBatumi, Georgia | ekaterine.lomidze@example.com | +995 577 22 11 09\n\nOBJECTIVE\nCompassionate Registered Nurse seeking a position as Nurse in a general hospital ward.\n\nEXPERIENCE\nNurse, Batumi Referral Hospital — 2018 to present\n- Administered medications and monitored vital signs for up to 12 patients per shift.\n- Assisted physicians during minor procedures in the surgical ward.\n- Trained two newly hired nurses on ward procedures and shift handover protocols.\n- Maintained patient records and coordinated with the pharmacy on medication orders.\n\nJunior Nurse, Adjara Regional Clinic — 2016 to 2018\n- Provided basic patient care and wound dressing under supervision.\n- Shadowed senior nurses during night shifts to learn emergency response procedures.\n\nEDUCATION\nDiploma in Nursing, Batumi Medical College, 2016\nCertificate in Basic Life Support, 2019\nCertificate in Infection Control, 2020\n\nSKILLS\nPatient monitoring, medication administration, wound care, electronic health records\n\nLANGUAGES\nGeorgian (native), English (intermediate), Russian (fluent)",
+    "expectRoleKeys": ["nurse"],
+    "forbidRoleKeys": ["doctor", "pharmacist"],
+    "relevantTitleRegex": "ექთან",
+    "edgeCases": ["objective states nurse matching actual history", "short bullet list with dashes"]
+  },
+  {
+    "id": "en-security-guard-05",
+    "lang": "en",
+    "profession": "Senior director with early security-guard job (career changer trap)",
+    "text": "Giorgi Natsvlishvili\nTbilisi | g.natsvlishvili@example.com | linkedin.com/in/gnatsvlishvili\n\nSUMMARY\nSenior Director of Operations with 18 years of leadership experience across retail and logistics, currently seeking a Director-level role overseeing multi-site operations.\n\nEXPERIENCE\nDirector of Operations, Caucasus Retail Group, Tbilisi — 2015 to present\n- Lead a team of 6 regional managers overseeing 45 stores nationwide.\n- Hold security clearance for the group's logistics facilities and oversee loss-prevention policy.\n- Report directly to the CEO on quarterly performance.\n\nOperations Manager, Caucasus Retail Group, Tbilisi — 2009 to 2015\n- Managed warehouse and distribution operations for the western region.\n\nSecurity Guard (internship), City Mall Tbilisi — Summer 2006\n- Monitored entrances and patrolled premises during a student summer job before university.\n\nEDUCATION\nMBA, Caucasus University, 2009\nBA in Business Administration, Tbilisi State University, 2005\n\nSKILLS\nStrategic planning, P&L management, team leadership, negotiation, MS Excel, SAP, budgeting, cross-functional collaboration\n\nLANGUAGES\nGeorgian (native), English (fluent), German (basic)",
+    "expectRoleKeys": ["director"],
+    "forbidRoleKeys": ["security guard", "warehouse worker"],
+    "relevantTitleRegex": "დირექტორ|ხელმძღვანელ",
+    "edgeCases": [
+      "senior person with early unrelated internship",
+      "security clearance trap",
+      "data warehouse-adjacent operations trap",
+      "career history spans decades"
+    ]
+  },
+  {
+    "id": "en-graphic-designer-06",
+    "lang": "en",
+    "profession": "Graphic designer",
+    "text": "Mariam Chkheidze\nTbilisi | mariam.chkheidze@example.com | behance.net/mchkheidze\n\nSUMMARY\nGraphic Designer with 4 years of experience producing marketing materials, packaging, and social media visuals for retail and FMCG brands.\n\nEXPERIENCE\nGraphic Designer, Bright Studio Agency, Tbilisi — 2021 to present\n- Designed marketing materials, brochures, and packaging mockups for 15+ clients.\n- Created social media creatives and banner sets in Photoshop and Illustrator.\n- Collaborated with the marketing team on rebranding a client's product packaging line.\n- Excel at translating vague briefs into clear visual concepts within tight deadlines.\n\nJunior Designer, PrintHouse Georgia, Tbilisi — 2019 to 2021\n- Prepared print-ready files and supported the senior designer on layout work.\n- Assisted with photo retouching for e-commerce product catalogues.\n\nEDUCATION\nBA in Graphic Design, Tbilisi State Academy of Arts, 2019\nCertificate in UI/UX Fundamentals, online course, 2021\n\nSKILLS\nAdobe Photoshop, Adobe Illustrator, Figma, typography, branding, print production\n\nLANGUAGES\nGeorgian (native), English (fluent)",
+    "expectRoleKeys": ["designer"],
+    "forbidRoleKeys": ["marketing manager"],
+    "relevantTitleRegex": "დიზაინერ|გრაფიკ",
+    "edgeCases": ["marketing materials trap", "excel at trap"]
+  },
+  {
+    "id": "en-hr-recruiter-07",
+    "lang": "en",
+    "profession": "HR / recruiter",
+    "text": "Tamar Gogichaishvili\nTbilisi | tamar.gogichaishvili@example.com | +995 555 44 33 22\n\nOBJECTIVE\nSeeking an HR Manager position where I can lead recruitment and employee relations for a mid-size company.\n\nEXPERIENCE\nRecruiter, TalentBridge Georgia, Tbilisi — 2020 to present\n- Managed full-cycle recruitment for corporate and retail clients, sourcing 200+ candidates per year.\n- Coordinated onboarding, contracts, and orientation for new hires.\n- Built relationships with three staffing agencies to expand the candidate pipeline for hard-to-fill roles.\n- Supported the recruitment of volunteers for a partner NGO's annual fundraising event.\n\nHR Assistant, RetailPlus LLC, Tbilisi — 2018 to 2020\n- Maintained employee files and processed leave requests.\n- Helped organise internal training sessions.\n- Tracked recruitment metrics and prepared monthly hiring reports for management.\n\nEDUCATION\nBA in Psychology, Ilia State University, 2018\nCertificate in HR Fundamentals, HRCI, 2019\n\nSKILLS\nRecruitment, employee relations, MS Office, HRIS systems, interviewing\n\nLANGUAGES\nGeorgian (native), English (fluent), Turkish (basic)",
+    "expectRoleKeys": ["hr manager"],
+    "forbidRoleKeys": [],
+    "relevantTitleRegex": "HR|რეკრუტ|ადამიან.{0,6}რესურ",
+    "edgeCases": ["recruitment of volunteers trap (unrelated NGO context)"]
+  },
+  {
+    "id": "en-warehouse-08",
+    "lang": "en",
+    "profession": "Warehouse worker",
+    "text": "Beka Kiknadze\nGori | beka.kiknadze@example.com | +995 599 11 22 33\n\nSUMMARY\nWarehouse worker with 3 years of experience in receiving, picking, and inventory control in a fast-paced distribution centre.\n\nEXPERIENCE\nWarehouse Worker, Caucasus Distribution Center, Gori — 2021 to present\n- Received and sorted incoming shipments, operated a forklift for pallet movement.\n- Performed cycle counts and maintained accurate stock records in the warehouse management system.\n- Trained two new hires on safe forklift operation and warehouse safety procedures.\n- Worked closely with the logistics team on outbound delivery schedules.\n\nLoader, QuickShip LLC, Gori — 2020 to 2021\n- Loaded and unloaded delivery trucks, packed orders for dispatch.\n- Followed workplace safety procedures and reported hazards to the shift supervisor.\n\nEDUCATION\nSecondary education, Gori Public School No. 3, 2019\nForklift Operator Certificate, 2020\n\nSKILLS\nForklift operation, inventory management, physical stamina, basic Excel\n\nLANGUAGES\nGeorgian (native), Russian (basic)",
+    "expectRoleKeys": ["warehouse worker"],
+    "forbidRoleKeys": ["logistics specialist"],
+    "relevantTitleRegex": "საწყობ|მტვირთავ",
+    "edgeCases": ["short work history", "forklift detail"]
+  },
+  {
+    "id": "en-fresh-graduate-09",
+    "lang": "en",
+    "profession": "Fresh graduate / intern",
+    "text": "Sandro Japaridze\nTbilisi | sandro.japaridze@example.com\n\nOBJECTIVE\nRecent graduate seeking an entry-level Intern position in marketing to begin my career.\n\nEDUCATION\nBA in Business Administration, Free University of Tbilisi, 2026 (expected graduation)\nRelevant coursework: Principles of Marketing, Consumer Behaviour, Statistics for Business\n\nEXPERIENCE\nMarketing Intern, Student Business Club, Tbilisi — 2025 to present\n- Helped organise two campus events and drafted social media posts for the club's page.\n- Assisted with data cleaning of a survey dataset for a class research project.\n- Volunteered as a note-taker at a university career fair connecting students with employers.\n\nCashier (part-time), SuperMarket Nikora, Tbilisi — 2023 to 2024\n- Handled customer transactions and restocked shelves during evening shifts while studying.\n\nSKILLS\nMS Office, basic social media management, communication, teamwork, time management, willingness to learn\n\nLANGUAGES\nGeorgian (native), English (upper-intermediate)",
+    "expectRoleKeys": ["intern"],
+    "forbidRoleKeys": ["marketing manager", "cashier", "data analyst"],
+    "relevantTitleRegex": "სტაჟ",
+    "edgeCases": [
+      "very short career history",
+      "data cleaning trap",
+      "part-time cashier job not the target role",
+      "objective differs from actual jobs held"
+    ]
+  },
+  {
+    "id": "en-ngo-pm-10",
+    "lang": "en",
+    "profession": "NGO project manager",
+    "text": "Nutsa Abashidze\nTbilisi | nutsa.abashidze@example.com | +995 555 66 77 88\n\nSUMMARY\nProject Manager with 7 years leading donor-funded development projects in civil society and human rights, managing budgets up to $500,000.\n\nEXPERIENCE\nProject Manager, Civic Development Foundation, Tbilisi — 2019 to present\n- Managed a 3-year EU-funded project on youth employment across five regions.\n- Oversaw delivery of project outputs, quarterly donor reporting, and a team of 8 field coordinators.\n- Reported to the Director of Programs on budget execution and risk management.\n\nProgram Officer, Open Society Georgia Foundation, Tbilisi — 2016 to 2019\n- Coordinated grant disbursement and monitoring visits for local partner organisations.\n\nEDUCATION\nMA in Public Policy, Central European University, 2016\nCertificate in Project Management (PMD Pro), 2018\n\nSKILLS\nProject management, donor reporting, budgeting, stakeholder coordination, MS Project, monitoring and evaluation frameworks\n\nLANGUAGES\nGeorgian (native), English (fluent)",
+    "expectRoleKeys": ["project manager"],
+    "forbidRoleKeys": ["director"],
+    "relevantTitleRegex": "პროექტ",
+    "edgeCases": ["delivery of project outputs trap", "reported to the director trap"]
+  },
+  {
+    "id": "en-lawyer-11",
+    "lang": "en",
+    "profession": "Lawyer",
+    "text": "Davit Meskhishvili\nTbilisi | davit.meskhishvili@example.com | +995 599 55 44 33\n\nSUMMARY\nCorporate Lawyer with 8 years advising on contracts, mergers, and regulatory compliance for banking and telecom clients.\n\nEXPERIENCE\nSenior Lawyer, BLC Law Office, Tbilisi — 2018 to present\n- Drafted and negotiated commercial contracts for banking sector clients.\n- Represented clients in litigation before Tbilisi City Court.\n- Advised the compliance team on anti-money-laundering regulation.\n- Mentored two junior lawyers on contract review procedures and client communication.\n\nJunior Lawyer, Georgian Legal Partners, Tbilisi — 2015 to 2018\n- Conducted legal research and prepared case files for senior partners.\n\nEDUCATION\nLLM in Business Law, Tbilisi State University, 2015\nExchange semester, Warsaw University Faculty of Law, 2014\nBar Certificate, Georgian Bar Association, 2016\n\nSKILLS\nContract drafting, litigation, regulatory compliance, legal research, client negotiation, due diligence\n\nLANGUAGES\nGeorgian (native), English (fluent), Russian (intermediate)",
+    "expectRoleKeys": ["lawyer"],
+    "forbidRoleKeys": ["banker"],
+    "relevantTitleRegex": "იურისტ",
+    "edgeCases": ["banking sector context trap for banker"]
+  },
+  {
+    "id": "en-hotel-receptionist-12",
+    "lang": "en",
+    "profession": "Hotel receptionist",
+    "text": "Ana Kldiashvili\nBatumi | ana.kldiashvili@example.com | +995 577 33 22 11\n\nSUMMARY\nFriendly Hotel Receptionist with 4 years of front-desk experience in 4-star seaside hotels, fluent in three languages.\n\nEXPERIENCE\nReceptionist, Hotel Argo, Batumi — 2021 to present\n- Managed check-in/check-out for up to 80 guests daily, handled reservations and payments.\n- Resolved guest complaints and coordinated with housekeeping on room readiness.\n- Trained new front-desk staff on the property management system during the high season.\n\nFront Desk Agent, Batumi Beach Resort — 2019 to 2021\n- Answered phone inquiries and processed booking confirmations during peak season.\n\nEDUCATION\nDiploma in Hospitality Management, Batumi Tourism College, 2019\nCustomer Service Excellence Workshop, 2020\n\nSKILLS\nOpera PMS, guest relations, multilingual communication, cash handling, complaint resolution, upselling room upgrades\n\nLANGUAGES\nGeorgian (native), English (fluent), Turkish (intermediate)",
+    "expectRoleKeys": ["receptionist"],
+    "forbidRoleKeys": ["housekeeper"],
+    "relevantTitleRegex": "სასტუმრო|რეცეფცი",
+    "edgeCases": ["front desk terminology instead of receptionist"]
+  },
+  {
+    "id": "en-longcv-realestate-13",
+    "lang": "en",
+    "profession": "Senior real-estate agent (long dense CV)",
+    "text": "Irakli Tabatadze\nTbilisi, Vake district | irakli.tabatadze@example.com | +995 555 99 88 77 | linkedin.com/in/itabatadze\n\nPROFESSIONAL SUMMARY\nResults-driven Real Estate Agent with over 12 years of experience in residential and commercial property sales across Tbilisi, specialising in premium apartments and investor relations. Proven record closing over 300 transactions worth a cumulative $45 million. Skilled negotiator, fluent communicator, and a recognised key driver of referral-based growth within my brokerage network.\n\nPROFESSIONAL EXPERIENCE\nSenior Real Estate Agent, Prime Property Georgia, Tbilisi — 2017 to present\n- Manage a portfolio of 60+ active listings across Vake, Saburtalo, and Old Tbilisi.\n- Advise investors on rental yield and market trends; produced quarterly market reports.\n- Negotiated commercial lease agreements for retail spaces on Rustaveli Avenue.\n- Mentored four junior agents on client acquisition and negotiation technique.\n- Reported directly to the Director of Sales on monthly closing targets.\n\nReal Estate Agent, Tbilisi Realty Partners — 2013 to 2017\n- Closed residential sales averaging $120,000 per transaction.\n- Coordinated with notaries and banks on mortgage documentation for buyers.\n- Built a client base through cold calling and open-house events.\n\nJunior Sales Agent, City Homes Agency — 2011 to 2013\n- Assisted senior agents with property viewings and paperwork.\n- Maintained the listings database and prepared marketing materials for property brochures.\n\nEARLIER EXPERIENCE\nCashier, Populi Supermarket, Tbilisi — 2008 to 2009 (part-time during university)\n\nEDUCATION\nMBA, Grigol Robakidze University, 2013\nBA in Economics, Tbilisi State University, 2011\n\nCERTIFICATIONS\nLicensed Real Estate Broker, Georgian Association of Realtors, 2014\nNegotiation Skills Workshop, 2016\n\nSKILLS\n• Property valuation • Contract negotiation • CRM software (Bitrix24) • MS Excel • Market analysis • Mortgage process coordination • Client relationship management • Team mentoring\n\nADDITIONAL\nMember, Tbilisi Association of Realtors, since 2015. Regularly attend investor networking events. Fluent in property law basics relevant to foreign buyers, including audit trail requirements for anti-money-laundering compliance checks on large transactions.\n\nLANGUAGES\nGeorgian (native), English (fluent), Russian (fluent), German (basic)",
+    "expectRoleKeys": ["real estate agent"],
+    "forbidRoleKeys": ["director", "cashier"],
+    "relevantTitleRegex": "უძრავ",
+    "edgeCases": [
+      "dense ~350 word CV with detailed bullet history",
+      "bullet character variety",
+      "early unrelated cashier job",
+      "audit trail trap",
+      "key driver trap",
+      "reported to the director trap"
+    ]
+  },
+  {
+    "id": "ka-cashier-14",
+    "lang": "ka",
+    "profession": "მოლარე-კონსულტანტი სუპერმარკეტში",
+    "text": "სახელი და გვარი: ნინო მამულაშვილი\nმისამართი: თბილისი, ვაკის რაიონი\nტელეფონი: 599 12 34 56\nელფოსტა: nino.mamulashvili@example.com\n\nმიზანი\nვეძებ მოლარე-კონსულტანტის პოზიციას სავაჭრო ქსელში, სადაც გამოვიყენებ მომსახურების გამოცდილებას.\n\nსამუშაო გამოცდილება\nმოლარე-კონსულტანტი, სუპერმარკეტების ქსელი „ნიკორა“, თბილისი — 2021 წლიდან დღემდე\n- ვმუშაობ სალაროსთან, ვღებულობ ნაღდ და უნაღდო ანგარიშსწორებას.\n- ვაწვდი კონსულტაციას მომხმარებლებს პროდუქციის შესახებ და ვეხმარები დახარისხებაში.\n- პასუხისმგებელი ვარ სალაროს დღიური ანგარიშის ჩაბარებაზე ცვლის ხელმძღვანელთან.\n\nგამყიდველი, მაღაზია „ორი ნაბიჯი“, თბილისი — 2019-2021\n- ვმუშაობდი სავაჭრო დარბაზში, ვალაგებდი საქონელს თაროებზე და ვამოწმებდი ვადებს.\n\nგანათლება\nთბილისის №45 საჯარო სკოლა, დაამთავრა 2018 წელს\nსალაროსთან მუშაობის კურსი, 2019 წელი\nმომხმარებელთან ურთიერთობის ტრენინგი, კომპანიის შიდა კურსი, 2021\n\nუნარები\nსალაროს აპარატთან მუშაობა, მომხმარებელთან ურთიერთობა, სტრესულ გარემოში მუშაობის უნარი, ნაშთის აღრიცხვა, გუნდური მუშაობა\n\nენები\nქართული (მშობლიური), რუსული (საშუალო), ინგლისური (დაწყებითი)",
+    "expectRoleKeys": ["cashier"],
+    "forbidRoleKeys": [],
+    "relevantTitleRegex": "მოლარ|კონსულტანტ",
+    "edgeCases": ["inflected role forms", "tbilisi address"]
+  },
+  {
+    "id": "ka-courier-15",
+    "lang": "ka",
+    "profession": "კურიერი საკუთარი მოტოციკლით",
+    "text": "გიორგი წულაძე\nქუთაისი\nტელ: 555 44 22 11\n\nჩემ შესახებ\nსამი წელია კურიერად ვმუშაობ სურსათის მიწოდების სფეროში, მაქვს საკუთარი მოტოციკლი და B კატეგორიის მართვის მოწმობა.\n\nსამუშაო გამოცდილება\nკურიერი, „გლოვო“, ქუთაისი — 2022 წლიდან დღემდე\n- ვახორციელებ შეკვეთების მიწოდებას რესტორნებიდან მომხმარებლებამდე დღეში საშუალოდ 25-30 შეკვეთა.\n- ვინარჩუნებ კეთილგანწყობილ ურთიერთობას რესტორნების პერსონალთან შეკვეთების დროული აღებისთვის.\n- ვინახავ მიწოდების გრაფიკს და ვუზრუნველყოფ დროულობას.\n\nდამხმარე მუშაკი, საწყობი „ჩქარი მიწოდება“, ქუთაისი — 2021-2022\n- ვახარისხებდი შემოსულ ამანათებს გასაგზავნი მისამართების მიხედვით.\n\nგანათლება\nქუთაისის №7 საჯარო სკოლა\n\nდამატებითი ინფორმაცია\nვფლობ ორ სხვადასხვა მოტოციკლის მოდელს და ვზრუნავ მათ რეგულარულ ტექნიკურ მომსახურებაზე.\n\nუნარები\nმართვის მოწმობა (B კატეგორია), ქალაქის კარგი ცოდნა, დროის მენეჯმენტი, მობილური აპლიკაციებით მუშაობა, ზრდილობიანი კომუნიკაცია\n\nენები\nქართული (მშობლიური), რუსული (დაწყებითი)",
+    "expectRoleKeys": ["courier"],
+    "forbidRoleKeys": ["warehouse worker"],
+    "relevantTitleRegex": "კურიერ",
+    "edgeCases": [
+      "warehouse helper trap job before current role",
+      "prior unrelated warehouse-helper job"
+    ]
+  },
+  {
+    "id": "ka-cook-16",
+    "lang": "ka",
+    "profession": "მზარეული რესტორანში",
+    "text": "ლევან ხუციშვილი\nბათუმი, ტელ: 577 98 76 54\nელფოსტა: levan.khutsishvili@example.com\n\nსამუშაო გამოცდილება\nცხელი კერძების მზარეული, რესტორანი „აჭარული ეზო“, ბათუმი — 2020 წლიდან დღემდე\n- ვამზადებ ეროვნულ და ევროპულ კერძებს, ვმართავ სამზარეულოს ცვლას 4 თანამშრომლით.\n- ვზედამხედველობ ჰიგიენის სტანდარტების დაცვას სამზარეულოში.\n- ვმართავ პროდუქტების შესყიდვის შეკვეთებს მომწოდებლებთან ხარისხისა და ვადების კონტროლით.\n- ვმონაწილეობ ახალი მენიუს შემუშავებაში სეზონურ პროდუქტებზე დაყრდნობით.\n\nმზარეულის თანაშემწე, სასტუმრო „შერატონი ბათუმი“ — 2017-2020\n- ვეხმარებოდი შეფ-მზარეულს კერძების მომზადებასა და პროდუქტების მომზადებაში.\n\nგანათლება\nბათუმის სასტუმროსა და კვების ტექნოლოგიების კოლეჯი, კულინარიის ხარისხი, 2017\nHACCP სერტიფიკატი, 2019\n\nუნარები\nეროვნული და ევროპული სამზარეულო, მენიუს დაგეგმვა, ჰიგიენის სტანდარტები (HACCP), მარაგების აღრიცხვა, გუნდის მართვა\n\nჰობი\nსახლის პირობებში ცომეულის გამოცხობა თავისუფალ დროს\n\nენები\nქართული (მშობლიური), რუსული (საშუალო), ინგლისური (დაწყებითი)",
+    "expectRoleKeys": ["cook"],
+    "forbidRoleKeys": ["baker"],
+    "relevantTitleRegex": "მზარეულ",
+    "edgeCases": ["cooking hobby trap (baker)"]
+  },
+  {
+    "id": "ka-waiter-17",
+    "lang": "ka",
+    "profession": "მიმტანი კაფეში, კარიერის შემცვლელი",
+    "text": "სალომე ბერიძე\nთბილისი\n599-11-22-33 • salome.beridze@example.com\n\nჩემ შესახებ\nადრე ვმუშაობდი საბუღალტრო სფეროში, თუმცა ბოლო სამი წელია მიმტანად ვმუშაობ და ამ სფეროში ვგეგმავ განვითარებას.\n\nსამუშაო გამოცდილება\nმიმტანი, კაფე „ლიტერატურული“, თბილისი — 2023 წლიდან დღემდე\n- ვემსახურები სტუმრებს, ვიღებ შეკვეთებს და ვუზრუნველყოფ სწრაფ მომსახურებას.\n- ვმონაწილეობ დარბაზის მომზადებაში ღონისძიებებისთვის.\n- ვეხმარები ახალ თანამშრომლებს მენიუსა და მომსახურების სტანდარტების შესწავლაში.\n\nბუღალტრის თანაშემწე, შპს „აისი“, თბილისი — 2019-2022\n- ვამზადებდი პირველად დოკუმენტაციას და ვეხმარებოდი ანგარიშგებაში.\n\nგანათლება\nთბილისის სახელმწიფო უნივერსიტეტი, ეკონომიკის ბაკალავრი, 2019\n\nდამატებითი ინფორმაცია\nვგეგმავ სამომავლოდ სასტუმროს მენეჯმენტის კურსის გავლას პროფესიაში წინსვლისთვის.\n\nუნარები\nმომხმარებელთან ურთიერთობა, გუნდური მუშაობა, სწრაფი მომსახურება, სალაროსთან მუშაობის საბაზისო ცოდნა\n\nენები\nქართული (მშობლიური), ინგლისური (საშუალო)",
+    "expectRoleKeys": ["waiter"],
+    "forbidRoleKeys": ["accountant"],
+    "relevantTitleRegex": "მიმტან",
+    "edgeCases": ["career changer from accounting to waiting"]
+  },
+  {
+    "id": "ka-qa-tester-18",
+    "lang": "ka",
+    "profession": "პროგრამული უზრუნველყოფის ტესტერი",
+    "text": "დავით მაისურაძე\nთბილისი | david.maisuradze@example.com | ტელ: 555 67 89 01\n\nშესახებ\nხარისხის კონტროლის ინჟინერი (QA), 4 წლიანი გამოცდილებით ვებ და მობილური აპლიკაციების ტესტირებაში.\n\nსამუშაო გამოცდილება\nQA ტესტერი, „სოფტლაინ ჯორჯია“, თბილისი — 2021 წლიდან დღემდე\n- ვწერ ტესტ-შემთხვევებს და ვატარებ ხელით და ავტომატიზებულ ტესტირებას.\n- ვთანამშრომლობ დეველოპერებთან ბაგების გამოსწორების პროცესში.\n- ვამზადებ ყოველკვირეულ ანგარიშს ნაპოვნი დეფექტების სტატუსის შესახებ გუნდის შეხვედრებისთვის.\n- ვმონაწილეობ მონაცემთა გასუფთავების (data cleaning) სკრიპტების ტესტირებაში ანალიტიკური გუნდისთვის.\n\nჯუნიორ ტესტერი, „აიტი ჰაბი“, თბილისი — 2020-2021\n- ვატარებდი რეგრესულ ტესტირებას ახალი ვერსიების გამოშვების წინ.\n\nგანათლება\nსაქართველოს ტექნიკური უნივერსიტეტი, ინფორმატიკის ბაკალავრი, 2020\nISTQB Foundation სერტიფიკატი, 2021\n\nუნარები\nSelenium, Postman, SQL საბაზისო დონეზე, ბაგების თრექინგი (Jira), ტესტირების დოკუმენტაციის მომზადება\n\nენები\nქართული (მშობლიური), ინგლისური (კარგი დონე)",
+    "expectRoleKeys": ["qa engineer"],
+    "forbidRoleKeys": ["software developer", "data analyst"],
+    "relevantTitleRegex": "QA|ტესტერ|ხარისხის კონტროლ",
+    "edgeCases": [
+      "data cleaning trap suggesting data analyst",
+      "developer collaboration mention trap"
+    ]
+  },
+  {
+    "id": "ka-data-analyst-19",
+    "lang": "ka",
+    "profession": "მონაცემთა ანალიტიკოსი ბანკში",
+    "text": "ანა კვარაცხელია\nთბილისი, საბურთალო | ana.kvaratskhelia@example.com | 599-22-33-44\n\nშესახებ\nმონაცემთა ანალიტიკოსი 5 წლიანი გამოცდილებით საბანკო სექტორში, სპეციალიზაცია — რისკის ანალიზი და ანგარიშგება.\n\nსამუშაო გამოცდილება\nმონაცემთა ანალიტიკოსი, „საქართველოს ბანკი“, თბილისი — 2020 წლიდან დღემდე\n- ვამზადებ ყოველთვიურ ანალიტიკურ ანგარიშებს კრედიტის პორტფელის შესახებ.\n- ვმუშაობ SQL-სა და Power BI-ში დაშბორდების შესაქმნელად.\n- ვთანამშრომლობ საკრედიტო ოფიცრებთან მონაცემთა ხარისხის საკითხებზე.\n- ვმონაწილეობ ყოველკვარტალურ სტრატეგიულ შეხვედრებში მონაცემთა ანალიზის შედეგების პრეზენტაციით.\n\nჯუნიორ ანალიტიკოსი, „თიბისი ბანკი“, თბილისი — 2018-2020\n- ვაგროვებდი და ვამუშავებდი მონაცემებს Excel-ში ყოველკვირეული რეპორტინგისთვის.\n\nგანათლება\nივანე ჯავახიშვილის სახელობის თბილისის სახელმწიფო უნივერსიტეტი, ეკონომეტრიკის მაგისტრი, 2018\nPower BI სერტიფიცირების კურსი, 2021\n\nუნარები\nSQL, Power BI, Excel (გაფართოებული), სტატისტიკური ანალიზი, მონაცემთა ვიზუალიზაცია, ანგარიშების ავტომატიზაცია\n\nენები\nქართული (მშობლიური), ინგლისური (თავისუფალი), რუსული (საშუალო)",
+    "expectRoleKeys": ["data analyst"],
+    "forbidRoleKeys": ["credit officer"],
+    "relevantTitleRegex": "ანალიტიკოს",
+    "edgeCases": ["banking sector context trap for credit officer"]
+  },
+  {
+    "id": "ka-doctor-20",
+    "lang": "ka",
+    "profession": "ოჯახის ექიმი",
+    "text": "თამარ ლომაია\nთბილისი | tamar.lomaia@example.com | 555-98-76-54\n\nშესახებ\nოჯახის ექიმი 9 წლიანი კლინიკური გამოცდილებით პირველადი ჯანდაცვის სფეროში.\n\nსამუშაო გამოცდილება\nოჯახის ექიმი, კლინიკა „მედქლასი“, თბილისი — 2017 წლიდან დღემდე\n- ვიღებ პაციენტებს ყოველდღიურად, ვნიშნავ მკურნალობას და ვმეთვალყურეობ ქრონიკული დაავადებების მართვას.\n- ვთანამშრომლობ ფარმაცევტებთან მედიკამენტების დანიშვნის საკითხებზე.\n- ვატარებ პაციენტთა პროფილაქტიკურ გასინჯვებს და ვურჩევ ცხოვრების ჯანსაღ წესს.\n- ჩემი დისერტაცია იყო ეპიდემიოლოგიის მიმართულებით — Doctor of Medicine ხარისხისთვის.\n\nინტერნი ექიმი, თბილისის რესპუბლიკური საავადმყოფო — 2015-2017\n- გავდიოდი როტაციას თერაპიულ და ქირურგიულ განყოფილებებში.\n\nგანათლება\nთბილისის სახელმწიფო სამედიცინო უნივერსიტეტი, სამედიცინო დოქტორის ხარისხი, 2015\nგადამზადების კურსი ოჯახის მედიცინაში, 2018\n\nუნარები\nდიაგნოსტიკა, პაციენტთა მართვა, ელექტრონული ჯანდაცვის სისტემები, პრევენციული მედიცინა, პაციენტთან კომუნიკაცია\n\nენები\nქართული (მშობლიური), ინგლისური (კარგი), რუსული (კარგი)",
+    "expectRoleKeys": ["doctor"],
+    "forbidRoleKeys": ["pharmacist"],
+    "relevantTitleRegex": "ექიმ",
+    "edgeCases": [
+      "Doctor of Medicine phrase trap (not PhD exclusion since medicine counts)",
+      "pharmacist collaboration mention trap"
+    ]
+  },
+  {
+    "id": "ka-pharmacist-21",
+    "lang": "ka",
+    "profession": "ფარმაცევტი აფთიაქში",
+    "text": "ეკა გელაშვილი\nთბილისი | eka.gelashvili@example.com | 599-33-44-55\n\nშესახებ\nფარმაცევტი 6 წლიანი გამოცდილებით საცალო აფთიაქის ქსელში, კონსულტაცია მედიკამენტების უსაფრთხო გამოყენებაზე.\n\nსამუშაო გამოცდილება\nფარმაცევტი, აფთიაქი „PSP“, თბილისი — 2019 წლიდან დღემდე\n- ვასრულებ რეცეპტების მიხედვით მედიკამენტების გაცემას და ვაწვდი მომხმარებელს კონსულტაციას.\n- ვაწარმოებ საწყობის ნაშთების აღრიცხვას და ვაკონტროლებ ვადის გასვლის ვადებს.\n- ვატარებ მოკლე კონსულტაციებს ქრონიკული პაციენტებისთვის მედიკამენტების სწორად მიღებაზე.\n- ვთანამშრომლობ ფარმაცევტული კომპანიების წარმომადგენლებთან ახალი პროდუქტების შესახებ ინფორმაციის მისაღებად.\n\nფარმაცევტის თანაშემწე, აფთიაქი „ავერსი“, თბილისი — 2017-2019\n- ვეხმარებოდი მთავარ ფარმაცევტს სასაწყობო ოპერაციებში და კლიენტების მომსახურებაში.\n\nგანათლება\nთბილისის სახელმწიფო სამედიცინო უნივერსიტეტი, ფარმაციის ბაკალავრი, 2017\nკლინიკური ფარმაკოლოგიის დამატებითი კურსი, 2019\n\nუნარები\nფარმაკოლოგიის ცოდნა, სამედიცინო პროგრამები, მომხმარებელთან ურთიერთობა, საწყობის აღრიცხვა, გუნდური მუშაობა\n\nენები\nქართული (მშობლიური), ინგლისური (საშუალო), რუსული (კარგი)",
+    "expectRoleKeys": ["pharmacist"],
+    "forbidRoleKeys": ["warehouse worker"],
+    "relevantTitleRegex": "ფარმაც|აფთიაქ|წამლ",
+    "edgeCases": ["pharmacy stock-keeping trap suggesting warehouse worker"]
+  },
+  {
+    "id": "ka-teacher-22-long",
+    "lang": "ka",
+    "profession": "ინგლისური ენის მასწავლებელი (გამოცდილი, გრძელი რეზიუმე)",
+    "text": "მარინე ცხადაძე\nთბილისი, ისანი | marine.tskhadadze@example.com | ტელეფონი: 555-11-33-55\n\nჩემ შესახებ\nინგლისური ენის მასწავლებელი 15 წლიანი გამოცდილებით საჯარო და კერძო სკოლებში. მჯერა, რომ თითოეულ მოსწავლეს სჭირდება ინდივიდუალური მიდგომა და მოტივაციის განვითარება. ჩემი კარიერის განმავლობაში ავამაღლე ჩემი კლასების საშუალო ქულა ეროვნულ გამოცდებზე და დავნერგე ინტერაქტიური მეთოდები გაკვეთილებზე. თვლი, რომ ენის სწავლება მხოლოდ გრამატიკის ცოდნას არ ნიშნავს — მნიშვნელოვანია მოსწავლეს გამოუმუშავდეს თავდაჯერებულობა ცოცხალ საუბარში და კრიტიკული აზროვნება ტექსტთან მუშაობისას. ბოლო წლებში განსაკუთრებულ ყურადღებას ვუთმობ სასწავლო პროცესის ინდივიდუალიზაციას სხვადასხვა დონის მოსწავლეთა ერთ საკლასო ოთახში გაერთიანებისას.\n\nსამუშაო გამოცდილება\nინგლისური ენის მასწავლებელი, თბილისის №51 საჯარო სკოლა — 2014 წლიდან დღემდე\n- ვასწავლი ინგლისურ ენას მე-7-დან მე-12 კლასამდე, ვამზადებ მოსწავლეებს ეროვნული გამოცდებისთვის.\n- ვმონაწილეობ სასკოლო სასწავლო გეგმის შემუშავებაში და მასწავლებელთა გადამზადების ტრენინგებში მონაწილეობა მაქვს ყოველწლიურად.\n- ვხელმძღვანელობ სასკოლო ინგლისურენოვან დებატების კლუბს, რომელმაც რამდენჯერმე გაიმარჯვა ქალაქის ოლიმპიადაზე.\n- ვმუშაობ მშობლებთან რეგულარულ კომუნიკაციაში მოსწავლეთა პროგრესის შესახებ.\n- შევიმუშავე სასკოლო შეფასების ახალი სისტემა, რომელიც ითვალისწინებს არა მხოლოდ წერით ტესტებს, არამედ ზეპირ პრეზენტაციებსა და პროექტულ დავალებებს.\n- ვახორციელებ მენტორობას ახალდაწყებული მასწავლებლებისთვის სკოლის ადაპტაციის პირველ წელს.\n- ორგანიზება გავუწიე სკოლათაშორის ინგლისურენოვან საკითხავ კლუბს, რომელშიც ჩართულია ოთხი სხვადასხვა სკოლის მოსწავლე.\n\nინგლისური ენის მასწავლებელი, ქუთაისის კერძო სკოლა „ლისი“ — 2009-2014\n- ვასწავლიდი დაწყებით და საბაზო საფეხურებზე, ვშეიმუშავე ახალი სასწავლო მასალა დამწყებთათვის.\n- ვმონაწილეობდი სასკოლო წარმოდგენებისა და ღონისძიებების ორგანიზებაში.\n\nინგლისურის რეპეტიტორი (კერძო გაკვეთილები), ქუთაისი — 2007-2009\n- ვამზადებდი აბიტურიენტებს ერთიანი ეროვნული გამოცდებისთვის ინდივიდუალურად.\n\nსტაჟირება, საერთაშორისო სასწავლო ცენტრი, ქუთაისი — 2006-2007\n- დავეხმარე უფროს პედაგოგებს გაკვეთილების მომზადებაში სტაჟირების ფარგლებში ჯერ კიდევ სტუდენტობისას.\n\nგანათლება\nაკაკი წერეთლის სახელმწიფო უნივერსიტეტი, ინგლისური ფილოლოგიის ბაკალავრი, 2006\nთბილისის სახელმწიფო უნივერსიტეტი, პედაგოგიკის მაგისტრი, 2012\nსერტიფიკატი: Cambridge CELTA, 2013\n\nპროფესიული განვითარება\n• ყოველწლიური მონაწილეობა მასწავლებელთა პროფესიული განვითარების სქემაში\n• სემინარები თანამედროვე სწავლების მეთოდებზე, სულ 6-ჯერ 2015-2023 წლებში\n• მონაწილეობა სახელმძღვანელოების განხილვის სამუშაო ჯგუფში განათლების სამინისტროსთვის\n• სამი წლის განმავლობაში ვიყავი მოწვეული სპიკერი ქართული პედაგოგების ყოველწლიურ კონფერენციაზე ენების სწავლების თემაზე\n\nუნარები\nსასწავლო გეგმის შემუშავება, დიფერენცირებული სწავლება, კლასის მართვა, Cambridge საგამოცდო მასალები, ციფრული სასწავლო ინსტრუმენტები (Kahoot, Google Classroom), მშობლებთან კომუნიკაცია, კონფლიქტების მართვა კლასში, საგამოცდო მასალების ავტორობა\n\nდამატებითი ინფორმაცია\nვმონაწილეობ საქველმოქმედო კამპანიებში სკოლის მოსწავლეებთან ერთად და ვხელმძღვანელობ საზაფხულო ბანაკის საგანმანათლებლო პროგრამას ყოველ წელს. ასევე მაქვს გამოცდილება უცხოელი მოხალისეების მასწავლებლების ორიენტაციაში, რომლებიც სკოლაში მოდიან გაცვლითი პროგრამებით. 2022 წელს დავწერე მოკლე სახელმძღვანელო დამწყები მასწავლებლებისთვის კლასის მართვის საბაზისო ტექნიკებზე, რომელიც სკოლის შიდა ბიბლიოთეკაშია ხელმისაწვდომი. რეგულარულად ვკითხულობ პროფესიულ ლიტერატურას თანამედროვე ენების სწავლების მეთოდოლოგიაზე და ვცდილობ ახალი მიდგომების ტესტვას საკუთარ გაკვეთილებზე ეტაპობრივად, სანამ მთელ კურიკულუმში დავნერგავ.\n\nრეკომენდატორები\nხელმისაწვდომია მოთხოვნის შემთხვევაში, სკოლის დირექტორისა და მეთოდური გაერთიანების ხელმძღვანელისგან.\n\nენები\nქართული (მშობლიური), ინგლისური (C2, თავისუფალი), რუსული (B1)",
+    "expectRoleKeys": ["teacher"],
+    "forbidRoleKeys": [],
+    "relevantTitleRegex": "მასწავლ|პედაგოგ",
+    "edgeCases": [
+      "long ~700 word dense CV",
+      "teacher training phrase trap",
+      "bullet character variety (•)"
+    ]
+  },
+  {
+    "id": "ka-marketing-smm-23",
+    "lang": "ka",
+    "profession": "მარკეტინგის მენეჯერი / SMM სპეციალისტი",
+    "text": "ნინო ხარაიშვილი\nთბილისი\tტელ: 599-77-88-99\tელფოსტა: nino.kharaishvili@example.com\n\nშესახებ\nმარკეტინგის მენეჯერის პოზიციაზე ვცდილობ გადავიდე ბოლო ოთხი წლის SMM გამოცდილების შემდეგ.\n\nსამუშაო გამოცდილება\nSMM მენეჯერი, კომპანია „ვიტამინი მარკეტი“, თბილისი — 2021 წლიდან დღემდე\n- ვმართავ სოციალურ ქსელებში კომპანიის გვერდებს, ვგეგმავ საკონტენტო კალენდარს.\n- ვამზადებ სარეკლამო კამპანიებს Facebook და Instagram-ზე, ვაანალიზებ შედეგებს Google Analytics-ში.\n- ვმართავ ყოველთვიურ სარეკლამო ბიუჯეტს და ვამზადებ ანგარიშს ხელმძღვანელობისთვის შედეგების შესახებ.\n- ვთანამშრომლობ დიზაინის გუნდთან მარკეტინგული მასალების მომზადებაზე.\n\nმარკეტინგის სპეციალისტი, „ჯეოსელი“ (სტაჟირება), თბილისი — 2020-2021\n- ვეხმარებოდი გუნდს ბაზრის კვლევებში და კონკურენტების ანალიზში.\n\nგანათლება\nივანე ჯავახიშვილის სახელობის თბილისის სახელმწიფო უნივერსიტეტი, მარკეტინგის ბაკალავრი, 2020\nGoogle Digital Marketing სერტიფიკატი, 2021\n\nუნარები\nSMM, Google Analytics, კონტენტ-გეგმა, Meta Ads Manager, Canva, ბაზრის ანალიზი, კონკურენტების მონიტორინგი\n\nენები\nქართული (მშობლიური), ინგლისური (კარგი)",
+    "expectRoleKeys": ["smm specialist"],
+    "forbidRoleKeys": ["designer"],
+    "relevantTitleRegex": "მარკეტ|SMM|სოციალური მედია",
+    "edgeCases": [
+      "tab-separated contact line",
+      "marketing materials trap for designer",
+      "objective (marketing manager) differs from actual title (SMM)"
+    ]
+  },
+  {
+    "id": "ka-callcenter-24-short",
+    "lang": "ka",
+    "profession": "ქოლ-ცენტრის ოპერატორი (მოკლე რეზიუმე)",
+    "text": "გვანცა სურმანიძე\nთბილისი | 555-00-11-22\n\nსამუშაო გამოცდილება\nქოლ-ცენტრის ოპერატორი, „მაგთიკომი“, თბილისი — 2023 წლიდან დღემდე\n- ვპასუხობ შემომავალ ზარებს და ვეხმარები აბონენტებს ტექნიკურ საკითხებში.\n- ვაწარმოებ ზარების აღრიცხვას შიდა CRM სისტემაში ყოველდღიურად.\n\nგანათლება\nთბილისის №102 საჯარო სკოლა, 2022\n\nუნარები\nკომუნიკაბელურობა, სწრაფი ბეჭდვა, სტრესდამძლეობა\n\nენები\nქართული (მშობლიური), რუსული (საშუალო)",
+    "expectRoleKeys": ["call center operator"],
+    "forbidRoleKeys": [],
+    "relevantTitleRegex": "ქოლ.?\\s?ცენტრ",
+    "edgeCases": ["very short ~60 word CV"]
+  },
+  {
+    "id": "ka-logistics-26",
+    "lang": "ka",
+    "profession": "ლოგისტიკის სპეციალისტი",
+    "text": "ზურაბ ონიანი\nთბილისი | zurab.oniani@example.com | 599-45-67-89\n\nშესახებ\nლოგისტიკის სპეციალისტი 7 წლიანი გამოცდილებით საერთაშორისო ტვირთბრუნვის მართვაში.\n\nსამუშაო გამოცდილება\nლოგისტიკოსი, „ჯორჯიან ლოჯისტიკს“, თბილისი — 2019 წლიდან დღემდე\n▪ ვგეგმავ სატრანსპორტო მარშრუტებს და ვაწარმოებ მოლაპარაკებებს გადამზიდავებთან.\n▪ ვაკონტროლებ საბაჟო დოკუმენტაციის სისწორეს იმპორტ-ექსპორტის დროს.\n▪ ვირჩევ გადამზიდავ კომპანიებს ტენდერის პრინციპით ხარჯების ოპტიმიზაციისთვის.\n▪ ვთანამშრომლობ საწყობის გუნდთან მარაგების დროულ შევსებაზე.\n\nექსპედიტორი, „ტრანს-კავკასია“, თბილისი — 2016-2019\n▪ ვმართავდი ტვირთის თანმხლებ დოკუმენტაციას და ვაკვირდებოდი მიწოდების ვადებს.\n\nგანათლება\nსაქართველოს ტექნიკური უნივერსიტეტი, ლოგისტიკის ბაკალავრი, 2016\nსაბაჟო დეკლარირების კურსი, 2018\n\nუნარები\nსაბაჟო პროცედურები, ტვირთის დაგეგმვა, MS Excel, SAP, მომწოდებლებთან მოლაპარაკება, ხარჯების ოპტიმიზაცია\n\nენები\nქართული (მშობლიური), ინგლისური (საშუალო), რუსული (კარგი)",
+    "expectRoleKeys": ["logistics specialist"],
+    "forbidRoleKeys": ["warehouse worker"],
+    "relevantTitleRegex": "ლოგისტ|ექსპედიტორ",
+    "edgeCases": ["▪ bullet characters", "warehouse collaboration trap"]
+  },
+  {
+    "id": "ka-credit-officer-25",
+    "lang": "ka",
+    "profession": "საკრედიტო ოფიცერი ბანკში",
+    "text": "ლაშა ჯავახია\nთბილისი | lasha.javakhia@example.com | 555-23-45-67\n\nშესახებ\nკრედიტ ოფიცერი 5 წლიანი გამოცდილებით მცირე და საშუალო ბიზნესის დაკრედიტების მიმართულებით.\n\nსამუშაო გამოცდილება\nკრედიტ ოფიცერი, „ლიბერთი ბანკი“, თბილისი — 2020 წლიდან დღემდე\n- ვაფასებ მსესხებელთა გადახდისუნარიანობას და ვამზადებ საკრედიტო განაცხადებს.\n- ვთანამშრომლობ SME სეგმენტის კლიენტებთან ბიზნეს სესხების გაფორმებაზე.\n- ვამზადებ ყოველთვიურ ანგარიშს განყოფილების ხელმძღვანელისთვის გაცემული სესხების დინამიკის შესახებ.\n- ვაწარმოებ პორტფელის მონიტორინგს ვადაგადაცილებების პრევენციისთვის.\n\nსესხის ოფიცრის თანაშემწე, „ბაზისბანკი“, თბილისი — 2018-2020\n- ვამზადებდი დოკუმენტაციას ფიზიკური პირების სამომხმარებლო სესხებზე.\n\nგანათლება\nთბილისის სახელმწიფო უნივერსიტეტი, ფინანსების ბაკალავრი, 2018\nსაკრედიტო ანალიზის შიდაბანკო კურსი, 2019\n\nუნარები\nსაკრედიტო რისკის შეფასება, ფინანსური ანალიზი, MS Excel, საბანკო საინფორმაციო სისტემები, მოლაპარაკების უნარები\n\nენები\nქართული (მშობლიური), ინგლისური (კარგი), რუსული (საშუალო)",
+    "expectRoleKeys": ["credit officer"],
+    "forbidRoleKeys": ["banker"],
+    "relevantTitleRegex": "კრედიტ|სესხ",
+    "edgeCases": ["banking employer name trap for generic banker role"]
+  },
+  {
+    "id": "ka-civileng-mtavruli-27",
+    "lang": "ka",
+    "profession": "სამოქალაქო ინჟინერი (Mtavruli headings and titles)",
+    "text": "ᲒᲘᲝᲠᲒᲘ ᲗᲐᲗᲣᲚᲐᲨᲕᲘᲚᲘ\nთბილისი | giorgi.tatulashvili@example.com | 599-34-56-78\n\nᲩᲔᲛ ᲨᲔᲡᲐᲮᲔᲑ\nსამოქალაქო ინჟინერი 8 წლიანი გამოცდილებით საცხოვრებელი და კომერციული შენობების პროექტირებასა და მშენებლობის ზედამხედველობაში.\n\nᲡᲐᲛᲣᲨᲐᲝ ᲒᲐᲛᲝᲪᲓᲘᲚᲔᲑᲐ\nᲘᲜᲟᲘᲜᲔᲠ-ᲙᲝᲜᲡᲢᲠᲣᲥᲢᲝᲠᲘ, შპს „ჯორჯიან ბილდი“, თბილისი — 2018 წლიდან დღემდე\n- ვამზადებ საკონსტრუქციო ნახაზებს და ვაწარმოებ სტატიკურ გაანგარიშებებს მრავალსართულიანი შენობებისთვის.\n- ვახორციელებ ᲛᲨᲔᲜᲔᲑᲚᲝᲑᲘᲡ ᲖᲔᲓᲐᲛᲮᲔᲓᲕᲔᲚᲝᲑᲐს ობიექტებზე, ვამოწმებ სამუშაოთა შესაბამისობას პროექტთან.\n- ვამზადებ ყოველკვირეულ ანგარიშებს პროექტის მიმდინარეობის შესახებ საინვესტიციო კომპანიისთვის.\n- ვთანამშრომლობ არქიტექტორთა გუნდთან ტექნიკური დავალებების შემუშავებაზე.\n\nᲘᲜᲟᲘᲜᲔᲠ-ᲞᲠᲝᲔᲥᲢᲐᲜᲢᲘ, შპს „საინჟინრო ცენტრი“, თბილისი — 2015-2018\n- ვამზადებდი წყალკანალიზაციის და გათბობის სისტემების საპროექტო დოკუმენტაციას.\n\nᲒᲐᲜᲐᲗᲚᲔᲑᲐ\nსაქართველოს ტექნიკური უნივერსიტეტი, სამოქალაქო ინჟინერიის ბაკალავრი, 2015\nსამაგისტრო ხარისხი სამშენებლო კონსტრუქციებში, 2017\nBIM მოდელირების კურსი, 2019\n\nᲣᲜᲐᲠᲔᲑᲘ\nAutoCAD, Revit, სტატიკური გაანგარიშება, ტექნიკური ზედამხედველობა, სამშენებლო ნორმების ცოდნა, ხარჯთაღრიცხვის მომზადება\n\nᲔᲜᲔᲑᲘ\nქართული (მშობლიური), ინგლისური (კარგი), რუსული (საშუალო)",
+    "expectRoleKeys": ["engineer"],
+    "forbidRoleKeys": ["architect"],
+    "relevantTitleRegex": "ინჟინერ-მშენებელ|საინჟინრო|წყალკანალიზაცი|ინჟინერ-კონსტრუქტორ|კონსტრუქტორ",
+    "edgeCases": [
+      "headings and job titles in Mtavruli capitals (U+1C90-U+1CBF)",
+      "architect collaboration trap"
+    ]
+  },
+  {
+    "id": "mixed-translator-28",
+    "lang": "mixed",
+    "profession": "თარჯიმანი (ქართული ტექსტი, ინგლისური სათაურები)",
+    "text": "Nino Beridze\nთბილისი | nino.beridze.tr@example.com | 555-90-80-70\n\nSUMMARY\nთარჯიმანი ვარ 6 წლიანი გამოცდილებით ინგლისურ-ქართული და რუსულ-ქართული თარგმანების სფეროში, სპეციალიზაცია იურიდიულ და ტექნიკურ დოკუმენტებზე.\n\nEXPERIENCE\nთარჯიმანი, საერთაშორისო იურიდიული ფირმა „ბიემლეგალ“, თბილისი — 2020 წლიდან დღემდე\n- ვთარგმნი კონტრაქტებს, სასამართლო დოკუმენტებს და საქმიან მიმოწერას ინგლისურიდან ქართულად და პირიქით.\n- ვახორციელებ სინქრონულ თარგმანს საერთაშორისო შეხვედრებზე კლიენტებთან.\n- ვამზადებ ტერმინთა ლექსიკონებს განმეორებადი პროექტებისთვის თანმიმდევრულობის უზრუნველსაყოფად.\n\nთარჯიმანი (გერმანულ-ქართული), „გოეთეს ინსტიტუტი“ — 2017-2020\n- ვთარგმნიდი საგანმანათლებლო მასალებს და ვეხმარებოდი ვიზიტორებს კომუნიკაციაში.\n\nEDUCATION\nთბილისის სახელმწიფო უნივერსიტეტი, ინგლისური ფილოლოგიისა და თარგმანის ბაკალავრი, 2017\nსასამართლო თარჯიმნის სასერტიფიკატო კურსი, 2019\n\nSKILLS\nსინქრონული და წერილობითი თარგმანი, CAT Tools (Trados), იურიდიული ტერმინოლოგია, ტექნიკური თარგმანი, რედაქტირება\n\nLANGUAGES\nქართული (მშობლიური), ინგლისური (თავისუფალი), გერმანული (კარგი), რუსული (კარგი)",
+    "expectRoleKeys": ["translator"],
+    "forbidRoleKeys": [],
+    "relevantTitleRegex": "თარჯიმან|ენის მასწავლებელ",
+    "edgeCases": ["Georgian body with English section headings"]
+  },
+  {
+    "id": "mixed-credit-officer-29",
+    "lang": "mixed",
+    "profession": "Bank credit officer, English CV with Georgian employer names",
+    "text": "Nika Chubinishvili\nTbilisi | nika.chubinishvili@example.com | +995 555 65 43 21\n\nOBJECTIVE\nExperienced credit officer seeking a Branch Manager position at a leading Georgian bank.\n\nEXPERIENCE\nCredit Officer, სს \"თიბისი ბანკი\" (TBC Bank), Tbilisi — 2019 to present\n- Evaluate creditworthiness of retail and SME loan applicants.\n- Prepare loan documentation and monitor overdue portfolio for the branch on Chavchavadze Avenue.\n- Coordinate with the collections department on delinquent accounts.\n\nLoan Officer Assistant, შპს \"ბაზისბანკი\" (Basisbank), Tbilisi — 2017 to 2019\n- Assisted with documentation for consumer loans and initial credit scoring.\n\nEDUCATION\nBA in Finance, Tbilisi State University, 2017\nCredit Risk Analysis certificate, Frankfurt School online, 2019\n\nSKILLS\nCredit risk assessment, financial analysis, MS Excel, banking core systems, loan portfolio monitoring, client negotiation\n\nLANGUAGES\nGeorgian (native), English (fluent), Russian (intermediate)",
+    "expectRoleKeys": ["credit officer"],
+    "forbidRoleKeys": [],
+    "relevantTitleRegex": "კრედიტ|სესხ",
+    "edgeCases": [
+      "Georgian-script employer names inside an English CV",
+      "objective (branch manager) differs from actual job history"
+    ]
+  },
+  {
+    "id": "mixed-sme-advisor-30",
+    "lang": "mixed",
+    "profession": "SME Business Advisor, bilingual code-switching CV",
+    "text": "თეა მჭედლიშვილი\nთბილისი | tea.mchedlishvili@example.com | 599-56-78-90\n\nჩემ შესახებ\nვმუშაობ SME Business Advisor პოზიციაზე სს „საქართველოს ბანკში\" 5 წლის განმავლობაში, ვეხმარები მცირე და საშუალო ბიზნესს დაფინანსების მოძიებაში.\n\nSამუშაო გამოცდილება\nSME Business Advisor, სს „საქართველოს ბანკი\", თბილისი — 2021 წლიდან დღემდე\n- ვაწარმოებ მოლაპარაკებებს SME სეგმენტის კლიენტებთან საკრედიტო პროდუქტებზე.\n- ვამზადებ ბიზნეს გეგმების შეფასებებს და ფინანსურ ანალიზს small and medium enterprises სექტორისთვის.\n- ვთანამშრომლობ Relationship Manager-ებთან პორტფელის განვითარებაზე.\n- ვმონაწილეობ ბანკის შიდა ტრენინგებში ახალი SME პროდუქტების შესახებ თანამშრომლების გადამზადებისთვის.\n\nასოცირებული ბანკირი, მცირე და საშუალო ბიზნესი, „ლიბერთი ბანკი\", თბილისი — 2019-2021\n- ვემსახურებოდი SME კლიენტებს ყოველდღიურ საბანკო ოპერაციებში.\n\nგანათლება\nთბილისის თავისუფალი უნივერსიტეტი, ბიზნესის ადმინისტრირების ბაკალავრი, 2019\nSME Finance Certificate, IFC Training Programme, 2020\n\nუნარები\nფინანსური ანალიზი, საკრედიტო შეფასება, MS Excel, ინგლისურენოვანი საბანკო დოკუმენტაცია, მოლაპარაკებების წარმოება, პორტფელის ანალიზი\n\nენები\nქართული (მშობლიური), ინგლისური (თავისუფალი), რუსული (საშუალო)",
+    "expectRoleKeys": ["sme business advisor"],
+    "forbidRoleKeys": [],
+    "relevantTitleRegex": "SME|მცირე და საშუალო ბიზნეს|ბანკირის ასისტენტ",
+    "edgeCases": [
+      "English job title embedded mid-Georgian-sentence",
+      "English acronym SME used both as skill and role trap"
+    ]
+  },
+  {
+    "id": "ru-cleaner-31",
+    "lang": "ru",
+    "profession": "Уборщица в офисном здании",
+    "text": "Марина Петросян\nТбилиси | marina.petrosyan@example.com | тел: 599-11-44-77\n\nО себе\nОпытная уборщица, 5 лет работы в клининге офисных и жилых помещений, ответственная и пунктуальная.\n\nОпыт работы\nУборщица, бизнес-центр \"Приморский\", Тбилиси — 2020 — настоящее время\n- Ежедневная уборка офисных помещений, коридоров и санузлов на 6 этажах здания.\n- Контроль запасов чистящих средств и заказ материалов у поставщика.\n- Обучение новых сотрудников стандартам уборки и технике безопасности при работе с химическими средствами.\n- Уборка после корпоративных мероприятий и в вечерние смены.\n\nГорничная, отель \"Тбилиси Марриотт\" — 2017 — 2020\n- Уборка гостиничных номеров, смена постельного белья, подготовка номеров к заезду гостей.\n\nОбразование\nСредняя школа №25, Тбилиси, 2016\nКурсы профессионального клининга, 2019\n\nНавыки\nРабота с профессиональным клининговым оборудованием, соблюдение стандартов гигиены, ответственность, работа в команде, пунктуальность\n\nЯзыки\nРусский (родной), грузинский (свободно), английский (базовый)",
+    "expectRoleKeys": ["cleaner"],
+    "forbidRoleKeys": ["housekeeper"],
+    "relevantTitleRegex": "დამლაგებ|დასუფთავებ",
+    "edgeCases": ["hotel housekeeping job as prior role trap", "cyrillic script"]
+  },
+  {
+    "id": "ru-office-manager-32",
+    "lang": "ru",
+    "profession": "Офис-менеджер в консалтинговой компании",
+    "text": "Елена Симонишвили\nТбилиси, ул. Чавчавадзе | elena.simonishvili@example.com | +995 555 20 30 40\n\nОБО МНЕ\nОфис-менеджер с 6-летним опытом административной поддержки руководства и координации офисных процессов в консалтинговой компании.\n\nОПЫТ РАБОТЫ\nОфис-менеджер, консалтинговая компания \"Кавказ Консалтинг\", Тбилиси — 2020 — настоящее время\n- Организация документооборота, закупка канцелярии и координация работы курьеров.\n- Отвечала за delivery проектов внутренней команды точно в срок, вела календарь встреч директора.\n- Один из коллег в отделе защитил PhD (Doctor of Philosophy) по экономике, и я помогала с организацией его защиты диссертации.\n\nАдминистратор ресепшн, юридическая фирма \"Легал Групп\", Тбилиси — 2017 — 2020\n- Встреча посетителей, обработка входящих звонков, ведение переговорных комнат.\n\nОБРАЗОВАНИЕ\nТбилисский государственный университет, бакалавр менеджмента, 2017\nКурс делового администрирования, 2019\n\nНАВЫКИ\nMS Office, ведение документооборота, организация мероприятий, деловая переписка, координация подрядчиков, ведение бюджета офиса\n\nЯЗЫКИ\nРусский (родной), грузинский (свободно), английский (хороший уровень)",
+    "expectRoleKeys": ["administrator"],
+    "forbidRoleKeys": ["director", "project manager"],
+    "relevantTitleRegex": "ადმინისტრატ|ოფის.{0,3}მენეჯერ",
+    "edgeCases": [
+      "ALL-CAPS section headings",
+      "PhD / Doctor of Philosophy trap",
+      "delivery of projects trap",
+      "code-switched English words inside Russian text"
+    ]
+  }
+]

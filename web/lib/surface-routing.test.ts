@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isAdminAuthRoute,
   isAdminDashboardRoute,
+  isProbeRoute,
   isPublicRoute,
   isStaticAssetRoute,
   resolveAdminAccess,
@@ -85,6 +86,19 @@ describe('isStaticAssetRoute', () => {
   ])('refuses %s (an exact allowlist, not an extension heuristic)', (pathname) => {
     expect(isStaticAssetRoute(pathname)).toBe(false);
   });
+});
+
+describe('isProbeRoute', () => {
+  it.each(['/api/healthz', '/api/readyz'])('allows %s', (pathname) => {
+    expect(isProbeRoute(pathname)).toBe(true);
+  });
+
+  it.each(['/api/healthz/x', '/api/readyzz', '/api/health', '/healthz', '/api/readyz/'])(
+    'refuses %s',
+    (pathname) => {
+      expect(isProbeRoute(pathname)).toBe(false);
+    },
+  );
 });
 
 describe('resolveAdminAccess', () => {

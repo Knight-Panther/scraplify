@@ -146,3 +146,19 @@ export function inspectZip(bytes: Uint8Array): { entries: number; uncompressedBy
 export function letterCount(text: string): number {
   return text.match(/\p{L}/gu)?.length ?? 0;
 }
+
+export type CvScript = 'georgian' | 'latin' | 'other';
+
+/**
+ * The alphabet most of the CV's letters are in. Matching reads Georgian and
+ * English only, so a CV mostly in another script (Russian is common in
+ * Georgia) yields few or no terms; the UI says so instead of leaving an
+ * unexplained empty profile.
+ */
+export function dominantScript(text: string): CvScript {
+  const georgian = text.match(/\p{Script=Georgian}/gu)?.length ?? 0;
+  const latin = text.match(/\p{Script=Latin}/gu)?.length ?? 0;
+  const other = letterCount(text) - georgian - latin;
+  if (other > georgian + latin) return 'other';
+  return georgian >= latin ? 'georgian' : 'latin';
+}
