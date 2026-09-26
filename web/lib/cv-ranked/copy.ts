@@ -17,6 +17,10 @@ export const STAGES: readonly { stage: Stage; label: string }[] = [
   { stage: 'ranking', label: 'Matching and ranking' },
 ];
 
+/** Shown when most of the CV is neither Georgian nor Latin script. */
+export const OTHER_SCRIPT_NOTE =
+  'Most of this CV is in an alphabet other than Georgian or Latin (Russian, for example). Matching reads Georgian and English, so little may have been found. Add the roles you are looking for in Georgian or English below.';
+
 const MIB = LIMITS.bytes / 1024 / 1024;
 
 /** One message per bounded error code. Never the parser's own text, which can quote the file. */
