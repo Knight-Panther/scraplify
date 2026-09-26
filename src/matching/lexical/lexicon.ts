@@ -33,6 +33,11 @@ export interface LexiconEntry {
   ka: string;
   /** Surface forms in either language. `en` and `ka` are always included too. */
   forms: readonly string[];
+  /**
+   * Forms that name a field of work, not the job: they still match when the
+   * user types them, but are never taken from a CV as evidence of the role.
+   */
+  contextForms?: readonly string[];
   generic?: boolean;
 }
 
@@ -151,6 +156,24 @@ const ROLES: readonly Row[] = [
   ['Intern', 'სტაჟიორი', ['internship', 'trainee', 'სტაჟირება']],
 ];
 
+/**
+ * Lexicon forms that name a field of work rather than a job title. Found in a
+ * CV they said far more about the sector than the person's role: a real
+ * advisor CV's "web platform delivery" became Courier, "banking sector"
+ * became Banker and "quality assurance" of survey data became QA engineer.
+ * Typed by the user they still match, since there the user is choosing.
+ */
+const CONTEXT_FORMS: Readonly<Record<string, readonly string[]>> = {
+  Courier: ['delivery'],
+  Banker: ['banking'],
+  'QA engineer': ['quality assurance'],
+  Distributor: ['distribution'],
+  Translator: ['translation'],
+  'Real estate agent': ['real estate'],
+  'SMM specialist': ['social media'],
+  Intern: ['internship'],
+};
+
 const SKILLS: readonly Row[] = [
   ['Excel', 'ექსელი', ['ms excel', 'microsoft excel']],
   ['Microsoft Office', 'MS Office', ['ms office', 'microsoft office']],
@@ -220,6 +243,7 @@ function toEntries(kind: LexiconKind, rows: readonly Row[]): LexiconEntry[] {
     en,
     ka,
     forms: [en, ka, ...forms],
+    ...(CONTEXT_FORMS[en] ? { contextForms: CONTEXT_FORMS[en] } : {}),
     ...(generic ? { generic: true } : {}),
   }));
 }

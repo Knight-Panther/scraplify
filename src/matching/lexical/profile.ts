@@ -152,6 +152,12 @@ function lexiconForms(entry: LexiconEntry): string[][] {
   return forms;
 }
 
+/** The forms that count as CV evidence for an entry: all but its context forms. */
+function lexiconEvidenceForms(entry: LexiconEntry): string[][] {
+  const context = new Set((entry.contextForms ?? []).map((form) => formKey(phraseStems(form))));
+  return lexiconForms(entry).filter((form) => !context.has(formKey(form)));
+}
+
 function lexiconLabel(entry: LexiconEntry): string {
   return entry.en === entry.ka ? entry.en : `${entry.en} · ${entry.ka}`;
 }
@@ -231,10 +237,11 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
     forms: string[][],
     codes: string[],
     generic = false,
+    evidenceForms: string[][] = forms,
   ) => {
     if (forms.length === 0) return;
     if (forms.some((form) => claims(candidates, kind, form))) return;
-    const hit = detect(stems, stemIndex, forms);
+    const hit = detect(stems, stemIndex, evidenceForms);
     if (hit === null) return;
     const firstToken = tokens[hit.index];
     const lastToken = tokens[hit.index + hit.length - 1];
@@ -260,7 +267,15 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
   // Curated bilingual entries first, so an English CV's "accountant" and a
   // corpus title ბუღალტერი collapse into one bilingual term, not two.
   for (const entry of LEXICON) {
-    add(entry.kind, entry.key, lexiconLabel(entry), lexiconForms(entry), [], entry.generic);
+    add(
+      entry.kind,
+      entry.key,
+      lexiconLabel(entry),
+      lexiconForms(entry),
+      [],
+      entry.generic,
+      lexiconEvidenceForms(entry),
+    );
   }
   for (const role of vocabulary.roles) {
     add('role', `title:${role.key}`, role.label, role.forms, []);

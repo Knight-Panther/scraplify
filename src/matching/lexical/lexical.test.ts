@@ -118,6 +118,22 @@ describe('deriveProfile', () => {
     expect(roles).not.toContain('role:manager');
   });
 
+  it('does not read a role into a field-of-work word, but still matches it when typed', () => {
+    const { terms } = deriveProfile(
+      'Advisor in banking; led web platform delivery and quality assurance of survey data.',
+      vocabulary,
+    );
+    const roles = terms.filter((term) => term.kind === 'role').map((term) => term.id);
+    expect(roles).not.toContain('role:banker');
+    expect(roles).not.toContain('role:courier');
+    expect(roles).not.toContain('role:qa engineer');
+    // The job title itself is still evidence.
+    expect(deriveProfile('Courier, 2019–2021.', vocabulary).terms.map((t) => t.id)).toContain(
+      'role:courier',
+    );
+    expect(userTerm('role', 'delivery')?.id).toBe('role:courier');
+  });
+
   it('suggests nothing without supporting text', () => {
     expect(deriveProfile('', vocabulary).terms).toEqual([]);
     expect(deriveProfile('Hobbies: hiking.', vocabulary).terms).toEqual([]);
