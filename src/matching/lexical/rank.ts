@@ -19,7 +19,7 @@ import { findPhrase, LEXICAL_TEXT_VERSION, phraseStems } from './text.js';
  * checked, because nothing in a row states them.
  */
 
-export const LEXICAL_RANK_VERSION = `lexical-rank-v1+text-${LEXICAL_TEXT_VERSION}`;
+export const LEXICAL_RANK_VERSION = `lexical-rank-v2+text-${LEXICAL_TEXT_VERSION}`;
 
 /**
  * Component weights. Role against title is the strongest signal both boards
@@ -34,6 +34,24 @@ export const WEIGHTS = { role: 0.5, field: 0.3, skill: 0.2 } as const;
  * `src/ranking/score-opportunity.ts` uses for the operator's own ranking.
  */
 export const ROLE_SIMILARITY_THRESHOLD = 0.55;
+/**
+ * Credit for a title that shares only a multi-word role's head noun — its
+ * last word in both English and Georgian ("data analyst" → "ფინანსური
+ * ანალიტიკოსი"). Above the threshold, well below a contained match, so
+ * near-misses rank after every exact title instead of not at all.
+ */
+export const HEAD_NOUN_SIMILARITY = 0.6;
+const MIN_HEAD_NOUN_CHARS = 4;
+
+function sharesHeadNoun(form: readonly string[], titleStems: readonly string[]): boolean {
+  const head = form[form.length - 1];
+  return (
+    form.length > 1 &&
+    head !== undefined &&
+    head.length >= MIN_HEAD_NOUN_CHARS &&
+    titleStems.includes(head)
+  );
+}
 /** Two matched skills saturate the skill component. */
 const SKILLS_FOR_FULL_SCORE = 2;
 
@@ -159,7 +177,10 @@ export function rankOpportunities(
           // (Jaccard penalises the length gap), so containment wins outright.
           const similarity = contained
             ? 1
-            : trigramSimilarity(form.join(' '), opportunity.titleKey);
+            : Math.max(
+                trigramSimilarity(form.join(' '), opportunity.titleKey),
+                sharesHeadNoun(form, opportunity.titleStems) ? HEAD_NOUN_SIMILARITY : 0,
+              );
           if (similarity > best) {
             best = similarity;
             bestTerm = term;

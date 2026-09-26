@@ -38,6 +38,8 @@ export interface LexiconEntry {
    * user types them, but are never taken from a CV as evidence of the role.
    */
   contextForms?: readonly string[];
+  /** Phrases containing one of `forms` in which it does not mean this entry. */
+  notWhen?: readonly string[];
   generic?: boolean;
 }
 
@@ -176,21 +178,69 @@ const ROLES: readonly Row[] = [
 ];
 
 /**
- * Lexicon forms that name a field of work rather than a job title. Found in a
- * CV they said far more about the sector than the person's role: a real
- * advisor CV's "web platform delivery" became Courier, "banking sector"
- * became Banker and "quality assurance" of survey data became QA engineer.
- * Typed by the user they still match, since there the user is choosing.
+ * Forms that name a field of work, not the job. Only a job title is taken
+ * from a CV as evidence of a role; these still match when the user types them,
+ * since there the user is choosing. The test for membership: does the word
+ * turn up often in CVs of people who do NOT hold the role? "web platform
+ * delivery" (Courier), "banking sector" (Banker), "quality assurance of survey
+ * data" (QA engineer), "data cleaning" (Cleaner), "data warehouse" (Warehouse
+ * worker), "audit trail" (Auditor), "marketing materials" (Marketing manager),
+ * "project management" in almost anyone's skills — all real misreadings.
  */
-const CONTEXT_FORMS: Readonly<Record<string, readonly string[]>> = {
-  Courier: ['delivery'],
-  Banker: ['banking'],
+export const CONTEXT_FORMS: Readonly<Record<string, readonly string[]>> = {
+  Accountant: ['accounting', 'ბუღალტერია'],
+  'Data analyst': ['data analytics'],
+  Auditor: ['audit', 'აუდიტი', 'აუდიტის'],
+  'Software developer': ['პროგრამული უზრუნველყოფის'],
   'QA engineer': ['quality assurance'],
-  Distributor: ['distribution'],
-  Translator: ['translation'],
-  'Real estate agent': ['real estate'],
+  'Project manager': ['project management', 'პროექტების მართვა'],
+  'Sales manager': ['sales management'],
+  'Marketing manager': ['marketing', 'მარკეტინგი'],
   'SMM specialist': ['social media'],
-  Intern: ['internship'],
+  'HR manager': ['hr', 'human resources', 'recruitment', 'ადამიანური რესურსების'],
+  Courier: ['delivery'],
+  Baker: ['pastry'],
+  Cleaner: ['cleaning'],
+  Housekeeper: ['housekeeping', 'ჰაუსქიფინგი'],
+  'Security guard': ['დაცვის'],
+  'Customer service': ['customer support'],
+  'Office manager': ['office management'],
+  Receptionist: ['reception', 'რეგისტრატურა'],
+  Translator: ['translation'],
+  'Logistics specialist': ['logistics', 'ლოგისტიკა'],
+  'Warehouse worker': ['warehouse', 'საწყობი'],
+  Distributor: ['distribution'],
+  Banker: ['banking'],
+  'Real estate agent': ['real estate'],
+  Intern: ['internship', 'სტაჟირება'],
+};
+
+/**
+ * Phrases in which an entry's own word does not mean the entry: "key driver
+ * of growth", "reported to the Director", "Doctor of Philosophy", "I excel
+ * at". An occurrence inside one of these is not evidence (see `profile.ts`).
+ */
+export const NOT_WHEN: Readonly<Record<string, readonly string[]>> = {
+  Driver: ['key driver', 'main driver', 'growth driver', 'driver of', 'drivers of'],
+  Director: [
+    'reported to the director',
+    'reporting to the director',
+    'report to the director',
+    'assistant to the director',
+    'დირექტორის ასისტენტი',
+    'დირექტორის თანაშემწე',
+  ],
+  // Not plain 'doctor of': a Doctor of Medicine is a doctor.
+  Doctor: [
+    'doctor of philosophy',
+    'doctor of science',
+    'doctor of economic',
+    'doctor of business',
+    'doctor of law',
+  ],
+  Teacher: ['teacher training'],
+  Excel: ['excel at', 'excel in'],
+  React: ['react to', 'react quickly', 'react fast'],
 };
 
 const SKILLS: readonly Row[] = [
@@ -274,6 +324,7 @@ function toEntries(kind: LexiconKind, rows: readonly Row[]): LexiconEntry[] {
     ka,
     forms: [en, ka, ...forms],
     ...(CONTEXT_FORMS[en] ? { contextForms: CONTEXT_FORMS[en] } : {}),
+    ...(NOT_WHEN[en] ? { notWhen: NOT_WHEN[en] } : {}),
     ...(generic ? { generic: true } : {}),
   }));
 }

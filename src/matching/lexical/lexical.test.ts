@@ -8,6 +8,7 @@ import {
   userTerm,
   vocabularyTerm,
 } from './profile.js';
+import { CONTEXT_FORMS, LEXICON, NOT_WHEN } from './lexicon.js';
 import { indexOpportunities, rankOpportunities } from './rank.js';
 import { findPhrase, phraseStems, snippet, stem, tokenize } from './text.js';
 
@@ -39,6 +40,17 @@ function profile(...terms: (ProfileTerm | null)[]): MatchProfile {
 }
 
 describe('text', () => {
+  it('reads through soft hyphens and zero-width characters inside a word', () => {
+    const text = 'ბუღალ\u00ADტერი Accoun\u200Btant';
+    expect(tokenize(text).map((token) => token.stem)).toEqual(['ბუღალტერ', 'accountant']);
+    // Offsets still cover the original characters, invisible ones included.
+    expect(tokenize(text)[0]).toMatchObject({ start: 0, end: 10 });
+  });
+
+  it('lowercases Mtavruli capitals to ordinary Georgian', () => {
+    expect(phraseStems('ᲑᲣᲦᲐᲚᲢᲔᲠᲘ')).toEqual(phraseStems('ბუღალტერი'));
+  });
+
   it('brings Georgian case forms of one word to one stem', () => {
     const forms = ['მენეჯერი', 'მენეჯერის', 'მენეჯერად', 'მენეჯერთან', 'მენეჯერებში'];
     expect(new Set(forms.map(stem)).size).toBe(1);
@@ -75,6 +87,37 @@ describe('text', () => {
     expect(quote).toContain('Senior Accountant');
     expect(quote.startsWith('…')).toBe(true);
     expect(quote.endsWith('…')).toBe(true);
+  });
+});
+
+describe('lexicon', () => {
+  it('keys its context and exception lists by labels that exist', () => {
+    const labels = new Set(LEXICON.map((entry) => entry.en));
+    for (const key of [...Object.keys(CONTEXT_FORMS), ...Object.keys(NOT_WHEN)]) {
+      expect(labels, key).toContain(key);
+    }
+  });
+
+  it('names only forms an entry really has in its context and exception lists', () => {
+    for (const entry of LEXICON) {
+      const forms = new Set(entry.forms.map((form) => phraseStems(form).join(' ')));
+      for (const form of entry.contextForms ?? []) {
+        expect(forms, `${entry.en}: context form "${form}"`).toContain(phraseStems(form).join(' '));
+      }
+      for (const phrase of entry.notWhen ?? []) {
+        const stems = phraseStems(phrase);
+        const containsForm = [...forms].some((form) => findPhrase(stems, form.split(' ')) !== -1);
+        expect(containsForm, `${entry.en}: exception "${phrase}"`).toBe(true);
+      }
+    }
+  });
+
+  it('keeps at least one title form per role, so every role can be found in a CV', () => {
+    for (const entry of LEXICON.filter((e) => e.kind === 'role')) {
+      const context = new Set((entry.contextForms ?? []).map((f) => phraseStems(f).join(' ')));
+      const titles = entry.forms.filter((form) => !context.has(phraseStems(form).join(' ')));
+      expect(titles.length, entry.en).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -118,15 +161,20 @@ describe('deriveProfile', () => {
     expect(roles).not.toContain('role:manager');
   });
 
-  it('does not read a role into a field-of-work word, but still matches it when typed', () => {
+  it('only suggests (never applies) a role read from a field-of-work word', () => {
     const { terms } = deriveProfile(
       'Advisor in banking; led web platform delivery and quality assurance of survey data.',
       vocabulary,
     );
-    const roles = terms.filter((term) => term.kind === 'role').map((term) => term.id);
-    expect(roles).not.toContain('role:banker');
-    expect(roles).not.toContain('role:courier');
-    expect(roles).not.toContain('role:qa engineer');
+    // Suggested with their quote so the user can tick them, but not applied.
+    const applied = terms.filter((term) => term.kind === 'role' && term.active).map((t) => t.id);
+    expect(applied).not.toContain('role:banker');
+    expect(applied).not.toContain('role:courier');
+    expect(applied).not.toContain('role:qa engineer');
+    // One passing mention is not even suggested; a recurring field is, unticked.
+    expect(terms.some((term) => term.id === 'role:banker')).toBe(false);
+    const recurring = deriveProfile('Accounting, IFRS. Led accounting close.', vocabulary).terms;
+    expect(recurring.find((term) => term.id === 'role:accountant')?.active).toBe(false);
     // The job title itself is still evidence.
     expect(deriveProfile('Courier, 2019–2021.', vocabulary).terms.map((t) => t.id)).toContain(
       'role:courier',
@@ -143,6 +191,47 @@ describe('deriveProfile', () => {
     expect(ids).toContain('role:sme business advisor');
     expect(ids).not.toContain('role:advisor');
     expect(ids).toContain('skill:sme');
+  });
+
+  it('does not take a role the CV only mentions about other people', () => {
+    const applied = (text: string) =>
+      deriveProfile(text, vocabulary)
+        .terms.filter((term) => term.kind === 'role' && term.active)
+        .map((term) => term.id);
+    // Plurals and the Georgian "with" case name colleagues, not the author.
+    expect(applied('Nurse. Assisted physicians and liaised with auditors.')).toEqual([
+      'role:nurse',
+    ]);
+    expect(applied('ტესტერი. ვთანამშრომლობ დეველოპერებთან.')).toEqual(['role:qa engineer']);
+    expect(applied('Realtor. Reported directly to the Director of Sales.')).toEqual([
+      'role:real estate agent',
+    ]);
+    // "Accountant's assistant" is an assistant.
+    expect(applied('ბუღალტრის თანაშემწე')).not.toContain('role:accountant');
+  });
+
+  it('only suggests old, part-time and internship posts next to a current role', () => {
+    const { terms } = deriveProfile(
+      'Operations director, 2018 – present.\nSecurity guard (internship), 2006.\nCashier, 2005 – 2006.',
+      vocabulary,
+    );
+    const state = new Map(terms.map((term) => [term.id, term.active]));
+    expect(state.get('role:director')).toBe(true);
+    expect(state.get('role:security guard')).toBe(false);
+    expect(state.get('role:cashier')).toBe(false);
+    // Alone, a student's part-time job is the profile.
+    const student = deriveProfile('Cashier (part-time), 2023 – 2024.', vocabulary).terms;
+    expect(student.find((term) => term.id === 'role:cashier')?.active).toBe(true);
+  });
+
+  it('suggests a broad role without applying it when a specific one was found', () => {
+    const { terms } = deriveProfile(
+      'Driver, 2019–2024. Worked with the fleet manager.',
+      vocabulary,
+    );
+    const state = new Map(terms.map((term) => [term.id, term.active]));
+    expect(state.get('role:driver')).toBe(true);
+    expect(state.get('role:manager')).not.toBe(true);
   });
 
   it('suggests nothing without supporting text', () => {
@@ -179,7 +268,28 @@ describe('rankOpportunities', () => {
     const { results } = rankOpportunities(derived, indexOpportunities([sme, client]), {
       now: NOW,
     });
-    expect(results.map((r) => r.row.opportunityId)).toEqual([sme.opportunityId]);
+    // The exact title first; one sharing only the head noun (მრჩეველი) after it.
+    expect(results.map((r) => r.row.opportunityId)).toEqual([
+      sme.opportunityId,
+      client.opportunityId,
+    ]);
+    expect(results[0]?.score).toBeGreaterThan(results[1]?.score ?? 1);
+  });
+
+  it('ranks a title sharing only the head noun after the exact title', () => {
+    const exact = row({ title: 'მონაცემთა ანალიტიკოსი' });
+    const near = row({ title: 'ფინანსური ანალიტიკოსი' });
+    const other = row({ title: 'მონაცემთა ბაზის ადმინისტრატორი' });
+    const { results } = rankOpportunities(
+      profile(userTerm('role', 'data analyst')),
+      indexOpportunities([near, other, exact]),
+      { now: NOW },
+    );
+    expect(results.map((r) => r.row.opportunityId)).toEqual([
+      exact.opportunityId,
+      near.opportunityId,
+    ]);
+    expect(results[1]?.reasons[0]).toMatchObject({ kind: 'role', exact: false });
   });
 
   it('drops a row whose deadline passed after the bundle was built', () => {
