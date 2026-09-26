@@ -10,7 +10,7 @@ export const jobsGeSource = SourceSchema.parse({
 export const jobsGePolicy = SourcePolicySchema.parse({
   id: 'e3f8b6a2-7a9d-4c1b-9e6c-1a2b3c4d5e6f',
   sourceId: jobsGeSource.id,
-  policyVersion: 'v1',
+  policyVersion: 'v2',
   // Server-rendered HTML; browser is a recorded escalation only (§10.1).
   allowedAcquisitionModes: ['http', 'browser'],
   // jobs.ge serves the same listing content at three locale-prefixed
@@ -42,11 +42,16 @@ export const jobsGePolicy = SourcePolicySchema.parse({
   disallowedHosts: [],
   authenticationScope: 'none',
   rateLimit: {
-    // robots.txt: "Crawl-delay: 5" (confirmed 2026-09-02).
-    crawlDelaySeconds: 5,
+    // v2 (2026-09-26): no spacing of our own. robots.txt still says
+    // "Crawl-delay: 5", but it is a generic file last modified 2019-03-08,
+    // and the owner has jobs.ge's permission (docs/RIGHTS.md). One request
+    // at a time, so the pace is jobs.ge's own response time (about 0.36 s).
+    // If jobs.ge answers 429/503, the fetcher backs off for the rest of the
+    // run and the run's log reports it (src/net/http-fetcher.ts).
+    crawlDelaySeconds: 0,
     maxConcurrency: 1,
     notes:
-      'Site declares Crawl-delay: 5 in robots.txt but no explicit concurrency limit; defaulting to 1 concurrent request until observed response times justify more.',
+      'No crawl delay of our own since v2 (2026-09-26, owner decision): robots.txt Crawl-delay: 5 is a generic file unchanged since 2019-03-08, and the owner has permission from jobs.ge. One request in flight; a 429/503 makes the crawl back off (5 s doubling, or Retry-After, capped at 60 s) for the rest of that run, logged and counted as rateLimitBackOffs.',
   },
   // Not yet reviewed — an explicit unknown, not a guess.
   termsUrl: null,
@@ -70,10 +75,11 @@ export const jobsGePolicy = SourcePolicySchema.parse({
     notes:
       'Disabled by default (§16): no attachments/external pages fetched yet. Revisit once Phase 4 observes what jobs.ge listings actually attach, if anything.',
   },
-  reviewDate: '2026-09-03T00:00:00Z',
+  reviewDate: '2026-09-26T00:00:00Z',
   evidence: [
     'docs/scraplify-concept.md §5.1 (site reconnaissance confirmed 2026-09-02)',
-    'https://www.jobs.ge/robots.txt (fetched 2026-09-02)',
+    'https://www.jobs.ge/robots.txt (fetched 2026-09-02; re-fetched 2026-09-26: unchanged, Last-Modified 2019-03-08)',
+    'docs/RIGHTS.md (owner permission from jobs.ge, recorded 2026-09-26)',
     'src/adapters/jobs-ge/RECON_NOTES.md (live read-only recon, 2026-09-03: URL space, pagination depth, VIP/standard partition structure, filter semantics, detail-page variability)',
   ],
   notes:

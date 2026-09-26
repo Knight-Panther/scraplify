@@ -23,8 +23,10 @@ describe('source policy records', () => {
     expect(jobsGeSource.id).not.toBe(hrGeSource.id);
   });
 
-  it('jobs.ge policy reflects its confirmed crawl-delay and disallowed path', () => {
-    expect(jobsGePolicy.rateLimit.crawlDelaySeconds).toBe(5);
+  it('jobs.ge policy has no delay of its own (v2, owner decision) and keeps its disallowed path', () => {
+    expect(jobsGePolicy.policyVersion).toBe('v2');
+    expect(jobsGePolicy.rateLimit.crawlDelaySeconds).toBe(0);
+    expect(jobsGePolicy.rateLimit.maxConcurrency).toBe(1);
     expect(isPathAllowed(jobsGePolicy, '/data/clients/report.csv')).toBe(false);
     expect(isPathAllowed(jobsGePolicy, '/')).toBe(true);
   });

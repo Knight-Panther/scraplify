@@ -12,7 +12,7 @@ Crawling behaviour follows each source's `robots.txt` and a versioned policy rec
 
 | Source | robots.txt | Terms reviewed | Written permission or official feed | What the public site shows |
 | --- | --- | --- | --- | --- |
-| jobs.ge | allows listing pages; `Crawl-delay: 5` honoured | settled by permission | **granted:** the owner has full permission from jobs.ge (recorded 2026-09-26). Settled; not to be re-questioned. | title, employer, dates, a link back to jobs.ge. Descriptions are shown only where the source policy allows (redacted in SQL, Phase 8B). |
+| jobs.ge | allows listing pages; its generic `Crawl-delay: 5` (unchanged since 2019) is waived under the permission: one request at a time, backing off on 429/503 (policy v2, 2026-09-26) | settled by permission | **granted:** the owner has full permission from jobs.ge (recorded 2026-09-26). Settled; not to be re-questioned. | title, employer, dates, a link back to jobs.ge. Descriptions are shown only where the source policy allows (redacted in SQL, Phase 8B). |
 | hr.ge | allows public paths | settled by permission | **granted:** the owner has full permission from hr.ge (recorded 2026-09-26). Settled; not to be re-questioned. | the same, plus hr.ge's own category labels |
 
 Checked 2026-09-26: `terms_url` is empty in both live policy rows (acquisition reviews dated 2026-09-03 and 2026-09-05, owner "project owner"). Those reviews covered acquisition, not republication.

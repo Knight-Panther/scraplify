@@ -141,4 +141,50 @@ describe('createRateLimiter', () => {
     await vi.advanceTimersByTimeAsync(2); // t=6000
     expect(await isResolved(third)).toBe(true);
   });
+
+  describe('backOff', () => {
+    it('spaces later requests by the back-off, counted from the request in flight', async () => {
+      const limiter = createRateLimiter({ crawlDelaySeconds: 0, maxConcurrency: 1 });
+      const release = await (async () => {
+        const first = limiter.acquire();
+        await flushImmediateAcquisitions();
+        return first;
+      })();
+
+      limiter.backOff(5_000);
+      expect(limiter.backOffCount).toBe(1);
+      release(); // t=0
+
+      const second = limiter.acquire();
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(await isResolved(second)).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const releaseSecond = await second;
+
+      // The raised spacing holds for the rest of the limiter's life.
+      releaseSecond();
+      const third = limiter.acquire();
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(await isResolved(third)).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await isResolved(third)).toBe(true);
+    });
+
+    it('never lowers the spacing', async () => {
+      const limiter = createRateLimiter({ crawlDelaySeconds: 0, maxConcurrency: 1 });
+      limiter.backOff(10_000);
+      limiter.backOff(1_000);
+      expect(limiter.backOffCount).toBe(2);
+
+      const first = limiter.acquire();
+      await vi.advanceTimersByTimeAsync(10_000);
+      const release = await first;
+      release(); // t=10000
+      const second = limiter.acquire();
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(await isResolved(second)).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await isResolved(second)).toBe(true);
+    });
+  });
 });
