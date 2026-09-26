@@ -6,6 +6,8 @@ import {
   type OpportunitiesFile,
   opportunitiesFileSchema,
 } from '../../../src/matching/bundle/schema.js';
+import { STATIC_E1_PIN } from '../../../src/matching/models/static-e1.js';
+import { parseStaticModel, type StaticModel } from '../../../src/matching/semantic/static-embed.js';
 import { CvError } from './document-checks.js';
 import type { BundleSummary } from './protocol.js';
 
@@ -16,8 +18,9 @@ import type { BundleSummary } from './protocol.js';
  * bundle/model versions"; "An incompatible client refuses matching while
  * keeping Browse usable").
  *
- * Both requests are same-origin `GET`s with no body, no credentials and no
- * CV-derived value anywhere in them — the Stage 5 network test asserts it.
+ * Every request here — the pointer, the bundle file and the two model
+ * files — is a same-origin `GET` with no body, no credentials and no
+ * CV-derived value anywhere in it; the Stage 5 network test asserts it.
  */
 
 const MANIFEST_URL = '/api/matching/manifest';
@@ -120,4 +123,35 @@ export async function loadBundle(): Promise<LoadedBundle> {
     throw new BundleRefusal('bundle_integrity', summary);
   }
   return { summary, file: file.data };
+}
+
+/**
+ * The pinned title-similarity model (`src/matching/models/static-e1.ts`),
+ * fetched alongside the bundle and checked against the pin compiled into
+ * this code, so a client never embeds with a model it was not built for.
+ * Any failure resolves to null: CV Ranked then ranks by words alone and
+ * says so, rather than refusing a CV the lexical ranker can still read.
+ */
+export async function loadModel(): Promise<StaticModel | null> {
+  try {
+    const [json, table] = await Promise.all(
+      (['model.json', 'table.int8'] as const).map(async (file) => {
+        const expected = STATIC_E1_PIN.files[file];
+        const response = await get(`/api/matching/models/${STATIC_E1_PIN.id}/${file}`);
+        if (!response.ok) throw new Error(file);
+        const bytes = await response.arrayBuffer();
+        if (bytes.byteLength !== expected.bytes || (await sha256Hex(bytes)) !== expected.sha256) {
+          throw new Error(file);
+        }
+        return bytes;
+      }),
+    );
+    if (json === undefined || table === undefined) return null;
+    return parseStaticModel(
+      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(json)),
+      new Uint8Array(table),
+    );
+  } catch {
+    return null;
+  }
 }

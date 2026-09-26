@@ -39,6 +39,7 @@ const ALLOWED_PATHS: readonly RegExp[] = [
   /^\/_next\/static\//,
   /^\/api\/matching\/manifest$/,
   /^\/api\/matching\/bundles\/[0-9a-f-]{36}\/opportunities\.json$/,
+  /^\/api\/matching\/models\/static-e1-v1\/(model\.json|table\.int8)$/,
   /^\/(icon\.svg|logo\.png|hero-bg\.mp4|favicon\.ico)$/,
 ];
 
@@ -202,6 +203,13 @@ test('a canary CV stays in the browser', async ({ browser }) => {
     seen.some((path) => path.startsWith('/api/matching/bundles/')),
     'the worker fetched the bundle file',
   ).toBe(true);
+  expect(
+    seen.filter((path) => path.startsWith('/api/matching/models/')).sort(),
+    'the worker fetched both model files',
+  ).toEqual([
+    '/api/matching/models/static-e1-v1/model.json',
+    '/api/matching/models/static-e1-v1/table.int8',
+  ]);
   expect(
     seen.some((path) => path.startsWith('/_next/static/') && path.includes('worker')),
     'the worker script itself was observed',

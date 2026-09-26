@@ -13,7 +13,7 @@ export const PRIVACY_PROMISE =
 
 export const STAGES: readonly { stage: Stage; label: string }[] = [
   { stage: 'reading', label: 'Reading the CV' },
-  { stage: 'bundle', label: 'Loading the vacancy index' },
+  { stage: 'bundle', label: 'Loading the vacancy index and matching model' },
   { stage: 'ranking', label: 'Matching and ranking' },
 ];
 

@@ -4,7 +4,7 @@ Phase 8E release item (change.md §11: "Public deployment is gated on documented
 
 ## Verdict
 
-**Public deployment is blocked only on hr.ge's republication permission.** The code side is clean: every shipped dependency is under a permissive licence, and no model is shipped. The owner has permission from jobs.ge (recorded 2026-09-26), and the site assets come from free sources.
+**Public deployment is blocked only on hr.ge's republication permission.** The code side is clean: every shipped dependency is under a permissive licence, and the one shipped model is MIT-derived (see Models). The owner has permission from jobs.ge (recorded 2026-09-26), and the site assets come from free sources.
 
 ## Sources
 
@@ -29,7 +29,11 @@ Checked 2026-09-26: `terms_url` is empty in both live policy rows (acquisition r
 
 ## Models
 
-None shipped. Phase 8A closed lexical-first, so the public site ranks with `lexical-rank-v1` and a curated alias list, with no model weights. If a model is adopted later, its licence and redistribution terms go here before it ships (change.md §11).
+| Model | Shipped as | Licence | Status |
+| --- | --- | --- | --- |
+| `static-e1-v1` (CV Ranked title similarity) | `matching-models/static-e1-v1/` (`model.json` 1.1 MB, `table.int8` 8.9 MB; ~8 MB gzipped), served by `/api/matching/models/…` and run in the visitor's browser | MIT: derived from `intfloat/multilingual-e5-small` (MIT, per its model card) by distillation with Model2Vec (MIT), vocabulary pruning and int8 quantisation. The tokenizer pieces and scores come from the same e5 release. | Fine. MIT permits redistribution of derived weights; the copyright notice travels with the provenance note in `src/matching/models/static-e1.ts`. |
+
+No other model is shipped. `src/matching/embed.ts` still pins the full e5 ONNX port for Node-side evaluation only; it is never served to a browser. Any further model gets a row here before it ships (change.md §11).
 
 ## Dependencies
 

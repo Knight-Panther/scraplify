@@ -1,6 +1,7 @@
 import type { BundleOpportunity } from '../../../src/matching/bundle/schema.js';
 import type { MatchProfile, Vocabulary } from '../../../src/matching/lexical/profile.js';
-import type { MatchReason, RankingStats } from '../../../src/matching/lexical/rank.js';
+import type { RankingStats } from '../../../src/matching/lexical/rank.js';
+import type { HybridReason } from '../../../src/matching/semantic/hybrid.js';
 import type { CvErrorCode, CvKind, CvScript } from './document-checks.js';
 
 /**
@@ -39,12 +40,18 @@ export interface BundleSummary {
 export interface RankedRow {
   row: BundleOpportunity;
   score: number;
-  reasons: MatchReason[];
+  reasons: HybridReason[];
   locationUnstated: boolean;
 }
 
 export interface RankingPayload {
   version: string;
+  /**
+   * Whether title similarity took part. False when the model could not be
+   * loaded or verified: the ranking is then word matching alone, and the
+   * page says so.
+   */
+  similarity: boolean;
   results: RankedRow[];
   /** Every match, of which `results` is the first `limit`; more than its length means "show more". */
   total: number;

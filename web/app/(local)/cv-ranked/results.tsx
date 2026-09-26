@@ -1,15 +1,15 @@
 'use client';
 
-import type { MatchReason } from '../../../../src/matching/lexical/rank.js';
-import { count, score as formatScore, sourceDate } from '../../../lib/format.js';
-import { sourceLabel } from '../../../lib/labels.js';
+import type { HybridReason } from '../../../../src/matching/semantic/hybrid.js';
 import type { RankedRow, RankingPayload } from '../../../lib/cv-ranked/protocol.js';
+import { count, sourceDate } from '../../../lib/format.js';
+import { sourceLabel } from '../../../lib/labels.js';
 
 /**
  * Ranked vacancies and the case for each (change.md §7 "Ranking"). The
  * reasons are the ranker's own named matches; nothing here is recomputed or
- * embellished, and there is no percentage — a lexical score is not a
- * probability of fit.
+ * embellished. No score is shown: the order fuses word matches with title
+ * similarity, and neither is a probability of fit.
  *
  * A list, like the operator `/ranked` screen, because each row is read for
  * its reasons rather than scanned as a column.
@@ -92,10 +92,11 @@ export function Results({
           </p>
         </div>
       )}
-      <p className="mt-6 text-xs text-faint">
-        Ranked by <span className="numeric">{ranking.version}</span>: word and category matching on
-        titles, hr.ge categories and locations. It does not read vacancy descriptions and is not a
-        semantic or AI match.
+      <p className="mt-6 max-w-[var(--measure)] text-xs text-faint">
+        Ranked by <span className="numeric">{ranking.version}</span>:{' '}
+        {ranking.similarity
+          ? 'word and category matching on titles, hr.ge categories and locations first, then titles whose meaning is close to your roles or to short lines of your CV, computed in this browser. It does not read vacancy descriptions.'
+          : 'word and category matching on titles, hr.ge categories and locations. The title-similarity model could not be loaded, so similar titles are not included. It does not read vacancy descriptions.'}
       </p>
     </section>
   );
@@ -108,7 +109,7 @@ function Row({ result, rank }: { result: RankedRow; rank: number }) {
       <div className="flex items-baseline gap-3">
         <span className="numeric w-8 shrink-0 text-right text-faint">{rank}</span>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <div>
             <a
               href={`/opportunities/${row.opportunityId}`}
               // A new tab: navigating this one would end the in-memory session.
@@ -119,12 +120,6 @@ function Row({ result, rank }: { result: RankedRow; rank: number }) {
               {row.title}
               <span className="sr-only"> (opens in a new tab)</span>
             </a>
-            <span
-              className="numeric text-sm"
-              title="Weighted total of the role, field and skill matches below, out of 1.00"
-            >
-              {formatScore(result.score)}
-            </span>
           </div>
           <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-muted">
             {row.organization !== null && <span>{row.organization}</span>}
@@ -164,17 +159,32 @@ function Row({ result, rank }: { result: RankedRow; rank: number }) {
   );
 }
 
-function reasonKey(reason: MatchReason): string {
+function reasonKey(reason: HybridReason): string {
   return `${reason.kind}:${reason.term}:${'label' in reason ? reason.label : ''}`;
 }
 
-function Reason({ reason }: { reason: MatchReason }) {
+function Reason({ reason }: { reason: HybridReason }) {
   switch (reason.kind) {
     case 'role':
       return (
         <>
           <span className="text-faint">Role</span> {reason.term}
           {reason.exact ? ' (same title)' : ''}
+        </>
+      );
+    case 'translated-role':
+      return (
+        <>
+          <span className="text-faint">Role</span> {reason.term} (title's English equivalent)
+        </>
+      );
+    case 'similar':
+      return (
+        <>
+          <span className="text-faint">
+            {reason.from === 'role' ? 'Similar title to role' : 'Similar title to your CV line'}
+          </span>{' '}
+          “{reason.term}”
         </>
       );
     case 'field':

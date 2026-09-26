@@ -140,7 +140,8 @@ export function embed(ids: readonly number[], table: StaticTable): Float32Array 
   for (const id of ids) {
     if (id < FIRST_CONTENT_ID || (id + 1) * dims > rows.length) continue;
     const base = id * dims;
-    for (let d = 0; d < dims; d++) sum[d] = (sum[d] ?? 0) + (rows[base + d] ?? 0) * (scales[d] ?? 0);
+    for (let d = 0; d < dims; d++)
+      sum[d] = (sum[d] ?? 0) + (rows[base + d] ?? 0) * (scales[d] ?? 0);
     used++;
   }
   if (used === 0) return sum;
@@ -177,7 +178,9 @@ const WORD_OR_MARK = /[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu;
  */
 export function createWordPieceTokenizer(vocab: WordPieceVocab): Tokenizer {
   const ids = new Map<string, number>();
-  vocab.tokens.forEach((token, id) => ids.set(token, id));
+  vocab.tokens.forEach((token, id) => {
+    ids.set(token, id);
+  });
   return {
     encode(text: string): number[] {
       let normalized = normalize(text);
@@ -213,6 +216,53 @@ export function createWordPieceTokenizer(vocab: WordPieceVocab): Tokenizer {
         out.push(...pieces);
       }
       return out;
+    },
+  };
+}
+
+export interface StaticModel {
+  tokenizer: Tokenizer;
+  table: StaticTable;
+}
+
+/**
+ * Builds a model from the two files `src/matching/models/static-e1.ts`
+ * pins: `model.json` (pieces, unknown id, per-dimension scales) and the
+ * row-major int8 table, one row per piece. Checksums are the caller's job;
+ * this refuses any shape the embedder could not use safely.
+ */
+export function parseStaticModel(json: unknown, table: Uint8Array): StaticModel {
+  if (typeof json !== 'object' || json === null) throw new Error('model.json is not an object');
+  const { dims, unkId, scales, pieces } = json as Record<string, unknown>;
+  if (typeof dims !== 'number' || !Number.isInteger(dims) || dims <= 0) {
+    throw new Error('model.json dims');
+  }
+  if (!Array.isArray(scales) || scales.length !== dims || !scales.every(Number.isFinite)) {
+    throw new Error('model.json scales');
+  }
+  const valid = (entry: unknown): entry is [string, number] =>
+    Array.isArray(entry) &&
+    entry.length === 2 &&
+    typeof entry[0] === 'string' &&
+    Number.isFinite(entry[1]);
+  if (!Array.isArray(pieces) || pieces.length <= FIRST_CONTENT_ID || !pieces.every(valid)) {
+    throw new Error('model.json pieces');
+  }
+  if (
+    typeof unkId !== 'number' ||
+    !Number.isInteger(unkId) ||
+    unkId < 0 ||
+    unkId >= pieces.length
+  ) {
+    throw new Error('model.json unkId');
+  }
+  if (table.byteLength !== pieces.length * dims) throw new Error('table size does not match');
+  return {
+    tokenizer: createTokenizer({ pieces, unkId }),
+    table: {
+      rows: new Int8Array(table.buffer, table.byteOffset, table.byteLength),
+      scales: Float32Array.from(scales as number[]),
+      dims,
     },
   };
 }
