@@ -369,7 +369,7 @@ Manual admin triggers accept no arbitrary command/source string. They invoke fix
 
 Use structured server logs and current health commands first. Add server OpenTelemetry only when cross-process diagnosis needs it. Browser instrumentation is out of scope because it adds privacy/supply-chain risk.
 
-Never log CV/file text, vectors, claims, visitor-ranked IDs or personal query parameters. Add one operator-selected push alert channel only after health signals are stable; alerts need deduplication, recovery notification and runbook links.
+Never log CV/file text, vectors, claims, visitor-ranked IDs or personal query parameters. ~~Add one operator-selected push alert channel only after health signals are stable; alerts need deduplication, recovery notification and runbook links.~~ **Dropped 2026-09-27 (owner decision; concept §30.6):** no alerting functionality.
 
 ## 11. Security and privacy
 
@@ -459,7 +459,7 @@ Deliver lazy self-hosted worker, memory-only provider, landing chooser and clien
 
 **Branch:** `phase-8e-hosted-readiness`
 
-Deliver production runbook/restore rehearsal, least-privilege secrets, schedules/heartbeats, two hosted profiles/domains, TLS/CSP/rate limits/probes, alert channel, load/accessibility/security evidence, rights/licenses and rollback drills.
+Deliver production runbook/restore rehearsal, least-privilege secrets, schedules/heartbeats, two hosted profiles/domains, TLS/CSP/rate limits/probes, ~~alert channel~~ (dropped 2026-09-27, owner decision), load/accessibility/security evidence, rights/licenses and rollback drills.
 
 **Exit:** every release item has current evidence. A local demo is not hosted readiness.
 

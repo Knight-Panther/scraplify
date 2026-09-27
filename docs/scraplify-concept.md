@@ -1126,7 +1126,7 @@ Before committing symlinks on Windows, verify filesystem permissions and Git sym
 ### Phase 7 — operations and supervised repair
 
 - Add durable heterogeneous work with `pg-boss` if required.
-- Add operational telemetry and alerts.
+- Add operational telemetry and alerts. **Amended 2026-09-27:** alerts dropped by owner decision (§30.6); telemetry means the recorded health signals only.
 - Establish source-health baselines and incident workflows.
 - Add sandboxed repair proposals, review, canaries, and rollback.
 - Reassess hosting, object storage, browser infrastructure, and scaling from measured evidence.
@@ -1264,7 +1264,7 @@ One branch per sub-phase, same convention as every earlier phase (root `CLAUDE.m
 - **Phase 8B — surfaces and admin boundary** (`phase-8b-surface-admin-boundary`). Runtime-profile config, layouts/nav, auth integration, admin dashboard, migrated health/duplicate/taxonomy screens, database roles/views. **Exit:** unauthenticated/public requests cannot read or mutate local/admin resources by any direct route or action; local workflows stay intact.
 - **Phase 8C — matching bundle** (`phase-8c-matching-bundle`). Embedding/bundle schema and migrations, incremental embedding by semantic hash, artifact store/manifest, atomic activation/rollback, admin matching health. **Exit:** an interrupted or incompatible build never replaces active data; every published row maps to a current public canonical revision and a real source.
 - **Phase 8D — browser CV Ranked** (`phase-8d-browser-cv-ranked`). Lazy self-hosted worker, memory-only provider, landing chooser, combined profile/preferences/results UI, hybrid ranking with explanations, privacy/no-network tests. **Exit:** a canary CV produces only allowlisted same-origin `GET` requests — no upload, no mutation — and leaves no canary text, file metadata, candidate row, or ranking anywhere server-side.
-- **Phase 8E — hosted readiness** (`phase-8e-hosted-readiness`). Production runbook/restore rehearsal, least-privilege secrets, two hosted profiles/domains, TLS/CSP/rate limits/probes, load/accessibility/security evidence, source rights/licenses, rollback drills. **Exit:** every release item has current evidence — a local demo is not hosted readiness.
+- **Phase 8E — hosted readiness** (`phase-8e-hosted-readiness`). Production runbook/restore rehearsal, least-privilege secrets, two hosted profiles/domains, TLS/CSP/rate limits/probes, load/accessibility/security evidence, source rights/licenses, rollback drills. **Exit:** every release item has current evidence — a local demo is not hosted readiness. **Amended 2026-09-27 (owner decision):** the push alert channel (`change.md` §10, §13's 8E list) is dropped. There is no alerting functionality; the probes, `health:check` and the `/admin` health screens are read when the operator looks. A failed or skipped run still never passes silently (§19.1): it is recorded, surfaced on `/admin` and in the board update line, and fails its unit or task.
 
 Each sub-phase follows the same review discipline as every phase before it (root `CLAUDE.md`: per-commit Codex gate, whole-branch adversarial review before merge, exit gate checked truthfully in `docs/STATUS.md`, never claimed from local success alone).
 

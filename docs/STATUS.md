@@ -39,7 +39,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 
 ## Phase 8E — hosted readiness (host-independent work merged 2026-09-26, PR #24)
 
-**Stages 1–6 done and merged; stage 7 is owner and host work and stays open.** **Scope** (change.md §10, §11, §13, §15): production runbook and restore rehearsal, least-privilege secrets, schedules and heartbeats, two hosted profiles and domains, TLS/CSP/rate limits/probes, an alert channel, load/accessibility/security evidence, rights and licences, and rollback drills.
+**Stages 1–6 done and merged; stage 7 is owner and host work and stays open.** **Scope** (change.md §10, §11, §13, §15): production runbook and restore rehearsal, least-privilege secrets, schedules and heartbeats, two hosted profiles and domains, TLS/CSP/rate limits/probes, load/accessibility/security evidence, rights and licences, and rollback drills. **The alert channel is dropped** (owner decision, 2026-09-27; concept §30.6): no alerting functionality.
 
 **Exit:** every release item has current evidence. A local demo is not hosted readiness. The owner has asked for everything that does not need a host to be finished first; the stages below are ordered that way, and the ones that need a host or an owner decision are marked.
 
@@ -81,7 +81,7 @@ This file is the **current-state index**: what is done, what is open, and what g
    - a production GitHub OAuth app;
    - role passwords on the host;
    - off-host backup storage: the account and bucket (the upload itself is built, see below);
-   - the alert channel;
+   - ~~the alert channel~~: dropped (owner decision, 2026-09-27);
    - hosted probe, restore and rollback evidence.
 
 **Pre-deploy audit (2026-09-27, branch `phase-8e-deploy-hardening`).** A read-only audit of `deploy/` and the runbook against a fresh Ubuntu 24.04 host found 2 P0s and 5 P1s; all are fixed. A surface-boundary review of everything merged since 8E (7C, the board update line, jobs.ge v3) found nothing.
@@ -156,7 +156,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, alert channel, hosted drills. Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
+| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, hosted drills (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
 | 7C — incremental crawling and retention | merged; retention deferred | #25 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.

@@ -94,7 +94,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
 | `npm run probe -- <origin>` | A visitor's path: readiness, landing (with nonce CSP), Browse, a detail page, the manifest, and the bundle download with checksum check. It exits 1 on any failure; a stale bundle is only a warning. | Run from anywhere; schedule it on an uptime service once one is chosen |
 | `npm run health:check` | Crawl freshness per source and matching-bundle age. It exits 1 on anything critical. | On the host: `sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/health-check.js` |
 
-**Alerting** is not wired yet: change.md §10 asks for one operator-chosen push channel once these signals have been stable. Until then, the probe and `health:check` exit codes are the alert.
+**No alerting** (owner decision, 2026-09-27; concept §30.6): nothing pushes a notification. Check the signals above yourself: the probe, `health:check`, `/admin` and the board update line on `/`, which shows a late or failed run.
 
 ## 5. Rollback
 
