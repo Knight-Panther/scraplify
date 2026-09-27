@@ -661,6 +661,39 @@ describe('writeSourceListingRevision', () => {
       .where(eq(sourceListingRevisions.sourceListingId, first.sourceListing.id));
     expect(revisions).toHaveLength(2);
   });
+
+  it('stores a fresh revision when the parser version changes, even with the same hash', async () => {
+    // The hash covers raw fields; a parser fix that changes only derived
+    // values (jobs.ge's yearless dates, 2026-09-27) must still reach a
+    // listing whose page did not change.
+    sourceId = await createTestSource();
+    const resourceId = await createTestResource(sourceId);
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+    const content = makeContent(resourceId);
+
+    const first = await writeSourceListingRevision(db, identity, content, '2026-09-04T12:00:00Z');
+    const again = await writeSourceListingRevision(db, identity, content, '2026-09-05T12:00:00Z');
+    expect(again.outcome).toBe('unchanged');
+
+    const reparsed = {
+      ...content,
+      parserVersion: `${content.parserVersion}-next`,
+      publishedDate: { raw: content.publishedDate.raw, parsed: '2025-11-03T00:00:00+04:00' },
+    };
+    const second = await writeSourceListingRevision(db, identity, reparsed, '2026-09-06T12:00:00Z');
+
+    expect(second.outcome).toBe('changed');
+    expect(second.revision.id).not.toBe(first.revision.id);
+    expect(second.revision.parserVersion).toBe(reparsed.parserVersion);
+    expect(second.sourceListing.sourcePublishedAt).not.toBe(first.sourceListing.sourcePublishedAt);
+
+    const third = await writeSourceListingRevision(db, identity, reparsed, '2026-09-07T12:00:00Z');
+    expect(third.outcome).toBe('unchanged');
+  });
 });
 
 describe('touchSourceListingSeen', () => {

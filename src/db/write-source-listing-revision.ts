@@ -246,9 +246,16 @@ export async function writeSourceListingRevision(
     // nothing else ever refills it. Requiring `trimmedAt === null` here
     // forces a trimmed revision to always fall through to a fresh insert
     // instead, which re-populates `description` from this observation.
+    //
+    // `parserVersion` must match too: the hash covers the page's RAW fields,
+    // so a parser fix that changes only what is derived from them (the
+    // yearless jobs.ge dates, 2026-09-27) would otherwise never reach a
+    // listing whose page did not change. A version bump therefore stores one
+    // fresh revision per listing, on its next fetch.
     if (
       currentRevision !== null &&
       currentRevision.trimmedAt === null &&
+      currentRevision.parserVersion === content.parserVersion &&
       currentRevision.meaningfulContentHash === content.meaningfulContentHash
     ) {
       const [touched] = await tx
@@ -270,9 +277,8 @@ export async function writeSourceListingRevision(
           // which could keep a truly expired listing wrongly 'active'
           // (allowReopen already reopens it below) for months. Left as-is,
           // pinned to whatever the current, immutable revision established
-          // when it was created: a narrower, deliberate fix (e.g. gated on
-          // an actual parserVersion change, not just elapsed time) is
-          // needed here, not attempted yet — see docs/STATUS.md.
+          // when it was created. A parser fix reaches it through a
+          // parserVersion bump instead, which skips this path (above).
         })
         .where(eq(sourceListings.id, locked.id))
         .returning();

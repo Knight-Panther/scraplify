@@ -43,7 +43,7 @@ describe('parseJobsGeDetailPage: real fixtures', () => {
     expect(result.salaryRaw).toBeNull();
     expect(result.sourceCategories).toEqual([]);
     expect(result.extractionMethod).toBe('http');
-    expect(result.parserVersion).toBe('v1');
+    expect(result.parserVersion).toBe('v2');
     expect(result.rawResourceHash).toMatch(/^[0-9a-f]{64}$/);
     expect(result.meaningfulContentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(result.provenance).toEqual(PROVENANCE);
