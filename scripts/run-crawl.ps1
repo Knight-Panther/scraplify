@@ -55,10 +55,10 @@ New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
 $logFile = Join-Path $logDirectory ('{0}-crawl-{1}.log' -f $Source, (Get-Date -Format 'yyyy-MM-dd'))
 
 # Log retention: each scheduled source writes a new file per day, and the
-# daily backup another, so without this logs/ only ever grows. 30 days keeps
-# more than enough history to investigate a failed run. Best effort - a file
-# that cannot be deleted must never fail the crawl itself.
-$logRetentionDays = 30
+# daily backup another, so without this logs/ only ever grows. 60 days, the
+# owner's retention limit for everything operational (2026-09-27). Best
+# effort - a file that cannot be deleted must never fail the crawl itself.
+$logRetentionDays = 60
 try {
     Get-ChildItem -LiteralPath $logDirectory -Filter '*.log' -File |
         Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$logRetentionDays) } |
