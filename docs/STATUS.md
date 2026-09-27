@@ -1,12 +1,12 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-27 (jobs.ge v3 confirmed healthy; pre-deploy audit fixes for `deploy/` and the runbook).
+Last updated: 2026-09-27 (jobs.ge v3 confirmed healthy; pre-deploy audit fixes for `deploy/` and the runbook; retention step 6 built on branch `retention-60d`, not yet merged).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
 ## Current phase: Phase 7C — incremental crawling and retention
 
-**Merged 2026-09-26 (PR #25); retention deferred.** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md).
+**Merged 2026-09-26 (PR #25); retention (step 6) built on branch `retention-60d`, 2026-09-27, not yet merged.** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md).
 
 - **Plan steps 1–5 and 8 are done.** Migration 0035 is additive: `source_listings.discovery_fingerprint`, `crawl_runs.skipped_count`, a partial index on open listings and `fetch_attempts(attempted_at)`. It is applied to `scraplify_qa` and, with the owner's OK on 2026-09-26, to `scraplify` as `scraplify_migration` (columns and indexes verified; 9,701 listings untouched).
   - Both discovery parsers compute a list-page fingerprint, and `needsDetailFetch` decides per listing: `fetch`, `adopt` (bootstrap) or `skip`.
@@ -43,7 +43,28 @@ This file is the **current-state index**: what is done, what is open, and what g
   - **Landing page fits one screen on desktop** (owner request, 2026-09-27). At 1024 px and wider, the hero fills the space between the header and the footer, and the headline and vertical spacing scale with the viewport height. The CV chooser joins the button row, and the update line sits above Newest listings. Screens 760 px tall or less show three newest listings instead of four. Measured with no vertical scroll at 1280×720, 1366×768, 1536×730, 1440×800, 1920×960, 1920×1080 and 2560×1300, in English and Georgian. Tablets and phones still scroll, with no horizontal overflow.
   - The surface-boundary review found the missing admin grant (P1, fixed). Its P2, a view with no row filter over `sources` (only the two public boards exist), was skipped under the P0/P1 rule.
   - Browser QA: 390, 768 and 1280 px, English and Georgian, and the late, updating and incomplete states. It found and fixed a hydration mismatch where Chromium has no `ka-GE` date data. `/admin` was then rendered too, under `next start` on `scraplify_qa` as `scraplify_admin` with a demo session (throwaway auth values, loopback only), and `/` as `scraplify_public`: each shows the line, and each has its own menu.
-- **Step 6 (retention) is deferred.** The corpus starts on 2026-09-02, so its 90- and 180-day rules would delete nothing before December. It is not needed for the MVP; build it before 2026-12.
+- **Step 6 (retention) is built** (branch `retention-60d`, 2026-09-27), on the owner-approved 60/60/180-day policy (retention plan, `docs/PHASE_7C_PLAN.md`'s Retention section, `docs/scraplify-concept.md` §6.1 amendment) — narrower than the deferred draft's 90/180-day/2-year numbers, since the corpus (starting 2026-09-02) will cross 60 days well before the MVP window the deferred version was timed against.
+  - Migration 0037 (additive): `source_listing_revisions.trimmed_at`. The writer (`writeSourceListingRevision`) now requires `trimmedAt === null` alongside the hash match before taking its unchanged path, so a trimmed closed listing that reappears with the same hash gets a fresh full revision instead of reactivating with a blank description.
+  - `src/retention/{policy,eligibility,run-retention,retention-lock}.ts`, `src/cli/run-retention.ts`, `npm run retention` (dry run by default, `--apply` mutates). Tier 1 (60d): `fetch_attempts`, resolved `parser_incidents`, orphan `resources`. Tier 2 (60d dead): blanks a closed/expired listing's current revision description in place and deletes its non-current revisions, skipping any pinned by an outreach draft or a live classification chain. Tier 3 (180d dead): purges a whole cluster only when every listing it ever held is itself uninvolved with user data or a human decision — computed by `closeOverClusters`, a pure function over a fully-loaded cluster graph (`loadClusterGraph` BFS-expands to the whole connected component before deciding, so a multi-hop reassignment chain cannot be partially purged).
+  - Locking (`src/retention/retention-lock.ts`): the retention advisory lock (tried, not waited for), then every source's crawl-process lock (skip the whole pass if any is busy), then the dedupe/taxonomy/matching-bundle locks (waited for) — nobody waits on a crawl lock, so it cannot deadlock against the pipeline.
+  - Wired into `deploy/run-pipeline.sh` and `scripts/run-crawl.ps1` as a step after the bundle, gated on the crawl AND dedupe themselves exiting 0 (not taxonomy or the bundle), folded into the existing exit-code precedence.
+  - Worker grants added to `scripts/sql/phase-8b-worker-admin-migration-roles.sql`: DELETE on the tables each tier touches, a column-scoped UPDATE on `source_listing_revisions` (description, trimmed_at only), and column-scoped read-only SELECT on `opportunity_decisions`/`rankings`/`outreach_drafts`/`organization_aliases`/`resource_links` — enough to check for user data, never enough to read a decision's note, a ranking's score, or a draft's body.
+  - **Adversarial review (Opus):** found no path that deletes user-referenced data, and two P1s, both fixed:
+    - `closeOverClusters` was a two-step lookup, not a fixpoint. A candidate with a superseded membership in one opportunity and a live one in a kept opportunity made `--apply` throw and roll back on every run.
+    - The candidate seeds took the first N ids without skipping blocked ones, so tier 3 could stall forever. Candidates now page by keyset until a page has real work.
+
+    **Open P2s, skipped under the P0/P1 rule:**
+    - tier 2's classification-chain skip is broader than needed;
+    - tier 2 excludes drafts only through the listing's live membership;
+    - tier 2 does not re-check eligibility under the lock;
+    - the crawl locks are held while waiting on the dedupe, taxonomy and bundle locks;
+    - the dry run can settle orphaned crawl runs, as any crawl start does;
+    - a re-fetched trimmed expired jobs.ge listing re-parses its deadline;
+    - `filterTier3Candidates` ignores `sourceIds`;
+    - the grants file has a stale verification note, and the `rankings.opportunity_revision_id` grant is unused;
+    - there is an em dash in `run-crawl.ps1`.
+  - Tests (throwaway Postgres, not `scraplify`/`scraplify_qa`): 10 pure `closeOverClusters` unit tests (`eligibility.test.ts`) plus 12 real-DB scenarios, including the review's superseded-membership case and a stalled-page case (`run-retention.test.ts`) covering all three tiers, entangled-cluster survival, human-decision and user-data blocks, dry-run/apply parity, idempotency, and the crawl-lock skip; a new `write-source-listing-revision.test.ts` case for the trimmed-reappearance trap. Full affected suites re-run clean: dedupe, reconcile-source-listings, advisory-lock, crawl-process-lock, both adapters' crawl tests, and the whole `src/` suite (958 tests, one pre-existing timing-sensitive lock test flaky only under full-suite parallel load, confirmed passing alone).
+  - Not yet done: a live run against `scraplify`/`scraplify_qa` (needs the owner's migration/grants approval first, same as every other Phase 7C/8E schema or role change) and `docs/RUNBOOK.md`'s retention step (added, unexercised on a real host).
 - **Merged in PR #25 and built into `dist/` on 2026-09-26.** An hr.ge catch-up run started by Task Scheduler at 20:40 (before the rebuild) is a full old-code crawl and finishes on its own. The jobs.ge catch-up exited 1 on the dead run `df60e7db…` (its process died in the 2026-09-26 shutdown), still on old code. The next scheduled jobs.ge crawl (2026-09-27 20:10) is the first on the new code: it settles that run by itself, then runs incrementally. It then adopts fingerprints, without fetching, for listings fetched in the last 7 days (all of hr.ge and about 3,000 jobs.ge listings from the 2026-09-26 runs, if applied by 2026-10-03), and fetches the rest once.
 
 ## Phase 8E — hosted readiness (host-independent work merged 2026-09-26, PR #24)
@@ -166,7 +187,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
 | 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, hosted drills (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
-| 7C — incremental crawling and retention | merged; retention deferred | #25 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs. |
+| 7C — incremental crawling and retention | merged (#25); retention built on branch `retention-60d`, not yet merged | #25 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs; migration 0037 (retention) generated and tested, not yet applied to `scraplify`/`scraplify_qa`. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 

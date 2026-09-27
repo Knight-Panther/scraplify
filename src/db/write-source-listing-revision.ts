@@ -232,8 +232,23 @@ export async function writeSourceListingRevision(
         ? 'active'
         : locked.status;
 
+    // `currentRevision.trimmedAt === null` is required alongside the hash
+    // match, not just the hash alone (Phase 7C retention, migration 0037).
+    // Retention tier 2 blanks a trimmed closed/expired listing's current
+    // revision `description` in place, keeping its id and its
+    // `meaningfulContentHash` unchanged — that hash covers the fields the
+    // parser considers meaningful, and `description` alone being emptied by
+    // retention (not by the source) was never meant to change it. So a
+    // trimmed listing that reopens with genuinely the SAME content would
+    // otherwise match this hash and take the unchanged path below, which
+    // touches nothing but lastSeenAt/status/missingStreak — leaving the
+    // reopened listing `active` with the blanked description forever, since
+    // nothing else ever refills it. Requiring `trimmedAt === null` here
+    // forces a trimmed revision to always fall through to a fresh insert
+    // instead, which re-populates `description` from this observation.
     if (
       currentRevision !== null &&
+      currentRevision.trimmedAt === null &&
       currentRevision.meaningfulContentHash === content.meaningfulContentHash
     ) {
       const [touched] = await tx

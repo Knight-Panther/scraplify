@@ -85,6 +85,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
 2. If it has migrations: take a backup (`systemctl start xtelo-backup`), then run them from the new release: `/opt/xtelo/releases/<new-sha>/deploy/with-env.sh migration npm run db:migrate`. **Then always `/opt/xtelo/releases/<new-sha>/deploy/apply-db-roles.sh grants`**: a migration that recreates a view drops its grants, and a new table has none. Migrations are additive, so the old release keeps working against the new schema.
 3. Repoint `/opt/xtelo/current` to the new release and run `systemctl restart xtelo-web@admin xtelo-web@public`.
 4. Run `npm run probe -- https://<PUBLIC_HOST>`. If it does not print `probe: ok`, roll back (§5, "Web").
+5. **Retention (Phase 7C, first deploy after merge only).** Migration 0037 (`source_listing_revisions.trimmed_at`) and its worker grants land the same way as any other migration — step 2 above already covers `db:migrate` then `apply-db-roles.sh grants`, in that order, since the grants name a column that only exists once migrated. Before letting it run for real, do one dry run: `deploy/with-env.sh worker npm run retention` (no `--apply`) and read its logged tier counts. `deploy/run-pipeline.sh`/`scripts/run-crawl.ps1` then run it with `--apply` automatically after every crawl and dedupe that both exit 0 — no separate schedule to enable.
 
 ## 4. Health signals
 

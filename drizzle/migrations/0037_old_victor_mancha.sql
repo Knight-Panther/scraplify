@@ -1,0 +1,1 @@
+ALTER TABLE "source_listing_revisions" ADD COLUMN "trimmed_at" timestamp with time zone;

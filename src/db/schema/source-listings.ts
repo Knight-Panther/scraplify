@@ -86,6 +86,23 @@ export const sourceListingRevisions = pgTable(
       withTimezone: true,
     }).notNull(),
     provenanceNotes: text('provenance_notes'),
+    /**
+     * Phase 7C retention (migration 0037): set the moment tier 2 (60 days
+     * dead) blanks THIS revision's `description` while keeping the row and
+     * its id — the owner-approved exception to §6.1's "retain immutable
+     * revisions" (docs/scraplify-concept.md §6.1, amended 2026-09-27). Null
+     * for every revision that has never been trimmed, current or historical.
+     *
+     * Exists so `writeSourceListingRevision` can tell "unchanged content"
+     * apart from "unchanged content, but this row had its description
+     * removed": without it, a trimmed closed listing that reappears with the
+     * SAME `meaningfulContentHash` would take the writer's ordinary
+     * unchanged-hash path, which only touches lastSeenAt/status/missingStreak
+     * and never re-inserts a revision — leaving the reopened listing active
+     * with a blank description. See write-source-listing-revision.ts's own
+     * comment on the condition this column changes.
+     */
+    trimmedAt: timestamp('trimmed_at', { mode: 'string', withTimezone: true }),
   },
   (table) => [
     // Composite-unique, not just id's existing primary key, so

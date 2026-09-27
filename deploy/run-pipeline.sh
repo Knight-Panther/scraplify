@@ -50,9 +50,22 @@ else
   echo "----- matching bundle skipped: dedupe or taxonomy failed -----"
 fi
 
+# Retention (Phase 7C) only once the crawl AND dedupe themselves succeeded —
+# not gated on taxonomy or the bundle, which retention's own eligibility does
+# not depend on. It takes its own lock and every source's crawl-process lock
+# internally (src/retention/retention-lock.ts), so running it here rather
+# than on a separate schedule costs nothing extra to coordinate.
+retention=0
+if [ "$crawl" -eq 0 ] && [ "$dedupe" -eq 0 ]; then
+  step retention dist/cli/run-retention.js --apply
+  retention=$?
+else
+  echo "----- retention skipped: crawl or dedupe failed -----"
+fi
+
 # The crawl's own failure wins; otherwise the first failed step's code.
 code=$crawl
-for step_code in "$dedupe" "$taxonomy" "$bundle"; do
+for step_code in "$dedupe" "$taxonomy" "$bundle" "$retention"; do
   if [ "$code" -eq 0 ] && [ "$step_code" -ne 0 ]; then code=$step_code; fi
 done
 exit "$code"

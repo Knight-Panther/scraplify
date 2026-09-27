@@ -612,6 +612,55 @@ describe('writeSourceListingRevision', () => {
       .where(eq(sourceListingRevisions.sourceListingId, first.sourceListing.id));
     expect(revisions).toHaveLength(1);
   });
+
+  it('inserts a fresh full revision, not the unchanged path, when a trimmed closed listing reappears with the same hash', async () => {
+    // Phase 7C retention (migration 0037): tier 2 blanks a dead listing's
+    // CURRENT revision description in place, keeping its id and its
+    // meaningfulContentHash unchanged, and stamps trimmedAt. A listing that
+    // reopens afterwards with genuinely unchanged content would otherwise
+    // hash-match that trimmed revision and take the unchanged path, which
+    // touches nothing but lastSeenAt/status/missingStreak — leaving the
+    // reopened listing 'active' with a blank description forever, since
+    // nothing else ever refills it. This is exactly the trap the retention
+    // plan calls out and the fix this test guards.
+    sourceId = await createTestSource();
+    const resourceId = await createTestResource(sourceId);
+    const identity = {
+      sourceId,
+      sourceRecordId: '12345',
+      canonicalSourceUrl: 'https://example.invalid/?id=12345',
+    };
+    const content = makeContent(resourceId);
+
+    const first = await writeSourceListingRevision(db, identity, content, '2026-09-04T12:00:00Z');
+    await db
+      .update(sourceListings)
+      .set({ status: 'closed' })
+      .where(eq(sourceListings.id, first.sourceListing.id));
+    // Retention's own trim: blank the description, stamp trimmedAt, keep the
+    // row and its hash exactly as they were.
+    await db
+      .update(sourceListingRevisions)
+      .set({ description: '', trimmedAt: '2026-09-10T00:00:00Z' })
+      .where(eq(sourceListingRevisions.id, first.revision.id));
+
+    const second = await writeSourceListingRevision(db, identity, content, '2026-09-15T00:00:00Z', {
+      allowReopen: true,
+    });
+
+    expect(second.outcome).toBe('changed');
+    expect(second.revision.id).not.toBe(first.revision.id);
+    expect(second.revision.description).toBe(content.description);
+    expect(second.revision.trimmedAt).toBeNull();
+    expect(second.sourceListing.status).toBe('active');
+    expect(second.reopened).toBe(true);
+
+    const revisions = await db
+      .select()
+      .from(sourceListingRevisions)
+      .where(eq(sourceListingRevisions.sourceListingId, first.sourceListing.id));
+    expect(revisions).toHaveLength(2);
+  });
 });
 
 describe('touchSourceListingSeen', () => {

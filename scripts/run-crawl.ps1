@@ -39,7 +39,8 @@ $crawlEntryPoint = "dist/cli/run-$Source-crawl.js"
 $dedupeEntryPoint = 'dist/cli/run-dedupe.js'
 $taxonomyEntryPoint = 'dist/cli/backfill-taxonomy.js'
 $bundleEntryPoint = 'dist/cli/build-matching-bundle.js'
-foreach ($entryPoint in @($crawlEntryPoint, $dedupeEntryPoint, $taxonomyEntryPoint, $bundleEntryPoint)) {
+$retentionEntryPoint = 'dist/cli/run-retention.js'
+foreach ($entryPoint in @($crawlEntryPoint, $dedupeEntryPoint, $taxonomyEntryPoint, $bundleEntryPoint, $retentionEntryPoint)) {
     if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot $entryPoint) -PathType Leaf)) {
         throw "Build output not found: $entryPoint. Run 'npm run build' in $repositoryRoot first."
     }
@@ -154,11 +155,26 @@ try {
         Write-LogLine "----- matching bundle skipped: dedupe or taxonomy failed -----"
     }
 
+    # Retention (Phase 7C), gated on the crawl AND dedupe themselves — not on
+    # taxonomy or the bundle, which retention's own eligibility does not
+    # depend on. It takes its own advisory lock and every source's
+    # crawl-process lock internally (src/retention/retention-lock.ts), so it
+    # runs here, right after the bundle step, rather than on its own
+    # schedule.
+    $retentionExitCode = 0
+    if ($exitCode -eq 0 -and $dedupeExitCode -eq 0) {
+        Write-LogLine "----- $(Get-Date -Format o) retention -----"
+        $retentionExitCode = Invoke-LoggedNode @('--env-file=.env', $retentionEntryPoint, '--apply')
+        Write-LogLine "----- retention exit code $retentionExitCode -----"
+    } else {
+        Write-LogLine "----- retention skipped: crawl or dedupe failed -----"
+    }
+
     # concept section 19.1: a failed or skipped run must never pass
     # silently. A crawl that itself succeeded but left a failed dedupe or
     # classification pass behind is not a clean run either, so it must not
     # exit 0. The crawl's own failure code wins when there are several.
-    foreach ($stepExitCode in @($dedupeExitCode, $taxonomyExitCode, $bundleExitCode)) {
+    foreach ($stepExitCode in @($dedupeExitCode, $taxonomyExitCode, $bundleExitCode, $retentionExitCode)) {
         if ($exitCode -eq 0 -and $stepExitCode -ne 0) {
             $exitCode = $stepExitCode
         }
