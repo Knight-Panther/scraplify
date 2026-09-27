@@ -20,6 +20,8 @@ export const ADVISORY_LOCKS = {
    */
   taxonomyBackfill: { key: 7_417_002n, name: 'taxonomy backfill' },
   matchingBundle: { key: 7_417_003n, name: 'matching bundle' },
+  /** Phase 7C: at most one retention pass at a time across every process on this database. */
+  retention: { key: 7_417_004n, name: 'retention' },
 } as const satisfies Record<string, AdvisoryLock>;
 
 /** Long enough to outlast any real pass (a whole-corpus dedupe took 35.5s, a taxonomy backfill 22.5s) many times over. */

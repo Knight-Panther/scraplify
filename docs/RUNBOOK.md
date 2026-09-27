@@ -41,6 +41,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
    - Node 24 at `/usr/bin/node`, which the units call: the NodeSource `nodesource_setup.sh` for 24.x, then `apt install nodejs`. Not fnm or nvm: those install under a home directory, which the units cannot see.
    - Postgres 17 from the PGDG apt repository (Ubuntu 24.04 ships 16): `apt install postgresql-17`. No extension is needed.
    - Caddy (its official apt repository), `rclone` and `git` from apt.
+   - Log retention, 60 days like everything operational: `install -D -m 0644 deploy/journald/xtelo-retention.conf /etc/systemd/journald.conf.d/xtelo-retention.conf && systemctl restart systemd-journald` (from the release checkout, after step 2). Caddy's own access logs expire after 60 days by `deploy/Caddyfile`.
    - Users and directories:
      ```sh
      useradd --system --create-home --home-dir /var/lib/xtelo --shell /usr/sbin/nologin xtelo
@@ -84,6 +85,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
 2. If it has migrations: take a backup (`systemctl start xtelo-backup`), then run them from the new release: `/opt/xtelo/releases/<new-sha>/deploy/with-env.sh migration npm run db:migrate`. **Then always `/opt/xtelo/releases/<new-sha>/deploy/apply-db-roles.sh grants`**: a migration that recreates a view drops its grants, and a new table has none. Migrations are additive, so the old release keeps working against the new schema.
 3. Repoint `/opt/xtelo/current` to the new release and run `systemctl restart xtelo-web@admin xtelo-web@public`.
 4. Run `npm run probe -- https://<PUBLIC_HOST>`. If it does not print `probe: ok`, roll back (§5, "Web").
+5. **Retention (Phase 7C, first deploy after merge only).** Migration 0037 (`source_listing_revisions.trimmed_at`) and its worker grants land the same way as any other migration — step 2 above already covers `db:migrate` then `apply-db-roles.sh grants`, in that order, since the grants name a column that only exists once migrated. Before letting it run for real, do one dry run: `deploy/with-env.sh worker npm run retention` (no `--apply`) and read its logged tier counts. `deploy/run-pipeline.sh`/`scripts/run-crawl.ps1` then run it with `--apply` automatically after every crawl and dedupe that both exit 0 — no separate schedule to enable.
 
 ## 4. Health signals
 
@@ -107,7 +109,7 @@ In change.md §15's order. Each step is independent; stop at the first one that 
 
 ## 6. Backup and restore
 
-- The nightly `xtelo-backup` writes `/var/backups/xtelo/xtelo-<utc>.dump` (`pg_dump -Fc`, as `scraplify_backup`). It checks each archive with `pg_restore --list`, copies it off the host with rclone (`BACKUP_REMOTE`; a failed upload fails the run), and keeps 14 locally. Old off-host copies expire by the bucket's lifecycle rule. Which storage is an **owner decision**; the template shows Cloudflare R2.
+- The nightly `xtelo-backup` writes `/var/backups/xtelo/xtelo-<utc>.dump` (`pg_dump -Fc`, as `scraplify_backup`). It checks each archive with `pg_restore --list`, copies it off the host with rclone (`BACKUP_REMOTE`; a failed upload fails the run), and keeps 14 locally. Old off-host copies expire by the bucket's lifecycle rule: in the Cloudflare dashboard, R2 → the bucket → Settings → Object lifecycle rules → delete objects 60 days after upload (owner decision, 2026-09-27). A restore can therefore reach back 60 days at most. Which storage is an **owner decision**; the template shows Cloudflare R2.
 - **Restore:**
   1. Stop the web units and timers.
   2. If the dump is off-host only: `rclone copyto <remote>/<file> /var/backups/xtelo/<file>` with the backup env's variables.

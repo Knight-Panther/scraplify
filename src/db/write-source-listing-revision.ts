@@ -232,8 +232,30 @@ export async function writeSourceListingRevision(
         ? 'active'
         : locked.status;
 
+    // `currentRevision.trimmedAt === null` is required alongside the hash
+    // match, not just the hash alone (Phase 7C retention, migration 0037).
+    // Retention tier 2 blanks a trimmed closed/expired listing's current
+    // revision `description` in place, keeping its id and its
+    // `meaningfulContentHash` unchanged — that hash covers the fields the
+    // parser considers meaningful, and `description` alone being emptied by
+    // retention (not by the source) was never meant to change it. So a
+    // trimmed listing that reopens with genuinely the SAME content would
+    // otherwise match this hash and take the unchanged path below, which
+    // touches nothing but lastSeenAt/status/missingStreak — leaving the
+    // reopened listing `active` with the blanked description forever, since
+    // nothing else ever refills it. Requiring `trimmedAt === null` here
+    // forces a trimmed revision to always fall through to a fresh insert
+    // instead, which re-populates `description` from this observation.
+    //
+    // `parserVersion` must match too: the hash covers the page's RAW fields,
+    // so a parser fix that changes only what is derived from them (the
+    // yearless jobs.ge dates, 2026-09-27) would otherwise never reach a
+    // listing whose page did not change. A version bump therefore stores one
+    // fresh revision per listing, on its next fetch.
     if (
       currentRevision !== null &&
+      currentRevision.trimmedAt === null &&
+      currentRevision.parserVersion === content.parserVersion &&
       currentRevision.meaningfulContentHash === content.meaningfulContentHash
     ) {
       const [touched] = await tx
@@ -255,9 +277,8 @@ export async function writeSourceListingRevision(
           // which could keep a truly expired listing wrongly 'active'
           // (allowReopen already reopens it below) for months. Left as-is,
           // pinned to whatever the current, immutable revision established
-          // when it was created: a narrower, deliberate fix (e.g. gated on
-          // an actual parserVersion change, not just elapsed time) is
-          // needed here, not attempted yet — see docs/STATUS.md.
+          // when it was created. A parser fix reaches it through a
+          // parserVersion bump instead, which skips this path (above).
         })
         .where(eq(sourceListings.id, locked.id))
         .returning();

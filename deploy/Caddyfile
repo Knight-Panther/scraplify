@@ -28,6 +28,8 @@
 		output file /var/log/caddy/xtelo-{args[0]}.log {
 			roll_size 50MiB
 			roll_keep 10
+			# Nothing operational past 60 days (owner decision, 2026-09-27).
+			roll_keep_for 1440h
 		}
 	}
 }

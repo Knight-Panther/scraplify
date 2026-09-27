@@ -4,7 +4,11 @@ import type { SourceListingRevisionContent } from '../../db/write-source-listing
 import { jobsGeSource } from '../../policies/jobs-ge.js';
 import { parseYearlessDeadlineDate, parseYearlessPublishedDate } from './dates.js';
 
-export const JOBS_GE_DETAIL_PARSER_VERSION = 'v1';
+// v2 (2026-09-27): publication dates never after the fetch, deadlines on or
+// after publication (dates.ts). A bump makes the writer store a fresh
+// revision on the next fetch even when the page is unchanged, so the new
+// parse reaches listings already stored (write-source-listing-revision.ts).
+export const JOBS_GE_DETAIL_PARSER_VERSION = 'v2';
 
 export interface ParseJobsGeDetailPageInput {
   html: string;

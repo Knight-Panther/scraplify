@@ -174,7 +174,7 @@ Where practical, request an official feed/API or written permission before susta
 - Backfill current listings without duplicating records.
 - Detect new, changed, expired, missing, reopened, and removed listings.
 - Preserve original source values and normalized values.
-- Retain immutable revisions and parser provenance.
+- Retain immutable revisions and parser provenance. **Amended 2026-09-27:** owner-approved data-retention exception (§6.1, Phase 7C) — a closed/expired listing dead more than 60 days has its current revision's `description` blanked in place (row and id kept, `trimmed_at` stamped); dead more than 180 days, the whole cluster is purged unless user data or a human decision still references it. See `docs/PHASE_7C_PLAN.md`'s Retention section for the full policy.
 - Normalize employers, titles, locations, dates, work modes, and job attributes.
 - Categorize each job under a canonical, versioned taxonomy.
 - Generate cross-source duplicate candidates and explain the evidence.

@@ -141,6 +141,48 @@ GRANT SELECT, INSERT, UPDATE ON public.matching_bundle_publications TO scraplify
 GRANT SELECT ON public.public_opportunities TO scraplify_worker;
 GRANT SELECT ON public.public_opportunity_members TO scraplify_worker;
 
+-- Phase 7C: the retention job (`npm run retention`, src/retention/). It
+-- deletes aged telemetry, trims closed/expired listings (blanking only
+-- `description` and `trimmed_at` on `source_listing_revisions` — never a
+-- bare table-wide UPDATE grant, which would also let it touch every other
+-- column INSERT already covers, e.g. `title_raw`/`meaningful_content_hash`),
+-- and purges whole dead clusters that carry no user data. It never touches
+-- `candidate_profiles`/`rankings`/`outreach_drafts`/`audit_events` as WRITES
+-- (same §30.4 boundary as the rest of this role) — it only ever SELECTs a
+-- narrow set of columns from three of them, to check whether an opportunity
+-- is still referenced by user-facing state before deleting it.
+GRANT DELETE ON
+  public.fetch_attempts,
+  public.parser_incidents,
+  public.resources,
+  public.listing_classifications,
+  public.source_listing_revisions,
+  public.source_listings,
+  public.opportunity_source_memberships,
+  public.duplicate_candidates,
+  public.opportunities,
+  public.opportunity_revisions
+  TO scraplify_worker;
+-- Column-scoped, not a bare table grant: tier 2 blanks the CURRENT
+-- revision's description in place (source-listings.ts's own comment on
+-- `trimmed_at` explains why the row and its id are kept rather than
+-- replaced). No other column of this table is ever written by retention.
+GRANT UPDATE (description, trimmed_at) ON public.source_listing_revisions TO scraplify_worker;
+-- Read-only: the orphan-resource sweep (tier 1) checks both sides for a
+-- resource before deleting it, but retention never writes this table.
+GRANT SELECT ON public.resource_links TO scraplify_worker;
+-- Column-scoped SELECT only, on three tables retention otherwise has NO
+-- grant on at all (§30.4's boundary again) — just enough to test "does this
+-- opportunity have user data that must block tier 3", never enough to read
+-- a decision's note, a ranking's score, or a draft's body/recipient text.
+GRANT SELECT (opportunity_id) ON public.opportunity_decisions TO scraplify_worker;
+GRANT SELECT (opportunity_id, opportunity_revision_id) ON public.rankings TO scraplify_worker;
+GRANT SELECT (opportunity_id, source_listing_id, source_listing_revision_id)
+  ON public.outreach_drafts TO scraplify_worker;
+-- Tier 3's "listing candidate" definition excludes anything with an alias
+-- row (§15.3 evidence, a human or a domain match) — read-only, same reason.
+GRANT SELECT (source_listing_id) ON public.organization_aliases TO scraplify_worker;
+
 
 -- =========================================================================
 -- 2. scraplify_admin — "only implemented review/operations mutations"
@@ -380,15 +422,23 @@ END $$;
 -- b) Connected AS scraplify_worker, confirm it CAN write its own domain:
 --      INSERT/UPDATE a throwaway row in source_listings, resources,
 --      opportunities, duplicate_candidates, listing_classifications
---      (roll back after).
+--      (roll back after); DELETE a throwaway fetch_attempts row (Phase 7C
+--      retention); UPDATE (description, trimmed_at) a throwaway
+--      source_listing_revisions row and confirm updating any OTHER column
+--      on it (e.g. title_raw) fails.
 --    Confirm it CANNOT touch admin/local-only data — every one of these
 --    must fail with "permission denied":
 --      SELECT count(*) FROM candidate_profiles;
---      SELECT count(*) FROM rankings;
 --      SELECT count(*) FROM outreach_drafts;
---      SELECT count(*) FROM opportunity_decisions;
 --      SELECT count(*) FROM admin_audit_events;
 --      INSERT INTO admin_audit_events (...) VALUES (...);
+--    Phase 7C's column grants make a bare `count(*)` on rankings and
+--    opportunity_decisions succeed now — that is expected, NOT a leak (see
+--    those grants' own comment above). The test that actually matters is a
+--    column outside the grant: confirm each of these still fails:
+--      SELECT note FROM opportunity_decisions LIMIT 1;
+--      SELECT score FROM rankings LIMIT 1;
+--      SELECT body FROM outreach_drafts LIMIT 1;
 --
 -- c) Connected AS scraplify_admin, confirm it CAN write its own domain:
 --      UPDATE a throwaway opportunity_source_memberships/duplicate_candidates

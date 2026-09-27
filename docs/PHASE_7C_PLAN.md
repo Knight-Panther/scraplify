@@ -103,17 +103,17 @@ That is about 90–95% fewer requests. With runs this short, twice a day is poss
 
 **Growth at the smart-crawl rate:** about 450 new listings a day, times about 3 KB per revision, is roughly 0.5 GB a year of revisions plus indexes. That's manageable, but not something to leave unbounded. `fetch_attempts` drops from about 7,000 to about 650 rows per run.
 
-**Policy.** One `npm run retention` job, dry-run by default, run weekly as a pipeline step after the crawl:
+**Policy (revised 2026-09-27, owner-approved — see the retention plan and `docs/scraplify-concept.md` §6.1's amendment).** `npm run retention`, dry-run by default, `--apply` to mutate, run as a pipeline step right after dedupe (`deploy/run-pipeline.sh`, `scripts/run-crawl.ps1`), not on a separate weekly schedule:
 
 | Data | Rule | Why this is safe |
 | --- | --- | --- |
-| `fetch_attempts`, orphaned `resources` | delete when older than 90 days | Operations telemetry only; `crawl_runs` (tiny) keeps the per-run totals forever. |
-| Revisions of listings `closed` or `expired` for more than 180 days | keep only the current revision, and blank its `description` | Keeps the row and its ID, so a vacancy that reappears is still recognised as known and gets a real fetch through the `closed` rule. |
-| `closed` or `expired` listings older than 2 years | delete the listing, its revisions, memberships and classifications | Not if any user data references its opportunity: `opportunity_decisions` (saved or dismissed), `rankings`, `outreach_drafts`. Those are kept. |
+| `fetch_attempts`, resolved `parser_incidents`, orphaned `resources` | delete when older than 60 days | Operations telemetry only; `crawl_runs` (tiny) keeps the per-run totals forever. An unresolved incident is never deleted regardless of age. |
+| Revisions of listings `closed` or `expired` for more than 60 days | keep only the current revision, and blank its `description` | Keeps the row and its ID, so a vacancy that reappears is still recognised as known and gets a real fetch through the `closed` rule. `trimmed_at` (migration 0037) marks a trimmed revision so the writer never mistakes a reappearance for "unchanged" and leaves the reopened listing blank. |
+| `closed` or `expired` listings dead more than 180 days | delete the whole cluster — the listing, its revisions, memberships, classifications and `duplicate_candidates` rows, and the opportunity itself | Only when EVERY listing the opportunity ever held (live or retired) is itself eligible: no `outreach_drafts`, no `organization_aliases`, no `human`-decided membership or duplicate pair, no `human_review` classification. Not if the opportunity carries `opportunity_decisions`, `rankings`, or `outreach_drafts`. Any one of those blocks the whole cluster, not just the listing. |
 
 **Constraints found:**
 - No foreign key has `ON DELETE CASCADE`, so the job deletes children first, in one transaction per batch. That is deliberate: no silent cascades.
-- If an ID purged after 2 years reappears, it becomes "new" and is fetched. That's correct.
+- If an ID purged after 180 days dead reappears, it becomes "new" and is fetched. That's correct.
 - jobs.ge and hr.ge IDs are monotonic and not reused.
 
 **Indexes to add in the same migration:**
