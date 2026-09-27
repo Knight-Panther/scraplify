@@ -5,8 +5,8 @@
 
 [Unit]
 Description=Xtelo crawl pipeline (%i)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
 
 [Service]
 Type=oneshot
@@ -23,4 +23,9 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/xtelo/bundles /var/log/xtelo
+ProtectProc=invisible
+InaccessiblePaths=-/etc/xtelo -/var/backups/xtelo
+# The bundle builder's output is its only write; its output goes to the
+# journal. systemd refuses to start the unit if this directory is missing
+# (RUNBOOK §2 step 0 creates it).
+ReadWritePaths=/var/lib/xtelo/bundles

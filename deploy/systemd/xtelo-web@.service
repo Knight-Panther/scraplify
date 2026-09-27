@@ -4,20 +4,29 @@
 # process never holds an admin secret or a write-capable database password
 # (web/lib/startup-checks.ts refuses to start if it does).
 #
-#   sudo systemctl enable --now xtelo-web@public xtelo-web@admin
+# Each surface also runs as its own system user (xtelo-public, xtelo-admin):
+# with one shared user, a compromised public process could read the admin
+# process's environment through /proc. The environment files are root-only
+# (PID 1 reads them before dropping privileges) and hidden from the process.
+#
+#   sudo systemctl enable --now xtelo-web@admin xtelo-web@public
 
 [Unit]
 Description=Xtelo web (%i surface)
-After=network-online.target
-Wants=network-online.target
+# Postgres on the same host: without this ordering a reboot can start the web
+# process first, and a refused startup check answers 500 without ever exiting,
+# so Restart= would never retry it. Harmless when the database is elsewhere.
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
 
 [Service]
 Type=simple
-User=xtelo
-Group=xtelo
+User=xtelo-%i
+Group=xtelo-%i
 WorkingDirectory=/opt/xtelo/current
 EnvironmentFile=/etc/xtelo/%i.env
 Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
 Environment=XTELO_SURFACE=%i
 ExecStart=/usr/bin/node scripts/next.mjs start web -H 127.0.0.1 -p ${XTELO_PORT}
 Restart=on-failure
@@ -36,8 +45,14 @@ RestrictSUIDSGID=true
 RestrictNamespaces=true
 LockPersonality=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-# Next's own runtime cache is the only thing it writes.
-ReadWritePaths=/opt/xtelo/current/web/.next/cache
+# Other users' processes (the other surface, the pipeline) are not visible.
+ProtectProc=invisible
+# Other processes' secrets and the database dumps are out of reach.
+InaccessiblePaths=-/etc/xtelo -/var/backups/xtelo
+# Next's runtime cache (image and fetch caches; the app uses neither today)
+# goes to a private, per-process tmpfs, so the two surfaces share no writable
+# path and nothing is written into the release.
+TemporaryFileSystem=/opt/xtelo/current/web/.next/cache:mode=1777
 MemoryMax=1G
 
 [Install]

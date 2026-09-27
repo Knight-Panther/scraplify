@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-26 (Phase 7C merged: incremental crawling and crawl self-healing, PR #25).
+Last updated: 2026-09-27 (jobs.ge v3 confirmed healthy; pre-deploy audit fixes for `deploy/` and the runbook).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -20,6 +20,12 @@ This file is the **current-state index**: what is done, what is open, and what g
   - jobs.ge run 1: 310 fetched, 1,628 s (27 min at the 5 s crawl delay). Run 2: **290 skipped, 20 canaries fetched, 0 canaries changed, 105 s** (15× faster).
 - **jobs.ge crawl delay removed (policy v2, owner decision, 2026-09-26).** Its robots.txt `Crawl-delay: 5` is a generic file unchanged since 2019-03-08, and the owner has jobs.ge's permission. One request at a time with no spacing, so the pace is jobs.ge's response time (about 0.36 s, against 5.36 s per request before). A 429 still stops the run and records a source back-off, as before. A 503 now slows the rest of the run (5 s doubling, or Retry-After, capped at 60 s). Both are logged, and the run's log reports `rateLimitBackOffs`. hr.ge keeps its 3 s.
 - **v2 was soft-blocked; v3 is 2 s (2026-09-27).** v2's first run (`54d7e238`, 2 min 20 s) went at about 5 requests a second. After about 40 s, jobs.ge answered every request with the same 77-byte page and a 200, not a 429, so the back-off never fired and 971 listings were quarantined as unparseable (974 in total). The CV-matching bundle health gate refused the build and kept the previous bundle. v3 spaces requests 2 s apart. The crawl now treats a detail page byte-identical to the previous one as a soft block: it stops like a 429, and the listing is retried next run instead of quarantined. Quarantined listings are always re-fetched, so the next run restores the 974.
+- **v3 is confirmed healthy (2026-09-27, both crawls started by hand).**
+  - jobs.ge `9f14d7d8` completed: 991 fetched, **971 quarantined listings restored**, 0 quarantined, 0 rate-limit back-offs, no soft-block stop.
+  - hr.ge `ee4bd556` completed: 591 fetched, 1,156 adopted, 0 failed. It settled the dead run `abbd6508` by itself.
+  - Dedupe (940 opportunities) and taxonomy ran by hand.
+  - **Found and fixed (`640c5d5`):** both wrappers exited 1 straight after the crawl, skipping dedupe, taxonomy and the bundle. `Add-Content` refuses to open a log another process holds open (here, a `tail -F`). `run-crawl.ps1` now logs through `Out-File` and never fails the run on a header line.
+  - **Still blocked on the owner:** the bundle build refuses (`upstream_unhealthy`) because the soft-blocked run's critical `run_guard` incident, and the `field_missing` incidents of the now-restored listings, are still unresolved. Nothing in the code resolves incidents yet (supervised repair, Phase 7B). The automation was not allowed to write this to the real DB; the owner runs the prepared script, which resolves 972 and leaves 3 open. Migration 0036 on `scraplify` is also still owed.
 - **Jobs.ge's first run on the new code was started by hand at 23:14 on 2026-09-26** (`5b35c90b`, still at 5 s). As it started, it settled the dead run `df60e7db` as failed by itself, so the self-healing is confirmed live.
 - **Board update line (owner request, 2026-09-27).** `/` (local and public) and `/admin` show, per source, the last full update (Tbilisi time, with the year) and a countdown to the next scheduled one. A crawl in flight shows "updating now". A slot that passes by 30 minutes with no run shows "late", so a stopped scheduler is visible. A newest run that ended partial or failed is flagged.
   - The schedule is declared once in `src/crawl-schedule.ts` (both daily at 16:10 UTC), and a test checks the systemd timer against it.
@@ -74,9 +80,24 @@ This file is the **current-state index**: what is done, what is open, and what g
    - the hosting provider and domains;
    - a production GitHub OAuth app;
    - role passwords on the host;
-   - off-host backup storage;
+   - off-host backup storage: the account and bucket (the upload itself is built, see below);
    - the alert channel;
    - hosted probe, restore and rollback evidence.
+
+**Pre-deploy audit (2026-09-27, branch `phase-8e-deploy-hardening`).** A read-only audit of `deploy/` and the runbook against a fresh Ubuntu 24.04 host found 2 P0s and 5 P1s; all are fixed. A surface-boundary review of everything merged since 8E (7C, the board update line, jobs.ge v3) found nothing.
+- **P0:** the runbook granted roles before the migrations had created any table, and psql carried on past the errors, so roles came out with no grants. It also never created the service user or the directories the units need, so systemd would refuse to start them. `deploy/apply-db-roles.sh` now does `bootstrap` (database and migration role) before `db:migrate` and `grants` (both role scripts, `ON_ERROR_STOP`, passwords taken from the env files) after it, and checks that the public role can write nothing. Runbook §2 step 0 creates the users and directories.
+- **P1:**
+  - Every unit ran as one user with group-readable env files, so the public process could read admin secrets and dumps. Each web surface now has its own user, the env files are `0600 root`, and the units hide `/etc/xtelo`, the backups and other users' processes.
+  - The units had no ordering after Postgres, so a reboot could leave `public` answering 500 without restarting.
+  - There was no off-host backup. `deploy/backup-db.sh` now copies each dump with rclone and fails the run if the upload fails; `BACKUP_REMOTE=none` is an explicit, loudly reported opt-out.
+  - Upgrades never re-applied grants.
+  - Host prerequisites (Node 24 path, Postgres 17 from PGDG, swap, firewall) were missing from the runbook.
+  - Also: a `scraplify_backup` role (`pg_read_all_data`) replaces "owner" for backups, and `deploy/with-env.sh` runs one-off commands as their process would.
+- **Evidence:**
+  - On a throwaway `postgres:17`: bootstrap, all 37 migrations as `scraplify_migration`, then grants, each run twice. Every object is owned by `scraplify_migration`. `public` reads its views and is refused on `crawl_runs`. The worker can insert incidents, and the backup role can create nothing.
+  - `backup-db.sh` was run for real. The rclone upload (local backend) is byte-identical, and a bad remote fails the run.
+  - `systemd-analyze verify` is clean on Ubuntu 24.04 (systemd 255).
+  - shellcheck is clean.
 
 **CV matching, also on this branch.** Evidence discipline plus a 32-CV synthetic regression suite (P@10 .397 → .709), then semantic matching:
 
@@ -85,7 +106,7 @@ This file is the **current-state index**: what is done, what is open, and what g
   - The model is fixed and corpus-independent, so it ships as pinned files (`matching-models/static-e1-v1/`, checksums in `src/matching/models/static-e1.ts`) served by `/api/matching/models/<id>/<file>` with immutable caching, not inside the per-crawl bundle. Titles are embedded in the worker (≈160 ms for 2,522), so the bundle schema is unchanged (`lexical-v1`).
   - If the model fails to load or verify, CV Ranked ranks by words alone and says so.
   - Switching off or removing a CV-derived term also drops the CV lines containing it from similarity.
-  - Browser-checked on the dev server with a synthetic English CV: results in 2.4 s (localhost), only the four expected GETs, no console errors, no overflow at 390/768/1280/1920. After merge, on a production `public` build: the privacy e2e passes with the model (`npm run test:e2e:privacy`: both model files fetched, same-origin GETs only, no CSP violation, the canary nowhere). Cold first results with an empty cache: **12.4 s at 10 Mbps / 40 ms with 4× CPU throttling** (the 20 s gate passes); 28.9 s at 4 Mbps with 6× CPU. Both were measured uncompressed (8.9 MB table): `next start` does not compress it, but Caddy does in production.
+  - Browser-checked on the dev server with a synthetic English CV: results in 2.4 s (localhost), only the four expected GETs, no console errors, no overflow at 390/768/1280/1920. After merge, on a production `public` build: the privacy e2e passes with the model (`npm run test:e2e:privacy`: both model files fetched, same-origin GETs only, no CSP violation, the canary nowhere). Cold first results with an empty cache: **12.4 s at 10 Mbps / 40 ms with 4× CPU throttling** (the 20 s gate passes); 28.9 s at 4 Mbps with 6× CPU. Both were measured uncompressed (8.9 MB table), which is also how production serves it: Caddy's `encode` skips `application/octet-stream` by default, and gzip would only save about 14% (7.6 MB) on int8 data anyway (deploy audit, 2026-09-27).
 - **Matching work stops here for the MVP** (owner, 2026-09-26). The next real lever, if matching quality is revisited, is vacancy-side: skills and roles extracted from descriptions at bundle-build time and shipped as term ids, never as text (descriptions are not republishable). No more model tuning.
 
 ## Open operational issues (not phase work, but blocking real freshness)

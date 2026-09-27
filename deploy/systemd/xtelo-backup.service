@@ -2,6 +2,8 @@
 
 [Unit]
 Description=Xtelo database backup
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
 
 [Service]
 Type=oneshot
@@ -13,4 +15,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+ProtectProc=invisible
+InaccessiblePaths=-/etc/xtelo
+# systemd refuses to start the unit if this directory is missing (RUNBOOK §2
+# step 0 creates it, mode 0700, so no other user can read a dump).
 ReadWritePaths=/var/backups/xtelo
