@@ -46,7 +46,8 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
      useradd --system --create-home --home-dir /var/lib/xtelo --shell /usr/sbin/nologin xtelo
      useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-public
      useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-admin
-     install -d -o xtelo -g xtelo -m 0755 /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles
+     # 0755, not useradd's 0750: the public site reads the bundles below it.
+     install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles
      install -d -o xtelo -g xtelo -m 0700 /var/backups/xtelo
      install -d -o root -g root -m 0700 /etc/xtelo
      ```

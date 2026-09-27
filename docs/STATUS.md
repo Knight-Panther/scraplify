@@ -98,6 +98,17 @@ This file is the **current-state index**: what is done, what is open, and what g
   - `backup-db.sh` was run for real. The rclone upload (local backend) is byte-identical, and a bad remote fails the run.
   - `systemd-analyze verify` is clean on Ubuntu 24.04 (systemd 255).
   - shellcheck is clean.
+  - **Full runbook rehearsal** in a throwaway Ubuntu 24.04 container booted with systemd (Node 24.21 from NodeSource, Postgres 17.11 from PGDG, the branch from `git archive`, throwaway credentials). Steps 0–8 and 11 ran as written:
+    - `npm ci` and both builds as `xtelo`;
+    - `apply-db-roles.sh`, then `with-env.sh migration npm run db:migrate` (37 recorded), then grants;
+    - `with-env.sh` propagates exit codes;
+    - both web units run as their own users, and healthz, readyz, the landing page, Browse and `/api/crawl-status` answer 200. `/admin` is 404 on public.
+  - **Isolation inside the public unit:**
+    - `/etc/xtelo` and the backups are unreachable, as is the admin process's environment;
+    - the release is read-only, and its Next cache is a private tmpfs.
+  - The backup unit dumped and uploaded (rclone local backend). The pipeline unit starts without a namespace error.
+  - **The rehearsal found one more bug:** `useradd --create-home` makes `/var/lib/xtelo` 0750, so the public user could not reach the bundles under it, and CV matching would have been unavailable on the host. Step 0 now sets 0755, re-verified: public reads a bundle file and cannot write there.
+  - Not rehearsed: a live crawl (it would hit the real boards from a throwaway box), Caddy/TLS (needs a domain) and OAuth sign-in (needs the production app).
 
 **CV matching, also on this branch.** Evidence discipline plus a 32-CV synthetic regression suite (P@10 .397 → .709), then semantic matching:
 
