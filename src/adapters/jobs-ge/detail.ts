@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import * as cheerio from 'cheerio';
 import type { SourceListingRevisionContent } from '../../db/write-source-listing-revision.js';
 import { jobsGeSource } from '../../policies/jobs-ge.js';
-import { parseYearlessGeorgianDate } from './dates.js';
+import { parseYearlessDeadlineDate, parseYearlessPublishedDate } from './dates.js';
 
 export const JOBS_GE_DETAIL_PARSER_VERSION = 'v1';
 
@@ -175,10 +175,10 @@ export function parseJobsGeDetailPage(
   const deadlineRaw = dateValues[1] ? $(dateValues[1]).text().trim() : null;
 
   const publishedDate = publishedRaw
-    ? parseYearlessGeorgianDate(publishedRaw, input.provenance.fetchedAt)
+    ? parseYearlessPublishedDate(publishedRaw, input.provenance.fetchedAt)
     : { raw: null, parsed: null };
   const deadlineDate = deadlineRaw
-    ? parseYearlessGeorgianDate(deadlineRaw, input.provenance.fetchedAt)
+    ? parseYearlessDeadlineDate(deadlineRaw, input.provenance.fetchedAt, publishedDate.parsed)
     : { raw: null, parsed: null };
 
   const description = extractDescription($);

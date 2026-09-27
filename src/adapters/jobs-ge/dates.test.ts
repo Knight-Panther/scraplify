@@ -1,5 +1,98 @@
 import { describe, expect, it } from 'vitest';
-import { parseYearlessGeorgianDate } from './dates.js';
+import {
+  parseYearlessDeadlineDate,
+  parseYearlessGeorgianDate,
+  parseYearlessPublishedDate,
+} from './dates.js';
+
+// The live case that found this (2026-09-27): jobs.ge 679178, fetched on 26
+// September, showed "03 ნოემბერი" / "07 ნოემბერი" — last November's listing,
+// still up. Closest-year parsing put both into the coming November.
+describe('parseYearlessPublishedDate', () => {
+  const fetchedAt = '2026-09-26T20:36:13Z';
+
+  it('puts a month-ahead publication date in the past year, never the future', () => {
+    expect(parseYearlessPublishedDate('03 ნოემბერი', fetchedAt).parsed).toBe(
+      '2025-11-03T00:00:00+04:00',
+    );
+  });
+
+  it('keeps a recent publication date in the current year', () => {
+    expect(parseYearlessPublishedDate('20 სექტემბერი', fetchedAt).parsed).toBe(
+      '2026-09-20T00:00:00+04:00',
+    );
+  });
+
+  it('accepts the fetch day itself and one day of clock slack', () => {
+    expect(parseYearlessPublishedDate('27 სექტემბერი', fetchedAt).parsed).toBe(
+      '2026-09-27T00:00:00+04:00',
+    );
+    expect(parseYearlessPublishedDate('28 სექტემბერი', fetchedAt).parsed).toBe(
+      '2026-09-28T00:00:00+04:00',
+    );
+    expect(parseYearlessPublishedDate('29 სექტემბერი', fetchedAt).parsed).toBe(
+      '2025-09-29T00:00:00+04:00',
+    );
+  });
+
+  it('crosses the year boundary backwards: late December seen in early January', () => {
+    expect(parseYearlessPublishedDate('28 დეკემბერი', '2027-01-05T09:00:00Z').parsed).toBe(
+      '2026-12-28T00:00:00+04:00',
+    );
+  });
+
+  it('is stable as the fetch moves later, unlike closest-year parsing', () => {
+    for (const at of ['2026-04-10T12:00:00Z', '2026-09-05T12:00:00Z', '2026-11-01T12:00:00Z']) {
+      expect(parseYearlessPublishedDate('02 აპრილი', at).parsed).toBe('2026-04-02T00:00:00+04:00');
+    }
+  });
+
+  it('returns parsed: null for malformed input', () => {
+    expect(parseYearlessPublishedDate('სექტემბერი', fetchedAt)).toEqual({
+      raw: 'სექტემბერი',
+      parsed: null,
+    });
+  });
+});
+
+describe('parseYearlessDeadlineDate', () => {
+  const fetchedAt = '2026-09-26T20:36:13Z';
+
+  it('keeps a long-past deadline in its publication year (the expired listing stays expired)', () => {
+    const published = parseYearlessPublishedDate('03 ნოემბერი', fetchedAt).parsed;
+    expect(parseYearlessDeadlineDate('07 ნოემბერი', fetchedAt, published).parsed).toBe(
+      '2025-11-07T00:00:00+04:00',
+    );
+  });
+
+  it('puts a normal month-ahead deadline in the current year', () => {
+    const published = parseYearlessPublishedDate('20 სექტემბერი', fetchedAt).parsed;
+    expect(parseYearlessDeadlineDate('20 ოქტომბერი', fetchedAt, published).parsed).toBe(
+      '2026-10-20T00:00:00+04:00',
+    );
+  });
+
+  it('rolls a deadline into the next year when published in December', () => {
+    const at = '2026-12-20T12:00:00Z';
+    const published = parseYearlessPublishedDate('18 დეკემბერი', at).parsed;
+    expect(parseYearlessDeadlineDate('15 იანვარი', at, published).parsed).toBe(
+      '2027-01-15T00:00:00+04:00',
+    );
+  });
+
+  it('accepts a deadline on the publication day itself', () => {
+    const published = parseYearlessPublishedDate('20 სექტემბერი', fetchedAt).parsed;
+    expect(parseYearlessDeadlineDate('20 სექტემბერი', fetchedAt, published).parsed).toBe(
+      '2026-09-20T00:00:00+04:00',
+    );
+  });
+
+  it('falls back to the closest year without a publication date', () => {
+    expect(parseYearlessDeadlineDate('02 ოქტომბერი', '2026-09-04T12:00:00Z', null).parsed).toBe(
+      '2026-10-02T00:00:00+04:00',
+    );
+  });
+});
 
 describe('parseYearlessGeorgianDate', () => {
   it('parses a date shortly after the reference instant as the current year', () => {
