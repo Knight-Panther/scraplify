@@ -109,6 +109,12 @@ This file is the **current-state index**: what is done, what is open, and what g
   - The backup unit dumped and uploaded (rclone local backend). The pipeline unit starts without a namespace error.
   - **The rehearsal found one more bug:** `useradd --create-home` makes `/var/lib/xtelo` 0750, so the public user could not reach the bundles under it, and CV matching would have been unavailable on the host. Step 0 now sets 0755, re-verified: public reads a bundle file and cannot write there.
   - Not rehearsed: a live crawl (it would hit the real boards from a throwaway box), Caddy/TLS (needs a domain) and OAuth sign-in (needs the production app).
+- **Branch review (Opus, adversarial):** no P0. Two P1s: the same 0750 home (already fixed by the rehearsal), and rclone's bucket check failing with an object-scoped R2 token, fixed with `NO_CHECK_BUCKET` in the template (rclone's own R2 note). **Open P2s**, skipped under the P0/P1 rule:
+  - the restore command runs `pg_restore` as `postgres`, which cannot read `/var/backups/xtelo`; redirect the file from the root shell instead;
+  - `apply-db-roles.sh` passes the passwords to `sed` as arguments, so they are briefly visible in `ps`, and a failing `CREATE ROLE` would log its statement;
+  - the backup and migrations run as the crawler's OS user, `xtelo`;
+  - `createdb` does not pin UTF-8 (check the cluster encoding on the host);
+  - watch the first `journalctl -u xtelo-web@public` for `EACCES`/`EROFS`. The rehearsal showed none.
 
 **CV matching, also on this branch.** Evidence discipline plus a 32-CV synthetic regression suite (P@10 .397 → .709), then semantic matching:
 
