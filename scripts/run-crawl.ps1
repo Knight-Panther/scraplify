@@ -79,7 +79,16 @@ try {
 }
 
 function Write-LogLine([string]$Line) {
-    $Line | Add-Content -LiteralPath $logFile -Encoding UTF8
+    # Out-File, not Add-Content: Add-Content refuses to open a file any other
+    # process has open, even only for reading (`tail -f`, an editor), and under
+    # 'Stop' that aborted the whole run straight after the crawl, skipping
+    # dedupe, taxonomy and the bundle (2026-09-27, both sources). A header that
+    # still cannot be written is lost rather than allowed to do the same.
+    try {
+        $Line | Out-File -LiteralPath $logFile -Append -Encoding utf8
+    } catch {
+        # Ignored deliberately; see above.
+    }
 }
 
 function Invoke-LoggedNode([string[]]$Arguments) {
