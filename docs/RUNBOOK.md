@@ -54,7 +54,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
      install -d -o root -g root -m 0700 /etc/xtelo
      ```
      systemd refuses to start a unit whose `ReadWritePaths` directory is missing, so these must exist before step 7.
-1. **Config.** Copy each `deploy/env/*.template` (`public`, `admin`, `worker`, `backup`, `migration`) to `/etc/xtelo/<name>.env`, fill it in, then `chmod 0600 /etc/xtelo/*.env` (owner root). `deploy/make-env.sh` does this and generates every password and `AUTH_SECRET` on the host without printing them: `sudo ADMIN_HOST=admin.jobster.fun AUTH_GITHUB_ID=<client id> ADMIN_GITHUB_IDS=<ids> CRAWLER_CONTACT_URL=https://jobster.fun deploy/make-env.sh`. It never overwrites an existing file. The owner then sets the two remaining secrets from hidden input, so they never pass through a chat or a command line:
+1. **Config.** Copy each `deploy/env/*.template` (`public`, `admin`, `worker`, `backup`, `migration`) to `/etc/xtelo/<name>.env`, fill it in, then `chmod 0600 /etc/xtelo/*.env` (owner root). `deploy/make-env.sh` does this and generates every password and `AUTH_SECRET` on the host without printing them: `sudo PUBLIC_HOST=jobster.fun ADMIN_HOST=admin.jobster.fun AUTH_GITHUB_ID=<client id> ADMIN_GITHUB_IDS=<ids> CRAWLER_CONTACT_URL=https://jobster.fun deploy/make-env.sh`. It never overwrites an existing file. The owner then sets the two remaining secrets from hidden input, so they never pass through a chat or a command line:
    - `ssh -t <host> sudo /opt/xtelo/current/deploy/set-github-secret.sh`
    - `ssh -t <host> sudo /opt/xtelo/current/deploy/set-r2-credentials.sh <account id> <bucket> <host IPv4>`. It also runs one backup to prove the upload.
 
