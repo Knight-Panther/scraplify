@@ -55,6 +55,14 @@ import type { OpportunityRow } from '../lib/opportunity-row.js';
  *    it into one `effectivePaused` flag alongside the button's state, and
  *    by re-running the measurement on a `ResizeObserver` firing on the
  *    wrapper, not just once when pausing begins.
+ *
+ * 4. A mouse over the moving strip pauses it too (owner, 2026-09-28), so the
+ *    button shrank to an icon. The hover is tracked in React state on the
+ *    track only, never the button, which overlays the track: moving onto
+ *    the button leaves the track, so clicking Play resumes at once (the
+ *    trap item 2 describes). Touch pointers are ignored, since a tap fires
+ *    `pointerenter` with no matching leave until the next tap elsewhere;
+ *    phones keep the button.
  */
 export function HeroTicker({
   rows,
@@ -66,6 +74,7 @@ export function HeroTicker({
   playLabel: string;
 }) {
   const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [visibleIds, setVisibleIds] = useState<ReadonlySet<string>>(new Set());
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -78,7 +87,7 @@ export function HeroTicker({
     return () => query.removeEventListener('change', onChange);
   }, []);
 
-  const effectivePaused = paused || prefersReducedMotion;
+  const effectivePaused = paused || hovered || prefersReducedMotion;
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -134,13 +143,27 @@ export function HeroTicker({
         <button
           type="button"
           onClick={() => setPaused((value) => !value)}
-          aria-pressed={paused}
-          className="absolute top-1/2 right-3 z-10 -translate-y-1/2 rounded-full border border-[var(--color-browse-border-control)] bg-[var(--color-browse-panel)] px-3 py-1.5 text-[11px] text-[var(--color-browse-text-pill)] hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+          aria-label={paused ? playLabel : pauseLabel}
+          title={paused ? playLabel : pauseLabel}
+          className="absolute top-1/2 right-3 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--color-browse-border-control)] bg-[var(--color-browse-panel)] text-[var(--color-browse-text-pill)] hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
         >
-          {paused ? playLabel : pauseLabel}
+          <svg aria-hidden="true" viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
+            {paused ? (
+              <path d="M3 1.5v9l7.5-4.5z" />
+            ) : (
+              <>
+                <rect x="2.5" y="1.5" width="2.5" height="9" rx="0.5" />
+                <rect x="7" y="1.5" width="2.5" height="9" rx="0.5" />
+              </>
+            )}
+          </svg>
         </button>
       )}
       <div
+        onPointerEnter={(event) => {
+          if (event.pointerType === 'mouse') setHovered(true);
+        }}
+        onPointerLeave={() => setHovered(false)}
         className={`flex w-max animate-hero-ticker ${effectivePaused ? '[animation-play-state:paused]' : ''}`}
       >
         <TickerItems rows={rows} visibleIds={effectivePaused ? visibleIds : undefined} />
