@@ -1,7 +1,17 @@
+import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { SiteFooter } from '../components/site-footer.js';
 import { SiteHeader } from '../components/site-header.js';
 import { CvSessionProvider } from '../lib/cv-ranked/session.js';
+import { currentLocale } from '../lib/locale.js';
+import {
+  isIndexable,
+  SITE_NAME,
+  siteDescription,
+  siteOpenGraph,
+  siteOrigin,
+  siteTitle,
+} from '../lib/site-metadata.js';
 import { currentSurface } from '../lib/surface.js';
 import { bebasNeue, notoGeorgian, spaceMono } from './fonts.js';
 import './globals.css';
@@ -11,10 +21,32 @@ import './globals.css';
 // correctness bug rather than a performance win.
 export const dynamic = 'force-dynamic';
 
-export const metadata = {
-  title: 'Xtelo',
-  description: 'Job listings from jobs.ge and hr.ge, deduplicated and ranked.',
-};
+/**
+ * The head every page inherits. The image itself is `opengraph-image.jpg`
+ * next to this file (1200×630, the size Facebook and LinkedIn crop to), which
+ * Next adds as `og:image` on every route. It only becomes an absolute URL,
+ * the one thing a crawler can follow, through `metadataBase`: see `siteOrigin`.
+ * X reads the same `og:*` tags; it only needs its own card type.
+ * A function, not a constant: the surface and origin are runtime env values,
+ * and this layout is already dynamic.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const indexable = isIndexable();
+  // Georgian unless the visitor chose English, so a crawler (no cookie) gets
+  // Georgian: see lib/locale.ts.
+  const locale = await currentLocale();
+  const title = siteTitle(locale);
+  const description = siteDescription(locale);
+  return {
+    metadataBase: siteOrigin(),
+    title,
+    description,
+    applicationName: SITE_NAME,
+    openGraph: siteOpenGraph({ locale }),
+    twitter: { card: 'summary_large_image', title, description },
+    robots: indexable ? { index: true, follow: true } : { index: false, follow: false },
+  };
+}
 
 // Matches --color-background, so the browser's own chrome does not flash a
 // light band above a black page.

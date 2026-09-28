@@ -491,6 +491,29 @@ export async function publicCountOpportunities(
   return row?.total ?? 0;
 }
 
+/** One sitemap file holds at most 50,000 URLs; the few fixed pages need room too. */
+export const SITEMAP_OPPORTUNITY_LIMIT = 49_000;
+
+/**
+ * The opportunities the public Browse list shows (the same eligibility rule,
+ * `publicOpportunityConditions({})`), as id and last change only: the input
+ * for `web/app/sitemap.ts`. It reads only the public views, like everything
+ * else here. It is newest-changed first, so a corpus above the cap drops its
+ * oldest entries from the sitemap, not its newest.
+ */
+export async function publicSitemapOpportunities(
+  db: DatabaseOrTransaction,
+  asOf: string = new Date().toISOString(),
+): Promise<{ opportunityId: string; updatedAt: string }[]> {
+  const conditions = publicOpportunityConditions({ genuinelyOpenAsOf: asOf });
+  return db
+    .select({ opportunityId: publicOpportunities.id, updatedAt: publicOpportunities.updatedAt })
+    .from(publicOpportunities)
+    .where(and(...conditions))
+    .orderBy(sql`${publicOpportunities.updatedAt} desc, ${publicOpportunities.id} asc`)
+    .limit(SITEMAP_OPPORTUNITY_LIMIT);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Opportunity detail — deliberately its own, narrower shape (no revision, */
 /* no formerMembers, no dedupe evidence: the public views don't carry any  */

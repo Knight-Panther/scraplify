@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { type CrawlStatusSnapshot, getCrawlStatus } from '../../../src/browse/crawl-status.js';
 import {
   publicCountOpportunities,
@@ -14,16 +15,29 @@ import { db } from '../../../src/db/client.js';
 import { CrawlStatus } from '../../components/crawl-status.js';
 import { CvChooser } from '../../components/cv-chooser.js';
 import { HeroTicker } from '../../components/hero-ticker.js';
-import { HeroVideo } from '../../components/hero-video.js';
+import { HeroPoster, HeroVideo } from '../../components/hero-video.js';
 import { cvRankedEnabled } from '../../lib/cv-ranked/availability.js';
 import { count } from '../../lib/format.js';
 import { type HeadlineRun, type HeroCopy, heroCopy } from '../../lib/hero-copy.js';
 import { sourceLabel } from '../../lib/labels.js';
 import { currentLocale, type Locale } from '../../lib/locale.js';
 import { type OpportunityRow, toRow } from '../../lib/opportunity-row.js';
+import { siteOpenGraph } from '../../lib/site-metadata.js';
 import { currentSurface } from '../../lib/surface.js';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The page shared most, so it states its own address for previews and
+ * search, in the visitor's language (Georgian for a crawler: lib/locale.ts).
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await currentLocale();
+  return {
+    alternates: { canonical: '/' },
+    openGraph: siteOpenGraph({ locale, url: '/' }),
+  };
+}
 
 /**
  * The public landing page. One hero section, motion-led, everything in it
@@ -65,7 +79,9 @@ export default async function Page() {
   const copy = heroCopy(locale);
 
   return (
-    <main>
+    // Only this page follows the locale, so it states its own language:
+    // the root <html lang> stays "en" for the other, English-only screens.
+    <main lang={locale}>
       {/* On a two-column desktop the hero fills exactly the screen between
           the 78px header and the 59px footer, so the whole page, ticker and
           footer included, is visible without scrolling (owner request,
@@ -74,6 +90,7 @@ export default async function Page() {
           window too short for even the smallest sizes scrolls instead of
           clipping. Narrower screens stack and scroll as before. */}
       <section className="relative flex min-h-[calc(100svh-58px)] flex-col justify-end overflow-hidden border-b border-[var(--color-browse-border)] bg-[var(--color-browse-ink)] lg:min-h-[calc(100svh-137px)]">
+        <HeroPoster />
         <HeroVideo />
         {/* Legibility overlay, not the source reference's grid+glow layers —
             those exist as an alternative background for a page with no
@@ -81,7 +98,7 @@ export default async function Page() {
             a moving video competes for the same visual depth and the glow
             (~4% luminance) is invisible over real video brightness anyway.
             Retuned to this screen's own ink token so the reduced-motion
-            render (HeroVideo mounts nothing at all, see hero-video.tsx)
+            render (HeroVideo mounts nothing at all; HeroPoster's still frame stays, see hero-video.tsx)
             rests on the same ground as the panel/ticker below it, not a
             different dark. */}
         <div

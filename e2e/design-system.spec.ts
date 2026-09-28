@@ -172,7 +172,8 @@ test('reduced motion leaves the homepage hero fully visible, with no video, stro
     // real link stayed tabIndex={-1} forever and a "Pause" button sat over
     // content that was already stationary (Codex, 2026-09-15). Both must
     // be genuinely fixed, not just visually stationary.
-    const pauseButton = page.getByRole('button', { name: /pause/i });
+    // Either language: the landing page is Georgian by default (lib/locale.ts).
+    const pauseButton = page.getByRole('button', { name: /pause|პაუზა/i });
     await expect(pauseButton).toHaveCount(0);
     const tabbableLinks = ticker.locator('a[data-ticker-id][tabindex="0"]');
     await expect(tabbableLinks.first()).toBeAttached();

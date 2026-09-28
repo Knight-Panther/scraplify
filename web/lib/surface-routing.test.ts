@@ -19,6 +19,7 @@ describe('isPublicRoute', () => {
     '/api/matching/manifest',
     '/api/matching/bundles/abc/opportunities.json',
     '/api/crawl-status',
+    '/sitemap.xml',
   ])('allows %s', (pathname) => {
     expect(isPublicRoute(pathname)).toBe(true);
   });
@@ -41,6 +42,8 @@ describe('isPublicRoute', () => {
     expect(isPublicRoute('/api')).toBe(false);
     expect(isPublicRoute('/api/crawl-statusx')).toBe(false);
     expect(isPublicRoute('/api/crawl-status/x')).toBe(false);
+    expect(isPublicRoute('/sitemap.xml/x')).toBe(false);
+    expect(isPublicRoute('/sitemap.xmlx')).toBe(false);
   });
 });
 
@@ -76,16 +79,33 @@ describe('isAdminDashboardRoute', () => {
 });
 
 describe('isStaticAssetRoute', () => {
-  it.each(['/logo.png', '/hero-bg.mp4', '/icon.svg'])('allows %s', (pathname) => {
+  it.each([
+    '/logo.v2.webp',
+    '/hero-bg.v2.mp4',
+    '/hero-bg.v2-640.mp4',
+    '/hero-poster.v2.webp',
+    '/hero-poster.v2-640.webp',
+    '/hero-poster.v2-960.webp',
+    '/icon.svg',
+    '/favicon.ico',
+    '/apple-icon.png',
+    '/opengraph-image.jpg',
+    '/robots.txt',
+  ])('allows %s', (pathname) => {
     expect(isStaticAssetRoute(pathname)).toBe(true);
   });
 
   it.each([
     '/admin/sources/jobs.ge',
     '/opportunities/jobs.ge-listing-123',
-    '/logo.png/extra',
-    '/logo.png.evil',
-    '/LOGO.PNG',
+    '/logo.v2.webp/extra',
+    '/logo.v2.webp.evil',
+    '/LOGO.V2.WEBP',
+    // Retired with the v2 assets; the old files are gone from web/public/.
+    '/logo.png',
+    '/hero-bg.mp4',
+    // Reads the database, so it is a rate-limited public route instead.
+    '/sitemap.xml',
   ])('refuses %s (an exact allowlist, not an extension heuristic)', (pathname) => {
     expect(isStaticAssetRoute(pathname)).toBe(false);
   });

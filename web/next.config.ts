@@ -50,7 +50,17 @@ const config: NextConfig = {
   // needs a per-request nonce, so `proxy.ts` sets it instead.
   poweredByHeader: false,
   async headers() {
-    return [{ source: '/:path*', headers: STATIC_SECURITY_HEADERS }];
+    return [
+      { source: '/:path*', headers: STATIC_SECURITY_HEADERS },
+      // web/public/'s media carry a version in their names (`*.v2*`): a
+      // changed file gets a new name, so a browser may keep each one for a
+      // year. Next's own default for public files is `max-age=0`, which
+      // re-validated the 5.8 MB hero video on every visit.
+      {
+        source: '/:file((?:logo|hero-bg|hero-poster)\\.v\\d+[^/]*)',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
+    ];
   },
   // No eslint key: Next 16 removed it. Biome is this repo's linter and ESLint is
   // deliberately not installed, so there is nothing for Next to run anyway.

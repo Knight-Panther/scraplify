@@ -40,7 +40,7 @@ const ALLOWED_PATHS: readonly RegExp[] = [
   /^\/api\/matching\/manifest$/,
   /^\/api\/matching\/bundles\/[0-9a-f-]{36}\/opportunities\.json$/,
   /^\/api\/matching\/models\/static-e1-v1\/(model\.json|table\.int8)$/,
-  /^\/(icon\.svg|logo\.png|hero-bg\.mp4|favicon\.ico)$/,
+  /^\/(icon\.svg|favicon\.ico|apple-icon\.png|logo\.v2\.webp|hero-poster\.v2(-640|-960)?\.webp|hero-bg\.v2(-640)?\.mp4)$/,
 ];
 
 function canaryPdfHtml(canary: string): string {

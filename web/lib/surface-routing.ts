@@ -14,7 +14,9 @@ function pathIs(pathname: string, prefix: string): boolean {
  * plus the matching-bundle endpoints (Phase 8C) the browser matcher fetches:
  * `/api/matching/manifest` and `/api/matching/bundles/<id>/<file>`, and the
  * browser-only CV Ranked page that uses them (Phase 8D), and the landing
- * page's crawl freshness poll, `/api/crawl-status` (exact path).
+ * page's crawl freshness poll, `/api/crawl-status` (exact path), and the
+ * sitemap (exact path). The sitemap reads the database, so it is a rate-limited
+ * route here rather than a free static asset.
  */
 export function isPublicRoute(pathname: string): boolean {
   return (
@@ -23,7 +25,8 @@ export function isPublicRoute(pathname: string): boolean {
     pathIs(pathname, '/listings') ||
     pathIs(pathname, '/cv-ranked') ||
     pathIs(pathname, '/api/matching') ||
-    pathname === '/api/crawl-status'
+    pathname === '/api/crawl-status' ||
+    pathname === '/sitemap.xml'
   );
 }
 
@@ -60,7 +63,24 @@ export function isAdminDashboardRoute(pathname: string): boolean {
  * file here when one is added under `web/public/` or as an `app/`-level
  * metadata file (icon, favicon, etc).
  */
-const STATIC_ASSET_PATHS: ReadonlySet<string> = new Set(['/logo.png', '/hero-bg.mp4', '/icon.svg']);
+const STATIC_ASSET_PATHS: ReadonlySet<string> = new Set([
+  // web/public/. Versioned names: a changed file gets a new name, so each
+  // can be cached for a year (next.config.ts).
+  '/logo.v2.webp',
+  '/hero-bg.v2.mp4',
+  '/hero-bg.v2-640.mp4',
+  '/hero-poster.v2.webp',
+  '/hero-poster.v2-640.webp',
+  '/hero-poster.v2-960.webp',
+  // app/-level metadata files. Link-preview crawlers and browsers fetch these
+  // on every surface, and none reads the database.
+  '/icon.svg',
+  '/favicon.ico',
+  '/apple-icon.png',
+  '/opengraph-image.jpg',
+  // Static per surface (app/robots.ts): admin and local answer "Disallow: /".
+  '/robots.txt',
+]);
 
 export function isStaticAssetRoute(pathname: string): boolean {
   return STATIC_ASSET_PATHS.has(pathname);

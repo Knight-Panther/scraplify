@@ -11,7 +11,12 @@ export type Locale = 'en' | 'ka';
 
 export const LOCALE_COOKIE = 'xtelo-locale';
 
+/**
+ * Georgian unless the visitor chose English (owner decision, 2026-09-28):
+ * the audience is Georgian, and a crawler or a first visit carries no cookie,
+ * so search results and link previews get Georgian too.
+ */
 export async function currentLocale(): Promise<Locale> {
   const store = await cookies();
-  return store.get(LOCALE_COOKIE)?.value === 'ka' ? 'ka' : 'en';
+  return store.get(LOCALE_COOKIE)?.value === 'en' ? 'en' : 'ka';
 }
