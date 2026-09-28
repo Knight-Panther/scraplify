@@ -114,7 +114,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 7. **Needs a host or an owner decision** (nothing else is left). Source rights are settled: the owner has permission from jobs.ge and hr.ge (2026-09-26, `docs/RIGHTS.md`).
    - the host: Hetzner Cloud CX23 chosen, not bought yet;
    - ~~the domain~~: **done** 2026-09-28. `jobster.fun` is registered at Cloudflare with auto-renew on. The public site is `jobster.fun` and admin is `admin.jobster.fun`. DNSSEC, CAA (Let's Encrypt and ZeroSSL only) and mail lockdown are set. The two host records wait for the server's IP and stay DNS-only (`docs/RUNBOOK.md` §2 step 9);
-   - the production GitHub OAuth app: registered, but its homepage and callback URLs must be moved to `admin.jobster.fun`, and its secret is generated on deploy day;
+   - the production GitHub OAuth app: registered, with its homepage and its only callback URL on `admin.jobster.fun` (checked from the owner's screenshot, 2026-09-28). Its secret is generated on deploy day;
    - role passwords on the host;
    - off-host backup storage: the account and bucket (the upload itself is built, see below);
    - ~~the alert channel~~: dropped (owner decision, 2026-09-27);
@@ -192,7 +192,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host (domain `jobster.fun` bought 2026-09-28), OAuth app URLs and secret, role passwords, hosted drills (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
+| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host (domain `jobster.fun` bought 2026-09-28), OAuth app secret, role passwords, hosted drills (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
 | 7C — incremental crawling and retention | merged (#25); retention built on branch `retention-60d`, not yet merged | #25 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs; migration 0037 (retention) generated and tested, not yet applied to `scraplify`/`scraplify_qa`. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
