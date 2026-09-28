@@ -144,10 +144,10 @@ export function SiteHeaderNav({
             above); a fixed-size static logo has no LCP/bandwidth case for
             it anyway. */}
         <img
-          src="/logo.png"
+          src="/logo.v2.webp"
           alt="Xtelo"
-          width={2172}
-          height={724}
+          width={264}
+          height={88}
           className="h-[34px] w-auto lg:h-[44px]"
         />
       </a>

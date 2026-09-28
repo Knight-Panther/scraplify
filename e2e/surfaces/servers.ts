@@ -25,6 +25,8 @@ export const SERVERS = {
     env: {
       XTELO_SURFACE: 'public',
       XTELO_MATCHING_ARTIFACT_DIR: '.matching-artifacts',
+      // Absolute URLs for link previews, canonical links and the sitemap.
+      XTELO_SITE_URL: 'http://127.0.0.1:3101',
       // CI has only the owner credential; see web/lib/startup-checks.ts.
       XTELO_E2E_ALLOW_WRITABLE_PUBLIC_ROLE: '1',
     },

@@ -9,7 +9,7 @@
  * LinkedIn), not a generic social-icon row: no Twitter/Instagram/etc.
  * placeholders linking nowhere.
  *
- * No ALL-CAPS "FIND US ON" label (unlike the reference screenshot this was
+ * No ALL-CAPS label such as "FIND US ON" (unlike the reference screenshot this was
  * modeled on) — this project's own design-direction.md drops ALL-CAPS
  * tracked eyebrows sitewide (a `frontend-design` "generated page" tell, and
  * meaningless on Georgian besides, which this footer's own text just isn't
@@ -23,7 +23,8 @@ export function SiteFooter() {
         deduplicated into one row per vacancy.
       </p>
       <div className="flex items-center gap-4">
-        <span className="text-xs text-faint">Find us:</span>
+        {/* The owner's own wording (2026-09-28). */}
+        <span className="text-xs text-faint">Thank me on:</span>
         <a
           href="https://www.facebook.com/giorgi.teliashvili.473015"
           target="_blank"

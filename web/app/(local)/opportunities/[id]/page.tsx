@@ -3,7 +3,9 @@
 // lookup, so the bare specifier has no types. Unlike next/font this is an
 // ordinary runtime import with no compile-time transform keyed on the
 // specifier, so the explicit path is safe as well as necessary.
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation.js';
+import { cache } from 'react';
 import { publicGetOpportunity } from '../../../../../src/browse/public-queries.js';
 import { getOpportunity } from '../../../../../src/browse/queries.js';
 import { db } from '../../../../../src/db/client.js';
@@ -32,6 +34,7 @@ import {
   toDetail,
 } from '../../../../lib/opportunity-detail.js';
 import { toPublicDetail } from '../../../../lib/public-opportunity-detail.js';
+import { opportunityDescription, siteOpenGraph } from '../../../../lib/site-metadata.js';
 import { currentSurface } from '../../../../lib/surface.js';
 import { writesEnabled } from '../../../../lib/writes.js';
 import { detachFromOpportunity } from './actions.js';
@@ -86,7 +89,40 @@ type DetailForDisplay = Pick<
 
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: 'Opportunity · Xtelo' };
+const FALLBACK_TITLE = 'Opportunity · Xtelo';
+
+/**
+ * One read per request, shared by generateMetadata and the page: React's
+ * cache() dedupes the call within a render, so the head costs no extra query.
+ */
+const loadPublicOpportunity = cache((id: string) => publicGetOpportunity(db, id));
+
+/**
+ * On public, a job page names its vacancy in the title, preview and search
+ * result, from the same view the page renders (never a guess). Elsewhere, and
+ * for an id that resolves to nothing, the generic title stays.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  if (currentSurface() !== 'public') return { title: FALLBACK_TITLE };
+  const { id } = await params;
+  const view = await loadPublicOpportunity(id);
+  if (view === null) return { title: FALLBACK_TITLE };
+  const title = `${view.canonicalTitle} · Xtelo`;
+  const description = opportunityDescription(view);
+  const path = `/opportunities/${view.opportunityId}`;
+  return {
+    title,
+    description,
+    alternates: { canonical: path },
+    // English: this screen's interface is English whatever the listing's language.
+    openGraph: siteOpenGraph({ locale: 'en', title, description, url: path }),
+    twitter: { card: 'summary_large_image', title, description },
+  };
+}
 
 export default async function OpportunityPage({
   params,
@@ -106,7 +142,7 @@ export default async function OpportunityPage({
     // members, no revision/staleness bookkeeping — see toPublicDetail's own
     // comment for why: PublicOpportunityDetailView has none of those fields
     // to leak in the first place, not merely values it happens to omit.
-    const view = await publicGetOpportunity(db, id);
+    const view = await loadPublicOpportunity(id);
     if (view === null) notFound();
     const detail = toPublicDetail(view);
     return (

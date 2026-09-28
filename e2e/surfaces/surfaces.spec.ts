@@ -22,7 +22,19 @@ import {
  * the boundary this suite is here to prove.
  */
 
-const STATIC_ASSETS = ['/icon.svg', '/logo.png', '/hero-bg.mp4'];
+const STATIC_ASSETS = [
+  '/icon.svg',
+  '/favicon.ico',
+  '/apple-icon.png',
+  '/opengraph-image.jpg',
+  '/robots.txt',
+  '/logo.v2.webp',
+  '/hero-bg.v2.mp4',
+  '/hero-bg.v2-640.mp4',
+  '/hero-poster.v2.webp',
+  '/hero-poster.v2-640.webp',
+  '/hero-poster.v2-960.webp',
+];
 const PUBLIC_ROUTES = ['/', '/opportunities', '/listings', '/cv-ranked'];
 const LOCAL_ONLY_ROUTES = [
   '/saved',

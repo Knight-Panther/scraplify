@@ -172,9 +172,49 @@ test('reduced motion leaves the homepage hero fully visible, with no video, stro
     // real link stayed tabIndex={-1} forever and a "Pause" button sat over
     // content that was already stationary (Codex, 2026-09-15). Both must
     // be genuinely fixed, not just visually stationary.
-    const pauseButton = page.getByRole('button', { name: /pause/i });
+    // Either language: the landing page is Georgian by default (lib/locale.ts).
+    const pauseButton = page.getByRole('button', { name: /pause|პაუზა/i });
     await expect(pauseButton).toHaveCount(0);
     const tabbableLinks = ticker.locator('a[data-ticker-id][tabindex="0"]');
     await expect(tabbableLinks.first()).toBeAttached();
   }
+});
+
+test('a mouse over the ticker pauses it, and the icon button still resumes it at once', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto('/');
+  const track = page.locator('.animate-hero-ticker').first();
+  test.skip((await track.count()) === 0, 'fewer than three rows, no ticker rendered');
+  // The strip never settles, so position it through the static wrapper.
+  const strip = await track.evaluate((el) => {
+    const wrapper = el.parentElement as HTMLElement;
+    wrapper.scrollIntoView({ block: 'center' });
+    const r = wrapper.getBoundingClientRect();
+    return { x: r.x, y: r.y + r.height / 2 };
+  });
+  const transform = () => track.evaluate((el) => getComputedStyle(el).transform);
+  const isMoving = async () => {
+    const before = await transform();
+    await page.waitForTimeout(300);
+    return (await transform()) !== before;
+  };
+
+  expect(await isMoving()).toBe(true);
+  await page.mouse.move(strip.x + 150, strip.y);
+  await expect.poll(isMoving).toBe(false);
+  await expect(track.locator('a[data-ticker-id][tabindex="0"]').first()).toBeAttached();
+  await page.mouse.move(5, 5);
+  await expect.poll(isMoving).toBe(true);
+
+  // Icon only, so its accessible name carries the meaning.
+  const button = page.getByRole('button', { name: /^(pause|პაუზა)$/i });
+  await button.click();
+  await expect(page.getByRole('button', { name: /^(play|დაკვრა)$/i })).toBeVisible();
+  await expect.poll(isMoving).toBe(false);
+  // The pointer is still over the button, which must not count as hovering
+  // the strip: Play resumes straight away.
+  await page.getByRole('button', { name: /^(play|დაკვრა)$/i }).click();
+  await expect.poll(isMoving).toBe(true);
 });
