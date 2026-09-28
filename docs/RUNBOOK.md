@@ -1,6 +1,6 @@
 # Xtelo production runbook
 
-How to deploy, check, roll back and recover the hosted edition (Phase 8E; change.md §10, §15). It assumes a Linux host with systemd, Caddy and Node, which is what `deploy/` targets. The host is a Hetzner Cloud CX23 (owner decision, 2026-09-28; not bought yet). The domain is `jobster.fun`, registered at Cloudflare on 2026-09-28: the public site is `jobster.fun` and the admin site is `admin.jobster.fun`.
+How to deploy, check, roll back and recover the hosted edition (Phase 8E; change.md §10, §15). It assumes a Linux host with systemd, Caddy and Node, which is what `deploy/` targets. The host is an OVHcloud VPS-1 (2 vCore, 4 GB RAM, 40 GB NVMe) in Gravelines, France, running Ubuntu 24.04, with no commitment (ordered 2026-09-28; Hetzner's CX23 was sold out). The domain is `jobster.fun`, registered at Cloudflare on 2026-09-28: the public site is `jobster.fun` and the admin site is `admin.jobster.fun`.
 
 ## 1. Shape
 
