@@ -35,7 +35,8 @@ A refused process answers every request with a 500 and logs the reason to its jo
 
 This follows change.md §15's release order. Commands run as root (`sudo -i`) unless a step says otherwise. Tested pieces: the database order in steps 2, 5 and 6 was drilled on a fresh Postgres 17 (2026-09-27: 37 migrations, every object owned by `scraplify_migration`, public read-only, both helper scripts idempotent), and the units pass `systemd-analyze verify` on Ubuntu 24.04 (systemd 255).
 
-0. **Host.** Ubuntu 24.04.
+0. **Host.** Ubuntu 24.04. `sudo bash deploy/host-setup.sh` does everything in this step and is idempotent. Copy it to the host before step 2's checkout exists. It also turns SSH password logins and root logins off, and refuses to do that unless some user has an `authorized_keys`. The bullets below say what it does.
+   - On OVH: reinstall the ordered VPS with an SSH key: `ovhcloud vps reinstall <vps> --image-id <Ubuntu 24.04 id from ovhcloud vps image list> --public-ssh-key "<key.pub>" --wait`. This only works once OVH's own `deliverVm` task has finished (`ovhcloud vps list-tasks <vps>`). The `ubuntu` user's password arrives expired, and every login, even with a key, is refused until it is changed. The first login therefore has to be interactive: the current password comes from the one-time link in OVH's email sent after the reinstall, not the first email. Afterwards, `sudo` needs no password.
    - Swap, because a 4 GB host builds Next beside Postgres and two web processes: `fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab`.
    - Firewall: `ufw allow OpenSSH && ufw allow 80,443/tcp && ufw enable`. Postgres listens on localhost only (its default).
    - Node 24 at `/usr/bin/node`, which the units call: the NodeSource `nodesource_setup.sh` for 24.x, then `apt install nodejs`. Not fnm or nvm: those install under a home directory, which the units cannot see.
@@ -53,7 +54,11 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
      install -d -o root -g root -m 0700 /etc/xtelo
      ```
      systemd refuses to start a unit whose `ReadWritePaths` directory is missing, so these must exist before step 7.
-1. **Config.** Copy each `deploy/env/*.template` (`public`, `admin`, `worker`, `backup`, `migration`) to `/etc/xtelo/<name>.env`, fill it in, then `chmod 0600 /etc/xtelo/*.env` (owner root).
+1. **Config.** Copy each `deploy/env/*.template` (`public`, `admin`, `worker`, `backup`, `migration`) to `/etc/xtelo/<name>.env`, fill it in, then `chmod 0600 /etc/xtelo/*.env` (owner root). `deploy/make-env.sh` does this and generates every password and `AUTH_SECRET` on the host without printing them: `sudo ADMIN_HOST=admin.jobster.fun AUTH_GITHUB_ID=<client id> ADMIN_GITHUB_IDS=<ids> CRAWLER_CONTACT_URL=https://jobster.fun deploy/make-env.sh`. It never overwrites an existing file. The owner then sets the two remaining secrets from hidden input, so they never pass through a chat or a command line:
+   - `ssh -t <host> sudo /opt/xtelo/current/deploy/set-github-secret.sh`
+   - `ssh -t <host> sudo /opt/xtelo/current/deploy/set-r2-credentials.sh <account id> <bucket> <host IPv4>`. It also runs one backup to prove the upload.
+
+   Give the R2 token Object Read & Write on that one bucket only, filtered to the host's IPv4. That filter refuses IPv6, and a dual-stack host reaches R2 over IPv6. So the script pins rclone with `RCLONE_BIND=<host IPv4>`: binding to `0.0.0.0` was not enough, and rclone still used IPv6 and got 403s.
    - Every role password: `openssl rand -hex 32`. `apply-db-roles.sh` accepts letters and digits only, so nothing needs escaping.
    - The admin OAuth app is a **production GitHub OAuth app** ("Xtelo Admin", registered 2026-09-27): homepage `https://admin.jobster.fun`, callback `https://admin.jobster.fun/api/auth/callback/github`, and `AUTH_URL=https://admin.jobster.fun`. Generate its client secret on deploy day, straight into `admin.env`. `ADMIN_GITHUB_IDS` holds numeric ids.
    - `backup.env`: the off-host remote (R2 example in the template). `BACKUP_REMOTE=none` only until that storage exists; each run then warns.
@@ -76,7 +81,9 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
      [Service]
      Environment=PUBLIC_HOST=jobster.fun ADMIN_HOST=admin.jobster.fun ACME_EMAIL=<email>
      ```
-   - `systemctl restart caddy`. Certificates are automatic once DNS points at the host.
+   - `systemctl restart caddy`. Certificates are automatic once DNS points at the host. On 2026-09-28 both certificates were issued within seconds.
+   - Never run `caddy validate` or `caddy run` as root against this Caddyfile. Root creates `/var/log/caddy/xtelo-*.log` owned by root, and the `caddy` service user then fails to start with `permission denied`. If it happened, `chown caddy:caddy /var/log/caddy/xtelo-*.log`.
+   - Scanners find a new hostname within seconds of its certificate appearing in the public certificate logs, so start `admin` before or together with Caddy. The admin surface serves only `/admin*`, auth and health: `https://admin.jobster.fun/` is a 404 by design, and `/admin` redirects to GitHub sign-in.
 10. **Check.** `npm run probe -- https://jobster.fun` (from the release directory, or anywhere with the repo) must print `probe: ok` (see §4). Sign in on `https://admin.jobster.fun` once.
 11. **Backup.** `systemctl start xtelo-backup && journalctl -u xtelo-backup -n 20`: it must say `Copied off the host`.
 12. **Schedules.** `systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-backup.timer`.
