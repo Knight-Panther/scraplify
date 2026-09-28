@@ -112,8 +112,9 @@ This file is the **current-state index**: what is done, what is open, and what g
 
    **Done.** P3, operator-only: `local`'s hover-revealed Save/Dismiss controls sit at 35% opacity until hover or focus, which axe flags as contrast. They do not exist on `public`.
 7. **Needs a host or an owner decision** (nothing else is left). Source rights are settled: the owner has permission from jobs.ge and hr.ge (2026-09-26, `docs/RIGHTS.md`).
-   - the hosting provider and domains;
-   - a production GitHub OAuth app;
+   - the host: Hetzner Cloud CX23 chosen, not bought yet;
+   - ~~the domain~~: **done** 2026-09-28. `jobster.fun` is registered at Cloudflare with auto-renew on. The public site is `jobster.fun` and admin is `admin.jobster.fun`. DNSSEC, CAA (Let's Encrypt and ZeroSSL only) and mail lockdown are set. The two host records wait for the server's IP and stay DNS-only (`docs/RUNBOOK.md` §2 step 9);
+   - the production GitHub OAuth app: registered, but its homepage and callback URLs must be moved to `admin.jobster.fun`, and its secret is generated on deploy day;
    - role passwords on the host;
    - off-host backup storage: the account and bucket (the upload itself is built, see below);
    - ~~the alert channel~~: dropped (owner decision, 2026-09-27);
@@ -143,7 +144,7 @@ This file is the **current-state index**: what is done, what is open, and what g
     - the release is read-only, and its Next cache is a private tmpfs.
   - The backup unit dumped and uploaded (rclone local backend). The pipeline unit starts without a namespace error.
   - **The rehearsal found one more bug:** `useradd --create-home` makes `/var/lib/xtelo` 0750, so the public user could not reach the bundles under it, and CV matching would have been unavailable on the host. Step 0 now sets 0755, re-verified: public reads a bundle file and cannot write there.
-  - Not rehearsed: a live crawl (it would hit the real boards from a throwaway box), Caddy/TLS (needs a domain) and OAuth sign-in (needs the production app).
+  - Not rehearsed: a live crawl (it would hit the real boards from a throwaway box), Caddy/TLS (needs the host) and OAuth sign-in (needs the production app).
 - **Branch review (Opus, adversarial):** no P0. Two P1s: the same 0750 home (already fixed by the rehearsal), and rclone's bucket check failing with an object-scoped R2 token, fixed with `NO_CHECK_BUCKET` in the template (rclone's own R2 note). **Open P2s**, skipped under the P0/P1 rule:
   - the restore command runs `pg_restore` as `postgres`, which cannot read `/var/backups/xtelo`; redirect the file from the root shell instead;
   - `apply-db-roles.sh` passes the passwords to `sed` as arguments, so they are briefly visible in `ps`, and a failing `CREATE ROLE` would log its statement;
@@ -191,7 +192,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host, domains, OAuth app, role passwords, hosted drills (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
+| 8E — hosted readiness | host-independent work **merged**; stage 7 open | #24 | Remaining: host (domain `jobster.fun` bought 2026-09-28), OAuth app URLs and secret, role passwords, hosted drills (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
 | 7C — incremental crawling and retention | merged (#25); retention built on branch `retention-60d`, not yet merged | #25 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs; migration 0037 (retention) generated and tested, not yet applied to `scraplify`/`scraplify_qa`. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.

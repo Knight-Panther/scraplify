@@ -1,6 +1,6 @@
 # Xtelo production runbook
 
-How to deploy, check, roll back and recover the hosted edition (Phase 8E; change.md §10, §15). It assumes a Linux host with systemd, Caddy and Node, which is what `deploy/` targets. The hosting provider is not chosen yet: where a step depends on it, it says so.
+How to deploy, check, roll back and recover the hosted edition (Phase 8E; change.md §10, §15). It assumes a Linux host with systemd, Caddy and Node, which is what `deploy/` targets. The host is a Hetzner Cloud CX23 (owner decision, 2026-09-28; not bought yet). The domain is `jobster.fun`, registered at Cloudflare on 2026-09-28: the public site is `jobster.fun` and the admin site is `admin.jobster.fun`.
 
 ## 1. Shape
 
@@ -55,7 +55,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
      systemd refuses to start a unit whose `ReadWritePaths` directory is missing, so these must exist before step 7.
 1. **Config.** Copy each `deploy/env/*.template` (`public`, `admin`, `worker`, `backup`, `migration`) to `/etc/xtelo/<name>.env`, fill it in, then `chmod 0600 /etc/xtelo/*.env` (owner root).
    - Every role password: `openssl rand -hex 32`. `apply-db-roles.sh` accepts letters and digits only, so nothing needs escaping.
-   - The admin OAuth app is a **production GitHub OAuth app** whose callback is `https://<ADMIN_HOST>/api/auth/callback/github`. `ADMIN_GITHUB_IDS` holds numeric ids.
+   - The admin OAuth app is a **production GitHub OAuth app** ("Xtelo Admin", registered 2026-09-27): homepage `https://admin.jobster.fun`, callback `https://admin.jobster.fun/api/auth/callback/github`, and `AUTH_URL=https://admin.jobster.fun`. Generate its client secret on deploy day, straight into `admin.env`. `ADMIN_GITHUB_IDS` holds numeric ids.
    - `backup.env`: the off-host remote (R2 example in the template). `BACKUP_REMOTE=none` only until that storage exists; each run then warns.
 2. **Code.** As `xtelo`, clone the release into `/opt/xtelo/releases/<sha>` and build it:
    ```sh
@@ -68,13 +68,16 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
 6. **Units.** `cp /opt/xtelo/current/deploy/systemd/* /etc/systemd/system/ && systemctl daemon-reload`.
 7. **Data.** Start one pipeline run per source without waiting on it, then follow it: `systemctl start --no-block xtelo-pipeline@jobs-ge`, `journalctl -fu xtelo-pipeline@jobs-ge`, and the same for `@hr-ge` once jobs.ge is done. The last step builds the first matching bundle: look for `matching bundle exit code 0`. The first jobs.ge run fetches every listing at 2 s apart, so it takes hours.
 8. **Admin first**, then public: `systemctl enable --now xtelo-web@admin`, then `xtelo-web@public`.
-9. **TLS.** `cp /opt/xtelo/current/deploy/Caddyfile /etc/caddy/Caddyfile`, then `systemctl edit caddy` and add:
-   ```ini
-   [Service]
-   Environment=PUBLIC_HOST=<public host> ADMIN_HOST=<admin host> ACME_EMAIL=<email>
-   ```
-   `systemctl restart caddy`. Certificates are automatic once DNS points at the host.
-10. **Check.** `npm run probe -- https://<PUBLIC_HOST>` (from the release directory, or anywhere with the repo) must print `probe: ok` (see §4). Sign in on the admin host once.
+9. **DNS and TLS.**
+   - In Cloudflare, DNS for `jobster.fun`: add `A jobster.fun <host IPv4>` and `A admin <host IPv4>` (plus `AAAA` for the host's IPv6), both **DNS only (grey cloud), never proxied**. The rate limiter keys on the client address Caddy sees (`web/lib/rate-limit.ts`), and proxied traffic would put every visitor behind a handful of Cloudflare addresses. Caddy also gets its own certificates. Check with `dig +short jobster.fun admin.jobster.fun`.
+   - The zone is already set (2026-09-28): DNSSEC on; CAA allows only `letsencrypt.org` and `sectigo.com` (ZeroSSL, Caddy's fallback), no wildcards; mail lockdown (null MX, `v=spf1 -all`, DMARC `p=reject`), since the domain sends no mail. Its proxy-only settings (Full (strict), TLS 1.2 minimum, Always Use HTTPS) only matter if a record is ever proxied.
+   - `cp /opt/xtelo/current/deploy/Caddyfile /etc/caddy/Caddyfile`, then `systemctl edit caddy` and add:
+     ```ini
+     [Service]
+     Environment=PUBLIC_HOST=jobster.fun ADMIN_HOST=admin.jobster.fun ACME_EMAIL=<email>
+     ```
+   - `systemctl restart caddy`. Certificates are automatic once DNS points at the host.
+10. **Check.** `npm run probe -- https://jobster.fun` (from the release directory, or anywhere with the repo) must print `probe: ok` (see §4). Sign in on `https://admin.jobster.fun` once.
 11. **Backup.** `systemctl start xtelo-backup && journalctl -u xtelo-backup -n 20`: it must say `Copied off the host`.
 12. **Schedules.** `systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-backup.timer`.
 13. **Observe** the probe and `deploy/with-env.sh worker node dist/cli/health-check.js` for a few days before announcing anything (change.md §15 step 7). Public launch is also gated on `docs/RIGHTS.md`.
@@ -84,7 +87,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
 1. Build the new release in `/opt/xtelo/releases/<new-sha>` (step 2 above). Nothing live changes yet.
 2. If it has migrations: take a backup (`systemctl start xtelo-backup`), then run them from the new release: `/opt/xtelo/releases/<new-sha>/deploy/with-env.sh migration npm run db:migrate`. **Then always `/opt/xtelo/releases/<new-sha>/deploy/apply-db-roles.sh grants`**: a migration that recreates a view drops its grants, and a new table has none. Migrations are additive, so the old release keeps working against the new schema.
 3. Repoint `/opt/xtelo/current` to the new release and run `systemctl restart xtelo-web@admin xtelo-web@public`.
-4. Run `npm run probe -- https://<PUBLIC_HOST>`. If it does not print `probe: ok`, roll back (§5, "Web").
+4. Run `npm run probe -- https://jobster.fun`. If it does not print `probe: ok`, roll back (§5, "Web").
 5. **Retention (Phase 7C, first deploy after merge only).** Migration 0037 (`source_listing_revisions.trimmed_at`) and its worker grants land the same way as any other migration — step 2 above already covers `db:migrate` then `apply-db-roles.sh grants`, in that order, since the grants name a column that only exists once migrated. Before letting it run for real, do one dry run: `deploy/with-env.sh worker npm run retention` (no `--apply`) and read its logged tier counts. `deploy/run-pipeline.sh`/`scripts/run-crawl.ps1` then run it with `--apply` automatically after every crawl and dedupe that both exit 0 — no separate schedule to enable.
 
 ## 4. Health signals
