@@ -2,7 +2,7 @@
 # RUNBOOK §2 step 1: write /etc/xtelo/*.env from deploy/env/*.template's shape,
 # generating every role password and AUTH_SECRET on the host. Run as root:
 #
-#   sudo ADMIN_HOST=admin.jobster.fun AUTH_GITHUB_ID=<client id> \
+#   sudo PUBLIC_HOST=jobster.fun ADMIN_HOST=admin.jobster.fun AUTH_GITHUB_ID=<client id> \
 #     ADMIN_GITHUB_IDS=<numeric ids> CRAWLER_CONTACT_URL=https://jobster.fun \
 #     deploy/make-env.sh
 #
@@ -14,6 +14,7 @@
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root (sudo)" >&2; exit 1; }
+: "${PUBLIC_HOST:?set PUBLIC_HOST, e.g. jobster.fun}"
 : "${ADMIN_HOST:?set ADMIN_HOST, e.g. admin.jobster.fun}"
 : "${AUTH_GITHUB_ID:?set AUTH_GITHUB_ID (the client id of the production OAuth app)}"
 : "${ADMIN_GITHUB_IDS:?set ADMIN_GITHUB_IDS (numeric GitHub user ids, comma-separated)}"
@@ -45,6 +46,7 @@ XTELO_SURFACE=public
 XTELO_PORT=3000
 DATABASE_URL=postgres://scraplify_public:$(pw)@$db:5432/scraplify
 XTELO_MATCHING_ARTIFACT_DIR=/var/lib/xtelo/bundles
+XTELO_SITE_URL=https://$PUBLIC_HOST
 LOG_LEVEL=info
 EOF
 
