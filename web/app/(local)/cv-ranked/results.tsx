@@ -5,6 +5,15 @@ import type { RankedRow, RankingPayload } from '../../../lib/cv-ranked/protocol.
 import { count, sourceDate } from '../../../lib/format.js';
 import { sourceLabel } from '../../../lib/labels.js';
 
+/** The method line under the results, by what similarity compared titles with. */
+const METHOD: Record<RankingPayload['similarity'], string> = {
+  roles:
+    'word and category matching on titles, hr.ge categories and locations first, then titles whose meaning is close to your roles.',
+  'roles-and-cv':
+    'word and category matching on titles, hr.ge categories and locations first, then titles whose meaning is close to your roles or to short lines of your CV, computed in this browser.',
+  none: 'word and category matching on titles, hr.ge categories and locations. The title-similarity model could not be loaded, so similar titles are not included.',
+};
+
 /**
  * Ranked vacancies and the case for each (change.md §7 "Ranking"). The
  * reasons are the ranker's own named matches; nothing here is recomputed or
@@ -93,10 +102,8 @@ export function Results({
         </div>
       )}
       <p className="mt-6 max-w-[var(--measure)] text-xs text-faint">
-        Ranked by <span className="numeric">{ranking.version}</span>:{' '}
-        {ranking.similarity
-          ? 'word and category matching on titles, hr.ge categories and locations first, then titles whose meaning is close to your roles or to short lines of your CV, computed in this browser. It does not read vacancy descriptions.'
-          : 'word and category matching on titles, hr.ge categories and locations. The title-similarity model could not be loaded, so similar titles are not included. It does not read vacancy descriptions.'}
+        Ranked by <span className="numeric">{ranking.version}</span>: {METHOD[ranking.similarity]}{' '}
+        It does not read vacancy descriptions.
       </p>
     </section>
   );

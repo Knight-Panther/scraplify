@@ -38,7 +38,7 @@ const ALLOWED_PATHS: readonly RegExp[] = [
   /^\/cv-ranked$/,
   /^\/_next\/static\//,
   /^\/api\/matching\/manifest$/,
-  /^\/api\/matching\/bundles\/[0-9a-f-]{36}\/opportunities\.json$/,
+  /^\/api\/matching\/bundles\/[0-9a-f-]{36}\/(opportunities\.json|title-vectors\.(json|int8))$/,
   /^\/api\/matching\/models\/static-e1-v1\/(model\.json|table\.int8)$/,
   /^\/(icon\.svg|favicon\.ico|apple-icon\.png|logo\.v2\.webp|hero-poster\.v2(-640|-960)?\.webp|hero-bg\.v2(-640)?\.mp4)$/,
 ];
@@ -203,6 +203,19 @@ test('a canary CV stays in the browser', async ({ browser }) => {
     seen.some((path) => path.startsWith('/api/matching/bundles/')),
     'the worker fetched the bundle file',
   ).toBe(true);
+  // Read here, from the test runner, so it is not one of the page's requests.
+  const manifest = await fetch(`${PRIVACY_ORIGIN}/api/matching/manifest`).then((response) =>
+    response.json(),
+  );
+  expect(manifest.schemaVersion, 'the manifest was read').toBeDefined();
+  if (manifest.schemaVersion >= 2) {
+    expect(
+      seen.filter((path) => /\/title-vectors\.(json|int8)$/.test(path)).length,
+      'the worker fetched both title-vector files',
+    ).toBe(2);
+  }
+  // With a schema 2 bundle the CV's own roles need no model; the static one
+  // is fetched because the canary typed as a role is outside the lexicon.
   expect(
     seen.filter((path) => path.startsWith('/api/matching/models/')).sort(),
     'the worker fetched both model files',

@@ -1,26 +1,34 @@
 import { z } from 'zod';
 import {
   isSupportedSchema,
-  MATCHING_FEATURE_CONTRACT,
   OPPORTUNITIES_FILE,
   type OpportunitiesFile,
   opportunitiesFileSchema,
+  SCHEMA_LAYOUT,
+  TITLE_VECTORS_META_FILE,
+  TITLE_VECTORS_TABLE_FILE,
 } from '../../../src/matching/bundle/schema.js';
 import { STATIC_E1_PIN } from '../../../src/matching/models/static-e1.js';
 import { parseStaticModel, type StaticModel } from '../../../src/matching/semantic/static-embed.js';
+import {
+  parseTitleVectors,
+  type TitleVectors,
+  titleVectorsMetaSchema,
+} from '../../../src/matching/semantic/title-vectors.js';
 import { CvError, LIMITS } from './document-checks.js';
 import type { BundleSummary } from './protocol.js';
 import { watchdog } from './watchdog.js';
 
 /**
  * The worker's view of Phase 8C delivery: read the active pointer, then the
- * one immutable file it lists, verify it, and refuse anything this client
- * cannot use (change.md §8: "The client never combines different
- * bundle/model versions"; "An incompatible client refuses matching while
- * keeping Browse usable").
+ * immutable files it lists (the vacancies, and for schema 2 the title
+ * vectors), verify them, and refuse anything this client cannot use
+ * (change.md §8: "The client never combines different bundle/model
+ * versions"; "An incompatible client refuses matching while keeping Browse
+ * usable").
  *
- * Every request here — the pointer, the bundle file and the two model
- * files — is a same-origin `GET` with no body, no credentials and no
+ * Every request here — the pointer, the bundle files and the two static
+ * model files — is a same-origin `GET` with no body, no credentials and no
  * CV-derived value anywhere in it; the Stage 5 network test asserts it.
  */
 
@@ -58,12 +66,14 @@ const NO_METER: Meter = { expect() {}, add() {}, settle() {} };
 const REPORT_MS = 250;
 
 /**
- * One meter for the bundle file and one for the model's two files, summed
- * into a single figure. Sizes are decoded bytes on both sides: the manifest
- * and the model pin list decoded sizes, and a stream reader counts decoded
- * bytes, so they agree even though the wire is compressed. Nothing is
- * reported until both sizes are known, so the figure never runs backwards
- * when the bundle's size arrives with its manifest.
+ * One meter for the bundle's files and one for the static model's two,
+ * summed into a single figure. Sizes are decoded bytes on both sides: the
+ * manifest and the model pin list decoded sizes, and a stream reader counts
+ * decoded bytes, so they agree even though the wire is compressed.
+ *
+ * Nothing is reported until the bundle's size is known. The static model is
+ * only fetched when a CV needs it, after the bundle, so its bytes join the
+ * total only once it starts.
  */
 export function meters(report: (received: number, total: number) => void): {
   bundle: Meter;
@@ -78,10 +88,10 @@ export function meters(report: (received: number, total: number) => void): {
   const model: Part = { expected: null, received: 0, settled: false };
   let last = Number.NEGATIVE_INFINITY;
   const update = (force: boolean) => {
-    if (bundle.expected === null || model.expected === null) return;
-    const total = bundle.expected + model.expected;
+    if (bundle.expected === null) return;
+    const total = bundle.expected + (model.expected ?? 0);
     const received =
-      Math.min(bundle.received, bundle.expected) + Math.min(model.received, model.expected);
+      Math.min(bundle.received, bundle.expected) + Math.min(model.received, model.expected ?? 0);
     const now = performance.now();
     if (!force && received < total && now - last < REPORT_MS) return;
     last = now;
@@ -186,7 +196,8 @@ async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function parseJson(bytes: Uint8Array): unknown {
+function parseJson(bytes: Uint8Array | undefined): unknown {
+  if (bytes === undefined) return null;
   try {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   } catch {
@@ -197,6 +208,8 @@ function parseJson(bytes: Uint8Array): unknown {
 export interface LoadedBundle {
   summary: BundleSummary;
   file: OpportunitiesFile;
+  /** Schema 2's title vectors; null for a schema 1 bundle, which ranks with the static model. */
+  vectors: TitleVectors | null;
 }
 
 export class BundleRefusal extends CvError {
@@ -221,27 +234,38 @@ export async function loadBundle(meter: Meter = NO_METER): Promise<LoadedBundle>
     sourceFreshness: manifest.sourceFreshness,
   };
 
-  if (!isSupportedSchema(manifest.schemaVersion)) {
+  const layout = SCHEMA_LAYOUT[manifest.schemaVersion];
+  if (!isSupportedSchema(manifest.schemaVersion) || layout === undefined) {
     throw new BundleRefusal('bundle_incompatible', summary);
   }
-  if (manifest.featureContract !== MATCHING_FEATURE_CONTRACT) {
+  if (manifest.featureContract !== layout.featureContract) {
     throw new BundleRefusal('bundle_incompatible', summary);
   }
   // Past the maximum age the server still returns the pointer so the page
   // can say when the data was built; matching itself stops.
   if (!manifest.matchingAvailable) throw new BundleRefusal('bundle_stale', summary);
 
-  const listed = manifest.files[OPPORTUNITIES_FILE];
-  if (listed === undefined) throw new BundleRefusal('bundle_incompatible', summary);
-  meter.expect(listed.bytes);
-  const bytes = await download(listed.url, { expected: listed.bytes, meter });
-  if (bytes === null) throw new BundleRefusal('bundle_unavailable', summary);
-  if (bytes.byteLength !== listed.bytes || (await sha256Hex(bytes)) !== listed.sha256) {
-    throw new BundleRefusal('bundle_integrity', summary);
+  const listed = layout.files.map((name) => manifest.files[name]);
+  if (listed.some((entry) => entry === undefined)) {
+    throw new BundleRefusal('bundle_incompatible', summary);
   }
+  const entries = listed as NonNullable<(typeof listed)[number]>[];
+  meter.expect(entries.reduce((sum, entry) => sum + entry.bytes, 0));
+  const files = new Map<string, Uint8Array<ArrayBuffer>>();
+  await Promise.all(
+    layout.files.map(async (name, i) => {
+      const entry = entries[i] as (typeof entries)[number];
+      const bytes = await download(entry.url, { expected: entry.bytes, meter });
+      if (bytes === null) throw new BundleRefusal('bundle_unavailable', summary);
+      if (bytes.byteLength !== entry.bytes || (await sha256Hex(bytes)) !== entry.sha256) {
+        throw new BundleRefusal('bundle_integrity', summary);
+      }
+      files.set(name, bytes);
+    }),
+  );
 
   // Invalid UTF-8 or JSON parses to null, which the schema refuses.
-  const file = opportunitiesFileSchema.safeParse(parseJson(bytes));
+  const file = opportunitiesFileSchema.safeParse(parseJson(files.get(OPPORTUNITIES_FILE)));
   if (
     !file.success ||
     file.data.bundleId !== manifest.bundleId ||
@@ -250,13 +274,38 @@ export async function loadBundle(meter: Meter = NO_METER): Promise<LoadedBundle>
   ) {
     throw new BundleRefusal('bundle_integrity', summary);
   }
-  return { summary, file: file.data };
+
+  let vectors: TitleVectors | null = null;
+  if (manifest.schemaVersion >= 2) {
+    const meta = titleVectorsMetaSchema.safeParse(parseJson(files.get(TITLE_VECTORS_META_FILE)));
+    const table = files.get(TITLE_VECTORS_TABLE_FILE);
+    if (
+      !meta.success ||
+      table === undefined ||
+      meta.data.bundleId !== manifest.bundleId ||
+      meta.data.schemaVersion !== manifest.schemaVersion
+    ) {
+      throw new BundleRefusal('bundle_integrity', summary);
+    }
+    try {
+      vectors = parseTitleVectors(
+        meta.data,
+        new Int8Array(table.buffer, table.byteOffset, table.byteLength),
+        file.data.opportunities.length,
+      );
+    } catch {
+      throw new BundleRefusal('bundle_integrity', summary);
+    }
+  }
+  return { summary, file: file.data, vectors };
 }
 
 /**
- * The pinned title-similarity model (`src/matching/models/static-e1.ts`),
- * fetched alongside the bundle and checked against the pin compiled into
- * this code, so a client never embeds with a model it was not built for.
+ * The pinned static title-similarity model (`src/matching/models/static-e1.ts`),
+ * fetched only when a CV needs it (`needsStaticModel`: a schema 1 bundle, no
+ * role with a title vector, or a typed role outside the lexicon) and checked
+ * against the pin compiled into this code, so a client never embeds with a
+ * model it was not built for.
  * Any failure, a stalled download included, resolves to null: CV Ranked
  * then ranks by words alone and says so, rather than refusing a CV the
  * lexical ranker can still read. The other file's download is abandoned

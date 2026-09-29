@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TITLE_VECTORS_META_FILE, TITLE_VECTORS_TABLE_FILE } from '../semantic/title-vectors.js';
 
 /**
  * The browser-safe half of the matching-bundle contract (Phase 8C,
@@ -6,29 +7,56 @@ import { z } from 'zod';
  * Phase 8D browser worker validates exactly the shapes the builder writes.
  * `contract.ts` re-exports everything here alongside its Node-only helpers.
  *
- * `lexical-v1` is what Phase 8A's lexical-first exit allows: public render
- * metadata, taxonomy terms and provenance per canonical opportunity, with no
- * vectors. A future vector contract gets its own name and a schema bump; a
- * client only ever combines files from one manifest.
+ * Two schemas; a client only ever combines files from one manifest.
+ * - Schema 1, `lexical-v1`: what Phase 8A's lexical-first exit allowed.
+ *   Public render metadata, taxonomy terms and provenance per canonical
+ *   opportunity, and no vectors.
+ * - Schema 2, `lexical-v1+title-vectors-v1`: the same rows, plus title
+ *   vectors from one pinned model (`semantic/title-vectors.ts`), which the
+ *   manifest names.
  */
 
-/** The schema this build of the code writes. */
-export const MATCHING_BUNDLE_SCHEMA_VERSION = 1;
+/** The schema this build of the code writes when it has the title-vector model. */
+export const MATCHING_BUNDLE_SCHEMA_VERSION = 2;
 /**
  * The schema range this build of the code will activate and serve. During a
  * rolling deploy the server supports the current and the immediately
- * previous compatible schema (change.md §8); schema 1 has no predecessor.
+ * previous compatible schema (change.md §8), so a schema 1 bundle built by
+ * the previous release stays servable until the next build replaces it.
  */
-export const SUPPORTED_MATCHING_BUNDLE_SCHEMAS = { min: 1, max: 1 } as const;
+export const SUPPORTED_MATCHING_BUNDLE_SCHEMAS = { min: 1, max: 2 } as const;
+/**
+ * What each row carries. Also part of every row's semantic input hash
+ * (`snapshot.ts`), so it names the rows alone and does not change when
+ * files are added beside them.
+ */
 export const MATCHING_FEATURE_CONTRACT = 'lexical-v1';
+export const TITLE_VECTORS_FEATURE_CONTRACT = `${MATCHING_FEATURE_CONTRACT}+title-vectors-v1`;
 
 /** The public channel the real site reads; tests publish to their own. */
 export const PUBLIC_MATCHING_CHANNEL = 'public';
 
 export const MANIFEST_FILE = 'manifest.json';
 export const OPPORTUNITIES_FILE = 'opportunities.json';
-export const ARTIFACT_FILE_NAMES = [MANIFEST_FILE, OPPORTUNITIES_FILE] as const;
+export { TITLE_VECTORS_META_FILE, TITLE_VECTORS_TABLE_FILE };
+export const ARTIFACT_FILE_NAMES = [
+  MANIFEST_FILE,
+  OPPORTUNITIES_FILE,
+  TITLE_VECTORS_META_FILE,
+  TITLE_VECTORS_TABLE_FILE,
+] as const;
 export type ArtifactFileName = (typeof ARTIFACT_FILE_NAMES)[number];
+
+/** Per supported schema: its feature contract and the files its manifest lists, sorted. */
+export const SCHEMA_LAYOUT: Readonly<
+  Record<number, { featureContract: string; files: readonly string[] }>
+> = {
+  1: { featureContract: MATCHING_FEATURE_CONTRACT, files: [OPPORTUNITIES_FILE] },
+  2: {
+    featureContract: TITLE_VECTORS_FEATURE_CONTRACT,
+    files: [OPPORTUNITIES_FILE, TITLE_VECTORS_META_FILE, TITLE_VECTORS_TABLE_FILE].sort(),
+  },
+};
 
 /**
  * Last-known-good is not "serve obsolete matches forever" (change.md §8).
@@ -53,6 +81,8 @@ export type MatchingBuildErrorCode =
   | 'artifact_write_failed'
   | 'artifact_verify_failed'
   | 'provenance_drift'
+  /** Schema 2 was asked for and the pinned title-vector model could not be verified or run. */
+  | 'model_unavailable'
   | 'internal_error';
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'not a timestamp');
@@ -95,8 +125,8 @@ export const manifestSchema = z.strictObject({
   schemaVersion: z.number().int(),
   bundleId: uuid,
   featureContract: z.string().min(1),
-  /** No model: `lexical-v1` carries no vectors. */
-  model: z.null(),
+  /** Null for schema 1, which carries no vectors; else the pin every vector came from. */
+  model: z.strictObject({ id: z.string().min(1), dims: z.number().int().positive() }).nullable(),
   generatedAt: isoDate,
   corpusWatermark: isoDate.nullable(),
   sourceFreshness: z.array(z.strictObject({ sourceSlug: z.string(), lastSeenAt: isoDate })),

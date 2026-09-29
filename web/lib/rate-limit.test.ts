@@ -39,8 +39,9 @@ describe('RateLimiter', () => {
   it('refills over time', () => {
     const limiter = new RateLimiter();
     for (let i = 0; i < RATE_LIMITS.bundle.capacity; i++) limiter.take('bundle', 'a', 0);
-    expect(limiter.take('bundle', 'a', 29_000)).toBeGreaterThan(0);
-    expect(limiter.take('bundle', 'a', 60_000)).toBe(0);
+    const refillMs = 1000 / RATE_LIMITS.bundle.refillPerSecond;
+    expect(limiter.take('bundle', 'a', refillMs - 1_000)).toBeGreaterThan(0);
+    expect(limiter.take('bundle', 'a', refillMs * 2)).toBe(0);
   });
 
   it('keeps clients and classes apart', () => {

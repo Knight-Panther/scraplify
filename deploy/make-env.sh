@@ -66,6 +66,7 @@ EOF
 write worker <<EOF
 DATABASE_URL=postgres://scraplify_worker:$(pw)@$db:5432/scraplify
 XTELO_MATCHING_ARTIFACT_DIR=/var/lib/xtelo/bundles
+XTELO_MATCHING_MODEL_DIR=/var/lib/xtelo/models
 SCRAPLIFY_USER_AGENT=ScraplifyBot/0.1 (+$CRAWLER_CONTACT_URL; +https://github.com/Knight-Panther/scraplify)
 LOG_LEVEL=info
 EOF

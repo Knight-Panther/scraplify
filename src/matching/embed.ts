@@ -17,25 +17,49 @@ export function configureSelfHostedModels(localModelPath: string): void {
 
 type FeatureExtractionPipeline = Awaited<ReturnType<typeof pipeline<'feature-extraction'>>>;
 
-let embedderPromise: Promise<FeatureExtractionPipeline> | null = null;
-
-/** Lazily loads the pinned model once per process (Singleton pattern, matching Transformers.js's own recommended usage). */
-function loadEmbedder(): Promise<FeatureExtractionPipeline> {
-  embedderPromise ??= pipeline('feature-extraction', MULTILINGUAL_E5_SMALL_PIN.repo, {
-    revision: MULTILINGUAL_E5_SMALL_PIN.revision,
-    dtype: MULTILINGUAL_E5_SMALL_PIN.dtype,
-  });
-  return embedderPromise;
+/** What loading and running a pinned model needs; both model pins satisfy it. */
+export interface EmbeddingPin {
+  repo: string;
+  revision: string;
+  dtype: 'q8' | 'fp32';
+  pooling: 'mean' | 'cls';
+  normalize: boolean;
 }
 
-async function embed(texts: readonly string[], prefix: string): Promise<number[][]> {
-  const extractor = await loadEmbedder();
-  const prefixed = texts.map((text) => `${prefix}${text}`);
-  const output = await extractor(prefixed, {
-    pooling: MULTILINGUAL_E5_SMALL_PIN.pooling,
-    normalize: MULTILINGUAL_E5_SMALL_PIN.normalize,
-  });
-  return output.tolist() as number[][];
+const embedders = new Map<string, Promise<FeatureExtractionPipeline>>();
+
+/** Lazily loads a pinned model once per process (Singleton pattern, matching Transformers.js's own recommended usage). */
+function loadEmbedder(pin: EmbeddingPin): Promise<FeatureExtractionPipeline> {
+  let loading = embedders.get(pin.repo);
+  if (loading === undefined) {
+    loading = pipeline('feature-extraction', pin.repo, {
+      revision: pin.revision,
+      dtype: pin.dtype,
+    });
+    embedders.set(pin.repo, loading);
+  }
+  return loading;
+}
+
+/** Embeds `texts` with `prefix` prepended, `batchSize` at a time, one row per text. */
+export async function embedWith(
+  pin: EmbeddingPin,
+  texts: readonly string[],
+  prefix: string,
+  batchSize = 64,
+): Promise<number[][]> {
+  const extractor = await loadEmbedder(pin);
+  const rows: number[][] = [];
+  for (let start = 0; start < texts.length; start += batchSize) {
+    const batch = texts.slice(start, start + batchSize).map((text) => `${prefix}${text}`);
+    const output = await extractor(batch, { pooling: pin.pooling, normalize: pin.normalize });
+    rows.push(...(output.tolist() as number[][]));
+  }
+  return rows;
+}
+
+function embed(texts: readonly string[], prefix: string): Promise<number[][]> {
+  return embedWith(MULTILINGUAL_E5_SMALL_PIN, texts, prefix, texts.length || 1);
 }
 
 /** A CV/profile side of a comparison — the E5 "query: " role, per src/matching/models/multilingual-e5-small.ts. */

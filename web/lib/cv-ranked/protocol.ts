@@ -1,7 +1,7 @@
 import type { BundleOpportunity } from '../../../src/matching/bundle/schema.js';
 import type { MatchProfile, Vocabulary } from '../../../src/matching/lexical/profile.js';
 import type { RankingStats } from '../../../src/matching/lexical/rank.js';
-import type { HybridReason } from '../../../src/matching/semantic/hybrid.js';
+import type { HybridReason, HybridSimilarity } from '../../../src/matching/semantic/hybrid.js';
 import type { CvErrorCode, CvKind, CvScript } from './document-checks.js';
 
 /**
@@ -47,11 +47,12 @@ export interface RankedRow {
 export interface RankingPayload {
   version: string;
   /**
-   * Whether title similarity took part. False when the model could not be
-   * loaded or verified: the ranking is then word matching alone, and the
-   * page says so.
+   * What title similarity compared titles with: the roles, through the
+   * bundle's role vectors; the roles and the CV's short lines, through the
+   * static model; or nothing, when a CV needed the static model and it could
+   * not be loaded or verified. The page says which.
    */
-  similarity: boolean;
+  similarity: HybridSimilarity;
   results: RankedRow[];
   /** Every match, of which `results` is the first `limit`; more than its length means "show more". */
   total: number;
@@ -59,8 +60,9 @@ export interface RankingPayload {
 }
 
 /**
- * Bytes of the vacancy index and model received so far, decoded. Downloads
- * run from the start, so this arrives during 'reading' too.
+ * Bytes of the vacancy index (and the static model, when a CV needs it)
+ * received so far, decoded. The index downloads from the start, so this
+ * arrives during 'reading' too.
  */
 export interface DownloadProgress {
   received: number;

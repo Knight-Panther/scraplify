@@ -24,8 +24,10 @@ export const RATE_LIMITS: Readonly<Record<RateClass, Bucket>> = {
   // Every page queries the database.
   page: { capacity: 240, refillPerSecond: 4 },
   manifest: { capacity: 60, refillPerSecond: 1 },
-  // The 2.8 MB bundle: one CV session downloads it once, then the browser caches it.
-  bundle: { capacity: 20, refillPerSecond: 1 / 30 },
+  // The bundle's files (three per schema 2 bundle, about 8.5 MB): one CV
+  // session downloads them once, then the browser caches them. Twenty
+  // sessions' worth at once, then one session's worth every 30 s.
+  bundle: { capacity: 60, refillPerSecond: 1 / 10 },
   // The admin sign-in flow.
   auth: { capacity: 20, refillPerSecond: 1 / 6 },
 };

@@ -15,43 +15,62 @@ import { findPhrase, phraseStems } from '../lexical/text.js';
 import { STATIC_E1_PIN } from '../models/static-e1.js';
 import { embed, type StaticModel } from './static-embed.js';
 import { englishTitle, type TitleDictionary } from './title-english.js';
+import { type RoleHit, roleSimilarList, type TitleVectors } from './title-vectors.js';
 
 /**
- * CV Ranked's ranking: the lexical ranker fused with title similarity from
- * the static E1 model (spike/semantic; judged nDCG@10 .709 -> .788 on the
- * synthetic suite plus the owner's CV). Browser-safe: pure, no Node import.
+ * CV Ranked's ranking: the lexical ranker fused with title similarity.
+ * Browser-safe: pure, no Node import.
  *
- * Four ranked lists are combined by weighted reciprocal-rank fusion:
- * 1. lexical matching against titles as written (the existing ranker);
- * 2. lexical matching against each title's English key (`title-english.ts`),
- *    so an English CV meets Georgian titles the lexicon does not bridge
- *    (whole roles only; see `rankHybrid`);
- * 3. and 4. title similarity, Georgian titles and English keys, to the
- *    profile's active roles and to the CV's short lines ("Senior
- *    accountant", "Warehouse operations").
+ * Title similarity comes from one of two places:
+ * - **Role vectors** (bundle schema 2, `title-vectors.ts`), the main path:
+ *   each active lexicon role's precomputed vector against each title's.
+ *   Lexical matching plus this list at weight 2 judged nDCG@10 .833 on the
+ *   32 English and Georgian CVs of the suite, against .763 for the path
+ *   below, with no model in the browser at all.
+ * - **The static E1 model** (spike/semantic), the fallback: needed only
+ *   when no active role has a vector (the rules found none, or found only
+ *   titles outside the lexicon), when the user typed a role the lexicon
+ *   does not know, or when the bundle is schema 1 and carries no vectors.
+ *   It adds three lists:
+ *   1. lexical matching against each title's English key
+ *      (`title-english.ts`), so an English CV meets Georgian titles the
+ *      lexicon does not bridge (whole roles only; see `rankHybrid`);
+ *   2. and 3. similarity, Georgian titles and English keys, to the active
+ *      roles and to the CV's short lines ("Senior accountant").
  *
- * The lexical list carries full weight and the rest a quarter each, so a
- * row reached only by similarity ranks after the word matches rather than
- * displacing them. Similarity only ever adds a row; it never excludes one,
- * and every row still passes the same deadline and location filters.
+ * Lists are combined by weighted reciprocal-rank fusion. Similarity only
+ * ever adds a row; it never excludes one, and every row still passes the
+ * same deadline and location filters.
  */
 
+/** The static path's version, unchanged from before role vectors existed. */
 export const HYBRID_RANK_VERSION = `hybrid-v1+${LEXICAL_RANK_VERSION}+${STATIC_E1_PIN.id}`;
 
-/** The weights the spike judged best ("lex+semL (1,.25,.25,.25)"). */
+/**
+ * The static path's weights, as the spike judged best ("lex+semL
+ * (1,.25,.25,.25)"): the lexical list carries full weight and the rest a
+ * quarter each, so a row reached only by similarity ranks after the word
+ * matches rather than displacing them.
+ */
 export const FUSION_WEIGHTS = {
   lexical: 1,
   lexicalEnglish: 0.25,
   similarGeorgian: 0.25,
   similarEnglish: 0.25,
 } as const;
+/**
+ * The role-vector list's weight. Judged on the 34-CV suite: weights 1, 2
+ * and 3 against the lexical list; 2 was best, and the list is reliable
+ * enough to lead where it and the word matches disagree.
+ */
+export const ROLE_LIST_WEIGHT = 2;
 /** The usual reciprocal-rank-fusion constant. */
 const RRF_K = 60;
-/** How far down each similarity list counts. */
+/** How far down each static similarity list counts. */
 export const SIMILAR_LIST_LENGTH = 100;
 /**
- * A row stays in a similarity list only while its cosine is at least this
- * share of the list's best. Relative, not absolute: static-embedding
+ * A row stays in a static similarity list only while its cosine is at least
+ * this share of the list's best. Relative, not absolute: static-embedding
  * cosines across scripts are low but still well ordered (a Russian CV's
  * best Georgian titles score under 0.3 and still judge nDCG@10 .698), so an
  * absolute cut removed real matches before it removed noise. Measured on
@@ -83,29 +102,53 @@ export interface HybridRanked {
   locationUnstated: boolean;
 }
 
+/**
+ * What title similarity compared vacancy titles with: the active roles
+ * alone (role vectors), the roles and the CV's short lines too (the static
+ * model), or nothing, which means word matching alone.
+ */
+export type HybridSimilarity = 'roles' | 'roles-and-cv' | 'none';
+
 export interface HybridResult {
   version: string;
+  similarity: HybridSimilarity;
   results: HybridRanked[];
   stats: RankingStats;
 }
 
-export interface HybridIndex {
-  lexical: IndexedOpportunity[];
+/** The static model's per-bundle precomputation; a few thousand titles take well under a second. */
+export interface StaticIndex {
+  model: StaticModel;
   /** The same rows with each title replaced by its English key. */
   english: IndexedOpportunity[];
-  position: ReadonlyMap<string, number>;
   dims: number;
   /** Row-major, one unit vector per row (all zeros when nothing was known). */
   georgianVectors: Float32Array;
   englishVectors: Float32Array;
 }
 
-/** Per-bundle precomputation: a few thousand titles embed in well under a second. */
-export function indexHybrid(
-  rows: readonly BundleOpportunity[],
+export interface HybridIndex {
+  lexical: IndexedOpportunity[];
+  position: ReadonlyMap<string, number>;
+  /** Null until the static model is loaded (`withStaticModel`). */
+  static: StaticIndex | null;
+}
+
+export function indexHybrid(rows: readonly BundleOpportunity[]): HybridIndex {
+  return {
+    lexical: indexOpportunities(rows),
+    position: new Map(rows.map((row, i) => [row.opportunityId, i])),
+    static: null,
+  };
+}
+
+/** Adds the static model's vectors to an index, once that model has loaded. */
+export function withStaticModel(
+  index: HybridIndex,
   model: StaticModel,
   dictionary: TitleDictionary,
 ): HybridIndex {
+  const rows = index.lexical.map((opportunity) => opportunity.row);
   const dims = model.table.dims;
   const georgianVectors = new Float32Array(rows.length * dims);
   const englishVectors = new Float32Array(rows.length * dims);
@@ -116,12 +159,14 @@ export function indexHybrid(
     return { ...row, title: key };
   });
   return {
-    lexical: indexOpportunities(rows),
-    english: indexOpportunities(englishRows),
-    position: new Map(rows.map((row, i) => [row.opportunityId, i])),
-    dims,
-    georgianVectors,
-    englishVectors,
+    ...index,
+    static: {
+      model,
+      english: indexOpportunities(englishRows),
+      dims,
+      georgianVectors,
+      englishVectors,
+    },
   };
 }
 
@@ -157,6 +202,24 @@ export interface CvSource {
   derived: readonly ProfileTerm[];
 }
 
+/**
+ * Whether this profile needs the static model: when no active role has a
+ * vector, or when the user added a role that has none. A role the CV
+ * itself yielded without a vector (a bundle title outside the lexicon) does
+ * not by itself: the judged runs left those to the lexical list.
+ */
+export function needsStaticModel(
+  profile: MatchProfile,
+  cv: CvSource,
+  vectors: TitleVectors | null,
+): boolean {
+  if (vectors === null) return true;
+  const roles = activeTerms(profile, 'role');
+  if (!roles.some((role) => vectors.roleRow.has(role.id))) return true;
+  const derived = new Set(cv.derived.map((term) => term.id));
+  return roles.some((role) => !vectors.roleRow.has(role.id) && !derived.has(role.id));
+}
+
 interface Query {
   vector: Float32Array;
   /** What the explanation names: a role's label or the CV line itself. */
@@ -167,8 +230,8 @@ interface Query {
 const LEXICON_BY_ID = new Map(LEXICON.map((entry) => [`${entry.kind}:${entry.key}`, entry]));
 
 /**
- * The queries for both similarity lists. A CV line is left out when it
- * contains a term the user switched off or removed, so switching off
+ * The queries for both static similarity lists. A CV line is left out when
+ * it contains a term the user switched off or removed, so switching off
  * "Accountant" is not undone by the CV line that says "Senior accountant".
  */
 function buildQueries(
@@ -244,38 +307,38 @@ function similarList(
   return found.filter((hit) => hit.score >= floor).slice(0, SIMILAR_LIST_LENGTH);
 }
 
+export interface RankInputs {
+  dictionary: TitleDictionary;
+  /** The bundle's title vectors; null for a schema 1 bundle, which has none. */
+  vectors: TitleVectors | null;
+}
+
 export function rankHybrid(
   profile: MatchProfile,
   cv: CvSource,
   index: HybridIndex,
-  model: StaticModel,
-  dictionary: TitleDictionary,
+  inputs: RankInputs,
   options: { now: number },
 ): HybridResult {
   const lexical = rankOpportunities(profile, index.lexical, options);
-  // From English keys only a role the key actually contains counts. The
-  // lexical ranker's partial matches (a shared head noun, trigram
-  // closeness) are too loose on dictionary keys: "software engineer" met
-  // every "HVAC engineer". Judged: nDCG@10 unchanged (.797 -> .798), and
-  // 11 translated-role rows in the suite's top 20s, 2 relevant, became 1.
-  const english = rankOpportunities(profile, index.english, options);
-  const lexicalEnglish = english.results.filter((result) =>
-    result.reasons.some((reason) => reason.kind === 'role' && reason.exact),
-  );
 
   const locations = activeTerms(profile, 'location');
   const filters = index.lexical.map((opportunity) =>
     hardFilter(opportunity, locations, options.now),
   );
   const eligible = Uint8Array.from(filters, (filter) => (filter.excluded === null ? 1 : 0));
-  const queries = buildQueries(profile, cv, model, dictionary);
-  const similarGeorgian = similarList(
-    queries.georgian,
-    index.georgianVectors,
-    index.dims,
-    eligible,
-  );
-  const similarEnglish = similarList(queries.english, index.englishVectors, index.dims, eligible);
+
+  const roles = activeTerms(profile, 'role');
+  const roleHits: RoleHit[] =
+    inputs.vectors === null
+      ? []
+      : roleSimilarList(
+          roles.map((role) => role.id),
+          inputs.vectors,
+          eligible,
+        );
+  const staticIndex =
+    index.static !== null && needsStaticModel(profile, cv, inputs.vectors) ? index.static : null;
 
   const fused = new Map<number, number>();
   const fuse = (positions: readonly number[], weight: number) => {
@@ -289,28 +352,59 @@ export function rankHybrid(
     FUSION_WEIGHTS.lexical,
   );
   fuse(
-    lexicalEnglish.map((result) => at(result.row.opportunityId)),
-    FUSION_WEIGHTS.lexicalEnglish,
+    roleHits.map((hit) => hit.position),
+    ROLE_LIST_WEIGHT,
   );
-  fuse(
-    similarGeorgian.map((hit) => hit.position),
-    FUSION_WEIGHTS.similarGeorgian,
-  );
-  fuse(
-    similarEnglish.map((hit) => hit.position),
-    FUSION_WEIGHTS.similarEnglish,
-  );
+
+  let lexicalEnglish: typeof lexical.results = [];
+  const similarAt = new Map<number, Similar>();
+  if (staticIndex !== null) {
+    // From English keys only a role the key actually contains counts. The
+    // lexical ranker's partial matches (a shared head noun, trigram
+    // closeness) are too loose on dictionary keys: "software engineer" met
+    // every "HVAC engineer". Judged: nDCG@10 unchanged (.797 -> .798), and
+    // 11 translated-role rows in the suite's top 20s, 2 relevant, became 1.
+    lexicalEnglish = rankOpportunities(profile, staticIndex.english, options).results.filter(
+      (result) => result.reasons.some((reason) => reason.kind === 'role' && reason.exact),
+    );
+    const queries = buildQueries(profile, cv, staticIndex.model, inputs.dictionary);
+    const similarGeorgian = similarList(
+      queries.georgian,
+      staticIndex.georgianVectors,
+      staticIndex.dims,
+      eligible,
+    );
+    const similarEnglish = similarList(
+      queries.english,
+      staticIndex.englishVectors,
+      staticIndex.dims,
+      eligible,
+    );
+    fuse(
+      lexicalEnglish.map((result) => at(result.row.opportunityId)),
+      FUSION_WEIGHTS.lexicalEnglish,
+    );
+    fuse(
+      similarGeorgian.map((hit) => hit.position),
+      FUSION_WEIGHTS.similarGeorgian,
+    );
+    fuse(
+      similarEnglish.map((hit) => hit.position),
+      FUSION_WEIGHTS.similarEnglish,
+    );
+    for (const hit of [...similarGeorgian, ...similarEnglish]) {
+      const known = similarAt.get(hit.position);
+      if (known === undefined || hit.score > known.score) similarAt.set(hit.position, hit);
+    }
+  }
   fused.delete(-1);
 
   const byId = <T extends { row: BundleOpportunity }>(list: readonly T[]) =>
     new Map(list.map((item) => [item.row.opportunityId, item]));
   const lexicalById = byId(lexical.results);
   const englishById = byId(lexicalEnglish);
-  const similarAt = new Map<number, Similar>();
-  for (const hit of [...similarGeorgian, ...similarEnglish]) {
-    const known = similarAt.get(hit.position);
-    if (known === undefined || hit.score > known.score) similarAt.set(hit.position, hit);
-  }
+  const roleLabel = new Map(roles.map((role) => [role.id, role.label]));
+  const roleAt = new Map(roleHits.map((hit) => [hit.position, hit]));
 
   const results: HybridRanked[] = [];
   for (const [position, score] of fused) {
@@ -330,9 +424,18 @@ export function rankHybrid(
         reasons.push({ kind: 'translated-role', term: reason.term });
       }
     }
+    const role = roleAt.get(position);
     const similar = similarAt.get(position);
-    if (similar !== undefined && !hasRole()) {
-      reasons.push({ kind: 'similar', term: similar.query.label, from: similar.query.from });
+    if (!hasRole()) {
+      if (role !== undefined) {
+        reasons.push({
+          kind: 'similar',
+          term: roleLabel.get(role.roleId) ?? role.roleId,
+          from: 'role',
+        });
+      } else if (similar !== undefined) {
+        reasons.push({ kind: 'similar', term: similar.query.label, from: similar.query.from });
+      }
     }
     results.push({
       row: opportunity.row,
@@ -348,8 +451,23 @@ export function rankHybrid(
         (b.row.deadlineAt === null ? Number.POSITIVE_INFINITY : Date.parse(b.row.deadlineAt)) ||
       a.row.opportunityId.localeCompare(b.row.opportunityId),
   );
+
+  // Consulted, not "found something": with the absolute floor, a role far
+  // from every title in the index rightly finds nothing.
+  const vectors = inputs.vectors;
+  const usedVectors = vectors !== null && roles.some((role) => vectors.roleRow.has(role.id));
+  const parts = [
+    LEXICAL_RANK_VERSION,
+    ...(usedVectors ? [vectors.model] : []),
+    ...(staticIndex !== null ? [STATIC_E1_PIN.id] : []),
+  ];
   return {
-    version: HYBRID_RANK_VERSION,
+    version: usedVectors
+      ? `hybrid-v2+${parts.join('+')}`
+      : staticIndex !== null
+        ? HYBRID_RANK_VERSION
+        : LEXICAL_RANK_VERSION,
+    similarity: staticIndex !== null ? 'roles-and-cv' : usedVectors ? 'roles' : 'none',
     results,
     stats: { ...lexical.stats, matched: results.length },
   };

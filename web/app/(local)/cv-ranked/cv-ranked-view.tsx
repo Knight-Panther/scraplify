@@ -234,7 +234,7 @@ function DownloadBar({ percent }: { percent: number }) {
       <div className="flex items-center gap-3">
         <div
           role="progressbar"
-          aria-label="Downloading the vacancy index and matching model"
+          aria-label="Downloading the vacancy index"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={percent}

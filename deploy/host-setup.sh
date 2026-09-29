@@ -79,7 +79,7 @@ id xtelo >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/x
 id xtelo-public >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-public
 id xtelo-admin >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-admin
 # 0755, not useradd's 0750: the public site reads the bundles below it.
-install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles
+install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles /var/lib/xtelo/models
 install -d -o xtelo -g xtelo -m 0700 /var/backups/xtelo
 install -d -o root -g root -m 0700 /etc/xtelo
 

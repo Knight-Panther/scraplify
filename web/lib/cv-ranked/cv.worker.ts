@@ -6,27 +6,25 @@ import {
   type Vocabulary,
 } from '../../../src/matching/lexical/profile.js';
 import {
-  type IndexedOpportunity,
-  indexOpportunities,
-  rankOpportunities,
-} from '../../../src/matching/lexical/rank.js';
-import {
   type CvSource,
   cvLines,
   type HybridIndex,
   indexHybrid,
+  needsStaticModel,
   rankHybrid,
+  withStaticModel,
 } from '../../../src/matching/semantic/hybrid.js';
-import type { StaticModel } from '../../../src/matching/semantic/static-embed.js';
 import titleDictionary from '../../../src/matching/semantic/title-dictionary.json' with {
   type: 'json',
 };
 import type { TitleDictionary } from '../../../src/matching/semantic/title-english.js';
+import type { TitleVectors } from '../../../src/matching/semantic/title-vectors.js';
 import {
   BundleRefusal,
   type LoadedBundle,
   loadBundle,
   loadModel,
+  type Meter,
   meters,
 } from './bundle-client.js';
 import { CvError } from './document-checks.js';
@@ -54,60 +52,83 @@ declare const self: DedicatedWorkerGlobalScope;
 
 const DICTIONARY = titleDictionary as TitleDictionary;
 
-type Ranker =
-  | { kind: 'lexical'; index: IndexedOpportunity[] }
-  | { kind: 'hybrid'; index: HybridIndex; model: StaticModel; cv: CvSource };
+interface Ranker {
+  index: HybridIndex;
+  vectors: TitleVectors | null;
+  cv: CvSource;
+}
 
 let ranker: Ranker | null = null;
+/**
+ * The static model, fetched at most once and only when a profile needs it
+ * (`needsStaticModel`). Null inside the promise when it could not be loaded
+ * or verified: ranking then goes on without it and says so.
+ */
+let staticModel: Promise<HybridIndex['static']> | null = null;
 
 function post(message: FromWorker): void {
   self.postMessage(message);
 }
 
+/** Loads the static model into the ranker's index if this profile needs it and it is not there yet. */
+async function prepare(profile: MatchProfile, meter?: Meter): Promise<void> {
+  const current = ranker;
+  if (current === null || current.index.static !== null) return;
+  if (!needsStaticModel(profile, current.cv, current.vectors)) return;
+  staticModel ??= loadModel(meter).then((model) =>
+    model === null ? null : withStaticModel(current.index, model, DICTIONARY).static,
+  );
+  const loaded = await staticModel;
+  if (loaded !== null && ranker === current) {
+    ranker = { ...current, index: { ...current.index, static: loaded } };
+  }
+}
+
 function rank(profile: MatchProfile, now: number, limit: number): RankingPayload {
-  const result =
-    ranker?.kind === 'hybrid'
-      ? rankHybrid(profile, ranker.cv, ranker.index, ranker.model, DICTIONARY, { now })
-      : rankOpportunities(profile, ranker?.index ?? [], { now });
+  const result = ranker
+    ? rankHybrid(
+        profile,
+        ranker.cv,
+        ranker.index,
+        { dictionary: DICTIONARY, vectors: ranker.vectors },
+        { now },
+      )
+    : null;
   return {
-    version: result.version,
-    similarity: ranker?.kind === 'hybrid',
-    results: result.results.slice(0, limit),
-    total: result.results.length,
-    stats: result.stats,
+    version: result?.version ?? '',
+    similarity: result?.similarity ?? 'none',
+    results: result?.results.slice(0, limit) ?? [],
+    total: result?.results.length ?? 0,
+    stats: result?.stats ?? { considered: 0, excludedDeadline: 0, excludedLocation: 0, matched: 0 },
   };
 }
 
 async function process(file: File, now: number): Promise<void> {
   post({ type: 'progress', stage: 'reading' });
-  // The public bundle and the model download while the CV is read; nothing
-  // waits on anything else. The no-op catch only stops a bundle failure
-  // from surfacing as an unhandled rejection while the text is still being
-  // read — it is awaited, and its error handled, below. `loadModel` never
-  // rejects: without a model, ranking falls back to words alone.
+  // The public bundle downloads while the CV is read. The no-op catch only
+  // stops a bundle failure from surfacing as an unhandled rejection while
+  // the text is still being read — it is awaited, and its error handled,
+  // below.
   const meter = meters((received, total) => post({ type: 'download', received, total }));
   const bundle: Promise<LoadedBundle> = loadBundle(meter.bundle);
   bundle.catch(() => undefined);
-  const model = loadModel(meter.model);
 
   const extracted = await extractText(file);
   post({ type: 'progress', stage: 'bundle' });
   const loaded = await bundle;
   const rows = loaded.file.opportunities;
   const vocabulary: Vocabulary = buildVocabulary(rows);
-  const loadedModel = await model;
+  const profile = deriveProfile(extracted.text, vocabulary);
+  ranker = {
+    index: indexHybrid(rows),
+    vectors: loaded.vectors,
+    cv: { lines: cvLines(extracted.text), derived: profile.terms },
+  };
+  // Most CVs name a role the bundle has vectors for and never fetch the
+  // static model; the rest fetch it now, still under the download stage.
+  await prepare(profile, meter.model);
 
   post({ type: 'progress', stage: 'ranking' });
-  const profile = deriveProfile(extracted.text, vocabulary);
-  ranker =
-    loadedModel === null
-      ? { kind: 'lexical', index: indexOpportunities(rows) }
-      : {
-          kind: 'hybrid',
-          index: indexHybrid(rows, loadedModel, DICTIONARY),
-          model: loadedModel,
-          cv: { lines: cvLines(extracted.text), derived: profile.terms },
-        };
   post({
     type: 'ready',
     document: extracted.summary,
@@ -123,7 +144,9 @@ self.addEventListener('message', (event: MessageEvent<ToWorker>) => {
   const run =
     message.type === 'process'
       ? process(message.file, message.now)
-      : Promise.resolve().then(() =>
+      : // An edit can add a role only the static model can compare, so it
+        // may fetch that model first; the page shows the re-rank as pending.
+        prepare(message.profile).then(() =>
           post({
             type: 'ranked',
             id: message.id,

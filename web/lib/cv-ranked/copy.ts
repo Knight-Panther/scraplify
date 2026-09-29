@@ -13,13 +13,12 @@ export const PRIVACY_PROMISE =
 
 export const STAGES: readonly { stage: Stage; label: string }[] = [
   { stage: 'reading', label: 'Reading the CV' },
-  { stage: 'bundle', label: 'Loading the vacancy index and matching model' },
+  { stage: 'bundle', label: 'Loading the vacancy index' },
   { stage: 'ranking', label: 'Matching and ranking' },
 ];
 
 /** Under the download progress bar while it runs. */
-export const DOWNLOAD_NOTE =
-  'The matching model downloads on a first visit only; later visits reuse it from the browser.';
+export const DOWNLOAD_NOTE = 'Later visits in this browser reuse the files already downloaded.';
 
 /** Shown when most of the CV is neither Georgian nor Latin script. */
 export const OTHER_SCRIPT_NOTE =

@@ -51,7 +51,9 @@ export async function GET(
 
   return new Response(Buffer.from(bytes), {
     headers: {
-      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Type': file.endsWith('.json')
+        ? 'application/json; charset=utf-8'
+        : 'application/octet-stream',
       'Cache-Control': 'public, max-age=31536000, immutable',
       ETag: `"${sha256}"`,
       'X-Content-Type-Options': 'nosniff',
