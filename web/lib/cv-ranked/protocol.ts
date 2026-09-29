@@ -58,8 +58,18 @@ export interface RankingPayload {
   stats: RankingStats;
 }
 
+/**
+ * Bytes of the vacancy index and model received so far, decoded. Downloads
+ * run from the start, so this arrives during 'reading' too.
+ */
+export interface DownloadProgress {
+  received: number;
+  total: number;
+}
+
 export type FromWorker =
   | { type: 'progress'; stage: Stage }
+  | ({ type: 'download' } & DownloadProgress)
   | {
       type: 'ready';
       document: DocumentSummary;

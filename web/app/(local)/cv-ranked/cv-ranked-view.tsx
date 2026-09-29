@@ -2,9 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import { CvChooser } from '../../../components/cv-chooser.js';
-import { count, relativeTime } from '../../../lib/format.js';
-import { sourceLabel } from '../../../lib/labels.js';
 import {
+  DOWNLOAD_NOTE,
   ERROR_MESSAGES,
   OTHER_SCRIPT_NOTE,
   PRIVACY_PROMISE,
@@ -12,6 +11,8 @@ import {
 } from '../../../lib/cv-ranked/copy.js';
 import type { BundleSummary } from '../../../lib/cv-ranked/protocol.js';
 import { type CvSessionState, useCvSession } from '../../../lib/cv-ranked/session.js';
+import { count, relativeTime } from '../../../lib/format.js';
+import { sourceLabel } from '../../../lib/labels.js';
 import { ProfileEditor } from './profile-editor.js';
 import { Results } from './results.js';
 
@@ -83,9 +84,20 @@ function Body({
 
     case 'processing': {
       const current = STAGES.findIndex((entry) => entry.stage === state.stage);
+      const { download } = state;
+      // Floored, so 100% means every byte arrived.
+      const percent =
+        download !== null && download.total > 0
+          ? Math.floor((100 * download.received) / download.total)
+          : null;
       return (
         <div className="mt-6 flex max-w-[var(--measure)] flex-col gap-4">
-          <ol className="flex flex-col gap-1.5 text-sm" aria-live="polite">
+          {/* Announces each stage once. The list itself is not live, or the
+              download percentage would be read out several times a second. */}
+          <p className="sr-only" aria-live="polite">
+            {STAGES[current]?.label}
+          </p>
+          <ol className="flex flex-col gap-1.5 text-sm">
             {STAGES.map((entry, index) => (
               <li
                 key={entry.stage}
@@ -101,6 +113,9 @@ function Body({
                 <span className="numeric mr-2">{index < current ? '✓' : `${index + 1}.`}</span>
                 {entry.label}
                 {index === current ? '…' : ''}
+                {entry.stage === 'bundle' && index >= current && percent !== null && (
+                  <DownloadBar percent={percent} />
+                )}
               </li>
             ))}
           </ol>
@@ -206,6 +221,32 @@ function Body({
       );
     }
   }
+}
+
+/**
+ * Download progress, shown under its stage from the start: the files
+ * download while the CV is read, so on a fast connection the bar is often
+ * full before its stage begins.
+ */
+function DownloadBar({ percent }: { percent: number }) {
+  return (
+    <div className="mt-1.5 ml-6 flex flex-col gap-1.5 text-xs font-normal text-faint">
+      <div className="flex items-center gap-3">
+        <div
+          role="progressbar"
+          aria-label="Downloading the vacancy index and matching model"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent}
+          className="h-1 w-full max-w-64 overflow-hidden rounded-[var(--radius)] bg-surface-raised"
+        >
+          <div className="h-full bg-accent" style={{ width: `${percent}%` }} />
+        </div>
+        <span className="numeric w-10 shrink-0 text-right">{percent}%</span>
+      </div>
+      {percent < 100 && <p>{DOWNLOAD_NOTE}</p>}
+    </div>
+  );
 }
 
 /** When the data was built and last confirmed per board — from the manifest, never estimated. */
