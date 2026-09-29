@@ -476,7 +476,7 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
     // field the CV keeps returning to is.
     if (weak && hit.occurrences < MIN_WEAK_OCCURRENCES) return;
     const past =
-      isRole &&
+      (isRole || kind === 'field') &&
       !weak &&
       !minor &&
       detect(
@@ -558,7 +558,8 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
 
   // A post the CV dates to the past steps aside for a specific one it holds
   // now or names undated (a headline, an objective): a restaurant manager
-  // who lists "Waiter, 2014–2017" is not looking for waiter jobs. Still
+  // who lists "Waiter, 2014–2017" is not looking for waiter jobs, and a
+  // courier who once worked in a café is not after café work. Still
   // suggested, with its quote, for the user to tick.
   const present = kept.some(
     (candidate) =>
@@ -569,7 +570,8 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
   );
   if (present) {
     for (const candidate of kept) {
-      if (candidate.term.kind === 'role' && candidate.past) candidate.term.active = false;
+      const kind = candidate.term.kind;
+      if ((kind === 'role' || kind === 'field') && candidate.past) candidate.term.active = false;
     }
   }
 

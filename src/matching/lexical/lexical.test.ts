@@ -237,6 +237,15 @@ describe('deriveProfile', () => {
     expect(state.get('role:restaurant manager')).toBe(true);
     // Still suggested, with its quote, for the user to tick.
     expect(state.get('role:waiter')).toBe(false);
+    // So does a field read only from that post; one named undated stays.
+    const fields = new Map(
+      deriveProfile(
+        'Restaurant manager, 2020 – present.\nWaiter, გაყიდვები, 2014 – 2017.\nSkills: ფინანსები',
+        vocabulary,
+      ).terms.map((term) => [term.id, term.active]),
+    );
+    expect(fields.get('field:გაყიდვები')).toBe(false);
+    expect(fields.get('field:ბუღალტერია / ფინანსები')).toBe(true);
     // With nothing held now, the dated post is the profile.
     const only = deriveProfile('Waiter, 2014 – 2017.', vocabulary).terms;
     expect(only.find((term) => term.id === 'role:waiter')?.active).toBe(true);

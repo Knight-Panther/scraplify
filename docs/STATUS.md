@@ -254,20 +254,22 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 - **Role quality, step 1 (branch `cv-role-quality`, 2026-09-30; the doc's "next lever"):** CVs now yield specific roles, and every role they yield has a title vector.
   - **Corpus title roles get vectors.** The build also embeds each recurring corpus title a CV can yield as a role (`titleRoles`), by its dictionary English key: 508 role rows instead of 65 on the real bundle. Titles the dictionary cannot fully carry into English are left out.
   - **Specific lexicon rows,** picked by how often their titles recur in the corpus: graphic and UI/UX designer, family doctor, pediatrician, civil engineer, construction supervisor, operations, store, warehouse, restaurant and financial manager, procurement, sales director, recruiter, English and kindergarten teacher, lab technician, welder, confectioner, dispatcher and a dozen more. Designer, Doctor and Teacher became broad parents that step aside for them.
-  - **The current post wins.** A role found only on lines dated to the past ("Waiter, 2014–2017") is suggested, not applied, when the CV names a specific role it holds now or undated.
+  - **The current post wins.** A role or hr.ge field found only on lines dated to the past ("Waiter, 2014–2017") is suggested, not applied, when the CV names a specific role it holds now or undated.
   - **False roles removed:** "customer service" in a skills list; "for the project manager"; a word before a plural ("frontend developers", "backend services").
   - **The ranker no longer reads "the director's X" as a director vacancy** (the owner's screenshot: with only Director ticked, the director's assistants and driver ranked first). A role word in the Georgian genitive before a helper noun (assistant, თანაშემწე, დამხმარე, driver, secretary), or in English before one or after "assistant to", is not that role. A generic head noun ("specialist", "manager") no longer earns partial credit.
   - **Judged:**
 
     | nDCG@10 | Live (A′) | This branch |
     |---|---|---|
-    | 32 English and Georgian CVs of the suite | .833 | .858 |
-    | 24 new held-out CVs (12 English, 12 Georgian) | .465 | .909 |
+    | 32 English and Georgian CVs of the suite | .833 | .857 |
+    | 24 new held-out CVs (12 English, 12 Georgian) | .465 | .912 |
+    | — English / Georgian | .366 / .565 | .863 / .960 |
 
-    The held-out CVs were written before the changes and graded title by title with the suite's rubric (Claude-graded, 770 CV–title pairs, pooled from both versions plus a keyword search per CV). They were written knowing which role families were targeted, so treat their gain as optimistic; their five controls (accountant, barista, Python developer, corporate sales manager, nurse) held or improved.
+    The held-out CVs were written before the changes and graded title by title with the suite's rubric (Claude-graded, 781 CV–title pairs, pooled from both versions plus a keyword search per CV). They were written knowing which role families were targeted, so treat their gain as optimistic; their five controls (accountant, barista, Python developer, corporate sales manager, nurse) held or improved.
   - **Corpus self-check** (no grades): for each of the 433 recurring titles, a one-line CV naming it; share of that title's own vacancies in the top 10: Georgian .590 → .854, English .146 → .220. English stays low mostly because many dictionary keys are word-by-word ("warehouse employee"), which no English CV says.
   - **Cost:** title-vector files +137 KB gzipped (1.03 → 1.17 MB); build 2.1 s for 508 roles.
-  - Not yet done: browser QA against a bundle built with this code, and the PR.
+  - **Browser QA** on `dev:web:qa` against a `scraplify_qa` bundle built from this code (`19797ae0`, 302 vacancies, 115 role rows including 14 corpus titles): an English store manager CV applies "Store manager" and only suggests the older assistant and sales-associate posts; a Georgian courier CV applies Courier and the corpus title "კურიერი საკუთარი ავტომობილით", only suggests the past waiter post and its café field; exact titles rank first. The main path makes the same 4 GETs and no model request, with no console errors or warnings.
+  - Not yet done: the PR.
 - **Open:**
   - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
   - P3: loose aliases (delivery, bare "hr", "head of").
