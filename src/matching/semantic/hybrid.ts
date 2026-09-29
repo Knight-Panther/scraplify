@@ -23,14 +23,14 @@ import { type RoleHit, roleSimilarList, type TitleVectors } from './title-vector
  *
  * Title similarity comes from one of two places:
  * - **Role vectors** (bundle schema 2, `title-vectors.ts`), the main path:
- *   each active lexicon role's precomputed vector against each title's.
+ *   each active role's precomputed vector against each title's.
  *   Lexical matching plus this list at weight 2 judged nDCG@10 .833 on the
  *   32 English and Georgian CVs of the suite, against .763 for the path
  *   below, with no model in the browser at all.
  * - **The static E1 model** (spike/semantic), the fallback: needed only
  *   when no active role has a vector (the rules found none, or found only
- *   titles outside the lexicon), when the user typed a role the lexicon
- *   does not know, or when the bundle is schema 1 and carries no vectors.
+ *   titles the dictionary cannot carry into English), when the user typed
+ *   a role the lexicon does not know, or when the bundle is schema 1 and carries no vectors.
  *   It adds three lists:
  *   1. lexical matching against each title's English key
  *      (`title-english.ts`), so an English CV meets Georgian titles the
@@ -205,8 +205,8 @@ export interface CvSource {
 /**
  * Whether this profile needs the static model: when no active role has a
  * vector, or when the user added a role that has none. A role the CV
- * itself yielded without a vector (a bundle title outside the lexicon) does
- * not by itself: the judged runs left those to the lexical list.
+ * itself yielded without a vector (a bundle title the dictionary cannot
+ * carry into English) does not by itself: the judged runs left those to the lexical list.
  */
 export function needsStaticModel(
   profile: MatchProfile,

@@ -70,7 +70,7 @@ const YEAR = /\b(?:19[5-9]\d|20\d\d)\b/g;
 const STALE_YEARS = 10;
 const MINOR_POST =
   /\b(?:intern|internship|part[- ]time|volunteer|trainee)\b|სტაჟიორ|სტაჟირებ|ნახევარ განაკვეთ|მოხალისე/iu;
-const CURRENT_POST = /\b(?:present|current|now)\b|დღემდე|ამჟამად|по настоящее/iu;
+const CURRENT_POST = /\b(?:present|current|now|to date)\b|დღემდე|ამჟამად|по настоящее/iu;
 const GEORGIAN_LETTER = /\p{Script=Georgian}/u;
 /** "reported to the Director", "assisted the doctor": the role is someone else's. */
 const ROLE_OF_OTHERS: ReadonlySet<string> = new Set([
@@ -83,6 +83,31 @@ const ROLE_OF_OTHERS: ReadonlySet<string> = new Set([
   'advised',
   'reported',
   'reporting',
+]);
+/**
+ * Words that end a title when reading back from a role toward "the": in
+ * "for the project manager" the title runs back to "the"; in "worked for
+ * the company as manager" it stops at "as", so the role is the author's.
+ */
+const TITLE_BREAKS: ReadonlySet<string> = new Set([
+  ...ROLE_OF_OTHERS,
+  'a',
+  'an',
+  'as',
+  'and',
+  'or',
+  'of',
+  'at',
+  'in',
+  'on',
+  'by',
+  'from',
+  'our',
+  'my',
+  'his',
+  'her',
+  'their',
+  'its',
 ]);
 /** Georgian "X's assistant/helper" nouns (ბუღალტრის თანაშემწე). */
 const HELPER_STEMS: ReadonlySet<string> = new Set(
@@ -124,6 +149,15 @@ const GENERIC_TITLE_STEMS: ReadonlySet<string> = new Set(
 
 function isGenericTitle(form: readonly string[]): boolean {
   return form.every((stem) => GENERIC_TITLE_STEMS.has(stem));
+}
+
+/**
+ * The corpus titles a CV can yield as roles (`role:title:<key>`): every
+ * vocabulary role except one made only of generic words. The bundle build
+ * embeds exactly these, so each one a CV yields has a role vector.
+ */
+export function derivableTitleRoles(vocabulary: Vocabulary): VocabularyOption[] {
+  return vocabulary.roles.filter((role) => !role.forms.every(isGenericTitle));
 }
 
 export const DETECTION_CAPS: Readonly<Record<TermKind, number>> = {
@@ -245,6 +279,11 @@ interface Candidate {
    * post: suggested, not applied, unless the CV names no other role.
    */
   minor: boolean;
+  /**
+   * Found only on lines that date a post to the past ("Waiter, 2014–2017"):
+   * it steps aside for a role the CV holds now or names undated.
+   */
+  past: boolean;
 }
 
 /** Every stem phrase any candidate so far has claimed, to avoid duplicates across sources. */
@@ -350,7 +389,36 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
       return ending.endsWith('ის') && HELPER_STEMS.has(stems[last + 1] ?? '');
     }
     if (word !== stemmed && word === `${stemmed}s`) return true;
-    return stems[position - 1] === 'the' && ROLE_OF_OTHERS.has(stems[position - 2] ?? '');
+    // A lone word before a plural names what, or whom, it describes:
+    // "frontend developers", "backend services", "marketing materials".
+    // Not before an acronym, which only looks plural ("Accounting, IFRS").
+    const next = tokens[last + 1];
+    const nextWord = next === undefined ? '' : normalized.slice(next.start, next.end);
+    if (
+      length === 1 &&
+      next !== undefined &&
+      nextWord !== nextWord.toUpperCase() &&
+      surface(last + 1) === `${next.stem}s`
+    ) {
+      return true;
+    }
+    // "reported to the Director", and "for the project manager", where a
+    // shorter form ("manager") sits inside someone else's longer title.
+    for (let the = position - 1; the >= Math.max(0, position - 3); the--) {
+      if (stems[the] === 'the') return ROLE_OF_OTHERS.has(stems[the - 1] ?? '');
+      if (!/^\p{L}+$/u.test(stems[the] ?? '') || TITLE_BREAKS.has(stems[the] ?? '')) break;
+    }
+    return false;
+  };
+
+  /** The line holding [position, position + length), for the checks below. */
+  const lineAt = (position: number, length: number): string | null => {
+    const first = tokens[position];
+    const last = tokens[position + length - 1];
+    if (first === undefined || last === undefined) return null;
+    const from = normalized.lastIndexOf('\n', first.start) + 1;
+    const to = normalized.indexOf('\n', last.end);
+    return normalized.slice(from, to === -1 ? normalized.length : to);
   };
 
   /**
@@ -360,16 +428,18 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
    * so the result never depends on the clock).
    */
   const minorPost = (position: number, length: number, key: string): boolean => {
-    const first = tokens[position];
-    const last = tokens[position + length - 1];
-    if (first === undefined || last === undefined) return false;
-    const from = normalized.lastIndexOf('\n', first.start) + 1;
-    const to = normalized.indexOf('\n', last.end);
-    const line = normalized.slice(from, to === -1 ? normalized.length : to);
+    const line = lineAt(position, length);
+    if (line === null) return false;
     if (key !== 'intern' && MINOR_POST.test(line)) return true;
     if (CURRENT_POST.test(line) || latestYear === null) return false;
     const lineYears = [...line.matchAll(YEAR)].map((match) => Number(match[0]));
     return lineYears.length > 0 && Math.max(...lineYears) <= latestYear - STALE_YEARS;
+  };
+
+  /** A line that dates a post and does not say it continues ("Waiter, 2014–2017"). */
+  const pastLine = (position: number, length: number): boolean => {
+    const line = lineAt(position, length);
+    return line !== null && !CURRENT_POST.test(line) && [...line.matchAll(YEAR)].length > 0;
   };
 
   const add = (
@@ -405,6 +475,17 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
     // One passing mention ("banking sector") is not worth a suggestion; a
     // field the CV keeps returning to is.
     if (weak && hit.occurrences < MIN_WEAK_OCCURRENCES) return;
+    const past =
+      isRole &&
+      !weak &&
+      !minor &&
+      detect(
+        stems,
+        stemIndex,
+        evidenceForms,
+        except,
+        (position, length) => current(position, length) && !pastLine(position, length),
+      ) === null;
     const firstToken = tokens[hit.index];
     const lastToken = tokens[hit.index + hit.length - 1];
     if (firstToken === undefined || lastToken === undefined) return;
@@ -425,6 +506,7 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
       generic,
       weak,
       minor,
+      past,
     });
   };
 
@@ -444,8 +526,7 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
       evidence.context,
     );
   }
-  for (const role of vocabulary.roles) {
-    if (role.forms.every(isGenericTitle)) continue;
+  for (const role of derivableTitleRoles(vocabulary)) {
     add('role', `title:${role.key}`, role.label, role.forms, []);
   }
   for (const field of vocabulary.fields) {
@@ -475,6 +556,23 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
     }
   }
 
+  // A post the CV dates to the past steps aside for a specific one it holds
+  // now or names undated (a headline, an objective): a restaurant manager
+  // who lists "Waiter, 2014–2017" is not looking for waiter jobs. Still
+  // suggested, with its quote, for the user to tick.
+  const present = kept.some(
+    (candidate) =>
+      candidate.term.kind === 'role' &&
+      candidate.term.active &&
+      !candidate.generic &&
+      !candidate.past,
+  );
+  if (present) {
+    for (const candidate of kept) {
+      if (candidate.term.kind === 'role' && candidate.past) candidate.term.active = false;
+    }
+  }
+
   // Old or part-time posts step aside for a current role, but when they are
   // all the CV names (a student's part-time job), they are the profile.
   if (!kept.some((candidate) => candidate.term.kind === 'role' && candidate.term.active)) {
@@ -492,7 +590,7 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
         // title-backed role in favour of a field-of-work guess.
         .sort(
           (a, b) =>
-            Number(a.weak || a.minor) - Number(b.weak || b.minor) ||
+            Number(a.weak || a.minor || a.past) - Number(b.weak || b.minor || b.past) ||
             b.occurrences - a.occurrences ||
             a.firstIndex - b.firstIndex,
         )

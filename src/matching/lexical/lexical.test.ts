@@ -123,9 +123,9 @@ describe('lexicon', () => {
 
 describe('deriveProfile', () => {
   const vocabulary = buildVocabulary([
-    row({ title: 'დისპეჩერი', locations: ['თბილისი'], taxonomy: [SALES] }),
-    row({ title: 'დისპეჩერი', locations: ['ბათუმი'] }),
-    row({ title: 'დისპეჩერი', taxonomy: [FINANCE] }),
+    row({ title: 'ფოტოგრაფი', locations: ['თბილისი'], taxonomy: [SALES] }),
+    row({ title: 'ფოტოგრაფი', locations: ['ბათუმი'] }),
+    row({ title: 'ფოტოგრაფი', taxonomy: [FINANCE] }),
   ]);
 
   it('finds English roles, skills and locations, each with its own evidence', () => {
@@ -144,10 +144,10 @@ describe('deriveProfile', () => {
 
   it('finds Georgian roles from corpus titles and fields from taxonomy labels', () => {
     const { terms } = deriveProfile(
-      'ვმუშაობდი დისპეჩერად და მოლარედ, შემდეგ ფინანსების განყოფილებაში.',
+      'ვმუშაობდი ფოტოგრაფად და მოლარედ, შემდეგ ფინანსების განყოფილებაში.',
       vocabulary,
     );
-    expect(terms.some((term) => term.kind === 'role' && term.label === 'დისპეჩერი')).toBe(true);
+    expect(terms.some((term) => term.kind === 'role' && term.label === 'ფოტოგრაფი')).toBe(true);
     // A Georgian word the curated list also knows merges into its bilingual term.
     expect(terms.some((term) => term.id === 'role:cashier')).toBe(true);
     const field = terms.find((term) => term.kind === 'field');
@@ -208,6 +208,38 @@ describe('deriveProfile', () => {
     ]);
     // "Accountant's assistant" is an assistant.
     expect(applied('ბუღალტრის თანაშემწე')).not.toContain('role:accountant');
+    // Someone else's longer title, and a word describing a plural.
+    expect(applied('Site engineer. Weekly reports for the project manager.')).toEqual([
+      'role:civil engineer',
+    ]);
+    expect(applied('UI designer. Worked closely with frontend developers.')).toEqual([
+      'role:ui/ux designer',
+    ]);
+    expect(applied('Backend Software Developer, 2021 – present.')).toContain(
+      'role:backend developer',
+    );
+  });
+
+  it('prefers the specific role and leaves out the broad one it contains', () => {
+    const ids = deriveProfile('Family physician, 2019 – present.', vocabulary).terms.map(
+      (term) => term.id,
+    );
+    expect(ids).toContain('role:family doctor');
+    expect(ids).not.toContain('role:doctor');
+  });
+
+  it('steps a post dated to the past aside for the one held now', () => {
+    const { terms } = deriveProfile(
+      'Restaurant manager, 2020 – present.\nWaiter, 2014 – 2017.',
+      vocabulary,
+    );
+    const state = new Map(terms.map((term) => [term.id, term.active]));
+    expect(state.get('role:restaurant manager')).toBe(true);
+    // Still suggested, with its quote, for the user to tick.
+    expect(state.get('role:waiter')).toBe(false);
+    // With nothing held now, the dated post is the profile.
+    const only = deriveProfile('Waiter, 2014 – 2017.', vocabulary).terms;
+    expect(only.find((term) => term.id === 'role:waiter')?.active).toBe(true);
   });
 
   it('only suggests old, part-time and internship posts next to a current role', () => {
@@ -216,7 +248,7 @@ describe('deriveProfile', () => {
       vocabulary,
     );
     const state = new Map(terms.map((term) => [term.id, term.active]));
-    expect(state.get('role:director')).toBe(true);
+    expect(state.get('role:operations manager')).toBe(true);
     expect(state.get('role:security guard')).toBe(false);
     expect(state.get('role:cashier')).toBe(false);
     // Alone, a student's part-time job is the profile.
@@ -290,6 +322,44 @@ describe('rankOpportunities', () => {
       near.opportunityId,
     ]);
     expect(results[1]?.reasons[0]).toMatchObject({ kind: 'role', exact: false });
+  });
+
+  it('does not read "the director\'s assistant" as a director vacancy', () => {
+    const director = row({ title: 'კომერციული დირექტორი' });
+    const deputy = row({ title: 'დირექტორის მოადგილე' });
+    const helpers = [
+      row({ title: 'დირექტორის თანაშემწე' }),
+      row({ title: 'დირექტორის ასისტენტი' }),
+      row({ title: 'დირექტორის მძღოლი' }),
+      row({ title: 'Director Assistant' }),
+      row({ title: 'Assistant to the Director' }),
+    ];
+    const { results } = rankOpportunities(
+      profile(userTerm('role', 'director')),
+      indexOpportunities([...helpers, deputy, director]),
+      { now: NOW },
+    );
+    expect(results.map((r) => r.row.opportunityId).sort()).toEqual(
+      [director.opportunityId, deputy.opportunityId].sort(),
+    );
+    // The helper's own role still meets it.
+    const assistant = rankOpportunities(
+      profile(userTerm('role', 'assistant')),
+      indexOpportunities(helpers),
+      { now: NOW },
+    );
+    expect(assistant.results.map((r) => r.row.title)).toContain('დირექტორის ასისტენტი');
+  });
+
+  it('gives no partial credit for sharing only a generic head noun', () => {
+    const exact = row({ title: 'Billing Specialist' });
+    const other = row({ title: 'PR Specialist' });
+    const { results } = rankOpportunities(
+      profile(userTerm('role', 'billing specialist')),
+      indexOpportunities([other, exact]),
+      { now: NOW },
+    );
+    expect(results.map((r) => r.row.opportunityId)).toEqual([exact.opportunityId]);
   });
 
   it('drops a row whose deadline passed after the bundle was built', () => {

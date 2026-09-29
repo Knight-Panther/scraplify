@@ -1,5 +1,6 @@
 import type { BundleOpportunity } from '../bundle/schema.js';
 import { LEXICON } from '../lexical/lexicon.js';
+import { buildVocabulary, derivableTitleRoles } from '../lexical/profile.js';
 import { englishTitle, type TitleDictionary } from './title-english.js';
 import { quantizeRows, TitleVectorsError, type TitleVectorsMeta } from './title-vectors.js';
 
@@ -36,13 +37,31 @@ export function lexiconRoles(): { id: string; text: string }[] {
   }));
 }
 
+/**
+ * Every corpus title a CV can yield as a role (`derivableTitleRoles`), by
+ * the id a profile gives it, with its English key. The browser derives the
+ * same list from the same rows, so the ids agree. A title whose words the
+ * dictionary does not know is left out: this English model would embed its
+ * Georgian as noise, so such a role keeps the fallback path it has today.
+ */
+export function titleRoles(
+  rows: readonly BundleOpportunity[],
+  dictionary: TitleDictionary,
+): { id: string; text: string }[] {
+  return derivableTitleRoles(buildVocabulary(rows)).flatMap((role) => {
+    const english = englishTitle(role.label, dictionary);
+    if (english.text === '' || english.unknown.length > 0) return [];
+    return [{ id: `role:title:${role.key}`, text: titleKey(role.label, dictionary) }];
+  });
+}
+
 export async function buildTitleVectors(
   rows: readonly BundleOpportunity[],
   dictionary: TitleDictionary,
   embedder: TitleEmbedder,
   ids: { schemaVersion: number; bundleId: string },
 ): Promise<{ meta: TitleVectorsMeta; table: Int8Array }> {
-  const roles = lexiconRoles();
+  const roles = [...lexiconRoles(), ...titleRoles(rows, dictionary)];
   const titles: string[] = [];
   const indexOf = new Map<string, number>();
   const titleOf = rows.map((row) => {
