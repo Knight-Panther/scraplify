@@ -17,6 +17,10 @@ export const STAGES: readonly { stage: Stage; label: string }[] = [
   { stage: 'ranking', label: 'Matching and ranking' },
 ];
 
+/** Under the download progress bar while it runs. */
+export const DOWNLOAD_NOTE =
+  'The matching model downloads on a first visit only; later visits reuse it from the browser.';
+
 /** Shown when most of the CV is neither Georgian nor Latin script. */
 export const OTHER_SCRIPT_NOTE =
   'Most of this CV is in an alphabet other than Georgian or Latin (Russian, for example). Matching reads Georgian and English, so little may have been found. Add the roles you are looking for in Georgian or English below.';
@@ -58,8 +62,8 @@ export const ERROR_MESSAGES: Readonly<Record<CvErrorCode, { title: string; body:
     body: 'It may be damaged, or not really a PDF or DOCX. Try exporting it again.',
   },
   timeout: {
-    title: 'Reading took too long',
-    body: `Processing stopped after ${LIMITS.timeoutMs / 1000} seconds. Try a simpler or smaller version of the file.`,
+    title: 'Processing took too long',
+    body: `Reading or matching the CV stopped after ${LIMITS.timeoutMs / 1000} seconds. Try a simpler or smaller version of the file.`,
   },
   bundle_unavailable: {
     title: 'The vacancy index is not available',
@@ -79,7 +83,7 @@ export const ERROR_MESSAGES: Readonly<Record<CvErrorCode, { title: string; body:
   },
   network: {
     title: 'The vacancy index could not be downloaded',
-    body: 'Check the connection and try again.',
+    body: `The connection dropped, or nothing arrived for ${LIMITS.downloadStallMs / 1000} seconds. Check the connection and try again: files that finished downloading are usually kept by the browser, so a second try is quicker.`,
   },
   internal: {
     title: 'Something went wrong',

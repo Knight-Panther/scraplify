@@ -18,8 +18,18 @@ export const LIMITS = {
   docxEntries: 2_000,
   /** Below this many letters a PDF is treated as scanned/image-only. */
   minimumLetters: 40,
-  /** Whole-job wall clock, enforced by terminating the worker. */
+  /**
+   * Reading the file gets this much running time, and so does the first
+   * ranking, each enforced by terminating the worker. Downloads count
+   * toward neither: they have `downloadStallMs`.
+   */
   timeoutMs: 45_000,
+  /**
+   * A download that receives nothing for this long is abandoned. Only
+   * silence counts, not total time: a phone at 200 KB/s needs about a
+   * minute for a first visit and is never cut off while bytes arrive.
+   */
+  downloadStallMs: 30_000,
 } as const;
 
 /** Bounded failure codes. Never free text: a raw parser error can echo document content. */

@@ -15,12 +15,14 @@ import { type CvErrorCode, LIMITS } from './document-checks.js';
 import {
   type BundleSummary,
   type DocumentSummary,
+  type DownloadProgress,
   type FromWorker,
   INITIAL_RESULT_LIMIT,
   type RankingPayload,
   type Stage,
   type ToWorker,
 } from './protocol.js';
+import { type Watchdog, watchdog } from './watchdog.js';
 
 /**
  * The CV Ranked session (Phase 8D, change.md §6/§7): one worker and its
@@ -36,7 +38,7 @@ import {
 
 export type CvSessionState =
   | { status: 'idle' }
-  | { status: 'processing'; stage: Stage }
+  | { status: 'processing'; stage: Stage; download: DownloadProgress | null }
   | {
       status: 'ready';
       document: DocumentSummary;
@@ -73,12 +75,12 @@ export function useCvSession(): CvSession {
 export function CvSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<CvSessionState>({ status: 'idle' });
   const worker = useRef<Worker | null>(null);
-  const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guard = useRef<Watchdog | null>(null);
   const rankId = useRef(0);
 
   const stop = useCallback(() => {
-    if (timeout.current !== null) clearTimeout(timeout.current);
-    timeout.current = null;
+    guard.current?.stop();
+    guard.current = null;
     worker.current?.terminate();
     worker.current = null;
   }, []);
@@ -103,15 +105,29 @@ export function CvSessionProvider({ children }: { children: ReactNode }) {
       worker.current = created;
       rankId.current = 0;
       let stage: Stage = 'reading';
-      setState({ status: 'processing', stage });
+      let download: DownloadProgress | null = null;
+      setState({ status: 'processing', stage, download });
 
-      // The 45 s budget covers reading and the first ranking. A hostile file
-      // that hangs a parser is stopped by terminating the whole thread. The
-      // file is read by then if the index download is what is still running,
-      // so that case is reported as a network failure, not a slow file.
-      timeout.current = setTimeout(() => {
-        if (worker.current === created) fail(stage === 'bundle' ? 'network' : 'timeout');
-      }, LIMITS.timeoutMs);
+      // Each stage has its own limit; none of them times the whole job,
+      // because a first visit's downloads take a phone on a slow connection
+      // a minute or more, and that is not a slow file.
+      // - Reading and ranking get LIMITS.timeoutMs each. A hostile file
+      //   that hangs a parser is stopped by terminating the whole thread.
+      // - Downloads start alongside reading; once 'bundle' begins they are
+      //   all that is left. The worker abandons a download after downloadStallMs of
+      //   silence; this backstop fires only if the worker goes quiet for
+      //   twice that.
+      const expire = (code: CvErrorCode) => () => {
+        if (worker.current === created) fail(code);
+      };
+      const arm = () => {
+        guard.current?.stop();
+        guard.current =
+          stage === 'bundle'
+            ? watchdog(2 * LIMITS.downloadStallMs, expire('network'))
+            : watchdog(LIMITS.timeoutMs, expire('timeout'));
+      };
+      arm();
 
       created.addEventListener('message', (event: MessageEvent<FromWorker>) => {
         if (worker.current !== created) return;
@@ -119,11 +135,21 @@ export function CvSessionProvider({ children }: { children: ReactNode }) {
         switch (message.type) {
           case 'progress':
             stage = message.stage;
-            setState({ status: 'processing', stage });
+            arm();
+            setState({ status: 'processing', stage, download });
+            return;
+          case 'download':
+            // Only the download backstop counts from the last byte; the
+            // reading limit keeps running while bytes arrive.
+            if (stage === 'bundle') guard.current?.reset();
+            download = { received: message.received, total: message.total };
+            setState((current) =>
+              current.status === 'processing' ? { status: 'processing', stage, download } : current,
+            );
             return;
           case 'ready':
-            if (timeout.current !== null) clearTimeout(timeout.current);
-            timeout.current = null;
+            guard.current?.stop();
+            guard.current = null;
             setState({
               status: 'ready',
               document: message.document,

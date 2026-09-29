@@ -226,6 +226,13 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
   - the colliding Georgian IFRS form was dropped;
   - a timeout during the index download is reported as a network failure;
   - the `RankingPayload.total` comment.
+- **Post-deploy fix (2026-09-29, branch `cv-download-progress`):** one 45 s timer also covered the first-visit download, 10.8 MB on the wire, so a phone at ~200 KB/s (~55 s) always failed. Now:
+  - reading and the first ranking get 45 s of running time each;
+  - a download is abandoned only after 30 s with no data;
+  - the page shows a percentage;
+  - a stalled model falls back to word matching.
+
+  Time a frozen or backgrounded tab did not run is not charged (`watchdog.ts`). Evidence: unit tests; Chrome throttled to 200 KB/s finished in ~52 s; a hung index file errored after 30 s of silence; a hung model file ranked by words; the privacy suite passes.
 - **Open:**
   - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
   - P3: loose aliases (delivery, bare "hr", "head of").

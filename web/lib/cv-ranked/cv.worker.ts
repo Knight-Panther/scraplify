@@ -22,7 +22,13 @@ import titleDictionary from '../../../src/matching/semantic/title-dictionary.jso
   type: 'json',
 };
 import type { TitleDictionary } from '../../../src/matching/semantic/title-english.js';
-import { BundleRefusal, type LoadedBundle, loadBundle, loadModel } from './bundle-client.js';
+import {
+  BundleRefusal,
+  type LoadedBundle,
+  loadBundle,
+  loadModel,
+  meters,
+} from './bundle-client.js';
 import { CvError } from './document-checks.js';
 import { extractText } from './extract-text.js';
 import {
@@ -79,9 +85,10 @@ async function process(file: File, now: number): Promise<void> {
   // from surfacing as an unhandled rejection while the text is still being
   // read — it is awaited, and its error handled, below. `loadModel` never
   // rejects: without a model, ranking falls back to words alone.
-  const bundle: Promise<LoadedBundle> = loadBundle();
+  const meter = meters((received, total) => post({ type: 'download', received, total }));
+  const bundle: Promise<LoadedBundle> = loadBundle(meter.bundle);
   bundle.catch(() => undefined);
-  const model = loadModel();
+  const model = loadModel(meter.model);
 
   const extracted = await extractText(file);
   post({ type: 'progress', stage: 'bundle' });
