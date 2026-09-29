@@ -49,7 +49,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
      useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-public
      useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-admin
      # 0755, not useradd's 0750: the public site reads the bundles below it.
-     install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles
+     install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles /var/lib/xtelo/models
      install -d -o xtelo -g xtelo -m 0700 /var/backups/xtelo
      install -d -o root -g root -m 0700 /etc/xtelo
      ```
@@ -71,7 +71,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
 4. **Schema.** `/opt/xtelo/current/deploy/with-env.sh migration npm run db:migrate`. Every table and view is created, and owned, by `scraplify_migration`. Migrations are additive (change.md §15).
 5. **Roles and grants.** `/opt/xtelo/current/deploy/apply-db-roles.sh grants` runs both `scripts/sql/phase-8b-*.sql` files with the passwords from the env files, creates `scraplify_backup`, and fails if `scraplify_public` can write anything. It has to run after step 4: the grants name tables that only exist once migrated.
 6. **Units.** `cp /opt/xtelo/current/deploy/systemd/* /etc/systemd/system/ && systemctl daemon-reload`.
-7. **Data.** Start one pipeline run per source without waiting on it, then follow it: `systemctl start --no-block xtelo-pipeline@jobs-ge`, `journalctl -fu xtelo-pipeline@jobs-ge`, and the same for `@hr-ge` once jobs.ge is done. The last step builds the first matching bundle: look for `matching bundle exit code 0`. The first jobs.ge run fetches every listing at 2 s apart, so it takes hours.
+7. **Data.** First fill the model directory the bundle builder embeds with (about 35 MB from huggingface.co, each file checked against the pinned SHA-256): `/opt/xtelo/current/deploy/with-env.sh worker npm run matching:vendor-model`. It must end with `… verified in /var/lib/xtelo/models`. Without it, every bundle build fails with `model_unavailable`. Then start one pipeline run per source without waiting on it, then follow it: `systemctl start --no-block xtelo-pipeline@jobs-ge`, `journalctl -fu xtelo-pipeline@jobs-ge`, and the same for `@hr-ge` once jobs.ge is done. The last step builds the first matching bundle: look for `matching bundle exit code 0`. The first jobs.ge run fetches every listing at 2 s apart, so it takes hours.
 8. **Admin first**, then public: `systemctl enable --now xtelo-web@admin`, then `xtelo-web@public`.
 9. **DNS and TLS.**
    - In Cloudflare, DNS for `jobster.fun`: add `A jobster.fun <host IPv4>` and `A admin <host IPv4>` (plus `AAAA` for the host's IPv6), both **DNS only (grey cloud), never proxied**. The rate limiter keys on the client address Caddy sees (`web/lib/rate-limit.ts`), and proxied traffic would put every visitor behind a handful of Cloudflare addresses. Caddy also gets its own certificates. Check with `dig +short jobster.fun admin.jobster.fun`.
@@ -96,6 +96,13 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
 3. Repoint `/opt/xtelo/current` to the new release and run `systemctl restart xtelo-web@admin xtelo-web@public`.
 4. Run `npm run probe -- https://jobster.fun`. If it does not print `probe: ok`, roll back (§5, "Web").
 5. **Retention (Phase 7C, first deploy after merge only).** Migration 0037 (`source_listing_revisions.trimmed_at`) and its worker grants land the same way as any other migration — step 2 above already covers `db:migrate` then `apply-db-roles.sh grants`, in that order, since the grants name a column that only exists once migrated. Before letting it run for real, do one dry run: `deploy/with-env.sh worker npm run retention` (no `--apply`) and read its logged tier counts. `deploy/run-pipeline.sh`/`scripts/run-crawl.ps1` then run it with `--apply` automatically after every crawl and dedupe that both exit 0 — no separate schedule to enable.
+6. **Title vectors (CV Ranked A′, first deploy after merge only).** Bundle schema 2 embeds with a model kept outside the release. Do this **before** step 3 repoints `current`, because the new release's first scheduled bundle build needs the model:
+   ```sh
+   install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo/models
+   grep -q '^XTELO_MATCHING_MODEL_DIR=' /etc/xtelo/worker.env || echo 'XTELO_MATCHING_MODEL_DIR=/var/lib/xtelo/models' >> /etc/xtelo/worker.env
+   /opt/xtelo/releases/<new-sha>/deploy/with-env.sh worker npm run matching:vendor-model
+   ```
+   After step 3, build one bundle by hand instead of waiting for the timer: `/opt/xtelo/current/deploy/with-env.sh worker npm run matching:build`. It must print `activated bundle … (… opportunities, with title vectors)`. Browsers on the old page keep working either way, since the client reads schema 1 and 2. A failed embed keeps the previous bundle active and records `model_unavailable` on `/admin/matching`.
 
 ## 4. Health signals
 

@@ -4,7 +4,7 @@ Phase 8E release item (change.md §11: "Public deployment is gated on documented
 
 ## Verdict
 
-**Nothing rights-related blocks public deployment.** The owner has permission from both jobs.ge and hr.ge (both recorded 2026-09-26). The code side is clean: every shipped dependency is under a permissive licence, and the one shipped model is MIT-derived (see Models). The site assets come from free sources.
+**Nothing rights-related blocks public deployment.** The owner has permission from both jobs.ge and hr.ge (both recorded 2026-09-26). The code side is clean: every shipped dependency is under a permissive licence, and the one shipped model and the build-time model behind the title vectors are both MIT (see Models). The site assets come from free sources.
 
 ## Sources
 
@@ -33,7 +33,9 @@ No owner action remains for either source.
 | --- | --- | --- | --- |
 | `static-e1-v1` (CV Ranked title similarity) | `matching-models/static-e1-v1/` (`model.json` 1.1 MB, `table.int8` 8.9 MB; ~8 MB gzipped), served by `/api/matching/models/…` and run in the visitor's browser | MIT: derived from `intfloat/multilingual-e5-small` (MIT, per its model card) by distillation with Model2Vec (MIT), vocabulary pruning and int8 quantisation. The tokenizer pieces and scores come from the same e5 release. | Fine. MIT permits redistribution of derived weights; the copyright notice travels with the provenance note in `src/matching/models/static-e1.ts`. |
 
-No other model is shipped. `src/matching/embed.ts` still pins the full e5 ONNX port for Node-side evaluation only; it is never served to a browser. Any further model gets a row here before it ships (change.md §11).
+| `bge-small-en-v1.5` (CV Ranked title vectors, bundle schema 2) | **Not shipped.** It runs only in the worker's daily bundle build, from `/var/lib/xtelo/models` (`Xenova/bge-small-en-v1.5` at a pinned revision, q8 ONNX, 34 MB). What ships is its output: int8 vectors for the lexicon's role labels and the vacancy title keys, in `title-vectors.int8` and `title-vectors.json` of each bundle. | MIT: `BAAI/bge-small-en-v1.5` (MIT, per its model card), ONNX conversion by Xenova, same licence. | Fine. MIT permits using the model and distributing what it computes; the provenance is in `src/matching/models/bge-small-en.ts`. |
+
+No other model is shipped or run in production. `src/matching/embed.ts` still pins the full e5 ONNX port for Node-side evaluation only; it is never served to a browser. Any further model gets a row here before it ships (change.md §11).
 
 ## Dependencies
 

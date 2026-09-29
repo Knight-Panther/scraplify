@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-27 (jobs.ge v3 confirmed healthy; pre-deploy audit fixes for `deploy/` and the runbook; retention step 6 built on branch `retention-60d`, not yet merged).
+Last updated: 2026-09-29 (CV Ranked A′: title vectors built on branch `cv-matching-role-vectors`, not yet merged).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -233,6 +233,24 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
   - a stalled model falls back to word matching.
 
   Time a frozen or backgrounded tab did not run is not charged (`watchdog.ts`). Evidence: unit tests; Chrome throttled to 200 KB/s finished in ~52 s; a hung index file errored after 30 s of silence; a hung model file ranked by words; the privacy suite passes.
+- **Role vectors, "A′" (2026-09-29, branch `cv-matching-role-vectors`; the owner's "CV Matching Model Options" doc, steps 2–5):** the daily bundle build now embeds each lexicon role's English label and each distinct English title key with a pinned `bge-small-en-v1.5` (q8 ONNX, MIT, Node only) and ships them as int8 rows. Bundle schema 2 (`lexical-v1+title-vectors-v1`) adds `title-vectors.json` and `title-vectors.int8`. Schema 1 is still read, for rolling deploys. The browser ranks each vacancy by its title's best cosine to the CV's active roles, fused with the word matches at weight 2. Titles under 0.8 of the best cosine, or under 0.6 absolute, are not offered.
+  - The 9.3 MB static model is now fetched only when a role has no vector: a role typed outside the lexicon, a CV whose roles the lexicon does not know, or a schema 1 bundle.
+  - Nothing is embedded on the visitor's side, and no CV-derived value reaches the network. A failed embed at build time is `model_unavailable` and keeps the previous bundle.
+  - **Judged on the 34-CV suite, through production code:**
+
+    | nDCG@10 | Static-model hybrid (today) | A′ |
+    |---|---|---|
+    | 32 English and Georgian CVs | .763 | .833 |
+    | All 34 CVs | .724 | .790 |
+    | The owner's CVs | .414 | .748 |
+
+    The lexical list is identical to the study's on 34/34 CVs, and 2/34 CVs (Russian) need the static model.
+  - **Measured on the real bundle (8,652 vacancies):** 65 roles plus 3,216 title keys, embedded in 2.2 s. Vectors add about 1 MB gzipped to the download, in place of the model's 9.3 MB. Ranking takes a median of 92 ms (worst 264 ms), against 207 ms (548 ms) for the static path; 86 ms of the 92 is the word matching both share.
+  - **Evidence:**
+    - unit tests for the format, quantisation, floors, fallback rules and the schema 2 build;
+    - browser QA on `scraplify_qa`: the main path makes 4 GETs and no model request, and a typed role outside the lexicon fetches the static model;
+    - the privacy suite passes against a schema 2 bundle and checks both vector files.
+  - The bundle's GET rate limit is now 60 at 1 per 10 s, since a first visit fetches three files.
 - **Open:**
   - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
   - P3: loose aliases (delivery, bare "hr", "head of").

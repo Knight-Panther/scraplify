@@ -3,9 +3,17 @@ import type { BundleOpportunity } from '../bundle/schema.js';
 import type { MatchProfile, ProfileTerm } from '../lexical/profile.js';
 import { userTerm } from '../lexical/profile.js';
 import { phraseStems } from '../lexical/text.js';
-import { cvLines, indexHybrid, rankHybrid } from './hybrid.js';
+import {
+  cvLines,
+  HYBRID_RANK_VERSION,
+  indexHybrid,
+  needsStaticModel,
+  rankHybrid,
+  withStaticModel,
+} from './hybrid.js';
 import { parseStaticModel } from './static-embed.js';
 import type { TitleDictionary } from './title-english.js';
+import { parseTitleVectors, quantizeRows, type TitleVectors } from './title-vectors.js';
 
 let seq = 0;
 function row(title: string, overrides: Partial<BundleOpportunity> = {}): BundleOpportunity {
@@ -64,16 +72,169 @@ function profile(...terms: (ProfileTerm | null)[]): MatchProfile {
 }
 
 function rank(rows: BundleOpportunity[], matchProfile: MatchProfile, lines: string[] = []) {
-  const index = indexHybrid(rows, MODEL, DICTIONARY);
+  const index = withStaticModel(indexHybrid(rows), MODEL, DICTIONARY);
   return rankHybrid(
     matchProfile,
     { lines, derived: matchProfile.terms },
     index,
-    MODEL,
-    DICTIONARY,
+    { dictionary: DICTIONARY, vectors: null },
     { now: NOW },
   );
 }
+
+/**
+ * Title vectors for `rows`: the lexicon's Accountant role points one way,
+ * and each title gets the vector `titleVector` gives it.
+ */
+function vectorsFor(
+  rows: BundleOpportunity[],
+  titleVector: (title: string) => [number, number],
+): TitleVectors {
+  const titles = [...new Set(rows.map((r) => r.title))];
+  const { table, scales } = quantizeRows([[1, 0], ...titles.map(titleVector)]);
+  return parseTitleVectors(
+    {
+      schemaVersion: 2,
+      bundleId: '00000000-0000-4000-8000-000000000000',
+      model: 'test-model',
+      dims: 2,
+      roles: [{ id: 'role:accountant', text: 'Accountant' }],
+      titles,
+      titleOf: rows.map((r) => titles.indexOf(r.title)),
+      scales,
+    },
+    table,
+    rows.length,
+  );
+}
+
+describe('rankHybrid with title vectors', () => {
+  const accountant = userTerm('role', 'Accountant');
+  if (accountant === null) throw new Error('no term');
+  const near = (title: string): [number, number] =>
+    title === 'Ledger officer' ? [0.9, 0.1] : title === 'Zoo guide' ? [0, 1] : [0.6, 0.8];
+
+  it('ranks titles close to an active role, with no static model at all', () => {
+    const ledger = row('Ledger officer');
+    const zoo = row('Zoo guide');
+    const rows = [zoo, ledger];
+    const result = rankHybrid(
+      profile(accountant),
+      { lines: [], derived: [accountant] },
+      indexHybrid(rows),
+      { dictionary: DICTIONARY, vectors: vectorsFor(rows, near) },
+      { now: NOW },
+    );
+    // The zoo title is under 0.8 of the best cosine, so it is not offered.
+    expect(result.results.map((r) => r.row.opportunityId)).toEqual([ledger.opportunityId]);
+    expect(result.results[0]?.reasons).toEqual([
+      { kind: 'similar', term: accountant.label, from: 'role' },
+    ]);
+    expect(result.similarity).toBe('roles');
+    expect(result.version).toMatch(/^hybrid-v2\+.*\+test-model$/);
+  });
+
+  it('still reports role similarity when every title is too far from the role to be offered', () => {
+    const rows = [row('Zoo guide')];
+    const result = rankHybrid(
+      profile(accountant),
+      { lines: [], derived: [accountant] },
+      indexHybrid(rows),
+      { dictionary: DICTIONARY, vectors: vectorsFor(rows, near) },
+      { now: NOW },
+    );
+    expect(result.results).toEqual([]);
+    // Nothing was close, which is not the same as having no similarity to ask.
+    expect(result.similarity).toBe('roles');
+    expect(result.version).toMatch(/^hybrid-v2\+.*\+test-model$/);
+  });
+
+  it('ranks a title that is both a word match and closest to the role first, named by the word match', () => {
+    const exact = row('ბუღალტერი');
+    const ledger = row('Ledger officer');
+    const rows = [ledger, exact];
+    const onRole = (title: string): [number, number] =>
+      title === 'ბუღალტერი' ? [1, 0] : near(title);
+    const result = rankHybrid(
+      profile(accountant),
+      { lines: [], derived: [accountant] },
+      indexHybrid(rows),
+      { dictionary: DICTIONARY, vectors: vectorsFor(rows, onRole) },
+      { now: NOW },
+    );
+    expect(result.results.map((r) => r.row.opportunityId)).toEqual([
+      exact.opportunityId,
+      ledger.opportunityId,
+    ]);
+    // A row with a word match is explained by it, not by similarity.
+    expect(result.results[0]?.reasons.map((reason) => reason.kind)).toEqual(['role']);
+    expect(result.results[1]?.reasons.map((reason) => reason.kind)).toEqual(['similar']);
+  });
+
+  it('asks for the static model only when a role has no vector the CV did not give it', () => {
+    const rows = [row('Ledger officer')];
+    const vectors = vectorsFor(rows, near);
+    const zookeeper = userTerm('role', 'Zookeeper');
+    if (zookeeper === null) throw new Error('no term');
+    const derived = { lines: [], derived: [accountant] };
+    expect(needsStaticModel(profile(accountant), derived, vectors)).toBe(false);
+    // Typed by the user, and outside the lexicon: only the static model can compare it.
+    expect(needsStaticModel(profile(accountant, zookeeper), derived, vectors)).toBe(true);
+    // Found in the CV itself: left to the lexical list, as in the judged runs.
+    expect(
+      needsStaticModel(
+        profile(accountant, zookeeper),
+        { lines: [], derived: [accountant, zookeeper] },
+        vectors,
+      ),
+    ).toBe(false);
+    // No role with a vector, or no vectors at all.
+    expect(needsStaticModel(profile(), derived, vectors)).toBe(true);
+    expect(needsStaticModel(profile(accountant), derived, null)).toBe(true);
+  });
+
+  it('adds the static lists when a typed role needs them, and keeps the old version without vectors', () => {
+    const zoo = row('ზოოლოგი');
+    const rows = [zoo];
+    const zookeeper = userTerm('role', 'Zookeeper');
+    const index = withStaticModel(indexHybrid(rows), MODEL, DICTIONARY);
+    // The title is close enough to Accountant for the role list to take part.
+    const withVectors = rankHybrid(
+      profile(accountant, zookeeper),
+      { lines: [], derived: [accountant] },
+      index,
+      { dictionary: DICTIONARY, vectors: vectorsFor(rows, () => [0.9, 0.1]) },
+      { now: NOW },
+    );
+    expect(withVectors.results[0]?.reasons).toContainEqual({
+      kind: 'translated-role',
+      term: 'Zookeeper',
+    });
+    expect(withVectors.version).toMatch(/\+test-model\+static-e1-v1$/);
+    expect(withVectors.similarity).toBe('roles-and-cv');
+    const without = rankHybrid(
+      profile(zookeeper),
+      { lines: [], derived: [] },
+      index,
+      { dictionary: DICTIONARY, vectors: null },
+      { now: NOW },
+    );
+    expect(without.version).toBe(HYBRID_RANK_VERSION);
+  });
+
+  it('ranks by words alone, and says so, when it has neither', () => {
+    const rows = [row('ბუღალტერი')];
+    const result = rankHybrid(
+      profile(accountant),
+      { lines: [], derived: [accountant] },
+      indexHybrid(rows),
+      { dictionary: DICTIONARY, vectors: null },
+      { now: NOW },
+    );
+    expect(result.similarity).toBe('none');
+    expect(result.results).toHaveLength(1);
+  });
+});
 
 describe('cvLines', () => {
   it('keeps short lines and drops contact details, prose and repeats', () => {
@@ -136,17 +297,14 @@ describe('rankHybrid', () => {
     const accountant = row('ბუღალტერი');
     const derived = userTerm('role', 'Bookkeeper');
     if (derived === null) throw new Error('no term');
-    const index = indexHybrid([accountant], MODEL, DICTIONARY);
+    const index = withStaticModel(indexHybrid([accountant]), MODEL, DICTIONARY);
     const run = (current: MatchProfile) =>
       rankHybrid(
         current,
         { lines: ['senior bookkeeper'], derived: [derived] },
         index,
-        MODEL,
-        DICTIONARY,
-        {
-          now: NOW,
-        },
+        { dictionary: DICTIONARY, vectors: null },
+        { now: NOW },
       ).results.length;
     expect(run(profile({ ...derived, active: false }))).toBe(0);
     expect(run(profile())).toBe(0);

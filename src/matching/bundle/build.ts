@@ -6,6 +6,8 @@ import { assessSourceHealth, type HealthAlert } from '../../browse/source-health
 import { ADVISORY_LOCKS, withAdvisoryLock } from '../../db/advisory-lock.js';
 import { matchingBundleBuilds, matchingBundlePublications } from '../../db/schema/index.js';
 import type { Database } from '../../db/types.js';
+import type { TitleDictionary } from '../semantic/title-english.js';
+import { buildTitleVectors, type TitleEmbedder } from '../semantic/title-vectors-build.js';
 import type { MatchingArtifactStore } from './artifact-store.js';
 import {
   ARTIFACT_FILE_NAMES,
@@ -18,7 +20,10 @@ import {
   MIN_COUNT_RATIO_VS_ACTIVE,
   OPPORTUNITIES_FILE,
   type OpportunitiesFile,
+  SCHEMA_LAYOUT,
   sha256Hex,
+  TITLE_VECTORS_META_FILE,
+  TITLE_VECTORS_TABLE_FILE,
   validateArtifactSet,
 } from './contract.js';
 import { findProvenanceDrift, readCorpusSnapshot } from './snapshot.js';
@@ -61,6 +66,13 @@ export interface BuildOptions {
    * the dedupe-lock suite's own global lock assertions.
    */
   holdDedupeLock?: boolean;
+  /**
+   * Schema 2's title vectors: the pinned embedder, loaded inside the build
+   * so that a missing or altered model is recorded as `model_unavailable`,
+   * and the dictionary that gives each title its English key. Omitted, the
+   * build writes schema 1, which carries no vectors.
+   */
+  titleVectors?: { embedder: () => Promise<TitleEmbedder>; dictionary: TitleDictionary };
   /** Test seams. */
   schemaVersion?: number;
   upstreamAlerts?: (db: Database, now: string) => Promise<HealthAlert[]>;
@@ -101,7 +113,11 @@ async function buildLocked(
   options: BuildOptions,
 ): Promise<BuildResult> {
   const now = options.now ?? (() => new Date());
-  const schemaVersion = options.schemaVersion ?? MATCHING_BUNDLE_SCHEMA_VERSION;
+  const schemaVersion =
+    options.schemaVersion ??
+    (options.titleVectors === undefined ? 1 : MATCHING_BUNDLE_SCHEMA_VERSION);
+  const featureContract =
+    SCHEMA_LAYOUT[schemaVersion]?.featureContract ?? MATCHING_FEATURE_CONTRACT;
   await markInterruptedBuilds(db, store, options.channel, now().toISOString());
 
   const buildId = randomUUID();
@@ -110,7 +126,7 @@ async function buildLocked(
     id: buildId,
     channel: options.channel,
     schemaVersion,
-    featureContract: MATCHING_FEATURE_CONTRACT,
+    featureContract,
     state: 'building',
     startedAt,
     healthGateOverridden: options.overrideHealthGate === true,
@@ -142,11 +158,35 @@ async function buildLocked(
       opportunities: snapshot.rows,
     };
     const opportunitiesBytes = new TextEncoder().encode(JSON.stringify(opportunitiesFile));
+    const dataFiles = new Map<string, Uint8Array>([[OPPORTUNITIES_FILE, opportunitiesBytes]]);
+
+    let model: MatchingManifest['model'] = null;
+    if (schemaVersion >= 2) {
+      if (options.titleVectors === undefined) throw new BuildFailure('model_unavailable');
+      let built: Awaited<ReturnType<typeof buildTitleVectors>>;
+      let embedder: TitleEmbedder;
+      try {
+        embedder = await options.titleVectors.embedder();
+        built = await buildTitleVectors(snapshot.rows, options.titleVectors.dictionary, embedder, {
+          schemaVersion,
+          bundleId: buildId,
+        });
+      } catch {
+        throw new BuildFailure('model_unavailable');
+      }
+      model = { id: embedder.model, dims: embedder.dims };
+      dataFiles.set(TITLE_VECTORS_META_FILE, new TextEncoder().encode(JSON.stringify(built.meta)));
+      dataFiles.set(
+        TITLE_VECTORS_TABLE_FILE,
+        new Uint8Array(built.table.buffer, built.table.byteOffset, built.table.byteLength),
+      );
+    }
+
     const manifest: MatchingManifest = {
       schemaVersion,
       bundleId: buildId,
-      featureContract: MATCHING_FEATURE_CONTRACT,
-      model: null,
+      featureContract,
+      model,
       generatedAt: startedAt,
       corpusWatermark: snapshot.corpusWatermark,
       sourceFreshness: snapshot.sourceFreshness,
@@ -154,23 +194,17 @@ async function buildLocked(
         opportunities: snapshot.rows.length,
         sources: snapshot.rows.reduce((sum, row) => sum + row.sources.length, 0),
       },
-      files: {
-        [OPPORTUNITIES_FILE]: {
-          sha256: sha256Hex(opportunitiesBytes),
-          bytes: opportunitiesBytes.byteLength,
-        },
-      },
+      files: Object.fromEntries(
+        [...dataFiles].map(([name, bytes]) => [
+          name,
+          { sha256: sha256Hex(bytes), bytes: bytes.byteLength },
+        ]),
+      ),
     };
     const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
 
     try {
-      await store.writeVersion(
-        buildId,
-        new Map([
-          [MANIFEST_FILE, manifestBytes],
-          [OPPORTUNITIES_FILE, opportunitiesBytes],
-        ]),
-      );
+      await store.writeVersion(buildId, new Map([[MANIFEST_FILE, manifestBytes], ...dataFiles]));
       filesWritten = true;
     } catch {
       throw new BuildFailure('artifact_write_failed');

@@ -22,6 +22,7 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../../db/test-support.js';
+import type { TitleEmbedder } from '../semantic/title-vectors-build.js';
 import { FilesystemArtifactStore } from './artifact-store.js';
 import { type BuildOptions, buildMatchingBundle } from './build.js';
 import {
@@ -29,6 +30,10 @@ import {
   MANIFEST_FILE,
   OPPORTUNITIES_FILE,
   type OpportunitiesFile,
+  sha256Hex,
+  TITLE_VECTORS_FEATURE_CONTRACT,
+  TITLE_VECTORS_META_FILE,
+  TITLE_VECTORS_TABLE_FILE,
   validateArtifactSet,
 } from './contract.js';
 import { rollbackMatchingBundle } from './rollback.js';
@@ -439,6 +444,119 @@ describe('matching bundle build', () => {
         activatedAt: new Date().toISOString(),
       }),
     ).rejects.toThrow();
+  });
+
+  /** A stand-in for the pinned model: two dimensions, a distinct unit vector per text. */
+  const fakeEmbedder = async (): Promise<TitleEmbedder> => ({
+    model: 'test-model',
+    dims: 2,
+    embed: async (texts) =>
+      texts.map((_, i) => {
+        const angle = (i + 1) / (texts.length + 1);
+        return [Math.cos(angle), Math.sin(angle)];
+      }),
+  });
+  const dictionary = { textVersion: 'test', entries: {} };
+
+  it('writes schema 2 with title vectors that match the rows and the model', async () => {
+    await makeOpportunity('Backend engineer');
+    await makeOpportunity('backend  engineer');
+    await makeOpportunity('Designer');
+    const result = await buildMatchingBundle(
+      db,
+      pool,
+      store,
+      options({ titleVectors: { embedder: fakeEmbedder, dictionary } }),
+    );
+    if (result.outcome !== 'activated') throw new Error('build should activate');
+
+    const files = new Map<string, Uint8Array>();
+    for (const name of ARTIFACT_FILE_NAMES) {
+      const bytes = await store.readFile(result.buildId, name);
+      if (bytes !== null) files.set(name, bytes);
+    }
+    const {
+      manifest,
+      opportunities: rows,
+      titleVectors,
+    } = validateArtifactSet(result.buildId, files);
+    expect(manifest).toMatchObject({
+      schemaVersion: 2,
+      featureContract: TITLE_VECTORS_FEATURE_CONTRACT,
+      model: { id: 'test-model', dims: 2 },
+    });
+    expect(Object.keys(manifest.files).sort()).toEqual(
+      [OPPORTUNITIES_FILE, TITLE_VECTORS_META_FILE, TITLE_VECTORS_TABLE_FILE].sort(),
+    );
+    // Two titles that differ only in case and spacing share one vector.
+    expect(titleVectors?.titles.sort()).toEqual(['backend engineer', 'designer']);
+    expect(titleVectors?.titleOf).toHaveLength(rows.opportunities.length);
+    const [build] = await db
+      .select()
+      .from(matchingBundleBuilds)
+      .where(eq(matchingBundleBuilds.id, result.buildId));
+    expect(build).toMatchObject({
+      schemaVersion: 2,
+      featureContract: TITLE_VECTORS_FEATURE_CONTRACT,
+    });
+  });
+
+  it('keeps the previous bundle when the title-vector model is unavailable', async () => {
+    await makeOpportunity('Analyst');
+    const good = await buildMatchingBundle(db, pool, store, options());
+    if (good.outcome !== 'activated') throw new Error('baseline build should activate');
+    const failed = await buildMatchingBundle(
+      db,
+      pool,
+      store,
+      options({
+        titleVectors: {
+          embedder: async () => {
+            throw new Error('model file missing');
+          },
+          dictionary,
+        },
+      }),
+    );
+    expect(failed).toMatchObject({ outcome: 'failed', errorCode: 'model_unavailable' });
+    expect(await buildMatchingBundle(db, pool, store, options({ schemaVersion: 2 }))).toMatchObject(
+      { outcome: 'failed', errorCode: 'model_unavailable' },
+    );
+    expect(await activeBuildId()).toBe(good.buildId);
+  });
+
+  it('refuses a schema 2 set whose vectors were altered or come from another model', async () => {
+    await makeOpportunity('Analyst');
+    const result = await buildMatchingBundle(
+      db,
+      pool,
+      store,
+      options({ titleVectors: { embedder: fakeEmbedder, dictionary } }),
+    );
+    if (result.outcome !== 'activated') throw new Error('build should activate');
+    const files = new Map<string, Uint8Array>();
+    for (const name of ARTIFACT_FILE_NAMES) {
+      const bytes = await store.readFile(result.buildId, name);
+      if (bytes !== null) files.set(name, bytes);
+    }
+    const table = files.get(TITLE_VECTORS_TABLE_FILE) as Uint8Array;
+    const truncated = new Map(files).set(TITLE_VECTORS_TABLE_FILE, table.slice(1));
+    expect(() => validateArtifactSet(result.buildId, truncated)).toThrow('size mismatch');
+
+    // Rewritten consistently (checksums and all), a meta naming another model is still refused.
+    const meta = JSON.parse(
+      new TextDecoder().decode(files.get(TITLE_VECTORS_META_FILE) as Uint8Array),
+    );
+    const otherMeta = new TextEncoder().encode(JSON.stringify({ ...meta, model: 'other-model' }));
+    const manifest = JSON.parse(new TextDecoder().decode(files.get(MANIFEST_FILE) as Uint8Array));
+    manifest.files[TITLE_VECTORS_META_FILE] = {
+      sha256: sha256Hex(otherMeta),
+      bytes: otherMeta.byteLength,
+    };
+    const swapped = new Map(files)
+      .set(TITLE_VECTORS_META_FILE, otherMeta)
+      .set(MANIFEST_FILE, new TextEncoder().encode(JSON.stringify(manifest)));
+    expect(() => validateArtifactSet(result.buildId, swapped)).toThrow('another model');
   });
 
   it('reports health from the build records', async () => {
