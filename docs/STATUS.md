@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-29 (CV Ranked A′: title vectors built on branch `cv-matching-role-vectors`, not yet merged).
+Last updated: 2026-09-30 (CV Ranked A′ merged in PR #35, not yet deployed; CI green again, after failing its format check on main since #33).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -233,7 +233,7 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
   - a stalled model falls back to word matching.
 
   Time a frozen or backgrounded tab did not run is not charged (`watchdog.ts`). Evidence: unit tests; Chrome throttled to 200 KB/s finished in ~52 s; a hung index file errored after 30 s of silence; a hung model file ranked by words; the privacy suite passes.
-- **Role vectors, "A′" (2026-09-29, branch `cv-matching-role-vectors`; the owner's "CV Matching Model Options" doc, steps 2–5):** the daily bundle build now embeds each lexicon role's English label and each distinct English title key with a pinned `bge-small-en-v1.5` (q8 ONNX, MIT, Node only) and ships them as int8 rows. Bundle schema 2 (`lexical-v1+title-vectors-v1`) adds `title-vectors.json` and `title-vectors.int8`. Schema 1 is still read, for rolling deploys. The browser ranks each vacancy by its title's best cosine to the CV's active roles, fused with the word matches at weight 2. Titles under 0.8 of the best cosine, or under 0.6 absolute, are not offered.
+- **Role vectors, "A′" (merged 2026-09-30, PR #35, not yet deployed; the owner's "CV Matching Model Options" doc, steps 2–5):** the daily bundle build now embeds each lexicon role's English label and each distinct English title key with a pinned `bge-small-en-v1.5` (q8 ONNX, MIT, Node only) and ships them as int8 rows. Bundle schema 2 (`lexical-v1+title-vectors-v1`) adds `title-vectors.json` and `title-vectors.int8`. Schema 1 is still read, for rolling deploys. The browser ranks each vacancy by its title's best cosine to the CV's active roles, fused with the word matches at weight 2. Titles under 0.8 of the best cosine, or under 0.6 absolute, are not offered.
   - The 9.3 MB static model is now fetched only when a role has no vector: a role typed outside the lexicon, a CV whose roles the lexicon does not know, or a schema 1 bundle.
   - Nothing is embedded on the visitor's side, and no CV-derived value reaches the network. A failed embed at build time is `model_unavailable` and keeps the previous bundle.
   - **Judged on the 34-CV suite, through production code:**
