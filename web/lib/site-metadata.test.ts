@@ -122,7 +122,13 @@ describe('siteOpenGraph', () => {
   it('always names the preview image, so a page override cannot drop it', () => {
     const og = siteOpenGraph({ title: 'T', url: '/opportunities/x' });
     expect(og.images).toEqual([
-      { url: '/opengraph-image.jpg', width: 1200, height: 630, type: 'image/jpeg', alt: OG_IMAGE_ALT },
+      {
+        url: '/opengraph-image.jpg',
+        width: 1200,
+        height: 630,
+        type: 'image/jpeg',
+        alt: OG_IMAGE_ALT,
+      },
     ]);
     expect(og.title).toBe('T');
     expect(og.url).toBe('/opportunities/x');
