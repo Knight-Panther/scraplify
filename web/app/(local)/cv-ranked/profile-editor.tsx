@@ -26,13 +26,14 @@ const GROUPS: readonly {
   kind: TermKind;
   title: string;
   hint: string;
-  add: 'text' | 'fields' | 'locations';
+  /** Roles are added under "Your roles" (`role-confirm.tsx`), with its picker. */
+  add: 'text' | 'fields' | 'locations' | null;
 }[] = [
   {
     kind: 'role',
     title: 'Roles',
-    hint: 'Compared with vacancy titles.',
-    add: 'text',
+    hint: 'Compared with vacancy titles. Add or switch roles under “Your roles”.',
+    add: null,
   },
   {
     kind: 'field',
@@ -149,7 +150,7 @@ function TermGroup({
           ))}
         </ul>
       )}
-      {options === null ? (
+      {group.add === null ? null : options === null ? (
         <TextAdder kind={group.kind as 'role' | 'skill'} title={group.title} onAdd={onAdd} />
       ) : (
         <OptionAdder

@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality, step 1 of the next round, built on branch `cv-role-quality`).
+Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1 and 2 built on branches `cv-role-quality` and `cv-confirm-roles`).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -270,6 +270,11 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
   - **Cost:** title-vector files +137 KB gzipped (1.03 → 1.17 MB); build 2.1 s for 508 roles.
   - **Browser QA** on `dev:web:qa` against a `scraplify_qa` bundle built from this code (`19797ae0`, 302 vacancies, 115 role rows including 14 corpus titles): an English store manager CV applies "Store manager" and only suggests the older assistant and sales-associate posts; a Georgian courier CV applies Courier and the corpus title "კურიერი საკუთარი ავტომობილით", only suggests the past waiter post and its café field; exact titles rank first. The main path makes the same 4 GETs and no model request, with no console errors or warnings.
   - Not yet done: the PR.
+- **Role quality, step 2: "Your roles" (branch `cv-confirm-roles`, on top of step 1, 2026-09-30; the doc's "confirm your roles"):** a panel above the results shows every role as a chip, ticked when used. One tap switches a role on or off in place, so a suggestion from an older post is one tap away.
+  - **More specific suggestions:** while a broad role (Designer, Doctor, Teacher, Manager…) is on, the roles whose head word it is are offered, most common titles first ("Designer" → Graphic designer, UI/UX designer).
+  - **Role picker** (native `datalist`, English or Georgian): every lexicon row plus every recurring corpus title no row covers (`roleOptions`). A picked role, or a Georgian corpus title typed in full, gets the id a CV naming it would yield, so it ranks by its title vector without the static model. Anything else stays a typed role and still falls back to the static model.
+  - The profile column keeps each role's CV quote and checkbox. Its own "Add a role" box is gone, since the picker replaces it.
+  - **Browser QA** on `dev:web:qa` with the step 1 QA bundle, at 390, 768, 1280 and 1920: no horizontal overflow, Georgian labels wrap, no uppercase. Chips and checkboxes stay in sync, and results re-rank. Picking roles makes no model request, and a role outside the list loads the static model as before. The keyboard reaches every chip with the focus ring. The `web-design-guidelines` review found two focus-loss bugs (a chip moving between lists, a chosen suggestion leaving its row), both fixed and re-checked. No console errors.
 - **Open:**
   - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
   - P3: loose aliases (delivery, bare "hr", "head of").

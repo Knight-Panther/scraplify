@@ -4,7 +4,9 @@ import {
   buildVocabulary,
   deriveProfile,
   type MatchProfile,
+  narrowerRoles,
   type ProfileTerm,
+  roleOptions,
   userTerm,
   vocabularyTerm,
 } from './profile.js';
@@ -283,6 +285,55 @@ describe('deriveProfile', () => {
   it('is deterministic', () => {
     const text = 'Accountant. Excel. Tbilisi. ბუღალტერი.';
     expect(deriveProfile(text, vocabulary)).toEqual(deriveProfile(text, vocabulary));
+  });
+});
+
+describe('role options ("Your roles")', () => {
+  const times = (title: string, n: number) => Array.from({ length: n }, () => row({ title }));
+  const vocabulary = buildVocabulary([
+    ...times('გრაფიკული დიზაინერი', 5),
+    ...times('ავეჯის დიზაინერი', 3),
+    ...times('მათემატიკის მასწავლებელი', 3),
+    ...times('მენეჯერი', 4),
+  ]);
+  const options = roleOptions(vocabulary);
+  const ids = options.map((option) => option.id);
+
+  it('offers every lexicon row, then the corpus titles no row covers', () => {
+    expect(ids).toContain('role:accountant');
+    expect(options.find((option) => option.id === 'role:graphic designer')?.count).toBe(5);
+    expect(ids).toContain('role:title:მათემატიკ მასწავლებელ');
+    // Covered by the lexicon's own row, and generic alone.
+    expect(ids).not.toContain('role:title:გრაფიკულ დიზაინერ');
+    expect(ids).not.toContain('role:title:მენეჯერ');
+  });
+
+  it('turns a typed corpus title into that title role, which has a vector', () => {
+    expect(userTerm('role', 'მათემატიკის  მასწავლებელი', vocabulary)?.id).toBe(
+      'role:title:მათემატიკ მასწავლებელ',
+    );
+    // Without the vocabulary, as before: the user's own term.
+    expect(userTerm('role', 'მათემატიკის მასწავლებელი')?.id).toBe(
+      'role:user:მათემატიკ მასწავლებელ',
+    );
+  });
+
+  it('suggests more specific kinds of an active broad role, the most common first', () => {
+    const designer = narrowerRoles(profile(userTerm('role', 'designer')), options).map(
+      (option) => option.id,
+    );
+    expect(designer[0]).toBe('role:graphic designer');
+    expect(designer).toContain('role:title:ავეჯ დიზაინერ');
+    expect(designer).toContain('role:ui/ux designer');
+    expect(designer).not.toContain('role:designer');
+    const teacher = narrowerRoles(profile(userTerm('role', 'teacher')), options);
+    expect(teacher.map((option) => option.id)).toContain('role:title:მათემატიკ მასწავლებელ');
+    // Nothing for a specific role, or one already in the profile.
+    expect(narrowerRoles(profile(userTerm('role', 'graphic designer')), options)).toEqual([]);
+    const both = profile(userTerm('role', 'designer'), userTerm('role', 'graphic designer'));
+    expect(narrowerRoles(both, options).map((option) => option.id)).not.toContain(
+      'role:graphic designer',
+    );
   });
 });
 

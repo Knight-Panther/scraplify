@@ -606,9 +606,15 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
 /**
  * A term the user typed. If it names a curated entry in either language,
  * the entry's bilingual forms come with it, so typing "Accountant" also
- * matches Georgian titles.
+ * matches Georgian titles. Otherwise, given the bundle's vocabulary, a role
+ * typed exactly as a recurring corpus title becomes that title's role, the
+ * same one a CV naming it would yield (and so has its title vector).
  */
-export function userTerm(kind: 'role' | 'skill', text: string): ProfileTerm | null {
+export function userTerm(
+  kind: 'role' | 'skill',
+  text: string,
+  vocabulary?: Vocabulary,
+): ProfileTerm | null {
   const label = text.trim().replace(/\s+/g, ' ');
   const stems = phraseStems(label);
   if (stems.length === 0) return null;
@@ -617,6 +623,12 @@ export function userTerm(kind: 'role' | 'skill', text: string): ProfileTerm | nu
     (candidate) =>
       candidate.kind === kind && lexiconForms(candidate).some((form) => formKey(form) === key),
   );
+  if (entry === undefined && kind === 'role' && vocabulary !== undefined) {
+    const title = derivableTitleRoles(vocabulary).find((role) =>
+      role.forms.some((form) => formKey(form) === key),
+    );
+    if (title !== undefined) return roleOptionTerm(titleRoleOption(title));
+  }
   return {
     id: `${kind}:${entry?.key ?? `user:${key}`}`,
     kind,
@@ -627,6 +639,115 @@ export function userTerm(kind: 'role' | 'skill', text: string): ProfileTerm | nu
     evidence: null,
     active: true,
   };
+}
+
+/**
+ * A role the visitor can pick (CV Ranked's "Your roles"): a lexicon row or
+ * a recurring corpus title, under the id a CV naming it would yield, so a
+ * picked role meets the same title vector a derived one does.
+ */
+export interface RoleOption {
+  id: string;
+  label: string;
+  forms: string[][];
+  /** Recurring vacancies titled exactly as one of its forms (titles seen fewer than three times are not counted). */
+  count: number;
+  /** The last word of each form: what the role is ("designer" in "graphic designer"). */
+  heads: string[];
+}
+
+function lexiconRoleOption(
+  entry: LexiconEntry,
+  titleCounts: ReadonlyMap<string, number>,
+): RoleOption {
+  const forms = lexiconForms(entry);
+  return {
+    id: `role:${entry.key}`,
+    label: lexiconLabel(entry),
+    forms,
+    count: forms.reduce((sum, form) => sum + (titleCounts.get(formKey(form)) ?? 0), 0),
+    heads: headsOf(forms),
+  };
+}
+
+function titleRoleOption(role: VocabularyOption): RoleOption {
+  return {
+    id: `role:title:${role.key}`,
+    label: role.label,
+    forms: role.forms,
+    count: role.count,
+    heads: headsOf(role.forms),
+  };
+}
+
+function headsOf(forms: readonly string[][]): string[] {
+  return [...new Set(forms.flatMap((form) => form.slice(-1)))];
+}
+
+/**
+ * Every role the picker offers: the lexicon's, then the corpus titles a CV
+ * could yield that no lexicon row already covers, most frequent first.
+ */
+export function roleOptions(vocabulary: Vocabulary): RoleOption[] {
+  const titleCounts = new Map(vocabulary.roles.map((role) => [role.key, role.count]));
+  const lexicon = LEXICON.filter((entry) => entry.kind === 'role').map((entry) =>
+    lexiconRoleOption(entry, titleCounts),
+  );
+  const covered = new Set(lexicon.flatMap((option) => option.forms.map(formKey)));
+  const titles = derivableTitleRoles(vocabulary)
+    .filter((role) => !role.forms.some((form) => covered.has(formKey(form))))
+    .map(titleRoleOption);
+  return [...lexicon, ...titles];
+}
+
+/** The profile term for a picked role. */
+export function roleOptionTerm(option: RoleOption): ProfileTerm {
+  return {
+    id: option.id,
+    kind: 'role',
+    label: option.label,
+    forms: option.forms,
+    codes: [],
+    origin: 'user',
+    evidence: null,
+    active: true,
+  };
+}
+
+const NARROWER_LIMIT = 6;
+
+/**
+ * More specific roles to offer next to an active broad one (a `generic`
+ * lexicon row such as Designer, Doctor, Teacher or Manager): the roles
+ * whose own head word is the broad role's, as "graphic designer" is a
+ * designer and მათემატიკის მასწავლებელი a მასწავლებელი, the most common
+ * titles first. Only ever suggested: a CV that says "designer" has not
+ * said which kind.
+ */
+export function narrowerRoles(profile: MatchProfile, options: readonly RoleOption[]): RoleOption[] {
+  const present = new Set(profile.terms.map((term) => term.id));
+  const heads = new Set(
+    profile.terms
+      .filter((term) => term.kind === 'role' && term.active)
+      .flatMap((term) => {
+        const entry = LEXICON.find((candidate) => `role:${candidate.key}` === term.id);
+        return entry?.generic ? headsOf(lexiconForms(entry)) : [];
+      }),
+  );
+  if (heads.size === 0) return [];
+  const generic = new Set(
+    LEXICON.filter((entry) => entry.generic).map((entry) => `role:${entry.key}`),
+  );
+  return options
+    .filter(
+      (option) =>
+        !present.has(option.id) &&
+        !generic.has(option.id) &&
+        option.forms.some((form) => form.length > 1) &&
+        option.heads.some((head) => heads.has(head)),
+    )
+    .sort((a, b) => b.count - a.count)
+    .slice(0, NARROWER_LIMIT);
 }
 
 /** A field or location the user picked from the bundle's own vocabulary. */

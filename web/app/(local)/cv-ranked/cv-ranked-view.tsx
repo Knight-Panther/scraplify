@@ -15,6 +15,7 @@ import { count, relativeTime } from '../../../lib/format.js';
 import { sourceLabel } from '../../../lib/labels.js';
 import { ProfileEditor } from './profile-editor.js';
 import { Results } from './results.js';
+import { RoleConfirm } from './role-confirm.js';
 
 const chooserClass =
   'inline-flex h-11 w-fit items-center rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 text-sm font-semibold hover:bg-surface-active';
@@ -198,6 +199,11 @@ function Body({
               {OTHER_SCRIPT_NOTE}
             </p>
           )}
+          <RoleConfirm
+            profile={state.profile}
+            vocabulary={state.vocabulary}
+            onChange={setProfile}
+          />
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)] lg:gap-10">
             <ProfileEditor
               profile={state.profile}
