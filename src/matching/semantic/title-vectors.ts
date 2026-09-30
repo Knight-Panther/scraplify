@@ -6,11 +6,12 @@ import { z } from 'zod';
  * takes dot products. Browser-safe: pure, no Node import.
  *
  * The builder embeds, with one pinned model (`models/bge-small-en.ts`):
- * - each lexicon role's English label, as a query;
+ * - each lexicon role's English label, and each corpus title a CV can
+ *   yield as a role (`titleRoles`) by its English key, as queries;
  * - each distinct English title key (`englishTitle`, else the title as
  *   written), as a passage.
  * The bundle ships both as int8 rows with one scale per row. A CV's active
- * lexicon roles are rows here, so ranking a vacancy is a best-of-roles dot
+ * roles are rows here, so ranking a vacancy is a best-of-roles dot
  * product against its title's row: no model download, nothing embedded on
  * the visitor's side, and no CV-derived value anywhere near a network.
  *
@@ -20,6 +21,10 @@ import { z } from 'zod';
  * static-model hybrid it replaces on the main path. A role with no row here
  * (one the user typed that the lexicon does not know) still has the static
  * model to fall back on.
+ *
+ * Corpus title roles (2026-09-30) cover what the lexicon cannot list by
+ * hand: on 24 held-out CVs they, the specific lexicon rows and the
+ * current-post rule together took nDCG@10 from .465 to .909.
  */
 
 export const TITLE_VECTORS_META_FILE = 'title-vectors.json';
@@ -54,7 +59,7 @@ export const titleVectorsMetaSchema = z.strictObject({
   /** The model pin's id; vectors are comparable only within one. */
   model: z.string().min(1),
   dims: z.number().int().positive(),
-  /** Rows `0 … roles.length-1`: each lexicon role's id and the text embedded for it. */
+  /** Rows `0 … roles.length-1`: each role's id (lexicon, then corpus titles) and the text embedded for it. */
   roles: z.array(z.strictObject({ id: z.string().min(1), text: z.string().min(1) })),
   /** The rows after the roles: each distinct title key, as embedded. */
   titles: z.array(z.string().min(1)),

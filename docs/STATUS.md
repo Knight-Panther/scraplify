@@ -1,12 +1,12 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-30 (CV Ranked A′ merged in PR #35, not yet deployed; CI green again, after failing its format check on main since #33).
+Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1–3 in PR #36, from branch `cv-visible-ranking`).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
 ## Current phase: Phase 7C — incremental crawling and retention
 
-**Merged 2026-09-26 (PR #25); retention (step 6) built on branch `retention-60d`, 2026-09-27, not yet merged.** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md).
+**Merged 2026-09-26 (PR #25); retention (step 6) merged 2026-09-28 (PR #31).** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md).
 
 - **Plan steps 1–5 and 8 are done.** Migration 0035 is additive: `source_listings.discovery_fingerprint`, `crawl_runs.skipped_count`, a partial index on open listings and `fetch_attempts(attempted_at)`. It is applied to `scraplify_qa` and, with the owner's OK on 2026-09-26, to `scraplify` as `scraplify_migration` (columns and indexes verified; 9,701 listings untouched).
   - Both discovery parsers compute a list-page fingerprint, and `needsDetailFetch` decides per listing: `fetch`, `adopt` (bootstrap) or `skip`.
@@ -198,7 +198,7 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
 | 8E — hosted readiness | **deployed** 2026-09-28 on OVH VPS-1 (`jobster.fun`); stage 7 almost closed | #24 | Remaining: the first crawl, dedupe and bundle build (running), then the hosted probe, restore and rollback drills, and the owner's first admin sign-in (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
-| 7C — incremental crawling and retention | merged (#25); retention built on branch `retention-60d`, not yet merged | #25 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs; migration 0037 (retention) generated and tested, not yet applied to `scraplify`/`scraplify_qa`. |
+| 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs; migration 0037 (retention) generated and tested, not yet applied to `scraplify`/`scraplify_qa`. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 
@@ -233,7 +233,7 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
   - a stalled model falls back to word matching.
 
   Time a frozen or backgrounded tab did not run is not charged (`watchdog.ts`). Evidence: unit tests; Chrome throttled to 200 KB/s finished in ~52 s; a hung index file errored after 30 s of silence; a hung model file ranked by words; the privacy suite passes.
-- **Role vectors, "A′" (merged 2026-09-30, PR #35, not yet deployed; the owner's "CV Matching Model Options" doc, steps 2–5):** the daily bundle build now embeds each lexicon role's English label and each distinct English title key with a pinned `bge-small-en-v1.5` (q8 ONNX, MIT, Node only) and ships them as int8 rows. Bundle schema 2 (`lexical-v1+title-vectors-v1`) adds `title-vectors.json` and `title-vectors.int8`. Schema 1 is still read, for rolling deploys. The browser ranks each vacancy by its title's best cosine to the CV's active roles, fused with the word matches at weight 2. Titles under 0.8 of the best cosine, or under 0.6 absolute, are not offered.
+- **Role vectors, "A′" (merged 2026-09-30, PR #35; deployed 2026-09-30 as release `9a2b141`, first live bundle `7976abc1` with 8,570 vacancies; the owner's "CV Matching Model Options" doc, steps 2–5):** the daily bundle build now embeds each lexicon role's English label and each distinct English title key with a pinned `bge-small-en-v1.5` (q8 ONNX, MIT, Node only) and ships them as int8 rows. Bundle schema 2 (`lexical-v1+title-vectors-v1`) adds `title-vectors.json` and `title-vectors.int8`. Schema 1 is still read, for rolling deploys. The browser ranks each vacancy by its title's best cosine to the CV's active roles, fused with the word matches at weight 2. Titles under 0.8 of the best cosine, or under 0.6 absolute, are not offered.
   - The 9.3 MB static model is now fetched only when a role has no vector: a role typed outside the lexicon, a CV whose roles the lexicon does not know, or a schema 1 bundle.
   - Nothing is embedded on the visitor's side, and no CV-derived value reaches the network. A failed embed at build time is `model_unavailable` and keeps the previous bundle.
   - **Judged on the 34-CV suite, through production code:**
@@ -251,6 +251,36 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
     - browser QA on `scraplify_qa`: the main path makes 4 GETs and no model request, and a typed role outside the lexicon fetches the static model;
     - the privacy suite passes against a schema 2 bundle and checks both vector files.
   - The bundle's GET rate limit is now 60 at 1 per 10 s, since a first visit fetches three files.
+- **Role quality, step 1 (branch `cv-role-quality`, 2026-09-30; the doc's "next lever"):** CVs now yield specific roles, and every role they yield has a title vector.
+  - **Corpus title roles get vectors.** The build also embeds each recurring corpus title a CV can yield as a role (`titleRoles`), by its dictionary English key: 508 role rows instead of 65 on the real bundle. Titles the dictionary cannot fully carry into English are left out.
+  - **Specific lexicon rows,** picked by how often their titles recur in the corpus: graphic and UI/UX designer, family doctor, pediatrician, civil engineer, construction supervisor, operations, store, warehouse, restaurant and financial manager, procurement, sales director, recruiter, English and kindergarten teacher, lab technician, welder, confectioner, dispatcher and a dozen more. Designer, Doctor and Teacher became broad parents that step aside for them.
+  - **The current post wins.** A role or hr.ge field found only on lines dated to the past ("Waiter, 2014–2017") is suggested, not applied, when the CV names a specific role it holds now or undated.
+  - **False roles removed:** "customer service" in a skills list; "for the project manager"; a word before a plural ("frontend developers", "backend services").
+  - **The ranker no longer reads "the director's X" as a director vacancy** (the owner's screenshot: with only Director ticked, the director's assistants and driver ranked first). A role word in the Georgian genitive before a helper noun (assistant, თანაშემწე, დამხმარე, driver, secretary), or in English before one or after "assistant to", is not that role. A generic head noun ("specialist", "manager") no longer earns partial credit.
+  - **Judged:**
+
+    | nDCG@10 | Live (A′) | This branch |
+    |---|---|---|
+    | 32 English and Georgian CVs of the suite | .833 | .857 |
+    | 24 new held-out CVs (12 English, 12 Georgian) | .465 | .912 |
+    | — English / Georgian | .366 / .565 | .863 / .960 |
+
+    The held-out CVs were written before the changes and graded title by title with the suite's rubric (Claude-graded, 781 CV–title pairs, pooled from both versions plus a keyword search per CV). They were written knowing which role families were targeted, so treat their gain as optimistic; their five controls (accountant, barista, Python developer, corporate sales manager, nurse) held or improved.
+  - **Corpus self-check** (no grades): for each of the 433 recurring titles, a one-line CV naming it; share of that title's own vacancies in the top 10: Georgian .590 → .854, English .146 → .220. English stays low mostly because many dictionary keys are word-by-word ("warehouse employee"), which no English CV says.
+  - **Cost:** title-vector files +137 KB gzipped (1.03 → 1.17 MB); build 2.1 s for 508 roles.
+  - **Browser QA** on `dev:web:qa` against a `scraplify_qa` bundle built from this code (`19797ae0`, 302 vacancies, 115 role rows including 14 corpus titles): an English store manager CV applies "Store manager" and only suggests the older assistant and sales-associate posts; a Georgian courier CV applies Courier and the corpus title "კურიერი საკუთარი ავტომობილით", only suggests the past waiter post and its café field; exact titles rank first. The main path makes the same 4 GETs and no model request, with no console errors or warnings.
+- **Role quality, step 2: "Your roles" (branch `cv-confirm-roles`, on top of step 1, 2026-09-30; the doc's "confirm your roles"):** a panel above the results shows every role as a chip, ticked when used. One tap switches a role on or off in place, so a suggestion from an older post is one tap away.
+  - **More specific suggestions:** while a broad role (Designer, Doctor, Teacher, Manager…) is on, the roles whose head word it is are offered, most common titles first ("Designer" → Graphic designer, UI/UX designer).
+  - **Role picker** (native `datalist`, English or Georgian): every lexicon row plus every recurring corpus title no row covers (`roleOptions`). A picked role, or a Georgian corpus title typed in full, gets the id a CV naming it would yield, so it ranks by its title vector without the static model. Anything else stays a typed role and still falls back to the static model.
+  - The profile column keeps each role's CV quote and checkbox. Its own "Add a role" box is gone, since the picker replaces it.
+  - **Browser QA** on `dev:web:qa` with the step 1 QA bundle, at 390, 768, 1280 and 1920: no horizontal overflow, Georgian labels wrap, no uppercase. Chips and checkboxes stay in sync, and results re-rank. Picking roles makes no model request, and a role outside the list loads the static model as before. The keyboard reaches every chip with the focus ring. The `web-design-guidelines` review found two focus-loss bugs (a chip moving between lists, a chosen suggestion leaving its row), both fixed and re-checked. No console errors.
+- **Visible ranking, step 3 (branch `cv-visible-ranking`, on top of step 2, 2026-09-30):** every result carries Strong, Good or Partial, and a key above the list gives the count of each over every match, shown or not. The full list stays behind "Show more"; no score is shown.
+  - **By evidence, never by score** (`strength.ts`): Strong = the title names one of your roles; Good = close to one (near spelling, similar meaning, or its English equivalent); Partial = no role, only a field, a skill or a CV line. Judged on each CV's first 50 results (32 suite + 24 held-out CVs), relevant / strong fit: a named role 96–99% / 74–94%, a close title 50–68% / 20–46%, a field or skill alone 0–27% / 0–5%, a CV line alone (Russian CVs, 11 rows) 45% / 0%. Cosine bands did not separate grades consistently across the two sets, so they play no part.
+  - **Grouped by strength, fused order within each** (`+strength-v1` on every rank version). Without it, a broad field buried 38 of a store manager's 55 Good rows among ~1,500 Partial ones. Condensed nDCG (judged rows only) @10/@20/@50: held-out .912/.873/.872 → .928/.893/.882; suite (the set the fusion weights were tuned on) .859/.833/.814 → .844/.819/.810.
+  - A near-miss role now reads "(close title)", as an exact one reads "(same title)".
+  - **Browser QA** on `dev:web` (read-only real bundle, 8,691 vacancies) and `dev:web:qa`, at 390, 768, 1280 and 1920: no horizontal overflow. The counts equal the labels on screen once every row is shown (1,667 matches), and follow re-ranking when a role is switched off and on. The labels add no tab stops. Screen readers hear "Strong, 33, the title names one of your roles". The `web-design-guidelines` review found one nit (a CSS variable in an SVG `fill` attribute), fixed. No console errors.
+  - Tried and dropped: treating "director" as a generic head noun. It changed no judged score, and the director titles came back through the role vectors instead.
+- **Steps 1–3 are in one PR, #36** (2026-09-30). They build on each other and were QA'd together. Merging waits on the owner's consent; deploying is not urgent. The bundle schema is unchanged, so the first build after the deploy ships the 508 role rows.
 - **Open:**
   - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
   - P3: loose aliases (delivery, bare "hr", "head of").

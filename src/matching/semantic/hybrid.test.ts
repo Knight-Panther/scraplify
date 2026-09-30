@@ -131,7 +131,7 @@ describe('rankHybrid with title vectors', () => {
       { kind: 'similar', term: accountant.label, from: 'role' },
     ]);
     expect(result.similarity).toBe('roles');
-    expect(result.version).toMatch(/^hybrid-v2\+.*\+test-model$/);
+    expect(result.version).toMatch(/^hybrid-v2\+.*\+test-model\+strength-v1$/);
   });
 
   it('still reports role similarity when every title is too far from the role to be offered', () => {
@@ -146,7 +146,7 @@ describe('rankHybrid with title vectors', () => {
     expect(result.results).toEqual([]);
     // Nothing was close, which is not the same as having no similarity to ask.
     expect(result.similarity).toBe('roles');
-    expect(result.version).toMatch(/^hybrid-v2\+.*\+test-model$/);
+    expect(result.version).toMatch(/^hybrid-v2\+.*\+test-model\+strength-v1$/);
   });
 
   it('ranks a title that is both a word match and closest to the role first, named by the word match', () => {
@@ -210,7 +210,7 @@ describe('rankHybrid with title vectors', () => {
       kind: 'translated-role',
       term: 'Zookeeper',
     });
-    expect(withVectors.version).toMatch(/\+test-model\+static-e1-v1$/);
+    expect(withVectors.version).toMatch(/\+test-model\+static-e1-v1\+strength-v1$/);
     expect(withVectors.similarity).toBe('roles-and-cv');
     const without = rankHybrid(
       profile(zookeeper),
@@ -219,7 +219,45 @@ describe('rankHybrid with title vectors', () => {
       { dictionary: DICTIONARY, vectors: null },
       { now: NOW },
     );
-    expect(without.version).toBe(HYBRID_RANK_VERSION);
+    expect(without.version).toBe(`${HYBRID_RANK_VERSION}+strength-v1`);
+  });
+
+  it('groups results by strength, keeping the fused order within each group', () => {
+    // 70 titles close to the role fill the role list; the field-only row
+    // tops the lexical list, which alone fuses it above role ranks past 62.
+    const ledgers = Array.from({ length: 70 }, () => row('Ledger officer'));
+    const zoo = row('Zoo guide', {
+      taxonomy: [{ axis: 'category', code: 'finance', label: 'Finance' }],
+    });
+    const finance: ProfileTerm = {
+      id: 'field:finance',
+      kind: 'field',
+      label: 'Finance',
+      forms: [],
+      codes: ['finance'],
+      origin: 'user',
+      evidence: null,
+      active: true,
+    };
+    const rows = [zoo, ...ledgers];
+    const result = rankHybrid(
+      profile(accountant, finance),
+      { lines: [], derived: [accountant] },
+      indexHybrid(rows),
+      { dictionary: DICTIONARY, vectors: vectorsFor(rows, near) },
+      { now: NOW },
+    );
+    const last = result.results.at(-1);
+    expect(last?.row.opportunityId).toBe(zoo.opportunityId);
+    expect(last?.strength).toBe('partial');
+    // Fusion alone would have put it among the "good" rows.
+    const good = result.results.filter((r) => r.strength === 'good');
+    expect(good).toHaveLength(70);
+    expect(Math.min(...good.map((r) => r.score))).toBeLessThan(last?.score ?? 0);
+    // Within a group the fused order stands.
+    const scores = good.map((r) => r.score);
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+    expect(result.version).toMatch(/\+strength-v1$/);
   });
 
   it('ranks by words alone, and says so, when it has neither', () => {

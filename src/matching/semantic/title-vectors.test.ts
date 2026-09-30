@@ -182,6 +182,34 @@ describe('buildTitleVectors', () => {
     expect(() => parseTitleVectors(built, table, rows.length)).not.toThrow();
   });
 
+  it('adds a row for each corpus title a CV can yield as a role, by its English key', async () => {
+    const dictionary: TitleDictionary = {
+      textVersion: 'test',
+      entries: {
+        ...DICTIONARY.entries,
+        [phraseStems('ფოტოგრაფი')[0] as string]: { word: 'ფოტოგრაფი', en: ['photographer'] },
+      },
+    };
+    const thrice = (title: string) => [row(title), row(title), row(title)];
+    const rows = [
+      ...thrice('ფოტოგრაფი'),
+      // No dictionary entry: this English model would embed the Georgian as noise.
+      ...thrice('ზოოლოგი'),
+      // Generic alone: never taken from a CV, so never embedded.
+      ...thrice('მენეჯერი'),
+      // Seen twice: not a role name yet.
+      row('ბუღალტერი'),
+      row('ბუღალტერი'),
+    ];
+    const { meta: built } = await buildTitleVectors(rows, dictionary, embedder, {
+      schemaVersion: 2,
+      bundleId: BUNDLE,
+    });
+    const titleRoles = built.roles.slice(lexiconRoles().length);
+    expect(titleRoles).toEqual([{ id: 'role:title:ფოტოგრაფ', text: 'photographer' }]);
+    expect(() => parseTitleVectors(built, new Int8Array(0), rows.length)).toThrow('table size');
+  });
+
   it('keys a title the dictionary cannot carry over by the title itself', () => {
     expect(titleKey('ზოოლოგი', DICTIONARY)).toBe('ზოოლოგი');
     expect(titleKey('Senior  Java Developer', DICTIONARY)).toBe('senior java developer');

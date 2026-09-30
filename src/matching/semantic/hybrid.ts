@@ -14,6 +14,7 @@ import {
 import { findPhrase, phraseStems } from '../lexical/text.js';
 import { STATIC_E1_PIN } from '../models/static-e1.js';
 import { embed, type StaticModel } from './static-embed.js';
+import { MATCH_STRENGTHS, type MatchStrength, matchStrength } from './strength.js';
 import { englishTitle, type TitleDictionary } from './title-english.js';
 import { type RoleHit, roleSimilarList, type TitleVectors } from './title-vectors.js';
 
@@ -23,14 +24,14 @@ import { type RoleHit, roleSimilarList, type TitleVectors } from './title-vector
  *
  * Title similarity comes from one of two places:
  * - **Role vectors** (bundle schema 2, `title-vectors.ts`), the main path:
- *   each active lexicon role's precomputed vector against each title's.
+ *   each active role's precomputed vector against each title's.
  *   Lexical matching plus this list at weight 2 judged nDCG@10 .833 on the
  *   32 English and Georgian CVs of the suite, against .763 for the path
  *   below, with no model in the browser at all.
  * - **The static E1 model** (spike/semantic), the fallback: needed only
  *   when no active role has a vector (the rules found none, or found only
- *   titles outside the lexicon), when the user typed a role the lexicon
- *   does not know, or when the bundle is schema 1 and carries no vectors.
+ *   titles the dictionary cannot carry into English), when the user typed
+ *   a role the lexicon does not know, or when the bundle is schema 1 and carries no vectors.
  *   It adds three lists:
  *   1. lexical matching against each title's English key
  *      (`title-english.ts`), so an English CV meets Georgian titles the
@@ -41,10 +42,20 @@ import { type RoleHit, roleSimilarList, type TitleVectors } from './title-vector
  * Lists are combined by weighted reciprocal-rank fusion. Similarity only
  * ever adds a row; it never excludes one, and every row still passes the
  * same deadline and location filters.
+ *
+ * Results are then grouped by strength (`strength.ts`), strong first, each
+ * group in fused order. Judged by condensed nDCG (judged rows only) at 10,
+ * 20 and 50: on the 24 held-out CVs .912/.873/.872 → .928/.893/.882; on
+ * the 32 suite CVs the fusion weights were tuned on, .859/.833/.814 →
+ * .844/.819/.810. Without it, a result list with a broad field on buried
+ * most "good" rows among hundreds of field-only ones.
  */
 
-/** The static path's version, unchanged from before role vectors existed. */
+/** The static path's fusion, unchanged from before role vectors existed. */
 export const HYBRID_RANK_VERSION = `hybrid-v1+${LEXICAL_RANK_VERSION}+${STATIC_E1_PIN.id}`;
+/** Appended to every version: the grouping by strength after fusion. */
+export const STRENGTH_ORDER_VERSION = 'strength-v1';
+const STRENGTH_RANK = new Map<MatchStrength, number>(MATCH_STRENGTHS.map((s, i) => [s, i]));
 
 /**
  * The static path's weights, as the spike judged best ("lex+semL
@@ -100,6 +111,7 @@ export interface HybridRanked {
   score: number;
   reasons: HybridReason[];
   locationUnstated: boolean;
+  strength: MatchStrength;
 }
 
 /**
@@ -205,8 +217,8 @@ export interface CvSource {
 /**
  * Whether this profile needs the static model: when no active role has a
  * vector, or when the user added a role that has none. A role the CV
- * itself yielded without a vector (a bundle title outside the lexicon) does
- * not by itself: the judged runs left those to the lexical list.
+ * itself yielded without a vector (a bundle title the dictionary cannot
+ * carry into English) does not by itself: the judged runs left those to the lexical list.
  */
 export function needsStaticModel(
   profile: MatchProfile,
@@ -442,10 +454,13 @@ export function rankHybrid(
       score,
       reasons,
       locationUnstated: filter.locationUnstated,
+      strength: matchStrength(reasons),
     });
   }
+  const strengthRank = (result: HybridRanked) => STRENGTH_RANK.get(result.strength) ?? 0;
   results.sort(
     (a, b) =>
+      strengthRank(a) - strengthRank(b) ||
       b.score - a.score ||
       (a.row.deadlineAt === null ? Number.POSITIVE_INFINITY : Date.parse(a.row.deadlineAt)) -
         (b.row.deadlineAt === null ? Number.POSITIVE_INFINITY : Date.parse(b.row.deadlineAt)) ||
@@ -461,12 +476,13 @@ export function rankHybrid(
     ...(usedVectors ? [vectors.model] : []),
     ...(staticIndex !== null ? [STATIC_E1_PIN.id] : []),
   ];
+  const fusion = usedVectors
+    ? `hybrid-v2+${parts.join('+')}`
+    : staticIndex !== null
+      ? HYBRID_RANK_VERSION
+      : LEXICAL_RANK_VERSION;
   return {
-    version: usedVectors
-      ? `hybrid-v2+${parts.join('+')}`
-      : staticIndex !== null
-        ? HYBRID_RANK_VERSION
-        : LEXICAL_RANK_VERSION,
+    version: `${fusion}+${STRENGTH_ORDER_VERSION}`,
     similarity: staticIndex !== null ? 'roles-and-cv' : usedVectors ? 'roles' : 'none',
     results,
     stats: { ...lexical.stats, matched: results.length },

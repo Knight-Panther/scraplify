@@ -70,7 +70,7 @@ const YEAR = /\b(?:19[5-9]\d|20\d\d)\b/g;
 const STALE_YEARS = 10;
 const MINOR_POST =
   /\b(?:intern|internship|part[- ]time|volunteer|trainee)\b|სტაჟიორ|სტაჟირებ|ნახევარ განაკვეთ|მოხალისე/iu;
-const CURRENT_POST = /\b(?:present|current|now)\b|დღემდე|ამჟამად|по настоящее/iu;
+const CURRENT_POST = /\b(?:present|current|now|to date)\b|დღემდე|ამჟამად|по настоящее/iu;
 const GEORGIAN_LETTER = /\p{Script=Georgian}/u;
 /** "reported to the Director", "assisted the doctor": the role is someone else's. */
 const ROLE_OF_OTHERS: ReadonlySet<string> = new Set([
@@ -83,6 +83,31 @@ const ROLE_OF_OTHERS: ReadonlySet<string> = new Set([
   'advised',
   'reported',
   'reporting',
+]);
+/**
+ * Words that end a title when reading back from a role toward "the": in
+ * "for the project manager" the title runs back to "the"; in "worked for
+ * the company as manager" it stops at "as", so the role is the author's.
+ */
+const TITLE_BREAKS: ReadonlySet<string> = new Set([
+  ...ROLE_OF_OTHERS,
+  'a',
+  'an',
+  'as',
+  'and',
+  'or',
+  'of',
+  'at',
+  'in',
+  'on',
+  'by',
+  'from',
+  'our',
+  'my',
+  'his',
+  'her',
+  'their',
+  'its',
 ]);
 /** Georgian "X's assistant/helper" nouns (ბუღალტრის თანაშემწე). */
 const HELPER_STEMS: ReadonlySet<string> = new Set(
@@ -124,6 +149,15 @@ const GENERIC_TITLE_STEMS: ReadonlySet<string> = new Set(
 
 function isGenericTitle(form: readonly string[]): boolean {
   return form.every((stem) => GENERIC_TITLE_STEMS.has(stem));
+}
+
+/**
+ * The corpus titles a CV can yield as roles (`role:title:<key>`): every
+ * vocabulary role except one made only of generic words. The bundle build
+ * embeds exactly these, so each one a CV yields has a role vector.
+ */
+export function derivableTitleRoles(vocabulary: Vocabulary): VocabularyOption[] {
+  return vocabulary.roles.filter((role) => !role.forms.every(isGenericTitle));
 }
 
 export const DETECTION_CAPS: Readonly<Record<TermKind, number>> = {
@@ -245,6 +279,11 @@ interface Candidate {
    * post: suggested, not applied, unless the CV names no other role.
    */
   minor: boolean;
+  /**
+   * Found only on lines that date a post to the past ("Waiter, 2014–2017"):
+   * it steps aside for a role the CV holds now or names undated.
+   */
+  past: boolean;
 }
 
 /** Every stem phrase any candidate so far has claimed, to avoid duplicates across sources. */
@@ -350,7 +389,36 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
       return ending.endsWith('ის') && HELPER_STEMS.has(stems[last + 1] ?? '');
     }
     if (word !== stemmed && word === `${stemmed}s`) return true;
-    return stems[position - 1] === 'the' && ROLE_OF_OTHERS.has(stems[position - 2] ?? '');
+    // A lone word before a plural names what, or whom, it describes:
+    // "frontend developers", "backend services", "marketing materials".
+    // Not before an acronym, which only looks plural ("Accounting, IFRS").
+    const next = tokens[last + 1];
+    const nextWord = next === undefined ? '' : normalized.slice(next.start, next.end);
+    if (
+      length === 1 &&
+      next !== undefined &&
+      nextWord !== nextWord.toUpperCase() &&
+      surface(last + 1) === `${next.stem}s`
+    ) {
+      return true;
+    }
+    // "reported to the Director", and "for the project manager", where a
+    // shorter form ("manager") sits inside someone else's longer title.
+    for (let the = position - 1; the >= Math.max(0, position - 3); the--) {
+      if (stems[the] === 'the') return ROLE_OF_OTHERS.has(stems[the - 1] ?? '');
+      if (!/^\p{L}+$/u.test(stems[the] ?? '') || TITLE_BREAKS.has(stems[the] ?? '')) break;
+    }
+    return false;
+  };
+
+  /** The line holding [position, position + length), for the checks below. */
+  const lineAt = (position: number, length: number): string | null => {
+    const first = tokens[position];
+    const last = tokens[position + length - 1];
+    if (first === undefined || last === undefined) return null;
+    const from = normalized.lastIndexOf('\n', first.start) + 1;
+    const to = normalized.indexOf('\n', last.end);
+    return normalized.slice(from, to === -1 ? normalized.length : to);
   };
 
   /**
@@ -360,16 +428,18 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
    * so the result never depends on the clock).
    */
   const minorPost = (position: number, length: number, key: string): boolean => {
-    const first = tokens[position];
-    const last = tokens[position + length - 1];
-    if (first === undefined || last === undefined) return false;
-    const from = normalized.lastIndexOf('\n', first.start) + 1;
-    const to = normalized.indexOf('\n', last.end);
-    const line = normalized.slice(from, to === -1 ? normalized.length : to);
+    const line = lineAt(position, length);
+    if (line === null) return false;
     if (key !== 'intern' && MINOR_POST.test(line)) return true;
     if (CURRENT_POST.test(line) || latestYear === null) return false;
     const lineYears = [...line.matchAll(YEAR)].map((match) => Number(match[0]));
     return lineYears.length > 0 && Math.max(...lineYears) <= latestYear - STALE_YEARS;
+  };
+
+  /** A line that dates a post and does not say it continues ("Waiter, 2014–2017"). */
+  const pastLine = (position: number, length: number): boolean => {
+    const line = lineAt(position, length);
+    return line !== null && !CURRENT_POST.test(line) && [...line.matchAll(YEAR)].length > 0;
   };
 
   const add = (
@@ -405,6 +475,17 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
     // One passing mention ("banking sector") is not worth a suggestion; a
     // field the CV keeps returning to is.
     if (weak && hit.occurrences < MIN_WEAK_OCCURRENCES) return;
+    const past =
+      (isRole || kind === 'field') &&
+      !weak &&
+      !minor &&
+      detect(
+        stems,
+        stemIndex,
+        evidenceForms,
+        except,
+        (position, length) => current(position, length) && !pastLine(position, length),
+      ) === null;
     const firstToken = tokens[hit.index];
     const lastToken = tokens[hit.index + hit.length - 1];
     if (firstToken === undefined || lastToken === undefined) return;
@@ -425,6 +506,7 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
       generic,
       weak,
       minor,
+      past,
     });
   };
 
@@ -444,8 +526,7 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
       evidence.context,
     );
   }
-  for (const role of vocabulary.roles) {
-    if (role.forms.every(isGenericTitle)) continue;
+  for (const role of derivableTitleRoles(vocabulary)) {
     add('role', `title:${role.key}`, role.label, role.forms, []);
   }
   for (const field of vocabulary.fields) {
@@ -475,6 +556,25 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
     }
   }
 
+  // A post the CV dates to the past steps aside for a specific one it holds
+  // now or names undated (a headline, an objective): a restaurant manager
+  // who lists "Waiter, 2014–2017" is not looking for waiter jobs, and a
+  // courier who once worked in a café is not after café work. Still
+  // suggested, with its quote, for the user to tick.
+  const present = kept.some(
+    (candidate) =>
+      candidate.term.kind === 'role' &&
+      candidate.term.active &&
+      !candidate.generic &&
+      !candidate.past,
+  );
+  if (present) {
+    for (const candidate of kept) {
+      const kind = candidate.term.kind;
+      if ((kind === 'role' || kind === 'field') && candidate.past) candidate.term.active = false;
+    }
+  }
+
   // Old or part-time posts step aside for a current role, but when they are
   // all the CV names (a student's part-time job), they are the profile.
   if (!kept.some((candidate) => candidate.term.kind === 'role' && candidate.term.active)) {
@@ -492,7 +592,7 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
         // title-backed role in favour of a field-of-work guess.
         .sort(
           (a, b) =>
-            Number(a.weak || a.minor) - Number(b.weak || b.minor) ||
+            Number(a.weak || a.minor || a.past) - Number(b.weak || b.minor || b.past) ||
             b.occurrences - a.occurrences ||
             a.firstIndex - b.firstIndex,
         )
@@ -506,9 +606,15 @@ export function deriveProfile(text: string, vocabulary: Vocabulary): MatchProfil
 /**
  * A term the user typed. If it names a curated entry in either language,
  * the entry's bilingual forms come with it, so typing "Accountant" also
- * matches Georgian titles.
+ * matches Georgian titles. Otherwise, given the bundle's vocabulary, a role
+ * typed exactly as a recurring corpus title becomes that title's role, the
+ * same one a CV naming it would yield (and so has its title vector).
  */
-export function userTerm(kind: 'role' | 'skill', text: string): ProfileTerm | null {
+export function userTerm(
+  kind: 'role' | 'skill',
+  text: string,
+  vocabulary?: Vocabulary,
+): ProfileTerm | null {
   const label = text.trim().replace(/\s+/g, ' ');
   const stems = phraseStems(label);
   if (stems.length === 0) return null;
@@ -517,6 +623,12 @@ export function userTerm(kind: 'role' | 'skill', text: string): ProfileTerm | nu
     (candidate) =>
       candidate.kind === kind && lexiconForms(candidate).some((form) => formKey(form) === key),
   );
+  if (entry === undefined && kind === 'role' && vocabulary !== undefined) {
+    const title = derivableTitleRoles(vocabulary).find((role) =>
+      role.forms.some((form) => formKey(form) === key),
+    );
+    if (title !== undefined) return roleOptionTerm(titleRoleOption(title));
+  }
   return {
     id: `${kind}:${entry?.key ?? `user:${key}`}`,
     kind,
@@ -527,6 +639,115 @@ export function userTerm(kind: 'role' | 'skill', text: string): ProfileTerm | nu
     evidence: null,
     active: true,
   };
+}
+
+/**
+ * A role the visitor can pick (CV Ranked's "Your roles"): a lexicon row or
+ * a recurring corpus title, under the id a CV naming it would yield, so a
+ * picked role meets the same title vector a derived one does.
+ */
+export interface RoleOption {
+  id: string;
+  label: string;
+  forms: string[][];
+  /** Recurring vacancies titled exactly as one of its forms (titles seen fewer than three times are not counted). */
+  count: number;
+  /** The last word of each form: what the role is ("designer" in "graphic designer"). */
+  heads: string[];
+}
+
+function lexiconRoleOption(
+  entry: LexiconEntry,
+  titleCounts: ReadonlyMap<string, number>,
+): RoleOption {
+  const forms = lexiconForms(entry);
+  return {
+    id: `role:${entry.key}`,
+    label: lexiconLabel(entry),
+    forms,
+    count: forms.reduce((sum, form) => sum + (titleCounts.get(formKey(form)) ?? 0), 0),
+    heads: headsOf(forms),
+  };
+}
+
+function titleRoleOption(role: VocabularyOption): RoleOption {
+  return {
+    id: `role:title:${role.key}`,
+    label: role.label,
+    forms: role.forms,
+    count: role.count,
+    heads: headsOf(role.forms),
+  };
+}
+
+function headsOf(forms: readonly string[][]): string[] {
+  return [...new Set(forms.flatMap((form) => form.slice(-1)))];
+}
+
+/**
+ * Every role the picker offers: the lexicon's, then the corpus titles a CV
+ * could yield that no lexicon row already covers, most frequent first.
+ */
+export function roleOptions(vocabulary: Vocabulary): RoleOption[] {
+  const titleCounts = new Map(vocabulary.roles.map((role) => [role.key, role.count]));
+  const lexicon = LEXICON.filter((entry) => entry.kind === 'role').map((entry) =>
+    lexiconRoleOption(entry, titleCounts),
+  );
+  const covered = new Set(lexicon.flatMap((option) => option.forms.map(formKey)));
+  const titles = derivableTitleRoles(vocabulary)
+    .filter((role) => !role.forms.some((form) => covered.has(formKey(form))))
+    .map(titleRoleOption);
+  return [...lexicon, ...titles];
+}
+
+/** The profile term for a picked role. */
+export function roleOptionTerm(option: RoleOption): ProfileTerm {
+  return {
+    id: option.id,
+    kind: 'role',
+    label: option.label,
+    forms: option.forms,
+    codes: [],
+    origin: 'user',
+    evidence: null,
+    active: true,
+  };
+}
+
+const NARROWER_LIMIT = 6;
+
+/**
+ * More specific roles to offer next to an active broad one (a `generic`
+ * lexicon row such as Designer, Doctor, Teacher or Manager): the roles
+ * whose own head word is the broad role's, as "graphic designer" is a
+ * designer and მათემატიკის მასწავლებელი a მასწავლებელი, the most common
+ * titles first. Only ever suggested: a CV that says "designer" has not
+ * said which kind.
+ */
+export function narrowerRoles(profile: MatchProfile, options: readonly RoleOption[]): RoleOption[] {
+  const present = new Set(profile.terms.map((term) => term.id));
+  const heads = new Set(
+    profile.terms
+      .filter((term) => term.kind === 'role' && term.active)
+      .flatMap((term) => {
+        const entry = LEXICON.find((candidate) => `role:${candidate.key}` === term.id);
+        return entry?.generic ? headsOf(lexiconForms(entry)) : [];
+      }),
+  );
+  if (heads.size === 0) return [];
+  const generic = new Set(
+    LEXICON.filter((entry) => entry.generic).map((entry) => `role:${entry.key}`),
+  );
+  return options
+    .filter(
+      (option) =>
+        !present.has(option.id) &&
+        !generic.has(option.id) &&
+        option.forms.some((form) => form.length > 1) &&
+        option.heads.some((head) => heads.has(head)),
+    )
+    .sort((a, b) => b.count - a.count)
+    .slice(0, NARROWER_LIMIT);
 }
 
 /** A field or location the user picked from the bundle's own vocabulary. */

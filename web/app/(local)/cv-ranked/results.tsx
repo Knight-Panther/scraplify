@@ -1,6 +1,8 @@
 'use client';
 
+import { Fragment } from 'react';
 import type { HybridReason } from '../../../../src/matching/semantic/hybrid.js';
+import { MATCH_STRENGTHS, type MatchStrength } from '../../../../src/matching/semantic/strength.js';
 import type { RankedRow, RankingPayload } from '../../../lib/cv-ranked/protocol.js';
 import { count, sourceDate } from '../../../lib/format.js';
 import { sourceLabel } from '../../../lib/labels.js';
@@ -15,10 +17,41 @@ const METHOD: Record<RankingPayload['similarity'], string> = {
 };
 
 /**
+ * Each strength, by the kind of evidence behind it (`strength.ts`). The
+ * meaning is always shown beside the counts, so no label is left to be read
+ * as a probability.
+ */
+const STRENGTH: Record<
+  MatchStrength,
+  { label: string; meaning: string; bars: number; className: string }
+> = {
+  strong: {
+    label: 'Strong',
+    meaning: 'the title names one of your roles',
+    bars: 3,
+    className: 'text-accent',
+  },
+  good: {
+    label: 'Good',
+    meaning: 'the title is close to one of your roles',
+    bars: 2,
+    className: 'text-foreground',
+  },
+  partial: {
+    label: 'Partial',
+    meaning: 'no role, only a field, a skill or a line of your CV',
+    bars: 1,
+    className: 'text-faint',
+  },
+};
+
+/**
  * Ranked vacancies and the case for each (change.md §7 "Ranking"). The
  * reasons are the ranker's own named matches; nothing here is recomputed or
  * embellished. No score is shown: the order fuses word matches with title
- * similarity, and neither is a probability of fit.
+ * similarity, and neither is a probability of fit. Each row's strength
+ * names the kind of evidence behind it, and the counts cover every match,
+ * shown or not.
  *
  * A list, like the operator `/ranked` screen, because each row is read for
  * its reasons rather than scanned as a column.
@@ -63,6 +96,21 @@ export function Results({
           </>
         )}
       </p>
+      {ranking.total > 0 && (
+        <dl className="mt-2 grid w-fit grid-cols-[auto_auto_1fr] items-baseline gap-x-3 gap-y-0.5 text-xs">
+          {MATCH_STRENGTHS.map((strength) => (
+            <Fragment key={strength}>
+              <dt>
+                <StrengthMark strength={strength} />
+              </dt>
+              <dd className="numeric text-right text-foreground">
+                {count(ranking.strengths[strength])}
+              </dd>
+              <dd className="text-faint">{STRENGTH[strength].meaning}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
 
       {ranking.results.length === 0 ? (
         <div className="mt-3 max-w-[var(--measure)] rounded-[var(--radius)] border border-border bg-surface px-4 py-6 text-sm text-muted">
@@ -102,8 +150,9 @@ export function Results({
         </div>
       )}
       <p className="mt-6 max-w-[var(--measure)] text-xs text-faint">
-        Ranked by <span className="numeric">{ranking.version}</span>: {METHOD[ranking.similarity]}{' '}
-        It does not read vacancy descriptions.
+        Ranked by <span className="numeric">{ranking.version}</span>: strong matches first, then
+        good, then partial; within each, {METHOD[ranking.similarity]} It does not read vacancy
+        descriptions.
       </p>
     </section>
   );
@@ -150,7 +199,10 @@ function Row({ result, rank }: { result: RankedRow; rank: number }) {
               </a>
             ))}
           </p>
-          <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+          <ul className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs">
+            <li>
+              <StrengthMark strength={result.strength} />
+            </li>
             {result.reasons.map((reason) => (
               <li key={reasonKey(reason)} className="text-muted">
                 <Reason reason={reason} />
@@ -166,6 +218,31 @@ function Row({ result, rank }: { result: RankedRow; rank: number }) {
   );
 }
 
+/**
+ * A strength's word with a three-bar mark, so it reads without its colour.
+ * The mark is decoration: the word says it.
+ */
+function StrengthMark({ strength }: { strength: MatchStrength }) {
+  const { label, bars, className } = STRENGTH[strength];
+  return (
+    <span className={`inline-flex items-baseline gap-1.5 font-medium ${className}`}>
+      <svg width="11" height="9" viewBox="0 0 11 9" aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <rect
+            key={i}
+            x={i * 4}
+            y={6 - i * 3}
+            width="3"
+            height={3 + i * 3}
+            className={i < bars ? 'fill-current' : 'fill-nontext'}
+          />
+        ))}
+      </svg>
+      {label}
+    </span>
+  );
+}
+
 function reasonKey(reason: HybridReason): string {
   return `${reason.kind}:${reason.term}:${'label' in reason ? reason.label : ''}`;
 }
@@ -176,7 +253,7 @@ function Reason({ reason }: { reason: HybridReason }) {
       return (
         <>
           <span className="text-faint">Role</span> {reason.term}
-          {reason.exact ? ' (same title)' : ''}
+          {reason.exact ? ' (same title)' : ' (close title)'}
         </>
       );
     case 'translated-role':

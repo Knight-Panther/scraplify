@@ -1,7 +1,7 @@
 import { trigramSimilarity } from '../../normalize/text.js';
 import type { BundleOpportunity } from '../bundle/schema.js';
 import type { MatchProfile, ProfileTerm } from './profile.js';
-import { findPhrase, LEXICAL_TEXT_VERSION, phraseStems } from './text.js';
+import { findPhrase, LEXICAL_TEXT_VERSION, phraseStems, tokenize } from './text.js';
 
 /**
  * Browser-side lexical/taxonomy ranking over the `lexical-v1` bundle
@@ -19,7 +19,7 @@ import { findPhrase, LEXICAL_TEXT_VERSION, phraseStems } from './text.js';
  * checked, because nothing in a row states them.
  */
 
-export const LEXICAL_RANK_VERSION = `lexical-rank-v2+text-${LEXICAL_TEXT_VERSION}`;
+export const LEXICAL_RANK_VERSION = `lexical-rank-v3+text-${LEXICAL_TEXT_VERSION}`;
 
 /**
  * Component weights. Role against title is the strongest signal both boards
@@ -43,14 +43,113 @@ export const ROLE_SIMILARITY_THRESHOLD = 0.55;
 export const HEAD_NOUN_SIMILARITY = 0.6;
 const MIN_HEAD_NOUN_CHARS = 4;
 
-function sharesHeadNoun(form: readonly string[], titleStems: readonly string[]): boolean {
+/**
+ * Head nouns too broad to say two titles are the same kind of job: "sales
+ * manager" and "store manager", "HR specialist" and "billing specialist".
+ */
+const GENERIC_HEADS: ReadonlySet<string> = new Set(
+  [
+    'მენეჯერი',
+    'სპეციალისტი',
+    'თანამშრომელი',
+    'ასისტენტი',
+    'ოპერატორი',
+    'კონსულტანტი',
+    'ოფიცერი',
+    'კოორდინატორი',
+    'ექსპერტი',
+    'წარმომადგენელი',
+    'ხელმძღვანელი',
+    'აგენტი',
+    'მუშა',
+    'დამხმარე',
+    'manager',
+    'specialist',
+    'employee',
+    'assistant',
+    'operator',
+    'consultant',
+    'officer',
+    'coordinator',
+    'expert',
+    'representative',
+    'head',
+    'agent',
+    'worker',
+    'helper',
+    'associate',
+  ].flatMap(phraseStems),
+);
+
+function sharesHeadNoun(form: readonly string[], opportunity: IndexedOpportunity): boolean {
   const head = form[form.length - 1];
   return (
     form.length > 1 &&
     head !== undefined &&
     head.length >= MIN_HEAD_NOUN_CHARS &&
-    titleStems.includes(head)
+    !GENERIC_HEADS.has(head) &&
+    opportunity.titleStems.some(
+      (stem, index) => stem === head && !opportunity.subordinate.has(index),
+    )
   );
+}
+
+/**
+ * Nouns for a job done FOR someone: in "დირექტორის თანაშემწე" (the
+ * director's assistant) or "director assistant", the job is the assistant,
+ * and the director only says whose.
+ */
+const HELPER_HEADS: ReadonlySet<string> = new Set(
+  [
+    'თანაშემწე',
+    'ასისტენტი',
+    'დამხმარე',
+    'მძღოლი',
+    'მდივანი',
+    'assistant',
+    'secretary',
+    'driver',
+    'helper',
+  ].flatMap(phraseStems),
+);
+const GEORGIAN_LETTER = /\p{Script=Georgian}/u;
+
+/**
+ * Title words that only say whose helper the job is: a Georgian genitive
+ * ("-ის") or an English noun right before a helper noun, and in English
+ * also the word after "assistant to (the)". A role matched on one of these
+ * is not that role's vacancy: "Director" never meets "the director's
+ * driver". "დირექტორის მოადგილე" (deputy director) still meets it.
+ */
+function subordinateWords(title: string): Set<number> {
+  const normalized = title.normalize('NFKC');
+  const tokens = tokenize(normalized);
+  const words = tokens.map((token) => normalized.slice(token.start, token.end).toLowerCase());
+  const found = new Set<number>();
+  tokens.forEach((token, index) => {
+    const word = words[index] ?? '';
+    // "director's assistant" tokenizes as director · s · assistant.
+    const next = words[index + 1] === 's' ? tokens[index + 2]?.stem : tokens[index + 1]?.stem;
+    if (next !== undefined && HELPER_HEADS.has(next)) {
+      if (!GEORGIAN_LETTER.test(word) || (word !== token.stem && word.endsWith('ის'))) {
+        found.add(index);
+      }
+    }
+    if (HELPER_HEADS.has(token.stem) && (words[index + 1] === 'to' || words[index + 1] === 'of')) {
+      found.add(words[index + 2] === 'the' ? index + 3 : index + 2);
+    }
+  });
+  return found;
+}
+
+/** Whether `form` occurs in the title as the job itself, not as whose helper it is. */
+function containsRole(form: readonly string[], opportunity: IndexedOpportunity): boolean {
+  const { titleStems, subordinate } = opportunity;
+  for (let start = 0; start + form.length <= titleStems.length; start++) {
+    if (!form.every((stem, offset) => titleStems[start + offset] === stem)) continue;
+    if (!subordinate.has(start + form.length - 1)) return true;
+  }
+  return false;
 }
 /** Two matched skills saturate the skill component. */
 const SKILLS_FOR_FULL_SCORE = 2;
@@ -58,6 +157,8 @@ const SKILLS_FOR_FULL_SCORE = 2;
 export interface IndexedOpportunity {
   row: BundleOpportunity;
   titleStems: string[];
+  /** Positions in `titleStems` that only say whose helper the job is (`subordinateWords`). */
+  subordinate: ReadonlySet<number>;
   titleKey: string;
   labelStems: string[][];
   locationStems: string[][];
@@ -72,6 +173,7 @@ export function indexOpportunities(rows: readonly BundleOpportunity[]): IndexedO
     return {
       row,
       titleStems,
+      subordinate: subordinateWords(row.title),
       titleKey: titleStems.join(' '),
       labelStems: row.taxonomy.map((term) => phraseStems(term.label)),
       locationStems: row.locations.map(phraseStems),
@@ -191,15 +293,19 @@ export function rankOpportunities(
       let exact = false;
       for (const term of roles) {
         for (const form of term.forms) {
-          const contained = findPhrase(opportunity.titleStems, form) !== -1;
+          const contained = containsRole(form, opportunity);
           // Trigram alone under-rates a short role inside a long title
           // (Jaccard penalises the length gap), so containment wins outright.
+          // A title naming the role only as whose helper the job is gets no
+          // partial credit either: its spelling is close for the wrong reason.
           const similarity = contained
             ? 1
-            : Math.max(
-                trigramSimilarity(form.join(' '), opportunity.titleKey),
-                sharesHeadNoun(form, opportunity.titleStems) ? HEAD_NOUN_SIMILARITY : 0,
-              );
+            : findPhrase(opportunity.titleStems, form) !== -1
+              ? 0
+              : Math.max(
+                  trigramSimilarity(form.join(' '), opportunity.titleKey),
+                  sharesHeadNoun(form, opportunity) ? HEAD_NOUN_SIMILARITY : 0,
+                );
           if (similarity > best) {
             best = similarity;
             bestTerm = term;
