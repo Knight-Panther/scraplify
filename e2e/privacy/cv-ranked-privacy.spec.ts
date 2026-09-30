@@ -149,8 +149,8 @@ test('a canary CV stays in the browser', async ({ browser }) => {
 
   // Edit: type the canary as a role, toggle a term, ask for more rows.
   const busy = page.locator('[aria-labelledby=results-heading]');
-  await page.getByLabel('Add to roles').fill(`Canary ${canary}`);
-  await page.getByLabel('Add to roles').press('Enter');
+  await page.getByLabel('Add a role', { exact: true }).fill(`Canary ${canary}`);
+  await page.getByLabel('Add a role', { exact: true }).press('Enter');
   await expect(busy).toHaveAttribute('aria-busy', 'false');
   await page
     .locator('section[aria-labelledby=profile-heading] input[type=checkbox]')
