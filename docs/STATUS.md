@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-30 (CV Ranked A′'s first scheduled host run passed; role quality steps 1–3 (PR #36) and the backup size guard (PR #37) deployed as `0b3476d`; hosted probe and the owner's first admin sign-in done; public-repository audit, MIT licence).
+Last updated: 2026-09-30 (next 16.3.8 and undici 8.11.2 security patches (PR #38) deployed as `30e68a7`; role quality steps 1–3 (PR #36) and the backup size guard (PR #37) deployed earlier the same day as `0b3476d`; hosted probe and the owner's first admin sign-in done; public-repository audit, MIT licence).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -8,7 +8,10 @@ This file is the **current-state index**: what is done, what is open, and what g
 
 The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E below). Every phase in the index is merged except 7B and the Phase 1C remainder.
 
-- **Live release:** `0b3476d` (role quality steps 1–3 from PR #36 and the backup size guard from PR #37, on top of CV Ranked A′), deployed 2026-09-30 at 16:54 UTC as a plain deploy (RUNBOOK §3 steps 1, 3 and 4). The previous release, `9a2b141`, stays in `/opt/xtelo/releases` for rollback. Both pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `xtelo-pipeline@hr-ge.timer`).
+- **Live release:** `30e68a7` (PR #38: `next` 16.3.4 → 16.3.8 for GHSA-vcvr-r3jv-pc5j, `undici` 8.10.1 → 8.11.2 for eleven high advisories), deployed 2026-09-30 at 18:41 UTC as a plain deploy (RUNBOOK §3 steps 1, 3 and 4). The previous release, `0b3476d`, stays in `/opt/xtelo/releases` for rollback. Both pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `xtelo-pipeline@hr-ge.timer`).
+  - Local QA before the merge: typecheck, lint, both builds, unit tests (only the 3 known local-only failures in `src/browse/queries.test.ts`), surfaces e2e 136/136, default e2e 33/33, privacy e2e passed. `npm audit`: 0 vulnerabilities, locally and in the host's `npm ci`.
+  - After the switch: both web units came up on Next.js 16.3.8, `npm run probe -- https://jobster.fun` printed `probe: ok`, and CV Ranked with the same store-manager CV made 4 GETs, no model request and no console errors or warnings: 156 matches (Strong 33), 1 hidden because its deadline passed since bundle `ccf43946` was built.
+- **Previous release:** `0b3476d` (role quality steps 1–3 from PR #36 and the backup size guard from PR #37, on top of CV Ranked A′), deployed 2026-09-30 at 16:54 UTC.
   - A bundle built by hand right after the switch, `ccf43946`, carries 8,796 vacancies and 518 role rows (65 before). `npm run probe -- https://jobster.fun` printed `probe: ok` (readiness, landing, browse, detail, manifest, bundle download with checksums).
   - CV Ranked on `jobster.fun` with a synthetic English store-manager CV: 4 GETs (the manifest and three bundle files), no model request, and no console errors. The current role was ticked, and the two past roles (2015–2021) were suggested but left unticked. 157 matches (Strong 33, Good 101, Partial 23), the top ones "მაღაზიის მენეჯერი", Strong (same title).
 - **First scheduled host run of `9a2b141` (2026-09-30, 16:10–16:36 UTC):** both pipelines exited 0 at every step, and the title vectors were built inside the hardened unit, with no EACCES or EROFS in either journal.
@@ -28,7 +31,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
     - the phase lines in CLAUDE.md and AGENTS.md;
     - dead links to research documents that were never committed.
   - **Open:**
-    - `undici` 8.10.1 has one high advisory. 8.11.2 is within range, and exposure is low (`docs/RIGHTS.md`).
+    - ~~`undici` 8.10.1's high advisory~~: **done**, bumped to 8.11.2 with `next` 16.3.8 (PR #38, deployed 2026-09-30).
     - Unused code: `createWordPieceTokenizer`, `StaticModelFile`, `TEXT_NORMALIZER_VERSION`, `ViewValue`, and the Phase 0 placeholder `src/index.ts`.
     - `src/matching/eval/fixtures/golden-vectors.node.json` holds 40 real vacancy texts, with one named recruiter's email and 8 phone numbers. Redacting them means regenerating the vectors (`npm run matching:embed-eval-corpus`).
     - Owner, on GitHub: turn on email privacy (36 web merge commits carry the owner's address) and Dependabot alerts.
@@ -137,7 +140,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
 6. **Evidence.**
    - **Accessibility.** axe WCAG 2.1 A/AA on the `public` server (`e2e/surfaces/a11y.spec.ts`, pinned `@axe-core/playwright@4.13.0`) found 0 violations on landing, Browse, Listings, CV Ranked and a detail page.
    - **Load** (`npm run load-test`). One `public` process serves Browse in about 110 ms p50 to a single client. At 20 concurrent loops it serves about 22 req/s, all 200, with Browse p50 about 1.2 s from queueing.
-   - **Dependencies.** `npm audit` found 0 vulnerabilities (2026-09-26); 131 production packages, all permissive (`docs/RIGHTS.md`). On 2026-09-30 it reports 1 high, `undici`, with the bump open (current phase above).
+   - **Dependencies.** `npm audit` found 0 vulnerabilities (2026-09-26); 131 production packages, all permissive (`docs/RIGHTS.md`). On 2026-09-30 it reported 1 critical (`next`) and 1 high (`undici`); both were bumped the same day (PR #38), and it reports 0 again.
    - `docs/THREAT_MODEL.md` §7.2 records every control with its evidence and residuals.
 
    **Done.** P3, operator-only: `local`'s hover-revealed Save/Dismiss controls sit at 35% opacity until hover or focus, which axe flags as contrast. They do not exist on `public`.
@@ -351,9 +354,9 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 
 ## Upcoming, most valuable first
 
-1. **Dependency bump.** `next` 16.3.4 → 16.3.6 or later: critical advisory GHSA-vcvr-r3jv-pc5j, remote code execution in `next/og` `ImageResponse`, which Xtelo never imports (its share image is a static file). `undici` 8.10.1 → 8.11.2: high, and it is the crawler's HTTP client. Both versions are in the live release. Local QA, then a plain deploy.
-2. **Phase 8E stage 7 remainder** (owner and host work): the restore and rollback drills.
-3. **Public-repository follow-ups** (current phase above): the unused code, and optionally the eval fixture's contact details.
+1. **Phase 8E stage 7 remainder** (owner and host work): the restore and rollback drills.
+2. **Public-repository follow-ups** (current phase above): the unused code, and optionally the eval fixture's contact details.
+3. **Privacy e2e outside CI.** CI runs `test:e2e` and `test:e2e:surfaces` but not `test:e2e:privacy`, so the canary-CV test went stale when PR #36 moved role entry to "Your roles", and nobody noticed until PR #38's local QA. Run it by hand before any CV Ranked change, or add it to CI if its database and bundle needs allow.
 4. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
 5. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
 6. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (see the 8E section). The model question is closed (A′: precomputed `bge-small-en` title vectors, Phase 8D).
