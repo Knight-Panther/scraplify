@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1–3 in PR #36, from branch `cv-visible-ranking`).
+Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1–3 merged in PR #36, not yet deployed).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -280,7 +280,7 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
   - A near-miss role now reads "(close title)", as an exact one reads "(same title)".
   - **Browser QA** on `dev:web` (read-only real bundle, 8,691 vacancies) and `dev:web:qa`, at 390, 768, 1280 and 1920: no horizontal overflow. The counts equal the labels on screen once every row is shown (1,667 matches), and follow re-ranking when a role is switched off and on. The labels add no tab stops. Screen readers hear "Strong, 33, the title names one of your roles". The `web-design-guidelines` review found one nit (a CSS variable in an SVG `fill` attribute), fixed. No console errors.
   - Tried and dropped: treating "director" as a generic head noun. It changed no judged score, and the director titles came back through the role vectors instead.
-- **Steps 1–3 are in one PR, #36** (2026-09-30). They build on each other and were QA'd together. Merging waits on the owner's consent; deploying is not urgent. The bundle schema is unchanged, so the first build after the deploy ships the 508 role rows.
+- **Steps 1–3 merged together in PR #36** (2026-09-30, merge `e18c263`, CI green). They build on each other and were QA'd together. **Not yet deployed**, and deploying is not urgent. The bundle schema is unchanged, so no one-time step is needed; the first build after the deploy ships the 508 role rows.
 - **Open:**
   - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
   - P3: loose aliases (delivery, bare "hr", "head of").
