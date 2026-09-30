@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-30 (CV Ranked A′ deployed and its first scheduled host run passed; role quality steps 1–3 merged in PR #36, not yet deployed; public-repository audit, MIT licence; the owner's first admin sign-in).
+Last updated: 2026-09-30 (CV Ranked A′'s first scheduled host run passed; role quality steps 1–3 (PR #36) and the backup size guard (PR #37) deployed as `0b3476d`; hosted probe and the owner's first admin sign-in done; public-repository audit, MIT licence).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -8,16 +8,17 @@ This file is the **current-state index**: what is done, what is open, and what g
 
 The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E below). Every phase in the index is merged except 7B and the Phase 1C remainder.
 
-- **Live release:** `9a2b141` (CV Ranked A′, deployed 2026-09-30). Both pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `xtelo-pipeline@hr-ge.timer`).
-- **Merged, not yet deployed:** role quality steps 1–3 (PR #36, Phase 8D). It is a plain deploy (RUNBOOK §3 steps 1, 3 and 4), with no migration and no one-time step.
+- **Live release:** `0b3476d` (role quality steps 1–3 from PR #36 and the backup size guard from PR #37, on top of CV Ranked A′), deployed 2026-09-30 at 16:54 UTC as a plain deploy (RUNBOOK §3 steps 1, 3 and 4). The previous release, `9a2b141`, stays in `/opt/xtelo/releases` for rollback. Both pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `xtelo-pipeline@hr-ge.timer`).
+  - A bundle built by hand right after the switch, `ccf43946`, carries 8,796 vacancies and 518 role rows (65 before). `npm run probe -- https://jobster.fun` printed `probe: ok` (readiness, landing, browse, detail, manifest, bundle download with checksums).
+  - CV Ranked on `jobster.fun` with a synthetic English store-manager CV: 4 GETs (the manifest and three bundle files), no model request, and no console errors. The current role was ticked, and the two past roles (2015–2021) were suggested but left unticked. 157 matches (Strong 33, Good 101, Partial 23), the top ones "მაღაზიის მენეჯერი", Strong (same title).
 - **First scheduled host run of `9a2b141` (2026-09-30, 16:10–16:36 UTC):** both pipelines exited 0 at every step, and the title vectors were built inside the hardened unit, with no EACCES or EROFS in either journal.
   - jobs.ge: 6,064 on the board, 300 new, 8 changed, 0 failed, bundle `6516440b` (8,761 vacancies).
   - hr.ge: 3,545 on the board, 225 new, 65 changed, 1 of 20 canaries changed, 0 failed, bundle `46690770` (8,796 vacancies).
-- **Owed on the host (8E stage 7):** the hosted probe, and the restore and rollback drills. The owner's first admin sign-in is done (2026-09-30).
+- **Owed on the host (8E stage 7):** the restore and rollback drills. The hosted probe and the owner's first admin sign-in are done (2026-09-30).
 - **Backup storage kept inside R2's free tier (owner request, 2026-09-30).** Measured: 2 copies, 14.9 MB (about 7.5 MB a night), about 30 operations this month, against 10 GB-month, 1M Class A and 10M Class B free.
   - The bucket's lifecycle rule now deletes copies after 30 days instead of 60 (set through the API, verified).
   - A Cloudflare budget alert, "Any spend above $0", emails the owner if projected monthly spend passes $0.01. Cloudflare's own default alert at $10 stays.
-  - `deploy/backup-db.sh` also keeps the off-host copies under 8 GB, oldest first and never the newest (branch `backup-size-guard`; it ships with the next deploy). Tested with real rclone 1.75 against a local remote: over the cap, unrelated names untouched, the newest alone over the cap (kept, with a warning), a bad cap refused, a failed listing failing the run with nothing deleted, `BACKUP_REMOTE=none`, and local retention. shellcheck is clean.
+  - `deploy/backup-db.sh` also keeps the off-host copies under 8 GB, oldest first and never the newest (PR #37, deployed 2026-09-30). Tested with real rclone 1.75 against a local remote: over the cap, unrelated names untouched, the newest alone over the cap (kept, with a warning), a bad cap refused, a failed listing failing the run with nothing deleted, `BACKUP_REMOTE=none`, and local retention. shellcheck is clean.
 - **Public-repository audit (2026-09-30, read-only).** The repository is public, so its whole history is.
   - **No secrets:** no key, token or private key in any of the 299 commits, and no `.env` file ever committed. Database URLs are placeholders or the local dev default. The owner's real CVs never entered the repository (`spike/` is ignored). GitHub secret scanning and push protection are on, with no alerts. CI gives fork PRs no secrets and a read-only token.
   - **Fixed the same day:**
@@ -152,7 +153,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
    - ~~role passwords on the host~~: **done**. They were generated on the host by `deploy/make-env.sh` and never printed;
    - ~~off-host backup storage~~: **done** 2026-09-28. The R2 bucket (WEUR, private) has a 30-day expiry rule (60 days until 2026-09-30; see the current phase). Its token has Object Read & Write on that bucket only and is IP-filtered to the host. A real backup uploaded (`Copied off the host`);
    - ~~the alert channel~~: dropped (owner decision, 2026-09-27);
-   - hosted probe, restore and rollback evidence. Still owed. The first crawl, dedupe and bundle build have finished, and the host has served live bundles since.
+   - ~~hosted probe~~: **done** 2026-09-30 (`probe: ok` after the `0b3476d` deploy). Restore and rollback evidence: still owed. The first crawl, dedupe and bundle build have finished, and the host has served live bundles since.
 
 **Pre-deploy audit (2026-09-27, branch `phase-8e-deploy-hardening`).** A read-only audit of `deploy/` and the runbook against a fresh Ubuntu 24.04 host found 2 P0s and 5 P1s; all are fixed. A surface-boundary review of everything merged since 8E (7C, the board update line, jobs.ge v3) found nothing.
 - **P0:** the runbook granted roles before the migrations had created any table, and psql carried on past the errors, so roles came out with no grants. It also never created the service user or the directories the units need, so systemd would refuse to start them. `deploy/apply-db-roles.sh` now does `bootstrap` (database and migration role) before `db:migrate` and `grants` (both role scripts, `ON_ERROR_STOP`, passwords taken from the env files) after it, and checks that the public role can write nothing. Runbook §2 step 0 creates the users and directories.
@@ -228,8 +229,8 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
 | 8A — private matching feasibility | merged | #19, #20 | Closed **lexical-first**: `multilingual-e5-small` is 118 MB (int8), cold load 126 s against a 20 s gate. Node/browser parity was proven (cosine 0.997+). The 300+ human-labelled set was never built (a human task). |
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
-| 8D — browser CV Ranked | merged; A′ deployed 2026-09-30, role quality merged, not yet deployed | #23, #35, #36 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | **deployed** 2026-09-28 on OVH VPS-1 (`jobster.fun`); live, stage 7 almost closed (current phase) | #24 | Remaining: the hosted probe, restore and rollback drills (the owner's first admin sign-in was done 2026-09-30; alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
+| 8D — browser CV Ranked | merged; A′ and role quality deployed 2026-09-30 | #23, #35, #36 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
+| 8E — hosted readiness | **deployed** 2026-09-28 on OVH VPS-1 (`jobster.fun`); live, stage 7 almost closed (current phase) | #24 | Remaining: the restore and rollback drills (the hosted probe passed and the owner first signed in on 2026-09-30; alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
 | 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs. Migration 0037 (retention) is applied to `scraplify` (38 recorded, checked 2026-09-30) and on the host; `scraplify_qa` was not rechecked. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
@@ -312,7 +313,7 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
   - A near-miss role now reads "(close title)", as an exact one reads "(same title)".
   - **Browser QA** on `dev:web` (read-only real bundle, 8,691 vacancies) and `dev:web:qa`, at 390, 768, 1280 and 1920: no horizontal overflow. The counts equal the labels on screen once every row is shown (1,667 matches), and follow re-ranking when a role is switched off and on. The labels add no tab stops. Screen readers hear "Strong, 33, the title names one of your roles". The `web-design-guidelines` review found one nit (a CSS variable in an SVG `fill` attribute), fixed. No console errors.
   - Tried and dropped: treating "director" as a generic head noun. It changed no judged score, and the director titles came back through the role vectors instead.
-- **Steps 1–3 merged together in PR #36** (2026-09-30, merge `e18c263`, CI green). They build on each other and were QA'd together. **Not yet deployed**, and deploying is not urgent. The bundle schema is unchanged, so no one-time step is needed; the first build after the deploy ships the 508 role rows.
+- **Steps 1–3 merged together in PR #36** (2026-09-30, merge `e18c263`, CI green). They build on each other and were QA'd together. **Deployed 2026-09-30** as `0b3476d` (see the current phase), with no one-time step since the bundle schema is unchanged. The bundle built by hand after the switch, `ccf43946`, carries 518 role rows.
 - **Open:**
   - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
   - P3: loose aliases (delivery, bare "hr", "head of").
@@ -350,9 +351,9 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 
 ## Upcoming, most valuable first
 
-1. **Deploy role quality (PR #36) and the backup size guard.** The 2026-09-30 host pipeline run, which it waited for, passed.
-2. **Phase 8E stage 7 remainder** (owner and host work): the hosted probe, and the restore and rollback drills.
-3. **Public-repository follow-ups** (current phase above): the `undici` bump, the unused code, and optionally the eval fixture's contact details.
+1. **Dependency bump.** `next` 16.3.4 → 16.3.6 or later: critical advisory GHSA-vcvr-r3jv-pc5j, remote code execution in `next/og` `ImageResponse`, which Xtelo never imports (its share image is a static file). `undici` 8.10.1 → 8.11.2: high, and it is the crawler's HTTP client. Both versions are in the live release. Local QA, then a plain deploy.
+2. **Phase 8E stage 7 remainder** (owner and host work): the restore and rollback drills.
+3. **Public-repository follow-ups** (current phase above): the unused code, and optionally the eval fixture's contact details.
 4. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
 5. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
 6. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (see the 8E section). The model question is closed (A′: precomputed `bge-small-en` title vectors, Phase 8D).
