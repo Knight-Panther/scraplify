@@ -14,6 +14,10 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
   - jobs.ge: 6,064 on the board, 300 new, 8 changed, 0 failed, bundle `6516440b` (8,761 vacancies).
   - hr.ge: 3,545 on the board, 225 new, 65 changed, 1 of 20 canaries changed, 0 failed, bundle `46690770` (8,796 vacancies).
 - **Owed on the host (8E stage 7):** the hosted probe, and the restore and rollback drills. The owner's first admin sign-in is done (2026-09-30).
+- **Backup storage kept inside R2's free tier (owner request, 2026-09-30).** Measured: 2 copies, 14.9 MB (about 7.5 MB a night), about 30 operations this month, against 10 GB-month, 1M Class A and 10M Class B free.
+  - The bucket's lifecycle rule now deletes copies after 30 days instead of 60 (set through the API, verified).
+  - A Cloudflare budget alert, "Any spend above $0", emails the owner if projected monthly spend passes $0.01. Cloudflare's own default alert at $10 stays.
+  - `deploy/backup-db.sh` also keeps the off-host copies under 8 GB, oldest first and never the newest (branch `backup-size-guard`; it ships with the next deploy). Tested with real rclone 1.75 against a local remote: over the cap, unrelated names untouched, the newest alone over the cap (kept, with a warning), a bad cap refused, a failed listing failing the run with nothing deleted, `BACKUP_REMOTE=none`, and local retention. shellcheck is clean.
 - **Public-repository audit (2026-09-30, read-only).** The repository is public, so its whole history is.
   - **No secrets:** no key, token or private key in any of the 299 commits, and no `.env` file ever committed. Database URLs are placeholders or the local dev default. The owner's real CVs never entered the repository (`spike/` is ignored). GitHub secret scanning and push protection are on, with no alerts. CI gives fork PRs no secrets and a read-only token.
   - **Fixed the same day:**
@@ -146,7 +150,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
    - ~~the domain~~: **done** 2026-09-28. `jobster.fun` is registered at Cloudflare with auto-renew on. The public site is `jobster.fun` and admin is `admin.jobster.fun`. DNSSEC, CAA (Let's Encrypt and ZeroSSL only) and mail lockdown are set. A and AAAA records exist for both names, DNS-only. Let's Encrypt certificates were issued for both on 2026-09-28;
    - ~~the production GitHub OAuth app~~: **done**. It was registered with its homepage and its only callback URL on `admin.jobster.fun`. The owner generated the client secret on 2026-09-28 and set it on the host through the hidden-input helper. The owner first signed in on 2026-09-30;
    - ~~role passwords on the host~~: **done**. They were generated on the host by `deploy/make-env.sh` and never printed;
-   - ~~off-host backup storage~~: **done** 2026-09-28. The R2 bucket (WEUR, private) has a 60-day expiry rule. Its token has Object Read & Write on that bucket only and is IP-filtered to the host. A real backup uploaded (`Copied off the host`);
+   - ~~off-host backup storage~~: **done** 2026-09-28. The R2 bucket (WEUR, private) has a 30-day expiry rule (60 days until 2026-09-30; see the current phase). Its token has Object Read & Write on that bucket only and is IP-filtered to the host. A real backup uploaded (`Copied off the host`);
    - ~~the alert channel~~: dropped (owner decision, 2026-09-27);
    - hosted probe, restore and rollback evidence. Still owed. The first crawl, dedupe and bundle build have finished, and the host has served live bundles since.
 
