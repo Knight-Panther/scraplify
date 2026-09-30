@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1–3 merged in PR #36, not yet deployed; public-repository audit, MIT licence).
+Last updated: 2026-09-30 (CV Ranked A′ deployed and its first scheduled host run passed; role quality steps 1–3 merged in PR #36, not yet deployed; public-repository audit, MIT licence; the owner's first admin sign-in).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -10,7 +10,10 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
 
 - **Live release:** `9a2b141` (CV Ranked A′, deployed 2026-09-30). Both pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `xtelo-pipeline@hr-ge.timer`).
 - **Merged, not yet deployed:** role quality steps 1–3 (PR #36, Phase 8D). It is a plain deploy (RUNBOOK §3 steps 1, 3 and 4), with no migration and no one-time step.
-- **Owed on the host (8E stage 7):** the hosted probe, restore and rollback drills, and the owner's first admin sign-in.
+- **First scheduled host run of `9a2b141` (2026-09-30, 16:10–16:36 UTC):** both pipelines exited 0 at every step, and the title vectors were built inside the hardened unit, with no EACCES or EROFS in either journal.
+  - jobs.ge: 6,064 on the board, 300 new, 8 changed, 0 failed, bundle `6516440b` (8,761 vacancies).
+  - hr.ge: 3,545 on the board, 225 new, 65 changed, 1 of 20 canaries changed, 0 failed, bundle `46690770` (8,796 vacancies).
+- **Owed on the host (8E stage 7):** the hosted probe, and the restore and rollback drills. The owner's first admin sign-in is done (2026-09-30).
 - **Public-repository audit (2026-09-30, read-only).** The repository is public, so its whole history is.
   - **No secrets:** no key, token or private key in any of the 299 commits, and no `.env` file ever committed. Database URLs are placeholders or the local dev default. The owner's real CVs never entered the repository (`spike/` is ignored). GitHub secret scanning and push protection are on, with no alerts. CI gives fork PRs no secrets and a read-only token.
   - **Fixed the same day:**
@@ -141,7 +144,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
      - the crawl and backup timers.
      The first jobs.ge run (a full fetch) started at 16:22 UTC, and hr.ge follows it automatically. The scripts written for it are in `deploy/` (`host-setup.sh`, `make-env.sh`, `set-github-secret.sh`, `set-r2-credentials.sh`);
    - ~~the domain~~: **done** 2026-09-28. `jobster.fun` is registered at Cloudflare with auto-renew on. The public site is `jobster.fun` and admin is `admin.jobster.fun`. DNSSEC, CAA (Let's Encrypt and ZeroSSL only) and mail lockdown are set. A and AAAA records exist for both names, DNS-only. Let's Encrypt certificates were issued for both on 2026-09-28;
-   - ~~the production GitHub OAuth app~~: **done**. It was registered with its homepage and its only callback URL on `admin.jobster.fun`. The owner generated the client secret on 2026-09-28 and set it on the host through the hidden-input helper. The owner's first sign-in is still to be confirmed;
+   - ~~the production GitHub OAuth app~~: **done**. It was registered with its homepage and its only callback URL on `admin.jobster.fun`. The owner generated the client secret on 2026-09-28 and set it on the host through the hidden-input helper. The owner first signed in on 2026-09-30;
    - ~~role passwords on the host~~: **done**. They were generated on the host by `deploy/make-env.sh` and never printed;
    - ~~off-host backup storage~~: **done** 2026-09-28. The R2 bucket (WEUR, private) has a 60-day expiry rule. Its token has Object Read & Write on that bucket only and is IP-filtered to the host. A real backup uploaded (`Copied off the host`);
    - ~~the alert channel~~: dropped (owner decision, 2026-09-27);
@@ -222,7 +225,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E bel
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
 | 8D — browser CV Ranked | merged; A′ deployed 2026-09-30, role quality merged, not yet deployed | #23, #35, #36 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | **deployed** 2026-09-28 on OVH VPS-1 (`jobster.fun`); live, stage 7 almost closed (current phase) | #24 | Remaining: the hosted probe, restore and rollback drills, and the owner's first admin sign-in (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
+| 8E — hosted readiness | **deployed** 2026-09-28 on OVH VPS-1 (`jobster.fun`); live, stage 7 almost closed (current phase) | #24 | Remaining: the hosted probe, restore and rollback drills (the owner's first admin sign-in was done 2026-09-30; alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
 | 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs. Migration 0037 (retention) is applied to `scraplify` (38 recorded, checked 2026-09-30) and on the host; `scraplify_qa` was not rechecked. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
@@ -343,8 +346,8 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 
 ## Upcoming, most valuable first
 
-1. **Deploy role quality (PR #36)**, after the 2026-09-30 host pipeline run checks out.
-2. **Phase 8E stage 7 remainder** (owner and host work): the hosted probe, restore and rollback drills, and the owner's first admin sign-in.
+1. **Deploy role quality (PR #36) and the backup size guard.** The 2026-09-30 host pipeline run, which it waited for, passed.
+2. **Phase 8E stage 7 remainder** (owner and host work): the hosted probe, and the restore and rollback drills.
 3. **Public-repository follow-ups** (current phase above): the `undici` bump, the unused code, and optionally the eval fixture's contact details.
 4. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
 5. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
