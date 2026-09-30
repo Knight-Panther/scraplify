@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1 and 2 built on branches `cv-role-quality` and `cv-confirm-roles`).
+Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1–3 built on branches `cv-role-quality`, `cv-confirm-roles` and `cv-visible-ranking`).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
@@ -275,6 +275,12 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
   - **Role picker** (native `datalist`, English or Georgian): every lexicon row plus every recurring corpus title no row covers (`roleOptions`). A picked role, or a Georgian corpus title typed in full, gets the id a CV naming it would yield, so it ranks by its title vector without the static model. Anything else stays a typed role and still falls back to the static model.
   - The profile column keeps each role's CV quote and checkbox. Its own "Add a role" box is gone, since the picker replaces it.
   - **Browser QA** on `dev:web:qa` with the step 1 QA bundle, at 390, 768, 1280 and 1920: no horizontal overflow, Georgian labels wrap, no uppercase. Chips and checkboxes stay in sync, and results re-rank. Picking roles makes no model request, and a role outside the list loads the static model as before. The keyboard reaches every chip with the focus ring. The `web-design-guidelines` review found two focus-loss bugs (a chip moving between lists, a chosen suggestion leaving its row), both fixed and re-checked. No console errors.
+- **Visible ranking, step 3 (branch `cv-visible-ranking`, on top of step 2, 2026-09-30):** every result carries Strong, Good or Partial, and a key above the list gives the count of each over every match, shown or not. The full list stays behind "Show more"; no score is shown.
+  - **By evidence, never by score** (`strength.ts`): Strong = the title names one of your roles; Good = close to one (near spelling, similar meaning, or its English equivalent); Partial = no role, only a field, a skill or a CV line. Judged on each CV's first 50 results (32 suite + 24 held-out CVs), relevant / strong fit: a named role 96–99% / 74–94%, a close title 50–68% / 20–46%, a field or skill alone 0–27% / 0–5%, a CV line alone (Russian CVs, 11 rows) 45% / 0%. Cosine bands did not separate grades consistently across the two sets, so they play no part.
+  - **Grouped by strength, fused order within each** (`+strength-v1` on every rank version). Without it, a broad field buried 38 of a store manager's 55 Good rows among ~1,500 Partial ones. Condensed nDCG (judged rows only) @10/@20/@50: held-out .912/.873/.872 → .928/.893/.882; suite (the set the fusion weights were tuned on) .859/.833/.814 → .844/.819/.810.
+  - A near-miss role now reads "(close title)", as an exact one reads "(same title)".
+  - **Browser QA** on `dev:web` (read-only real bundle, 8,691 vacancies) and `dev:web:qa`, at 390, 768, 1280 and 1920: no horizontal overflow. The counts equal the labels on screen once every row is shown (1,667 matches), and follow re-ranking when a role is switched off and on. The labels add no tab stops. Screen readers hear "Strong, 33, the title names one of your roles". The `web-design-guidelines` review found one nit (a CSS variable in an SVG `fill` attribute), fixed. No console errors.
+  - Tried and dropped: treating "director" as a generic head noun. It changed no judged score, and the director titles came back through the role vectors instead.
 - **Open:**
   - P2: a DOCX whose declared zip sizes lie can still exhaust the tab's memory (THREAT_MODEL §7.1 residual).
   - P3: loose aliases (delivery, bare "hr", "head of").

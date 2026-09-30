@@ -14,6 +14,7 @@ import {
 import { findPhrase, phraseStems } from '../lexical/text.js';
 import { STATIC_E1_PIN } from '../models/static-e1.js';
 import { embed, type StaticModel } from './static-embed.js';
+import { MATCH_STRENGTHS, type MatchStrength, matchStrength } from './strength.js';
 import { englishTitle, type TitleDictionary } from './title-english.js';
 import { type RoleHit, roleSimilarList, type TitleVectors } from './title-vectors.js';
 
@@ -41,10 +42,20 @@ import { type RoleHit, roleSimilarList, type TitleVectors } from './title-vector
  * Lists are combined by weighted reciprocal-rank fusion. Similarity only
  * ever adds a row; it never excludes one, and every row still passes the
  * same deadline and location filters.
+ *
+ * Results are then grouped by strength (`strength.ts`), strong first, each
+ * group in fused order. Judged by condensed nDCG (judged rows only) at 10,
+ * 20 and 50: on the 24 held-out CVs .912/.873/.872 → .928/.893/.882; on
+ * the 32 suite CVs the fusion weights were tuned on, .859/.833/.814 →
+ * .844/.819/.810. Without it, a result list with a broad field on buried
+ * most "good" rows among hundreds of field-only ones.
  */
 
-/** The static path's version, unchanged from before role vectors existed. */
+/** The static path's fusion, unchanged from before role vectors existed. */
 export const HYBRID_RANK_VERSION = `hybrid-v1+${LEXICAL_RANK_VERSION}+${STATIC_E1_PIN.id}`;
+/** Appended to every version: the grouping by strength after fusion. */
+export const STRENGTH_ORDER_VERSION = 'strength-v1';
+const STRENGTH_RANK = new Map<MatchStrength, number>(MATCH_STRENGTHS.map((s, i) => [s, i]));
 
 /**
  * The static path's weights, as the spike judged best ("lex+semL
@@ -100,6 +111,7 @@ export interface HybridRanked {
   score: number;
   reasons: HybridReason[];
   locationUnstated: boolean;
+  strength: MatchStrength;
 }
 
 /**
@@ -442,10 +454,13 @@ export function rankHybrid(
       score,
       reasons,
       locationUnstated: filter.locationUnstated,
+      strength: matchStrength(reasons),
     });
   }
+  const strengthRank = (result: HybridRanked) => STRENGTH_RANK.get(result.strength) ?? 0;
   results.sort(
     (a, b) =>
+      strengthRank(a) - strengthRank(b) ||
       b.score - a.score ||
       (a.row.deadlineAt === null ? Number.POSITIVE_INFINITY : Date.parse(a.row.deadlineAt)) -
         (b.row.deadlineAt === null ? Number.POSITIVE_INFINITY : Date.parse(b.row.deadlineAt)) ||
@@ -461,12 +476,13 @@ export function rankHybrid(
     ...(usedVectors ? [vectors.model] : []),
     ...(staticIndex !== null ? [STATIC_E1_PIN.id] : []),
   ];
+  const fusion = usedVectors
+    ? `hybrid-v2+${parts.join('+')}`
+    : staticIndex !== null
+      ? HYBRID_RANK_VERSION
+      : LEXICAL_RANK_VERSION;
   return {
-    version: usedVectors
-      ? `hybrid-v2+${parts.join('+')}`
-      : staticIndex !== null
-        ? HYBRID_RANK_VERSION
-        : LEXICAL_RANK_VERSION,
+    version: `${fusion}+${STRENGTH_ORDER_VERSION}`,
     similarity: staticIndex !== null ? 'roles-and-cv' : usedVectors ? 'roles' : 'none',
     results,
     stats: { ...lexical.stats, matched: results.length },

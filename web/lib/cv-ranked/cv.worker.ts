@@ -94,11 +94,15 @@ function rank(profile: MatchProfile, now: number, limit: number): RankingPayload
         { now },
       )
     : null;
+  const ranked = result?.results ?? [];
+  const strengths = { strong: 0, good: 0, partial: 0 };
+  for (const row of ranked) strengths[row.strength]++;
   return {
     version: result?.version ?? '',
     similarity: result?.similarity ?? 'none',
-    results: result?.results.slice(0, limit) ?? [],
-    total: result?.results.length ?? 0,
+    results: ranked.slice(0, limit),
+    total: ranked.length,
+    strengths,
     stats: result?.stats ?? { considered: 0, excludedDeadline: 0, excludedLocation: 0, matched: 0 },
   };
 }

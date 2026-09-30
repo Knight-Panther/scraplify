@@ -2,6 +2,7 @@ import type { BundleOpportunity } from '../../../src/matching/bundle/schema.js';
 import type { MatchProfile, Vocabulary } from '../../../src/matching/lexical/profile.js';
 import type { RankingStats } from '../../../src/matching/lexical/rank.js';
 import type { HybridReason, HybridSimilarity } from '../../../src/matching/semantic/hybrid.js';
+import type { MatchStrength } from '../../../src/matching/semantic/strength.js';
 import type { CvErrorCode, CvKind, CvScript } from './document-checks.js';
 
 /**
@@ -42,6 +43,7 @@ export interface RankedRow {
   score: number;
   reasons: HybridReason[];
   locationUnstated: boolean;
+  strength: MatchStrength;
 }
 
 export interface RankingPayload {
@@ -56,6 +58,8 @@ export interface RankingPayload {
   results: RankedRow[];
   /** Every match, of which `results` is the first `limit`; more than its length means "show more". */
   total: number;
+  /** Every match by strength, so the counts cover rows not yet shown. */
+  strengths: Record<MatchStrength, number>;
   stats: RankingStats;
 }
 
