@@ -1,6 +1,6 @@
 # Rights and licences
 
-Phase 8E release item (change.md §11: "Public deployment is gated on documented permission/terms for crawling and republishing each source. Technical access is not publication authority"). This file records what is known and what is still owed. Last checked 2026-09-26.
+Phase 8E release item (change.md §11: "Public deployment is gated on documented permission/terms for crawling and republishing each source. Technical access is not publication authority"). This file records what is known and what is still owed. Last checked 2026-09-26; the assets, the audit line and the repository's licence were updated on 2026-09-30.
 
 ## Verdict
 
@@ -24,8 +24,9 @@ No owner action remains for either source.
 | Asset | Licence | Status |
 | --- | --- | --- |
 | Noto Sans Georgian, Space Mono, Bebas Neue | SIL Open Font License 1.1 | Fine. `next/font` downloads them at build time and serves them from our own origin. |
-| `web/public/hero-bg.mp4` (landing background video) | free source (owner, 2026-09-26) | Fine. 5.8 MB: re-encode if it slows the landing page. |
-| `web/public/logo.png`, `web/app/icon.svg` | free source (owner, 2026-09-26) | Fine. |
+| `web/public/hero-bg.v2.mp4`, `hero-bg.v2-640.mp4` and the `hero-poster.v2*.webp` posters (landing background video) | free source (owner, 2026-09-26) | Fine. Re-encoded from the original 5.8 MB video on 2026-09-28 (1.4 MB and 0.7 MB). |
+| `web/public/logo.v2.webp`, `web/app/icon.svg`, `favicon.ico`, `apple-icon.png` | free source (owner, 2026-09-26) | Fine. The WebP logo is a re-encode of the original PNG. |
+| `web/app/opengraph-image.jpg` (link-preview banner) | ours | Made on 2026-09-28 from the site's own hero copy. |
 
 ## Models
 
@@ -55,6 +56,15 @@ Production dependency tree (`npm ls --omit=dev --all`): 131 packages, all under 
 | MIT OR GPL-3.0-or-later | `jszip`. **Used under MIT.** |
 | Apache-2.0 AND LGPL-3.0-or-later | `@img/sharp-*` platform binaries. libvips is LGPL and dynamically linked, so the obligation is attribution and allowing it to be replaced, which an unmodified npm install already allows. |
 
-`npm audit` (all dependencies, 2026-09-26): **0 vulnerabilities.**
+`npm audit` (all dependencies): **0 vulnerabilities** on 2026-09-26. On 2026-09-30 it reports **1 high**: `undici` 8.10.1, the crawler's HTTP client, fixed in 8.11.2 within the declared range. Exposure is low, since the fetcher uses none of the affected features (undici's interceptors, retry handler, WebSocket, cache or `BalancedPool`) and decompresses with `node:zlib` under its own size limit. The bump is open (`docs/STATUS.md`).
+
+## This repository's licence
+
+Since 2026-09-30 the original code and documentation are under the MIT License (`LICENSE`). It does not extend to material owned by others, which keeps its own terms:
+
+- **Source content.** The saved pages and vacancy texts in `src/adapters/*/fixtures/` and `src/matching/eval/fixtures/` belong to jobs.ge, hr.ge and the employers who posted them. They are kept only to test parsing and matching.
+- **Vendored work.** The `static-e1-v1` model (see Models) and the skills in `docs/skill-candidates/` are MIT under their own authors' copyright.
+- **Site assets.** They are listed above, from free sources under their own terms.
+- **Names.** Xtelo and jobster are not licensed.
 
 To regenerate the inventory, walk `npm ls --omit=dev --all --long --json` and read each package's `license` field from its installed `package.json`. The Phase 8E commit that added this file records the exact one-liner used.

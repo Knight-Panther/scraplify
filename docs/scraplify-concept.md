@@ -1181,8 +1181,7 @@ Acceptance criteria:
 
 ### Project research
 
-- [`PROJECT_PLAN.md`](./PROJECT_PLAN.md)
-- [`CRAWLING_ARCHITECTURE_2026.md`](./CRAWLING_ARCHITECTURE_2026.md)
+- `PROJECT_PLAN.md` and `CRAWLING_ARCHITECTURE_2026.md`: the earlier research this concept was built from. They are not kept in this repository.
 
 ### Source sites
 

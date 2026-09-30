@@ -25,7 +25,7 @@ fi
 current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 if [ "$current_branch" = "main" ]; then
   non_governance_files=$(git diff --cached --name-only | grep -vE \
-    '^(docs/|\.claude/|\.agents/|\.codex/|\.githooks/|scripts/|README\.md$|CLAUDE\.md$|AGENTS\.md$|\.gitignore$|\.gitattributes$)')
+    '^(docs/|\.claude/|\.agents/|\.codex/|\.githooks/|scripts/|README\.md$|LICENSE$|CLAUDE\.md$|AGENTS\.md$|\.gitignore$|\.gitattributes$)')
   if [ -n "$non_governance_files" ]; then
     suggested_slug=$(grep -m1 '^## Current phase:' docs/STATUS.md 2>/dev/null \
       | sed -E 's/^## Current phase: *//; s/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//' \

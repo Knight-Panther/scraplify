@@ -1,6 +1,8 @@
 # scraplify
 
-Xtelo's TypeScript ingestion service for jobs.ge and hr.ge. See [the concept](docs/scraplify-concept.md) for product scope and [status](docs/STATUS.md) for implementation progress.
+The code behind Xtelo, live at [jobster.fun](https://jobster.fun): one catalogue of the vacancies on jobs.ge and hr.ge, deduplicated across both boards, with CV matching that runs entirely in the visitor's browser (the CV never leaves the device).
+
+This repository holds all of it, in TypeScript: the crawlers, normalization and dedupe, the Next.js web app with its three surfaces (`local` for the operator, `public`, `admin`), the matching bundle, and the deployment scripts. See [the concept](docs/scraplify-concept.md) for product scope, [status](docs/STATUS.md) for what is done, and [the runbook](docs/RUNBOOK.md) for production.
 
 ## Local setup
 
@@ -109,3 +111,12 @@ npm run health:check   # prints each source's alerts; exits 1 on any critical on
 The same alerts appear on `/health` and in `npm run browse health`: a source not crawled in 48h, a failed or degraded last run, no full-coverage crawl in 7 days, unresolved parser incidents, and active listings that have gone more than 12h without reaching browse (dedupe not running).
 
 A crawl records a parser incident when a finished full walk fails a whole-run guard (count collapse, quarantine or fetch-failure rate) or its count more than doubles. Reconciliation also refuses to close more than max(25, 10%) of a source's open listings in one pass: it records a critical `mass_closure_suspected` incident and leaves them `missing_suspected`. Once you have checked those listings really are gone, run that source's crawl once with the override, for example `npm run crawl:hr-ge -- --allow-mass-closure`, then mark the incident resolved.
+
+## License
+
+The original code and documentation in this repository are under the [MIT License](LICENSE). The licence does not cover material that belongs to others, which keeps its own terms:
+
+- The saved pages and vacancy texts in the test fixtures (`src/adapters/*/fixtures/`, `src/matching/eval/fixtures/`) belong to jobs.ge, hr.ge and the employers who posted them. They are here only to test the parsers and the matching.
+- The static similarity model in `matching-models/` and the skills in `docs/skill-candidates/` are MIT under their own authors' copyright (provenance in `src/matching/models/static-e1.ts` and `docs/skill-candidates/SOURCES.md`).
+- The site's video and images come from free sources under their own terms (`docs/RIGHTS.md`).
+- The names Xtelo and jobster are not licensed.

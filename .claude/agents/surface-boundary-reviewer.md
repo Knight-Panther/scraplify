@@ -113,7 +113,7 @@ the same severity class as fabricated data or broken Georgian handling.
    ad hoc one.
 6. **Admin mutations get their own redirect/revalidate targets**, not reused
    local-workflow wrappers — concept round 4 found the admin-shell stage would
-   have reused `web/app/review/actions.ts`'s hardcoded `redirect('/review')`,
+   have reused `web/app/(local)/review/actions.ts`'s hardcoded `redirect('/review')`,
    which sends a successful admin mutation to a URL the admin allow-list
    itself 404s. Any new admin action needs to be checked for exactly this.
 7. **CSRF and audit logging on admin mutations**, once the admin surface has

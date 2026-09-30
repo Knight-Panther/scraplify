@@ -6,7 +6,7 @@ This preserves the prior status text for audit history, not current readiness. I
 
 Last updated: 2026-09-05 (Phase 1A merged to `main` via PR #2; Phase 1B recon, policy update, and full adapter implementation complete; first whole-branch adversarial-review pass done, 2 P1s fixed — not yet merged)
 
-Tracks progress against the phased plan in [`scraplify-concept.md`](./scraplify-concept.md) §25. Update this file in the same commit/PR as the work that changes its status — that keeps it honest (Codex reviews the status change alongside the code) instead of a self-reported log that can drift from reality.
+Tracks progress against the phased plan in [`scraplify-concept.md`](../scraplify-concept.md) §25. Update this file in the same commit/PR as the work that changes its status — that keeps it honest (Codex reviews the status change alongside the code) instead of a self-reported log that can drift from reality.
 
 Check an item only when it's actually true, not aspirationally.
 

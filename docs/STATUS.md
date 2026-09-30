@@ -1,10 +1,32 @@
 # scraplify — implementation status
 
-Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1–3 merged in PR #36, not yet deployed).
+Last updated: 2026-09-30 (CV Ranked A′ deployed; role quality steps 1–3 merged in PR #36, not yet deployed; public-repository audit, MIT licence).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds and incident write-ups through 2026-09-25 are kept verbatim in [`status-history.md`](status-history.md). Read that when you need the evidence behind a line here, and not otherwise; it is ~600 KB. Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md). Keep new entries short: evidence in a few bullets, full narrative only where a future reader genuinely needs it.
 
-## Current phase: Phase 7C — incremental crawling and retention
+## Current phase: Phase 8E stage 7 — live operations
+
+The hosted edition has been live at `jobster.fun` since 2026-09-28 (Phase 8E below). Every phase in the index is merged except 7B and the Phase 1C remainder.
+
+- **Live release:** `9a2b141` (CV Ranked A′, deployed 2026-09-30). Both pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `xtelo-pipeline@hr-ge.timer`).
+- **Merged, not yet deployed:** role quality steps 1–3 (PR #36, Phase 8D). It is a plain deploy (RUNBOOK §3 steps 1, 3 and 4), with no migration and no one-time step.
+- **Owed on the host (8E stage 7):** the hosted probe, restore and rollback drills, and the owner's first admin sign-in.
+- **Public-repository audit (2026-09-30, read-only).** The repository is public, so its whole history is.
+  - **No secrets:** no key, token or private key in any of the 299 commits, and no `.env` file ever committed. Database URLs are placeholders or the local dev default. The owner's real CVs never entered the repository (`spike/` is ignored). GitHub secret scanning and push protection are on, with no alerts. CI gives fork PRs no secrets and a read-only token.
+  - **Fixed the same day:**
+    - the MIT licence (`LICENSE`, the README, `docs/RIGHTS.md`);
+    - the host's IPv4, order number and backup bucket name, removed from this file (they stay in history, and none is a secret);
+    - `docs/THREAT_MODEL.md`'s SSRF row, stale since Phase 1A;
+    - the phase lines in CLAUDE.md and AGENTS.md;
+    - dead links to research documents that were never committed.
+  - **Open:**
+    - `undici` 8.10.1 has one high advisory. 8.11.2 is within range, and exposure is low (`docs/RIGHTS.md`).
+    - Unused code: `createWordPieceTokenizer`, `StaticModelFile`, `TEXT_NORMALIZER_VERSION`, `ViewValue`, and the Phase 0 placeholder `src/index.ts`.
+    - `src/matching/eval/fixtures/golden-vectors.node.json` holds 40 real vacancy texts, with one named recruiter's email and 8 phone numbers. Redacting them means regenerating the vectors (`npm run matching:embed-eval-corpus`).
+    - Owner, on GitHub: turn on email privacy (36 web merge commits carry the owner's address) and Dependabot alerts.
+    - Archive or delete (owner's call): `change.md` (the 8A–8E handoff, all done), `docs/PHASE_3B_PLAN.md`, `docs/skill-candidates/` (never adopted, and without its MIT notice text), and the 620 KB `status-history.md`.
+
+## Phase 7C — incremental crawling and retention
 
 **Merged 2026-09-26 (PR #25); retention (step 6) merged 2026-09-28 (PR #31).** Plan: [`docs/PHASE_7C_PLAN.md`](PHASE_7C_PLAN.md).
 
@@ -107,12 +129,12 @@ This file is the **current-state index**: what is done, what is open, and what g
 6. **Evidence.**
    - **Accessibility.** axe WCAG 2.1 A/AA on the `public` server (`e2e/surfaces/a11y.spec.ts`, pinned `@axe-core/playwright@4.13.0`) found 0 violations on landing, Browse, Listings, CV Ranked and a detail page.
    - **Load** (`npm run load-test`). One `public` process serves Browse in about 110 ms p50 to a single client. At 20 concurrent loops it serves about 22 req/s, all 200, with Browse p50 about 1.2 s from queueing.
-   - **Dependencies.** `npm audit` finds 0 vulnerabilities; 131 production packages, all permissive (`docs/RIGHTS.md`).
+   - **Dependencies.** `npm audit` found 0 vulnerabilities (2026-09-26); 131 production packages, all permissive (`docs/RIGHTS.md`). On 2026-09-30 it reports 1 high, `undici`, with the bump open (current phase above).
    - `docs/THREAT_MODEL.md` §7.2 records every control with its evidence and residuals.
 
    **Done.** P3, operator-only: `local`'s hover-revealed Save/Dismiss controls sit at 35% opacity until hover or focus, which axe flags as contrast. They do not exist on `public`.
 7. **Needs a host or an owner decision** (nothing else is left). Source rights are settled: the owner has permission from jobs.ge and hr.ge (2026-09-26, `docs/RIGHTS.md`).
-   - ~~the host~~: **deployed** 2026-09-28. It is an OVHcloud VPS-1 (2 vCore, 4 GB, 40 GB NVMe) in Gravelines, France, running Ubuntu 24.04, with no commitment at €4.49/month before tax (order #259205773). The IPv4 is `152.228.171.98`. Hetzner's CX23 and CAX11 were sold out in every EU location that day. OVH also beat Contabo and Netcup on price and terms. The first deployment followed RUNBOOK §2 end to end, and release `41c678d` is live:
+   - ~~the host~~: **deployed** 2026-09-28. It is an OVHcloud VPS-1 (2 vCore, 4 GB, 40 GB NVMe) in Gravelines, France, running Ubuntu 24.04, with no commitment at €4.49/month before tax. Hetzner's CX23 and CAX11 were sold out in every EU location that day. OVH also beat Contabo and Netcup on price and terms. The first deployment followed RUNBOOK §2 end to end, and release `41c678d` is live:
      - host set-up, SSH on keys only, and the ufw firewall;
      - 38 migrations as `scraplify_migration`, then grants, with all five roles and public read-only;
      - both web units and Caddy;
@@ -121,9 +143,9 @@ This file is the **current-state index**: what is done, what is open, and what g
    - ~~the domain~~: **done** 2026-09-28. `jobster.fun` is registered at Cloudflare with auto-renew on. The public site is `jobster.fun` and admin is `admin.jobster.fun`. DNSSEC, CAA (Let's Encrypt and ZeroSSL only) and mail lockdown are set. A and AAAA records exist for both names, DNS-only. Let's Encrypt certificates were issued for both on 2026-09-28;
    - ~~the production GitHub OAuth app~~: **done**. It was registered with its homepage and its only callback URL on `admin.jobster.fun`. The owner generated the client secret on 2026-09-28 and set it on the host through the hidden-input helper. The owner's first sign-in is still to be confirmed;
    - ~~role passwords on the host~~: **done**. They were generated on the host by `deploy/make-env.sh` and never printed;
-   - ~~off-host backup storage~~: **done** 2026-09-28. The R2 bucket `xtelo-backups` (WEUR, private) has a 60-day expiry rule. Its token has Object Read & Write on that bucket only and is IP-filtered to the host. A real backup uploaded (`Copied off the host`);
+   - ~~off-host backup storage~~: **done** 2026-09-28. The R2 bucket (WEUR, private) has a 60-day expiry rule. Its token has Object Read & Write on that bucket only and is IP-filtered to the host. A real backup uploaded (`Copied off the host`);
    - ~~the alert channel~~: dropped (owner decision, 2026-09-27);
-   - hosted probe, restore and rollback evidence. These are owed once the first crawl, dedupe and bundle build finish.
+   - hosted probe, restore and rollback evidence. Still owed. The first crawl, dedupe and bundle build have finished, and the host has served live bundles since.
 
 **Pre-deploy audit (2026-09-27, branch `phase-8e-deploy-hardening`).** A read-only audit of `deploy/` and the runbook against a fresh Ubuntu 24.04 host found 2 P0s and 5 P1s; all are fixed. A surface-boundary review of everything merged since 8E (7C, the board update line, jobs.ge v3) found nothing.
 - **P0:** the runbook granted roles before the migrations had created any table, and psql carried on past the errors, so roles came out with no grants. It also never created the service user or the directories the units need, so systemd would refuse to start them. `deploy/apply-db-roles.sh` now does `bootstrap` (database and migration role) before `db:migrate` and `grants` (both role scripts, `ON_ERROR_STOP`, passwords taken from the env files) after it, and checks that the public role can write nothing. Runbook §2 step 0 creates the users and directories.
@@ -165,13 +187,16 @@ This file is the **current-state index**: what is done, what is open, and what g
   - If the model fails to load or verify, CV Ranked ranks by words alone and says so.
   - Switching off or removing a CV-derived term also drops the CV lines containing it from similarity.
   - Browser-checked on the dev server with a synthetic English CV: results in 2.4 s (localhost), only the four expected GETs, no console errors, no overflow at 390/768/1280/1920. After merge, on a production `public` build: the privacy e2e passes with the model (`npm run test:e2e:privacy`: both model files fetched, same-origin GETs only, no CSP violation, the canary nowhere). Cold first results with an empty cache: **12.4 s at 10 Mbps / 40 ms with 4× CPU throttling** (the 20 s gate passes); 28.9 s at 4 Mbps with 6× CPU. Both were measured uncompressed (8.9 MB table), which is also how production serves it: Caddy's `encode` skips `application/octet-stream` by default, and gzip would only save about 14% (7.6 MB) on int8 data anyway (deploy audit, 2026-09-27).
-- **Matching work stops here for the MVP** (owner, 2026-09-26). The next real lever, if matching quality is revisited, is vacancy-side: skills and roles extracted from descriptions at bundle-build time and shipped as term ids, never as text (descriptions are not republishable). No more model tuning.
+- **Matching work stops here for the MVP** (owner, 2026-09-26). The next real lever, if matching quality is revisited, is vacancy-side: skills and roles extracted from descriptions at bundle-build time and shipped as term ids, never as text (descriptions are not republishable). No more model tuning. **Superseded:** the owner reopened matching for A′ (PR #35) and role quality (PR #36), both 2026-09-30; both are in the Phase 8D section.
 
-## Open operational issues (not phase work, but blocking real freshness)
+## Open operational issues (not phase work)
 
-- **Resolved 2026-09-26:** the two stale `running` rows from 2026-09-16 were settled (`reconciled_at` 2026-09-26 08:12 UTC) and a full jobs.ge crawl started (`df60e7db…`, still running at 17:40 local). Earlier note, kept for context: the Task Scheduler tasks fire again (both ran at 2026-09-25 20:10), but each crawl exits 1 at once. It refuses to start because of its own stale `running` row from 2026-09-16 (`crawl_runs` `77c999c9…` hr.ge and `2d030dcf…` jobs.ge). No crawl process was running. Dedupe and taxonomy still run after it. **Owner action:** settle the two rows as the crawler's own message says, `update crawl_runs set status = 'failed', reconciled_at = now() where id in ('77c999c9-0e6b-4452-9f49-abbd2ebd92c4', '2d030dcf-69a8-41a2-b756-439c487381e0') and status = 'running' and reconciled_at is null`. The next scheduled run (20:10 daily) then crawls. The automation was not allowed to write this to the real DB.
-- **Scheduled crawls have not run for 9+ days** (`npm run health:check`, 2026-09-25): both `jobs-ge` and `hr-ge` are critical `run_overdue`, each with a `crawl_runs` row stuck `running`. This is the second time. The first time, both schedules silently stopped after their first run on 2026-09-16 and were found on 2026-09-23 (a battery-power setting). That root cause was fixed, but the recovery was never confirmed. Because of the stale crawls, the Phase 8C bundle health gate correctly refuses to publish. The one active public bundle was built with `--override-health-gate`, which is recorded on the build and shown on `/admin/matching`. Needs: check the Task Scheduler registration (`scripts/register-crawl-schedule.ps1`), settle the stuck runs, and run one crawl per source. **Self-healing of a stuck `running` row is built as of 2026-09-26** (Phase 7C branch, advisory lock); it takes effect once `dist/` is rebuilt.
-- **Neither source has ever completed a full-coverage crawl** (jobs.ge ≈ 7.9h, hr.ge ≈ 2.75h), so closure of vanished listings has never run against live data (Phase 1C items 1, 2, 4).
+- **Resolved: scheduled crawls.** They stopped twice (found 2026-09-23 and 2026-09-25; the notes are in this file's git history). Since then:
+  - local scheduled runs have been clean since 2026-09-27 20:10 (Phase 7C above);
+  - a stuck `running` row now settles itself (crawl self-healing, confirmed live 2026-09-26);
+  - on the host, both pipelines have run daily at 16:10 UTC since 2026-09-28.
+- **Still open: closure on live data.** Full walks now complete (for example jobs.ge `732b5502` on 2026-09-27: 5,752 discovered, 0 failed). A correct live closure of vanished listings has still not been confirmed (Phase 1C items 1, 2, 4).
+
 
 ## Phase index
 
@@ -192,13 +217,13 @@ This file is the **current-state index**: what is done, what is open, and what g
 | 5A — CV matching and ranking | merged | #5 | — |
 | 6 — outreach drafts | merged | #17 | Whole-branch review waived; two post-merge review rounds fixed. |
 | 7A — operations baseline (+ taxonomy automation) | merged | #16, #18 | Schedules exist but have silently stopped twice (see above). |
-| 7B — supervised repair, pg-boss, hosting reassessment | **open, deferred** | — | Evidence-gated on 7A schedules running for days; that evidence does not exist yet. |
+| 7B — supervised repair, pg-boss, hosting reassessment | **open, deferred** | — | Evidence-gated on 7A schedules running for days. They have run daily since 2026-09-27 (local) and 2026-09-28 (host), so the gate can now be assessed. Hosting was settled by 8E. |
 | 8A — private matching feasibility | merged | #19, #20 | Closed **lexical-first**: `multilingual-e5-small` is 118 MB (int8), cold load 126 s against a 20 s gate. Node/browser parity was proven (cosine 0.997+). The 300+ human-labelled set was never built (a human task). |
 | 8B — surfaces and admin boundary | merged | #21 | All exit-gate boxes checked; the whole-branch Codex review was **owner-waived, not passed**. |
 | 8C — matching bundle | merged | #22 | Vectors deferred (no approved model); `semanticInputHash` is in place for later incremental embedding. |
-| 8D — browser CV Ranked | merged | #23 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
-| 8E — hosted readiness | **deployed** 2026-09-28 on OVH VPS-1 (`jobster.fun`); stage 7 almost closed | #24 | Remaining: the first crawl, dedupe and bundle build (running), then the hosted probe, restore and rollback drills, and the owner's first admin sign-in (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
-| 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs; migration 0037 (retention) generated and tested, not yet applied to `scraplify`/`scraplify_qa`. |
+| 8D — browser CV Ranked | merged; A′ deployed 2026-09-30, role quality merged, not yet deployed | #23, #35, #36 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 in the 8D section below. |
+| 8E — hosted readiness | **deployed** 2026-09-28 on OVH VPS-1 (`jobster.fun`); live, stage 7 almost closed (current phase) | #24 | Remaining: the hosted probe, restore and rollback drills, and the owner's first admin sign-in (alert channel dropped 2026-09-27). Source permissions granted for both (`docs/RIGHTS.md`). Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). CV Ranked with the model: privacy e2e passed, cold load 12.4 s at the mid-range profile. |
+| 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `docs/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0035 applied to both DBs. Migration 0037 (retention) is applied to `scraplify` (38 recorded, checked 2026-09-30) and on the host; `scraplify_qa` was not rechecked. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `status-history.md` (`rg -n OWED docs/status-history.md`). Since 2026-09-23 the owner's standing instruction is not to wait on Codex cooldowns, and since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. So those items are historical, not merge blockers; `discharge-codex-debt` can still pay them back if wanted.
 
@@ -318,9 +343,9 @@ Codex review debt: per-commit reviews recorded as **OWED** during usage-limit ou
 
 ## Upcoming, most valuable first
 
-1. **Restore crawl freshness** (see the operational issues above). Every downstream freshness claim depends on it.
-2. **Phase 7C — incremental crawling and retention** (current phase above).
-3. **Phase 8E stage 7 — hosting** (owner and host work). Real deployment evidence; a local demo is not hosted readiness.
-4. **Phase 7B — supervised repair**, once 7A schedules have run for days: stuck-run self-healing, parser-repair proposals and canaries, `pg-boss` only if heterogeneous durable work appears.
-5. **Phase 1C remainder:** full-coverage runs per source, closure against live data, coverage and overlap reports.
-6. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (see the 8E section). The model question is closed (E1).
+1. **Deploy role quality (PR #36)**, after the 2026-09-30 host pipeline run checks out.
+2. **Phase 8E stage 7 remainder** (owner and host work): the hosted probe, restore and rollback drills, and the owner's first admin sign-in.
+3. **Public-repository follow-ups** (current phase above): the `undici` bump, the unused code, and optionally the eval fixture's contact details.
+4. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
+5. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
+6. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (see the 8E section). The model question is closed (A′: precomputed `bge-small-en` title vectors, Phase 8D).
