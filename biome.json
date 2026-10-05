@@ -5,7 +5,6 @@
     "ignoreUnknown": false,
     "includes": [
       "**",
-      "!!docs/skill-candidates",
       "!!.claude",
       "!!.agents",
       "!!.codex",

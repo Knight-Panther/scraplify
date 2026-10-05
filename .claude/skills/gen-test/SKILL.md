@@ -42,7 +42,7 @@ Example: `src/dedupe/membership-review.test.ts`.
   delete them all in `afterEach`. This is not optional — this exact class of
   bug (a created row never registered for cleanup) leaked real orphan rows
   into the live corpus and took a five-round gate fight to fully close (see
-  `docs/STATUS.md`'s Phase 3B/3C history). When a test result register a new
+  the Phase 3B/3C history in `docs/archive/status-history.md`). When a test result register a new
   id — e.g. `result.splitOpportunityId` — track it immediately, don't assume
   the id it started from is the only one it produced.
 - Use `db` from `src/db/client.js` directly with drizzle-orm query builders

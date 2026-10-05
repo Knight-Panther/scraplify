@@ -29,10 +29,10 @@ this environment, so there is no setup cost to doing it.
 
 1. Read `references/product-context.md`. The screens are **already specified** by
    the existing CLI (`npm run browse` and `npm run rank`). Do not invent an
-   information architecture — derive it from `src/browse/queries.ts`, the
-   supported query layer. Note that layer is a starting point, **not a finished
-   contract**: at least one screen needs its return type widened before it can be
-   built correctly, and `product-context.md` names it.
+   information architecture — derive it from `src/browse/queries.ts` (and
+   `src/browse/public-queries.ts` for the public surface), the supported query
+   layer. Note that layer is a starting point, **not a finished contract**: widen
+   a return type when a screen needs a field it drops (`product-context.md`).
 2. Read `references/design-direction.md`. The visual direction is **settled**, not
    open: a dark, restrained system derived from the SynapseX reference the owner
    supplied. Do not invent a palette or a type scale from scratch.
@@ -41,17 +41,18 @@ this environment, so there is no setup cost to doing it.
    way this UI will look broken, and it is invisible to anyone testing with Latin
    placeholder text.
 4. Read `references/data-density.md`. This is a dense data tool, not a landing
-   page. Its failure modes are not the usual ones.
+   page (`/` is the one landing-style exception). Its failure modes are not the usual ones.
 5. Check `references/anti-patterns.md` — tuned to this product, not a generic list.
 
 ## During implementation
 
-- Reuse `src/browse/queries.ts` rather than writing SQL in a component. Server
+- Reuse `src/browse/queries.ts` (local/admin) or `src/browse/public-queries.ts` (public) rather than writing SQL in a component. Server
   components may import it directly for page rendering; Route Handlers serve as
   the concept's "small TypeScript HTTP layer" where a real HTTP surface is
   warranted. Widen a query's return type when a screen needs more, instead of
   querying around it.
-- Semantic HTML first, then custom. No component library is installed: a plain
+- Semantic HTML first, then custom. No component library is installed (Tailwind
+  utilities only): a plain
   `<table>`, `<input>` and `<button>` cover these screens, and the palette is a
   custom dark system anyway. If a genuinely hard primitive appears — a
   focus-trapped dialog, a combobox — add shadcn for that one thing rather than

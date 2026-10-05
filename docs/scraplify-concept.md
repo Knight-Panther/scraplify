@@ -8,7 +8,7 @@
 
 **Acquisition correction:** 2026-09-05 — Phase 1B's recorded reconnaissance supersedes the initial hr.ge pagination/sitemap assumptions (§5.2/§10.2). Index HTML is the coverage authority; sitemap entries are additive candidates only. The current transport/orchestration is shared undici plus adapter loops, not Crawlee (§8.5/§20).
 
-**Hosted edition amendment:** 2026-09-23 — accepted the hosted/public and privacy-first browser CV matching direction described in `change.md` (repository root; kept in full as the Phase 8 implementation handoff, not duplicated here). Summarized and made authoritative in new §30. This amendment also narrows §8.4, §17.2, and §28's `pgvector` statements — see §30.3 for the corrected rule. Phase 8 has not started as of this amendment; see `docs/STATUS.md`'s "Upcoming phases" for its precondition and current status.
+**Hosted edition amendment:** 2026-09-23 — accepted the hosted/public and privacy-first browser CV matching direction described in `docs/archive/change.md` (moved from the repository root; kept in full as the Phase 8 implementation handoff, not duplicated here). Summarized and made authoritative in new §30. This amendment also narrows §8.4, §17.2, and §28's `pgvector` statements — see §30.3 for the corrected rule. Phase 8 has not started as of this amendment; see `docs/STATUS.md`'s "Upcoming phases" for its precondition and current status. **Amended 2026-10-05:** Phases 8A–8E are all merged and the hosted edition has been live at `jobster.fun` since 2026-09-28, so "Phase 8 has not started" above is historical; §30 now describes what runs.
 
 **Phase 4 scope amendment:** 2026-09-23 — narrowed §16 and §25's Phase 4 at the start of that phase, by project-owner decision, before any code. The live corpus shows attachment frequency too low (27 of 3,524 current hr.ge listings, zero on jobs.ge) to justify §16's fetch/quarantine/resource-graph machinery, and every observed attachment URL is a presigned link that expires in minutes — see §16's own note and `docs/STATUS.md`'s Phase 4 section for the full reasoning. Fetching, quarantining, and processing attachment content is deferred indefinitely rather than built; Phase 4 instead surfaces attachment presence as a visible flag, linking to the source listing where a person retrieves the file themselves.
 
@@ -119,6 +119,7 @@ Confirmed:
 - Source filters include category, location, and opportunity type.
 - The site advertises RSS URLs, but the tested jobs RSS URL returned ordinary HTML; it is not yet a verified feed.
 - `robots.txt` currently disallows `/data/clients/` and declares `Crawl-delay: 5`.
+  **Amended 2026-10-05:** the jobs.ge policy now uses a 2 s interval (policy v3, with the owner's permission from jobs.ge) rather than the 5 s `Crawl-delay`; hr.ge uses 3 s. See `src/policies/jobs-ge.ts` and `src/policies/hr-ge.ts`.
 
 Implications:
 
@@ -174,7 +175,7 @@ Where practical, request an official feed/API or written permission before susta
 - Backfill current listings without duplicating records.
 - Detect new, changed, expired, missing, reopened, and removed listings.
 - Preserve original source values and normalized values.
-- Retain immutable revisions and parser provenance. **Amended 2026-09-27:** owner-approved data-retention exception (§6.1, Phase 7C) — a closed/expired listing dead more than 60 days has its current revision's `description` blanked in place (row and id kept, `trimmed_at` stamped); dead more than 180 days, the whole cluster is purged unless user data or a human decision still references it. See `docs/PHASE_7C_PLAN.md`'s Retention section for the full policy.
+- Retain immutable revisions and parser provenance. **Amended 2026-09-27:** owner-approved data-retention exception (§6.1, Phase 7C) — a closed/expired listing dead more than 60 days has its current revision's `description` blanked in place (row and id kept, `trimmed_at` stamped); dead more than 180 days, the whole cluster is purged unless user data or a human decision still references it. See `docs/archive/PHASE_7C_PLAN.md`'s Retention section for the full policy.
 - Normalize employers, titles, locations, dates, work modes, and job attributes.
 - Categorize each job under a canonical, versioned taxonomy.
 - Generate cross-source duplicate candidates and explain the evidence.
@@ -735,6 +736,8 @@ Cache results by opportunity revision, candidate-profile version, and evaluation
 
 Embeddings improve candidate retrieval; they are not the sole ranking truth. Add `pgvector` only during this phase and use exact search until scale measurements justify an approximate index. **Amended 2026-09-23 (§30.3):** this applies to the existing server-side local/operator ranking (§17.1). The Phase 8 public matching path performs exact search in the browser, not in Postgres, and does not trigger `pgvector` on its own — see §30.3 for the corrected rule.
 
+**Amended 2026-10-05:** the funnel above is not what runs. The local server-side ranking (`npm run rank`, `src/ranking/`) is deterministic only (`deterministic-v1`): hard eligibility, then skill/title/experience scoring, with no embedding, small-model or premium-reasoning stage. The public browser CV Ranked path (§30.3, design "A′") uses lexical matching plus precomputed `bge-small-en-v1.5` title vectors and shows Strong/Good/Partial evidence labels instead of a score. Anthropic's SDK is used only for local CV claim extraction and outreach drafts, not for ranking.
+
 ## 18. Agent and approval boundaries
 
 Expose explicit tools instead of giving a model unrestricted database, browser, or messaging access.
@@ -787,6 +790,8 @@ Cadence is configuration, not a hard-coded product assumption.
 
 The scheduler may slow down based on `Retry-After`, 429s, latency, or source-health signals.
 
+**Amended 2026-10-05:** the cadence actually in use is one incremental pipeline run per source per day at 16:10 UTC (`src/crawl-schedule.ts`; `xtelo-pipeline@.timer` on the host, Windows Task Scheduler via `scripts/register-crawl-schedule.ps1` locally). There is no 30–60 minute discovery, no separate hr.ge reconciliation job and no Playwright canary; the canaries are 20 random HTTP detail re-fetches per run (Phase 7C).
+
 ### 19.3 Later deployment
 
 Move to an always-on backend when continuous reliability matters more than local simplicity:
@@ -801,6 +806,8 @@ Move to an always-on backend when continuous reliability matters more than local
 Consider Apify or Browserless only after measured operations show that hosted crawler execution or browser pooling would materially help.
 
 **Amended 2026-09-23:** this section describes the crawler/worker side of an always-on deployment. §30.2 is the specific answer for the web side — `public` and `admin` as separate processes with separate database credentials, not one application process serving both.
+
+**Amended 2026-10-05:** deployment now exists: a single OVH VPS with Caddy, systemd units and daily database dumps copied off-host to object storage (`docs/RUNBOOK.md`). It runs without `pg-boss`, and object storage holds backups only, not application data.
 
 ## 20. Technology stack
 
@@ -828,6 +835,8 @@ Consider Apify or Browserless only after measured operations show that hosted cr
 | Telemetry | OpenTelemetry/Sentry | After structured logs and real operational need |
 
 Do not install later-phase dependencies during foundation work.
+
+**Amended 2026-10-05:** differences from this table as built: HTML extraction is Cheerio over the shared undici fetcher, with no Crawlee or `CheerioCrawler`; Playwright is only an end-to-end test devDependency, with no runtime in `src`; the web layer is Next.js 16 with Auth.js (`next-auth` v5) rather than Fastify or a small TypeScript app; `pgvector` is not installed (no migration or query uses it); `pg_trgm` is not used either, because dedupe blocks on exact application and organization keys and compares titles with an in-process trigram score (`src/normalize/text.ts`); telemetry is Pino logs and recorded health signals only, with no Sentry or OpenTelemetry; `pg-boss` is not installed. Dependencies added beyond the table: `@anthropic-ai/sdk` (local CV extraction and outreach drafts), `pdfjs-dist` and `mammoth` (CV document reading), and `@huggingface/transformers` (build-time title embeddings in the matching bundle builder).
 
 ## 21. Observability and source health
 
@@ -1033,6 +1042,8 @@ Codex and Claude skill discovery are separate. A Claude project skill is not aut
 
 Before committing symlinks on Windows, verify filesystem permissions and Git symlink behavior. If portable symlinks are unreliable, use generated copies from the canonical directory plus a validation check that fails when copies drift.
 
+**Amended 2026-10-05:** the skills plan above is superseded. No `.agent-skills` canonical directory exists; the adopted skills live in `.claude/skills` (`context7-mcp`, `discharge-codex-debt`, `gen-test`, `professional-frontend`, `refresh-corpus`, `ship-phase`) and `.agents/skills` (`context7-mcp`, `professional-frontend`). The candidate list is no longer a plan, and `docs/skill-candidates/` was deleted on 2026-10-05.
+
 ### Phase 0 — policy and domain foundation
 
 - Confirm Node/npm in a fresh non-interactive PowerShell.
@@ -1133,6 +1144,8 @@ Before committing symlinks on Windows, verify filesystem permissions and Git sym
 
 **Exit gate:** failures are observable, repairs are tested and auditable, and restoration/rollback is practiced.
 
+**Amended 2026-10-05:** Phase 7 was partly delivered under other phase names: 7A (operations baseline), 7C (incremental crawling, retention and crawl self-healing) and 8E (hosting, with restore and rollback drills passed 2026-10-05). Still open as Phase 7B: supervised repair, resolving parser incidents in code, and `pg-boss` only if heterogeneous durable work appears.
+
 ## 26. First implementation milestone
 
 The first coding milestone is deliberately narrow:
@@ -1167,7 +1180,7 @@ Acceptance criteria:
 
 ## 28. Decisions to revisit with evidence
 
-- Implement §10.1's incremental discovery overlap window for jobs.ge once its corpus grows enough that a full discovery walk every run becomes slow — deferred from Phase 1A (2026-09-05); currently ~19 pages / ~5,647 listings, well within a fast full walk.
+- Implement §10.1's incremental discovery overlap window for jobs.ge once its corpus grows enough that a full discovery walk every run becomes slow — deferred from Phase 1A (2026-09-05); currently ~19 pages / ~5,647 listings, well within a fast full walk. **Amended 2026-10-05:** resolved differently in Phase 7C (PR #25): each listing's list-page fingerprint decides whether its detail page is re-fetched, plus 20 random canary re-fetches per run; `--refetch=all` forces a full walk.
 - Add `pg-boss` when durable heterogeneous jobs appear.
 - Add Playwright to the application when a source or automated canary requires it.
 - Add `pgvector` when semantic retrieval is being implemented. **Amended 2026-09-23:** narrowed by §30.3 — public CV ranking (Phase 8) runs client-side and does not trigger this on its own; the actual trigger is evaluated server-side vector search.
@@ -1207,7 +1220,9 @@ Acceptance criteria:
 
 ## 30. Hosted edition and private browser CV matching (amendment, 2026-09-23)
 
-**Status of this section:** accepted direction, in progress. Phase 8A (private matching feasibility) merged; Phase 8B (surfaces and admin boundary) is in progress — see `docs/STATUS.md`'s current-phase section for exactly how far. This section is the authoritative summary; `change.md` (repository root) is the full implementation handoff this amendment reconciles from — architecture diagrams, per-phase deliverables, test/gate lists, and primary references live there and are not duplicated here. Read `change.md` before starting any Phase 8 sub-phase. Keep this section and `change.md` in agreement: if a later decision changes one, update the other in the same change.
+**Status of this section:** accepted direction, in progress. Phase 8A (private matching feasibility) merged; Phase 8B (surfaces and admin boundary) is in progress — see `docs/STATUS.md`'s current-phase section for exactly how far. This section is the authoritative summary; `docs/archive/change.md` is the full implementation handoff this amendment reconciles from — architecture diagrams, per-phase deliverables, test/gate lists, and primary references live there and are not duplicated here. Read `change.md` before starting any Phase 8 sub-phase. Keep this section and `change.md` in agreement: if a later decision changes one, update the other in the same change.
+
+**Amended 2026-10-05:** Phases 8A–8E are merged and the hosted edition has been live since 2026-09-28 (`docs/STATUS.md`, `docs/RUNBOOK.md`); "in progress" above is historical and this section describes what runs. `change.md` is archived at `docs/archive/change.md` as a finished record, so "read `change.md` before starting any Phase 8 sub-phase" and "keep this section and `change.md` in agreement" no longer apply; this section and `docs/STATUS.md` are the source of truth.
 
 ### 30.1 Decision summary
 
@@ -1245,6 +1260,8 @@ Embeddings and the artifacts built from them are versioned and immutable: `embed
 
 The admin surface (`/admin`, `/admin/sources`, `/admin/duplicates`, `/admin/taxonomy`, `/admin/matching`, `/admin/incidents`, `/admin/operations`) is the hosted equivalent of the local operator's existing screens (source health, duplicate review, taxonomy review — §25 Phase 3/3C) plus new matching-bundle and publication visibility. It reports only durable, real evidence per stage of `Crawl -> Parse -> Normalize -> Dedupe -> Taxonomy -> Embed -> Publish` — no invented health scores, consistent with the "never render invented data" rule already stated in root `CLAUDE.md`'s Frontend section. Profile, ranking, shortlist, and outreach drafts (§17, §18, Phase 5, Phase 6) remain personal/local features — they do not become admin features, and are unavailable in the `public` production profile.
 
+**Amended 2026-10-05:** the built admin routes are `/admin`, `/admin/sources`, `/admin/duplicates`, `/admin/taxonomy` and `/admin/matching`. `/admin/incidents` and `/admin/operations` were not built: parser incidents are resolved by hand by the owner, and in-code incident resolution belongs to the still-open Phase 7B.
+
 Authentication uses a maintained OIDC/OAuth identity provider with provider-enforced MFA, not a homegrown password system. Every protected page, Route Handler, and Server Action re-checks identity independently; auth/provider errors fail closed.
 
 ### 30.5 Privacy promise and browser CV processing
@@ -1260,6 +1277,8 @@ A dedicated Web Worker (never the main thread) parses the file (self-hosted PDF.
 ### 30.6 Phased implementation
 
 One branch per sub-phase, same convention as every earlier phase (root `CLAUDE.md`'s Git workflow section). **Precondition, recorded in `change.md` §2:** Phase 8A must not start from unmerged Phase 6 history — either Phase 6 is reviewed and merged to `main` first, or Phase 8A starts from a separate worktree off reviewed `main`. Full stage-by-stage deliverables, file-level detail, and test/gate lists for each sub-phase below are in `change.md` §13; this list is the one-line summary and exit criterion for each:
+
+**Amended 2026-10-05:** the Phase 6 precondition above was satisfied: Phase 6 was merged to `main` (PR #17) before Phase 8A started.
 
 - **Phase 8A — private matching feasibility** (`phase-8a-private-matching-spike`). Pin a candidate embedding model/license, build the evaluation harness (§30.3), prove Node/browser vector parity and an isolated worker (no public route, no production dependency added until the spike decides). **Exit:** one contract meets declared quality/performance/parity, or the branch records an honest lexical-first decision.
 - **Phase 8B — surfaces and admin boundary** (`phase-8b-surface-admin-boundary`). Runtime-profile config, layouts/nav, auth integration, admin dashboard, migrated health/duplicate/taxonomy screens, database roles/views. **Exit:** unauthenticated/public requests cannot read or mutate local/admin resources by any direct route or action; local workflows stay intact.

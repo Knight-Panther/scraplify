@@ -19,7 +19,7 @@ following them would be a false positive:
    Mkhedruli is unicase, and `anti-patterns.md` bans case transforms on anything
    that can carry Georgian. English chrome may use sentence case; do not flag it.
 2. **"Large lists (>50 items): virtualize"** — `data-density.md` explicitly says
-   406 rows do not need virtualization and that adding it preemptively is wrong.
+   virtualization must not be added preemptively (lists are paginated).
    Do not flag its absence.
 3. **"Destructive actions need a confirmation modal or undo window"** — Xtelo's
    review and shortlist actions are genuinely reversible, and `data-density.md`
@@ -69,7 +69,7 @@ following them would be a false positive:
 - Flex children need `min-w-0` or truncation silently fails
 - Empty states handled — never render broken UI for an empty array
 - Anticipate short, average and very long values. Here that is real: titles run
-  22 to 105 characters, descriptions to 6,657
+  from a couple of dozen to over a hundred characters, descriptions to several thousand
 
 ## Navigation and state
 

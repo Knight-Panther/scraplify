@@ -25,15 +25,16 @@ lengths.
 But split the two kinds of checking, because they are not equally safe:
 
 - **Read-only inspection** (layout, typography, viewports, states, keyboard
-  traversal) runs against the live database — 410 listings, 406 opportunities,
-  11 pending review pairs.
-- **Anything that writes** runs against a **disposable database seeded with a
-  copy of that data**, never the live one.
+  traversal) runs against the live database — thousands of listings and
+  opportunities and a large pending-review backlog (`npm run dev:web` points at
+  `scraplify` with writes permanently off).
+- **Anything that writes** runs against the disposable QA snapshot
+  (`npm run dev:web:qa`, database `scraplify_qa`, port 3001), never the live one.
 
 The distinction is not fussiness. Exercising the review screen calls
 `resolveDuplicateCandidate`, which permanently marks a candidate as adjudicated
 by a human, and the merge/detach paths append membership rows and stamp
-`supersededAt` tombstones. There are only 11 real pending pairs, and clicking
+`supersededAt` tombstones. Every real pending pair is a genuine decision for the owner, and clicking
 through them during QA consumes them and writes a false human decision into an
 audit trail that exists precisely to record genuine ones. Undo does not help —
 the reversal is itself recorded.
@@ -57,7 +58,7 @@ Check at minimum:
 At each: no horizontal overflow on `<body>`, no clipped text, no unexpected
 scrollbars, no layout that only works at the width you developed at.
 
-Mobile deserves real thought, not stacking. A 406-row table on a 390px screen
+Mobile deserves real thought, not stacking. A table of hundreds of rows on a 390px screen
 needs a decided answer — which columns survive, what becomes secondary, what
 collapses. Decide it rather than letting it reflow.
 
@@ -92,8 +93,9 @@ Dialogs: focus moves in, is trapped, `Escape` closes, focus returns to the trigg
 Navigation, filters, search (with **Georgian** input), sorting, pagination if
 present, dialogs, and each review-queue decision path including the undo.
 
-**Point the app at the disposable database before this step** — every
-review-queue decision path writes. See step 1.
+**Use `npm run dev:web:qa` for this step** — every review-queue decision path
+writes. See step 1. Also check each surface the change can reach
+(`XTELO_SURFACE=local|public|admin`; `npm run test:e2e:surfaces`).
 
 ### 7. Design review
 

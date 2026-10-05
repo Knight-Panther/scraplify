@@ -2,10 +2,11 @@
 
 **Read this before choosing a font.** This is the constraint most likely to make
 Xtelo look broken, and it is invisible to anyone testing with Latin placeholder
-text. Measured against the live 410-listing corpus:
+text. Measured on the first 410 listings (early September; the corpus is now
+much larger, so treat the proportions as indicative):
 
-- **388 of 410 titles are Georgian script only.**
-- **22 mix Georgian and Latin inside a single string** — `უფროსი Android
+- **About 95% of titles (388 of 410) are Georgian script only.**
+- **About 5% (22 of 410) mix Georgian and Latin inside a single string** — `უფროსი Android
   დეველოპერი`, `ობიექტის MEP ინჟინერი`, `SINSAY-ს მაღაზიის გაყიდვების ასისტენტი`,
   `AI დიზაინერი`.
 

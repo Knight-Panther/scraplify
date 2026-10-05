@@ -1,12 +1,16 @@
 # What Xtelo is
 
-A job aggregator for the Georgian market. It crawls jobs.ge and hr.ge, dedupes
-listings across both, and ranks them against a candidate profile.
+A job aggregator for the Georgian market, live at `jobster.fun`. It crawls jobs.ge
+and hr.ge, dedupes listings across both, and ranks them against a candidate
+profile. Three runtime surfaces share this code (`XTELO_SURFACE`: `local`, `public`,
+`admin`); the public site is the catalogue plus browser-side CV matching
+(`/cv-ranked`, where the CV never leaves the browser).
 
-**Audience: one serious job seeker, not a marketplace of visitors.** There is no
-signup funnel, no pricing page, no account system at all — every working screen
-(browse, detail, review, ranked, shortlist, source health) is a tool for someone
-who returns daily to triage new listings. Design those for repeat use and speed,
+**Audience: job seekers who come back to triage, not a marketplace of visitors.**
+There is no signup funnel, no pricing page and no visitor account system (the
+only login is the owner's admin surface) — every working screen (browse, detail,
+review, ranked, CV Ranked, shortlist, source health) is a tool for someone who
+returns to triage new listings. Design those for repeat use and speed,
 not for first impressions, and none of them carries a hero.
 
 That single fact invalidates most generic "web design" advice for the working
@@ -35,24 +39,21 @@ built headless specifically so a UI would consume it rather than write its own S
 | `browse opportunities` | The deduplicated canonical view — what the user actually browses | `searchOpportunities` |
 | `browse review` | Duplicate review queue: two listings side by side, decide same/different | `listReviewQueue` |
 | `browse health` | Per-source crawl health and coverage | `getSourceHealth` |
-| `rank results` | Ranked opportunities for a profile, with component scores | `listRankedOpportunities` (in `src/ranking/run-ranking.ts`) |
+| `rank results` | Ranked opportunities for a stored profile, with component scores (local surface) | `listRankedOpportunities` (in `src/ranking/run-ranking.ts`) |
 
-## The query layer is not complete for the UI
+The public `/cv-ranked` screen is not a CLI-derived screen: matching runs in the
+browser against a published bundle (`src/matching/`, `/api/matching/*`), and the
+public catalogue reads through `src/browse/public-queries.ts`, never the queries
+above. Admin screens live under `web/app/(admin)/admin/`.
 
-Treat it as a strong starting point, not a finished contract. One gap is known
-and blocking:
+## The query layer is not always complete for the UI
 
-**`listReviewQueue` does not return the pair's evidence.** `ReviewQueueEntry`
-exposes `candidateId`, `similarityScore`, `decision`, `a` and `b` — but not
-`duplicateCandidates.evidence`, which holds the scored signals and reasons behind
-the suggestion. The query already selects the full row; the mapped result drops
-it. Since `data-density.md` makes showing that evidence the most important design
-requirement of the review screen, and `AGENTS.md` classes an evidence-free review
-UI as a P1 defect, **widening this return type is the first implementation task of
-the review screen** — not something to work around in the component.
-
-Check for similar gaps before building each screen rather than assuming the
-function returns everything the design needs.
+Treat it as a strong starting point, not a finished contract. The known gap has
+been closed: `ReviewQueueEntry` now carries `evidence` (the scored signals and
+reasons behind a duplicate suggestion), and `AGENTS.md` still classes an
+evidence-free review UI as a P1 defect. The lesson stands: when a screen needs a
+field the mapped result drops, widen the return type rather than working around
+it in the component, and check for such gaps before building each screen.
 
 ## Data access
 
@@ -65,19 +66,26 @@ forbidden is a component reaching past both into raw SQL.
 
 ## Corpus shape (measured, not guessed)
 
-- **410 listings → 406 canonical opportunities.** Only 4 confirmed cross-source
-  duplicates. The dedupe view is therefore *not* dramatically shorter than the raw
-  list — do not design as if merging collapses the corpus.
-- **11 pairs pending review.** The review queue is small and finite. It is a
-  focused adjudication task, not an infinite feed.
+The figures below were measured on an early-September sample and are shape
+guidance, not current counts. The corpus has since grown to thousands of
+listings and open vacancies, with a review backlog in the thousands; get live
+counts with `npm run browse -- health` or a read-only query rather than quoting
+them here.
+
+- **Cross-source duplicates are a minority.** The dedupe view is therefore *not*
+  dramatically shorter than the raw list — do not design as if merging collapses
+  the corpus.
+- **The review queue is a backlog, not a feed.** Design it as a focused
+  adjudication task with progress and filtering, and do not assume it is small.
 - **Titles: median 22 characters, 90th percentile 42, longest 105.** Short. A
   title column can be narrow; a full-width heading for a 22-character title wastes
   the screen.
 - **Descriptions: 90th percentile 3,235 characters, longest 6,657.** Long, plain
   text, no reliable internal structure. This is the hard layout problem — see
   `data-density.md`.
-- **Statuses in use:** `active` (310), `missing_suspected` (96). Also possible:
-  `closed`, `expired`, `discovered`, `quarantined`.
+- **Listing statuses:** `discovered`, `active`, `missing_suspected`, `closed`,
+  `expired`, `quarantined` (`source_listing_status` enum). `active` and
+  `missing_suspected` are the common ones.
 - **Field coverage is disjoint by source.** hr.ge has locations on every listing
   and salary on some; jobs.ge has neither on any. "One source has this field, the
   other does not" is the normal case, not an edge case. Never design a layout that
@@ -85,10 +93,10 @@ forbidden is a component reaching past both into raw SQL.
 
 ## Design tokens
 
-No stack is installed yet. When Next.js + Tailwind land, define the token set
-first and commit it before building screens — colour, surface, text, border,
-spacing scale, radius, type scale. Every subsequent value comes from those tokens.
-Ad-hoc `text-blue-500` / `p-[13px]` is the failure this ordering prevents.
+The stack is Next.js 16 + Tailwind 4 in `web/`, and the token set lives in the
+`@theme` block of `web/app/globals.css` (colour, surface, text, border, radius,
+type). Every value comes from those tokens. Ad-hoc `text-blue-500` / `p-[13px]`
+is the failure this prevents.
 
 Semantic colour is doing real work here: `active` vs `missing_suspected` vs
 `closed` must be distinguishable at a glance, and by more than hue alone.

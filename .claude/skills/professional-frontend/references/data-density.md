@@ -9,7 +9,7 @@ Three screens carry real design difficulty. The rest are ordinary.
 
 ## 1. The opportunities list (the main screen)
 
-406 rows. The user scans it repeatedly.
+Thousands of rows (paginated). The user scans it repeatedly.
 
 - **A row must be scannable in one fixation.** Title, employer, source, status,
   deadline. Titles are short (median 22 chars) so the title column can be narrow —
@@ -22,7 +22,7 @@ Three screens carry real design difficulty. The rest are ordinary.
   or a skeleton that never fills. Design the row so a missing field simply
   isn't there.
 - **Status needs more than colour.** `active` vs `missing_suspected` differ in
-  meaning the user acts on, and 96 of 406 are `missing_suspected`. Use a label or
+  meaning the user acts on, and a sizeable share of listings are `missing_suspected`. Use a label or
   shape as well as hue — this is also a contrast/colour-blindness requirement.
 - **Never show the raw enum.** `missing_suspected` is a database state. The user
   needs something like "may be gone" with the real meaning available on hover or
@@ -32,21 +32,17 @@ Three screens carry real design difficulty. The rest are ordinary.
 ## 2. The review queue (the hardest screen)
 
 Two listings side by side; the user decides whether they are the same vacancy.
-Only 11 pairs pending, so this is a focused task, not a feed.
+The pending queue is a backlog, but each pair is a focused task, not a feed.
 
 - **The decision needs evidence, not a verdict.** The UI must surface *why* the
   pair was proposed — shared application link, matching employer, title
   similarity — or the user is rubber-stamping a black box. This is the single most
   important design problem in the app.
 
-  **That evidence is not stored yet.** `duplicate_candidates` has no `evidence`
-  column: `scorePair`'s signals and reasons are computed and then discarded for
-  `needs_review` pairs, and evidence is only written to
-  `opportunity_source_memberships` — which exist only once a merge happens. So the
-  pairs a human must judge are exactly the ones with nothing recorded. Do not
-  build this screen against a field that does not exist: the migration, the
-  `run-dedupe.ts` write change and the backfill come first. See `docs/STATUS.md`
-  for the full shape of that work.
+  The evidence is stored on `duplicate_candidates` and returned by
+  `listReviewQueue` as `evidence`. It is null for rows written before the column
+  existed; that is distinct from "the scorer found nothing", and the reviewer must
+  be able to tell which.
 - **Make the differences visible.** Two nearly identical Georgian titles are hard
   to diff by eye. Align the two sides field-by-field so differing values sit
   adjacent, and consider marking what differs.
@@ -81,4 +77,4 @@ long, plain, unstructured Georgian text with no reliable internal headings.
   what makes scanning work.
 - Loading, empty and error states are required for every screen that fetches.
   Empty here is real: a filter can legitimately match nothing.
-- 406 rows do not need virtualization. Do not add it preemptively.
+- Do not add virtualization preemptively; lists are paginated.

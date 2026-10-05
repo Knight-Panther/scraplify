@@ -3,7 +3,7 @@
  * closed/expired listings dead more than 60 days are trimmed (current
  * revision kept, description blanked); dead more than 180 days, whole
  * clusters are purged unless user data or a human decision still references
- * them. See docs/PHASE_7C_PLAN.md's Retention section and
+ * them. See docs/archive/PHASE_7C_PLAN.md's Retention section and
  * docs/scraplify-concept.md §6.1 for the exception this carves out of
  * "retain immutable revisions".
  *
