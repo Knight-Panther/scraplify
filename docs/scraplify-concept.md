@@ -1042,7 +1042,7 @@ Codex and Claude skill discovery are separate. A Claude project skill is not aut
 
 Before committing symlinks on Windows, verify filesystem permissions and Git symlink behavior. If portable symlinks are unreliable, use generated copies from the canonical directory plus a validation check that fails when copies drift.
 
-**Amended 2026-10-05:** the skills plan above is superseded. No `.agent-skills` canonical directory exists; the adopted skills live in `.claude/skills` (`context7-mcp`, `discharge-codex-debt`, `gen-test`, `professional-frontend`, `refresh-corpus`, `ship-phase`) and `.agents/skills` (`context7-mcp`, `professional-frontend`). The candidate list is no longer a plan, and `docs/skill-candidates/` was deleted on 2026-10-05.
+**Amended 2026-10-05:** the skills plan above is superseded. No `.agent-skills` canonical directory exists; the adopted skills live in `.claude/skills` (`context7-mcp`, `gen-test`, `professional-frontend`, `refresh-corpus`, `ship-phase`; `discharge-codex-debt` was retired the same day, once Codex reviews became manual) and `.agents/skills` (`context7-mcp`, `professional-frontend`). The candidate list is no longer a plan, and `docs/skill-candidates/` was deleted on 2026-10-05.
 
 ### Phase 0 — policy and domain foundation
 

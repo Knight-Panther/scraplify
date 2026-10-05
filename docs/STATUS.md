@@ -69,7 +69,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 8E — hosted readiness | **deployed** 2026-09-28 (`jobster.fun`); all 7 stages closed 2026-10-05 | #24 | Nothing remaining. Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). |
 | 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `archive/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0037 (retention) is applied to `scraplify` (38 recorded, checked 2026-09-30) and on the host; `scraplify_qa` was not rechecked. |
 
-Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; `discharge-codex-debt` can still pay them back if wanted.
+Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; the `discharge-codex-debt` skill that paid them back was retired on 2026-10-05.
 
 ## What exists now (short map)
 
