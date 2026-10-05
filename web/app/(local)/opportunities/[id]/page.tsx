@@ -85,6 +85,10 @@ type DetailForDisplay = Pick<
  * report a dead link as a live one. Measured, the trade is one-sided: this
  * screen's query runs in about 60ms against the live corpus, against the
  * list's 3.8 seconds, so there is very little for a fallback to cover.
+ *
+ * `force-dynamic` also keeps not-found.tsx rendering per request, which its
+ * surface-specific copy relies on: a prerendered boundary would bake in the
+ * build machine's `XTELO_SURFACE` instead.
  */
 
 export const dynamic = 'force-dynamic';
