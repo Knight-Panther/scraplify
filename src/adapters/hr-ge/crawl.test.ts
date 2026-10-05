@@ -183,6 +183,8 @@ interface DetailSpec {
   email?: string | null;
   applicationUrl?: string | null;
   hideContactPerson?: boolean;
+  description?: string;
+  isPriority?: boolean;
 }
 
 function buildDetailHtml(spec: DetailSpec): string {
@@ -191,7 +193,8 @@ function buildDetailHtml(spec: DetailSpec): string {
     title: spec.title ?? `Listing ${spec.id}`,
     customerName: 'Test Org',
     isAnonymous: false,
-    description: `Description for ${spec.id}`,
+    isPriority: spec.isPriority ?? false,
+    description: spec.description ?? `Description for ${spec.id}`,
     addresses: ['თბილისი'],
     publishDate: '2026-09-01T00:00:00',
     deadlineDate: '2026-12-01T00:00:00',
@@ -1263,6 +1266,29 @@ describe('runHrGeCrawl', () => {
       const third = await crawl(responsesFor(threeItems), clock, { canarySampleSize: 1 });
       expect(third.detailFetches).toHaveLength(1);
       expect(third.refetch).toMatchObject({ canaries: 1, canaryChanged: 0, skipped: 2 });
+    });
+
+    /** A second run with one listing as the canary, its detail page replaced by `detail`. */
+    async function canaryRun(detail: DetailSpec) {
+      const clock = makeClock(Date.UTC(2026, 8, 5, 12, 0, 0));
+      const oneItem: ItemSpec[] = [{ id: '1001' }];
+      await crawl(responsesFor(oneItem), clock);
+      const responses = responsesFor(oneItem);
+      responses.set(detailUrl('1001'), htmlResponse(detailUrl('1001'), buildDetailHtml(detail)));
+      return crawl(responses, clock, { canarySampleSize: 1 });
+    }
+
+    it('does not count a canary whose only change is a promotion as the blind spot', async () => {
+      const run = await canaryRun({ id: '1001', isPriority: true });
+      // The promotion is still stored as a new revision; it is just not content.
+      expect(run.crawlRun.changedCount).toBe(1);
+      expect(run.refetch).toMatchObject({ canaries: 1, canaryChanged: 0 });
+    });
+
+    it('counts a canary whose description changed', async () => {
+      const run = await canaryRun({ id: '1001', description: 'Edited on the detail page only' });
+      expect(run.crawlRun.changedCount).toBe(1);
+      expect(run.refetch).toMatchObject({ canaries: 1, canaryChanged: 1 });
     });
 
     it('ignores a promotion ending (isPriority) but fetches a changed deadline', async () => {

@@ -39,7 +39,9 @@ import {
 import { jobsGePolicy, jobsGeSource } from '../../policies/jobs-ge.js';
 import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
 import {
+  canaryContentChanged,
   DEFAULT_CANARY_SAMPLE_SIZE,
+  type KnownListing,
   loadKnownListings,
   needsDetailFetch,
   pickCanaries,
@@ -695,8 +697,9 @@ export async function runJobsGeCrawl(
     // lookup of what is stored, then turn a random sample of the skipped
     // ones back into fetches (the canaries).
     const decisions = new Map<string, 'fetch' | 'adopt' | 'skip'>();
+    let known = new Map<string, KnownListing>();
     if (refetch.mode === 'changed') {
-      const known = await loadKnownListings(
+      known = await loadKnownListings(
         db,
         jobsGeSource.id,
         orderedListings.map((listing) => listing.sourceRecordId),
@@ -844,7 +847,16 @@ export async function runJobsGeCrawl(
           listing.fingerprint,
         );
       }
-      if (canaries.has(listing.sourceRecordId) && writeResult.outcome === 'changed') {
+      if (
+        canaries.has(listing.sourceRecordId) &&
+        writeResult.outcome === 'changed' &&
+        (await canaryContentChanged(
+          db,
+          known.get(listing.sourceRecordId)?.currentRevisionId,
+          writeResult.revision,
+          [],
+        ))
+      ) {
         refetch.canaryChanged++;
       }
     }

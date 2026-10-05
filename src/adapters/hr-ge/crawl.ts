@@ -42,7 +42,9 @@ import {
 import { hrGePolicy, hrGeSource, isHrGeUrlAllowed } from '../../policies/hr-ge.js';
 import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
 import {
+  canaryContentChanged,
   DEFAULT_CANARY_SAMPLE_SIZE,
+  type KnownListing,
   loadKnownListings,
   needsDetailFetch,
   pickCanaries,
@@ -98,6 +100,9 @@ const DEFAULT_MIN_RELATIVE_COVERAGE_RATIO = 0.5;
 
 /** Same project decision as jobs.ge (docs/STATUS.md, 2026-09-04) — no source-specific evidence to differ. */
 export const DEFAULT_MISSING_STREAK_THRESHOLD = 3;
+
+/** Paid-placement state in `structuredAttributes`: a canary whose only change is here is not the blind spot (see `canaryContentChanged`). */
+const PROMOTION_ATTRIBUTES = ['isPriority', 'listingSection'] as const;
 
 export interface RunHrGeCrawlDeps {
   db: Database;
@@ -666,8 +671,9 @@ export async function runHrGeCrawl(
     // no fingerprint, so they are always fetched: the fetch is their
     // existence check.
     const decisions = new Map<string, 'fetch' | 'adopt' | 'skip'>();
+    let known = new Map<string, KnownListing>();
     if (refetch.mode === 'changed') {
-      const known = await loadKnownListings(
+      known = await loadKnownListings(
         db,
         hrGeSource.id,
         orderedListings.map((listing) => listing.sourceRecordId),
@@ -846,7 +852,16 @@ export async function runHrGeCrawl(
           listing.fingerprint,
         );
       }
-      if (canaries.has(listing.sourceRecordId) && writeResult.outcome === 'changed') {
+      if (
+        canaries.has(listing.sourceRecordId) &&
+        writeResult.outcome === 'changed' &&
+        (await canaryContentChanged(
+          db,
+          known.get(listing.sourceRecordId)?.currentRevisionId,
+          writeResult.revision,
+          PROMOTION_ATTRIBUTES,
+        ))
+      ) {
         refetch.canaryChanged++;
       }
     }
