@@ -78,6 +78,9 @@ async function get(surface: SurfaceName, path: string, cookie?: string): Promise
   }
 }
 
+/** A well-formed id no opportunity has. */
+const UNKNOWN_OPPORTUNITY = '00000000-0000-4000-8000-000000000000';
+
 async function expectProxyRefusal(surface: SurfaceName, path: string): Promise<void> {
   const reply = await get(surface, path);
   expect(reply.status, `${surface} ${path}`).toBe(404);
@@ -138,6 +141,12 @@ test.describe('XTELO_SURFACE=local', () => {
       expect((await get('local', path)).status).toBe(404);
     });
   }
+
+  test('calls an unknown opportunity a mistyped link', async () => {
+    const reply = await get('local', `/opportunities/${UNKNOWN_OPPORTUNITY}`);
+    expect(reply.status).toBe(404);
+    expect(reply.body.toString()).toContain('No such opportunity');
+  });
 });
 
 test.describe('XTELO_SURFACE=public', () => {
@@ -161,6 +170,18 @@ test.describe('XTELO_SURFACE=public', () => {
       await expectProxyRefusal('public', path);
     });
   }
+
+  // Public resolves a vacancy only while it has a live listing, so a closed
+  // one lands here too, and the page must not blame the visitor's link.
+  test('tells a visitor an unlisted vacancy has closed, under a 404', async () => {
+    const reply = await get('public', `/opportunities/${UNKNOWN_OPPORTUNITY}`);
+    expect(reply.status).toBe(404);
+    const html = reply.body.toString();
+    expect(html).toContain('This vacancy is no longer listed');
+    // Streamed after <head> (Next's streaming metadata), so not a literal <title> tag here.
+    expect(html).toContain('Vacancy no longer listed · Xtelo');
+    expect(html).not.toContain('No such opportunity');
+  });
 });
 
 test.describe('XTELO_SURFACE=admin', () => {
