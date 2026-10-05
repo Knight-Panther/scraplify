@@ -35,5 +35,3 @@ export const STATIC_E1_PIN = {
     },
   },
 } as const;
-
-export type StaticModelFile = keyof typeof STATIC_E1_PIN.files;

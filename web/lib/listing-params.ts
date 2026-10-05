@@ -88,7 +88,6 @@ export const VIEWS = [
   },
 ] as const;
 
-export type ViewValue = (typeof VIEWS)[number]['value'];
 export type View = (typeof VIEWS)[number];
 
 const DAY = 24 * 60 * 60 * 1000;

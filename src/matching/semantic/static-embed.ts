@@ -158,68 +158,6 @@ export function cosine(a: Float32Array, b: Float32Array): number {
   return dot;
 }
 
-export interface WordPieceVocab {
-  /** Token strings indexed by id; continuation pieces start with "##". */
-  tokens: readonly string[];
-  unkId: number;
-  /** BERT uncased: lowercase and strip accents. */
-  lowercase: boolean;
-}
-
-const MAX_WORD_CHARS = 100;
-const COMBINING_MARK = /\p{Mn}/gu;
-const WORD_OR_MARK = /[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu;
-
-/**
- * BERT WordPiece: clean and (optionally) lowercase, split on whitespace and
- * punctuation, then greedy longest-match-first pieces with "##" for a
- * word's continuation. Ids below FIRST_CONTENT_ID are never embedded, so a
- * vocabulary laid out that way can reuse `embed`.
- */
-export function createWordPieceTokenizer(vocab: WordPieceVocab): Tokenizer {
-  const ids = new Map<string, number>();
-  vocab.tokens.forEach((token, id) => {
-    ids.set(token, id);
-  });
-  return {
-    encode(text: string): number[] {
-      let normalized = normalize(text);
-      if (vocab.lowercase) {
-        normalized = normalized.toLowerCase().normalize('NFD').replace(COMBINING_MARK, '');
-      }
-      const out: number[] = [];
-      for (const [word] of normalized.matchAll(WORD_OR_MARK)) {
-        const chars = Array.from(word);
-        if (chars.length > MAX_WORD_CHARS) {
-          out.push(vocab.unkId);
-          continue;
-        }
-        const pieces: number[] = [];
-        let start = 0;
-        while (start < chars.length) {
-          let end = chars.length;
-          let found: number | undefined;
-          while (end > start) {
-            const piece = (start > 0 ? '##' : '') + chars.slice(start, end).join('');
-            found = ids.get(piece);
-            if (found !== undefined) break;
-            end--;
-          }
-          if (found === undefined) {
-            pieces.length = 0;
-            pieces.push(vocab.unkId);
-            break;
-          }
-          pieces.push(found);
-          start = end;
-        }
-        out.push(...pieces);
-      }
-      return out;
-    },
-  };
-}
-
 export interface StaticModel {
   tokenizer: Tokenizer;
   table: StaticTable;
