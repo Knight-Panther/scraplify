@@ -121,7 +121,7 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
 **Public repository (owner)** — Archive, "Former current-phase section":
 
 - Optional: `src/matching/eval/fixtures/golden-vectors.node.json` holds 40 real vacancy texts, with one named recruiter's email and 8 phone numbers; redacting them means regenerating the vectors (`npm run matching:embed-eval-corpus`).
-- Owner, on GitHub: turn on email privacy (36 web merge commits carry the owner's address) and Dependabot alerts.
+- Owner, on GitHub: turn on email privacy in the account's email settings (36 web merge commits carry the owner's address). Dependabot alerts: **on** since 2026-10-05, 0 open.
 
 ## Upcoming, most valuable first
 
