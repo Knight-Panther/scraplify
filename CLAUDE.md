@@ -4,7 +4,7 @@ Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a 
 
 ## Session handoff
 
-A `SessionStart` hook (`.claude/settings.json` → `scripts/session-context.sh`) injects live repo state into every new session: branch, uncommitted count, last three commits, the current-phase line from `docs/STATUS.md`, any active Codex cooldown, and any dev server already holding port 3000/3001. It exists so a fresh session stops spending tool calls re-deriving all of that.
+A `SessionStart` hook (`.claude/settings.json` → `scripts/session-context.sh`) injects live repo state into every new session: branch, uncommitted count, last three commits, the current-phase line from `docs/STATUS.md`, and any dev server already holding port 3000/3001. It exists so a fresh session stops spending tool calls re-deriving all of that.
 
 When the user says **"save state"** (or similar, before `/clear`), write a few plain lines to `.git/session-handoff` — what is mid-flight and what the immediate next step is. That file is machine-local and gitignored by virtue of living in `.git/` (same home as `.git/codex-cooldown`), it is printed back at the next session's start, and it is **not** a status file: anything about phase or exit-gate progress belongs in `docs/STATUS.md`, which is versioned and visible to Codex. Overwrite it rather than appending, and delete it once its next step has been done.
 
@@ -13,9 +13,9 @@ A `PreCompact` hook (`scripts/compact-watch.sh`) counts compactions per session 
 ## Git workflow
 
 - `main` stays always in a working, phase-complete state. Direct commits to `main` are for repo-governance/doc changes only (`docs/`, `.claude/`, `.agents/`, `.codex/`, `.githooks/`, `scripts/`, and a few root config/readme files) — implementation work happens on branches. This is enforced, not just documented: the pre-commit hook hard-blocks (exit 1) any commit on `main` that stages a file outside that allow-list, and prints the exact `git checkout -b <name>` command to fix it, auto-derived from `docs/STATUS.md`'s current-phase heading.
-- One branch per phase/sub-phase from [`docs/STATUS.md`](docs/STATUS.md) (e.g. `phase-0-foundation`, `phase-1a-jobsge`). Commit normally on the branch — the pre-commit Codex gate still runs on every commit there, unchanged.
-- Before merging a phase branch into `main`: push it, open a PR (`gh pr create`), and run `/codex:adversarial-review --base main` for a whole-branch review — this catches cross-commit issues the per-commit gate can't see, since it only ever looks at one commit's diff at a time.
-- Merge only when that review is clean (no P0/P1) and the phase's exit-gate checklist in `docs/STATUS.md` is actually checked off, updated in the same PR. Delete the branch after merging.
+- One branch per phase/sub-phase from [`docs/STATUS.md`](docs/STATUS.md) (e.g. `phase-0-foundation`, `phase-1a-jobsge`). Commit normally on the branch.
+- Before merging a phase branch into `main`: push it, open a PR (`gh pr create`) and wait for CI. Merge when CI is green and the phase's exit-gate checklist in `docs/STATUS.md` is actually checked off, updated in the same PR. Delete the branch after merging.
+- Codex reviews are **manual only** (owner decision, 2026-10-05): nothing runs Codex automatically on commit, push or merge. Run `/codex:review` or `/codex:adversarial-review --base main` only when the owner asks for one.
 
 ## Local databases
 
@@ -28,15 +28,14 @@ Two Postgres databases exist locally: `scraplify` (the real crawled corpus) and 
 ## Roles
 
 - **Claude (Claude Code): implementer.** Writes and edits all code in this repo.
-- **Codex (OpenAI Codex CLI / `codex`): code reviewer.** Reviews Claude's changes; does not implement. See `AGENTS.md` for Codex's own copy of this rule.
+- **Codex (OpenAI Codex CLI / `codex`): code reviewer, on request.** Reviews Claude's changes when the owner asks; does not implement. See `AGENTS.md` for Codex's own copy of this rule.
 
 ## Implementer / reviewer workflow
 
 - Claude Code is the implementer: write and edit code directly.
-- OpenAI Codex CLI (`codex`) is the reviewer, not the implementer. Don't ask Codex to write code here — use `/codex:review` or `/codex:adversarial-review` for review, or `/codex:rescue` to delegate an investigation/fix task if asked.
-- After local setup with `scripts/setup-git-hooks.ps1`, every normal `git commit` is gated by the version-controlled `.githooks/pre-commit` Git hook. It runs `codex review --uncommitted` and blocks the commit if Codex reports P0/P1 findings, cannot be found, or fails. Non-blocking suggestions are surfaced but don't stop the commit.
-- `codex review --uncommitted` reviews staged, unstaged, and untracked changes, not only the pending commit. Keep unrelated work out of the working tree while committing.
-- If a commit is blocked, fix the reported issue, re-stage, and commit again — don't bypass the hook.
+- OpenAI Codex CLI (`codex`) is the reviewer, not the implementer, and it runs **only when asked**. Don't ask Codex to write code here — use `/codex:review` or `/codex:adversarial-review` for review, or `/codex:rescue` to delegate an investigation/fix task if asked.
+- After local setup with `scripts/setup-git-hooks.ps1`, the version-controlled `.githooks/pre-commit` hook does two things: it reminds you when `docs/STATUS.md` is not in the commit, and it blocks implementation files committed directly on `main`. It does not run Codex.
+- If a commit is blocked, move the work to a branch — don't bypass the hook with `--no-verify`.
 
 ## Frontend
 

@@ -4,7 +4,7 @@
 #
 # Exists because every new session otherwise re-derives the same half-dozen
 # facts with its own tool calls — branch, recent commits, current phase,
-# whether Codex is mid-cooldown, whether a dev server is already up. Each is
+# whether a dev server is already up. Each is
 # one round trip there and nearly free here.
 #
 # Deliberately NOT a project-status file: docs/STATUS.md owns that (CLAUDE.md's
@@ -23,7 +23,6 @@ cd "$root" || exit 0
 # and a per-worktree .git directory would hide the cooldown/handoff files the
 # main checkout wrote (the same reasoning .githooks/pre-commit documents).
 gitdir=$(git rev-parse --git-common-dir 2>/dev/null || echo .git)
-now=$(date +%s)
 
 context=$(
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
@@ -35,16 +34,6 @@ context=$(
 
   phase=$(grep -m1 '^## Current phase:' docs/STATUS.md 2>/dev/null | sed 's/^## //' || true)
   [ -n "$phase" ] && echo "docs/STATUS.md says: $phase"
-
-  cooldown_file="$gitdir/codex-cooldown"
-  if [ -f "$cooldown_file" ]; then
-    until_ts=$(cat "$cooldown_file" 2>/dev/null || echo 0)
-    case "$until_ts" in '' | *[!0-9]*) until_ts=0 ;; esac
-    if [ "$until_ts" -gt "$now" ]; then
-      pretty=$(date -d "@$until_ts" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$until_ts")
-      echo "Codex: usage-limit cooldown until $pretty — the per-commit review gate auto-skips and is recorded as owed until then. Do not re-trigger it before that time."
-    fi
-  fi
 
   ports=$(netstat -ano 2>/dev/null | grep -i listening | grep -oE ':(3000|3001)[[:space:]]' | tr -d ': \t' | sort -u | tr '\n' ' ')
   [ -n "$ports" ] && echo "Dev server already listening on port(s): $ports"

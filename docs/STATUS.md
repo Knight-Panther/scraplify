@@ -32,7 +32,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 
 - **Alert channel dropped** (2026-09-27; concept §30.6): no alerting functionality.
 - **Review severity:** only P0/P1 findings are implemented; P2 and lower are skipped under "the P0/P1 rule" and recorded as open items.
-- **Codex review waivers:** since 2026-09-23 the standing instruction is not to wait on Codex cooldowns; since 2026-09-25 work done on Opus skips both the per-commit and whole-branch Codex gates. 8B's whole-branch review was owner-waived (not passed); 8D used one Opus high-effort pass in place of the Codex adversarial review (owner decision).
+- **Codex reviews are manual only** (2026-10-05): `.githooks/pre-commit` no longer runs Codex, and no review is required before merging; `/codex:review` or `/codex:adversarial-review` run only when the owner asks. Before that, waivers applied: not waiting on Codex cooldowns (2026-09-23), and work done on Opus skipping both Codex gates (2026-09-25). 8B's whole-branch review was owner-waived (not passed); 8D used one Opus high-effort pass in place of the Codex adversarial review (owner decision).
 - **Source permissions:** granted for jobs.ge and hr.ge (2026-09-26, `docs/RIGHTS.md`).
 - **Crawl pacing:** jobs.ge crawl delay removed under policy v2 (2026-09-26), then set to 2 s under v3 after a soft block (2026-09-27); hr.ge keeps 3 s.
 - **Retention:** the 60/60/180-day policy was owner-approved (2026-09-27; concept §6.1 amendment).
@@ -69,7 +69,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 8E — hosted readiness | **deployed** 2026-09-28 (`jobster.fun`); all 7 stages closed 2026-10-05 | #24 | Nothing remaining. Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). |
 | 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `archive/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0037 (retention) is applied to `scraplify` (38 recorded, checked 2026-09-30) and on the host; `scraplify_qa` was not rechecked. |
 
-Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, given the standing instructions above; `discharge-codex-debt` can still pay them back if wanted.
+Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; `discharge-codex-debt` can still pay them back if wanted.
 
 ## What exists now (short map)
 

@@ -46,7 +46,7 @@ esac
 
 case "$file" in
   */src/dedupe/* | */src/browse/queries.ts | */web/app/\(local\)/review/* | */web/lib/review-pair.ts)
-    msg_dedupe="Dedupe/membership code edited ($file). Once this change is complete, run the dedupe-correctness-reviewer agent over it as a second pass alongside the Codex gate."
+    msg_dedupe="Dedupe/membership code edited ($file). Once this change is complete, run the dedupe-correctness-reviewer agent over it as a focused second pass."
     ;;
 esac
 

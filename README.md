@@ -9,7 +9,7 @@ This repository holds all of it, in TypeScript: the crawlers, normalization and 
 Requirements:
 
 - Git
-- OpenAI Codex CLI, authenticated and available on `PATH`
+- OpenAI Codex CLI, optional (reviews are run by hand, see below)
 - PowerShell 5.1 or later
 - Node.js 24 and npm (the Node major is pinned in `.node-version`)
 - Docker Desktop running for local PostgreSQL
@@ -22,7 +22,7 @@ Enable the repository's version-controlled Git hooks once after cloning:
 ./scripts/setup-git-hooks.ps1
 ```
 
-The pre-commit hook runs `codex review --uncommitted` and blocks commits on P0/P1 findings or review failures. Because Codex has no staged-only review target, the review includes staged, unstaged, and untracked changes.
+The pre-commit hook reminds you when `docs/STATUS.md` is not part of a commit and blocks implementation files committed directly on `main`. It does not run Codex: code reviews with Codex are manual (`/codex:review`, `/codex:adversarial-review` in Claude Code), run when wanted.
 
 Set up the Context7 MCP server (used for up-to-date library documentation; project-scoped, not committed since it holds a live key in `.mcp.json`):
 
