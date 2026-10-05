@@ -41,7 +41,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
    - Firewall: `ufw allow OpenSSH && ufw allow 80,443/tcp && ufw enable`. Postgres listens on localhost only (its default).
    - Node 24 at `/usr/bin/node`, which the units call: the NodeSource `nodesource_setup.sh` for 24.x, then `apt install nodejs`. Not fnm or nvm: those install under a home directory, which the units cannot see.
    - Postgres 17 from the PGDG apt repository (Ubuntu 24.04 ships 16): `apt install postgresql-17`. No extension is needed.
-   - Caddy (its official apt repository), `rclone` and `git` from apt.
+   - Caddy (its official apt repository) and `git` from apt. `rclone` is the official build from rclone.org, pinned with its SHA-256 in `deploy/host-setup.sh`. Ubuntu's own package (1.60) stores each R2 upload and then fails it with a 501 Not Implemented, so every backup needed a retry. The host has run 1.75.1 since 2026-10-05.
    - Log retention, 60 days like everything operational: `install -D -m 0644 deploy/journald/xtelo-retention.conf /etc/systemd/journald.conf.d/xtelo-retention.conf && systemctl restart systemd-journald` (from the release checkout, after step 2). Caddy's own access logs expire after 60 days by `deploy/Caddyfile`.
    - Users and directories:
      ```sh

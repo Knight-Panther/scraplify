@@ -1,6 +1,11 @@
+import { isDeepStrictEqual } from 'node:util';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/types.js';
-import { sourceListingRevisions, sourceListings } from '../db/schema/index.js';
+import {
+  type SourceListingRevisionRow,
+  sourceListingRevisions,
+  sourceListings,
+} from '../db/schema/index.js';
 
 /**
  * Phase 7C incremental crawling (docs/PHASE_7C_PLAN.md), shared by both
@@ -110,6 +115,57 @@ export async function setDiscoveryFingerprint(
         sql`${sourceListings.currentRevisionId} is not null`,
       ),
     );
+}
+
+/**
+ * Whether a canary's new revision differs from the one it replaced in what
+ * the vacancy says, so `canaryChanged` measures the fingerprint's real blind
+ * spot. Two kinds of new revision are not content and are left out:
+ * - `ignoredAttributes`, a source's paid-placement state (hr.ge's
+ *   `isPriority` and `listingSection`). It is stored with each revision, but
+ *   the fingerprint leaves it out on purpose (discovery-fingerprint.ts). On
+ *   hr.ge every canary "change" from 2026-09-30 to 2026-10-05 was a
+ *   promotion turned on or off, which made the blind spot read 20%.
+ * - a parser-version bump over the same page, which stores a revision on
+ *   every listing's next fetch.
+ * The comparison covers the fields each adapter's content hash covers.
+ */
+export async function canaryContentChanged(
+  db: Database,
+  previousRevisionId: string | null | undefined,
+  next: SourceListingRevisionRow,
+  ignoredAttributes: readonly string[],
+): Promise<boolean> {
+  if (previousRevisionId === null || previousRevisionId === undefined) return true;
+  const [previous] = await db
+    .select()
+    .from(sourceListingRevisions)
+    .where(eq(sourceListingRevisions.id, previousRevisionId));
+  if (previous === undefined) return true;
+  return !isDeepStrictEqual(
+    canaryComparable(previous, ignoredAttributes),
+    canaryComparable(next, ignoredAttributes),
+  );
+}
+
+function canaryComparable(
+  revision: SourceListingRevisionRow,
+  ignoredAttributes: readonly string[],
+) {
+  const attributes = { ...(revision.structuredAttributes as Record<string, unknown>) };
+  for (const key of ignoredAttributes) delete attributes[key];
+  return {
+    titleNormalized: revision.titleNormalized,
+    organizationRaw: revision.organizationRaw,
+    description: revision.description,
+    locations: revision.locations,
+    salaryRaw: revision.salaryRaw,
+    publishedRaw: (revision.publishedDate as { raw?: unknown }).raw,
+    deadlineRaw: (revision.deadlineDate as { raw?: unknown }).raw,
+    applicationMethod: revision.applicationMethod,
+    sourceCategories: revision.sourceCategories,
+    attributes,
+  };
 }
 
 /** `size` distinct ids from `skipped`, uniformly at random. */

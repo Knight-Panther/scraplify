@@ -85,6 +85,10 @@ type DetailForDisplay = Pick<
  * report a dead link as a live one. Measured, the trade is one-sided: this
  * screen's query runs in about 60ms against the live corpus, against the
  * list's 3.8 seconds, so there is very little for a fallback to cover.
+ *
+ * `force-dynamic` also keeps not-found.tsx rendering per request, which its
+ * surface-specific copy relies on: a prerendered boundary would bake in the
+ * build machine's `XTELO_SURFACE` instead.
  */
 
 export const dynamic = 'force-dynamic';
@@ -99,8 +103,9 @@ const loadPublicOpportunity = cache((id: string) => publicGetOpportunity(db, id)
 
 /**
  * On public, a job page names its vacancy in the title, preview and search
- * result, from the same view the page renders (never a guess). Elsewhere, and
- * for an id that resolves to nothing, the generic title stays.
+ * result, from the same view the page renders (never a guess); an id that
+ * resolves to nothing gets the not-found page's own title. Elsewhere the
+ * generic title stays.
  */
 export async function generateMetadata({
   params,
@@ -110,7 +115,8 @@ export async function generateMetadata({
   if (currentSurface() !== 'public') return { title: FALLBACK_TITLE };
   const { id } = await params;
   const view = await loadPublicOpportunity(id);
-  if (view === null) return { title: FALLBACK_TITLE };
+  // The page renders not-found.tsx's public copy: usually a closed vacancy.
+  if (view === null) return { title: 'Vacancy no longer listed · Xtelo' };
   const title = `${view.canonicalTitle} · Xtelo`;
   const description = opportunityDescription(view);
   const path = `/opportunities/${view.opportunityId}`;

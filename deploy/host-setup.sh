@@ -4,8 +4,8 @@
 #   sudo bash deploy/host-setup.sh
 #
 # Installs the host prerequisites the units rely on (swap, firewall, Node 24 at
-# /usr/bin/node, Postgres 17 from PGDG, Caddy from its own repository, rclone,
-# git), locks SSH to keys only, and creates the service users and directories.
+# /usr/bin/node, Postgres 17 from PGDG, Caddy from its own repository, rclone
+# from rclone.org, git), locks SSH to keys only, and creates the service users and directories.
 # Used for the first deployment (OVH VPS-1, 2026-09-28).
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -17,8 +17,18 @@ export DEBIAN_FRONTEND=noninteractive
 echo "== apt baseline"
 apt-get update -q
 apt-get -y -q upgrade
-apt-get -y -q install ca-certificates curl gnupg git rclone openssl ufw \
+apt-get -y -q install ca-certificates curl gnupg git openssl ufw \
   debian-keyring debian-archive-keyring apt-transport-https postgresql-common
+
+echo "== rclone, the official build: Ubuntu's 1.60 stores each R2 upload, then fails it with a 501"
+RCLONE_VERSION=v1.75.1
+RCLONE_DEB_SHA256=09c9f7606ed9e31eecc1eec26a89992cf2931a8d2d1a5f0ae2bb1c11630ffb15
+if [ "$(rclone version 2>/dev/null | head -n1)" != "rclone $RCLONE_VERSION" ]; then
+  curl -fsSL "https://downloads.rclone.org/$RCLONE_VERSION/rclone-$RCLONE_VERSION-linux-amd64.deb" -o /tmp/rclone.deb
+  echo "$RCLONE_DEB_SHA256  /tmp/rclone.deb" | sha256sum -c -
+  dpkg -i /tmp/rclone.deb
+  rm -f /tmp/rclone.deb
+fi
 
 echo "== swap (2G): a 4 GB host builds Next beside Postgres and two web processes"
 if ! swapon --show | grep -q /swapfile; then
