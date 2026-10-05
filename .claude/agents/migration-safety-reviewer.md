@@ -23,8 +23,8 @@ For every new file in `drizzle/migrations/` in the diff under review:
    present.
 2. **Drops** — `DROP COLUMN`, `DROP TABLE`, `DROP CONSTRAINT` that removes
    more than what the schema diff in `src/db/schema/` actually intends. Cross-check
-   the migration SQL against the corresponding change in `src/db/schema/index.ts`
-   (or wherever the touched table is defined) — drizzle-kit occasionally infers
+   the migration SQL against the corresponding change in the `src/db/schema/*.ts`
+   file that defines the touched table — drizzle-kit occasionally infers
    a wider destructive change than the source edit implies (e.g. a rename that
    gets generated as drop-then-add, losing data on tables it doesn't detect
    the rename for).
@@ -32,8 +32,8 @@ For every new file in `drizzle/migrations/` in the diff under review:
    `integer` → `smallint`) — these can truncate or fail on existing data.
 4. **Removed or altered unique/foreign-key constraints** on tables the dedupe
    and membership logic depends on (`opportunity_source_memberships`,
-   `duplicate_candidates`, `opportunities` — check `src/db/schema/index.ts`
-   for the current table list) — this project's dedupe correctness depends
+   `duplicate_candidates`, `opportunities` — the tables are defined in
+   `src/db/schema/opportunities.ts`) — this project's dedupe correctness depends
    on specific constraints (see partial unique indexes referenced in
    `src/dedupe/membership-review.ts`), so an accidental constraint change
    here is a correctness bug, not just a migration risk.
@@ -49,7 +49,7 @@ For every new file in `drizzle/migrations/` in the diff under review:
   migration state if it's unclear whether a table already has rows in
   practice — a migration touching a table this project's `docs/STATUS.md`
   describes as already holding live data (opportunities, source listings,
-  duplicate candidates) needs more scrutiny than one touching a new, empty
+  duplicate candidates, memberships) needs more scrutiny than one touching a new, empty
   table.
 - If `DATABASE_URL` is set and reachable, you may run read-only queries
   (`SELECT count(*)`, `\d <table>`) via `psql` to confirm whether a table

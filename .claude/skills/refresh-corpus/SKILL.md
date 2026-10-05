@@ -10,16 +10,21 @@ The pipeline's steps are only correct **in order**, and each skipped step has
 already failed silently once in this repo:
 
 - Crawl without dedupe → new listings exist only in the raw `/listings` view.
-  That is the 2026-09-15 incident (`docs/STATUS.md`): 3,277 active hr.ge
+  That is the 2026-09-15 incident (`docs/archive/status-history.md`): 3,277 active hr.ge
   listings had no canonical opportunity for nine days.
 - Dedupe without re-ranking → the ranked screen goes empty, because every
   stored ranking is pinned to a canonical revision the dedupe pass superseded
-  and `listRankedOpportunities` refuses those by design (Phase 3B Stage 8 record).
+  and `listRankedOpportunities` refuses those by design (Phase 3B Stage 8; `docs/archive/PHASE_3B_PLAN.md`).
 - Build skipped → the crawl runs yesterday's `dist/`, not the code on disk.
 
-This is the **manual** path. The scheduled path is `scripts/register-crawl-schedule.ps1`,
-and registering that remains a deliberate step the project owner runs — this
-skill never registers or modifies a scheduled task.
+This is the **manual, local** path. The local scheduled path is
+`scripts/register-crawl-schedule.ps1` (it runs `scripts/run-crawl.ps1`), and
+registering that remains a deliberate step the project owner runs — this skill
+never registers or modifies a scheduled task. The hosted site's own daily
+pipeline runs on the OVH host (`docs/RUNBOOK.md`) and is not touched by this
+skill. `run-crawl.ps1` also rebuilds the matching bundle and applies retention
+after dedupe and taxonomy; those two steps are not part of this skill's manual
+sequence, so a manual refresh leaves the bundle and retention to the schedule.
 
 Every command below writes to the real `scraplify` database and/or sends
 requests to jobs.ge and hr.ge. None of it runs against `scraplify_qa`.
@@ -39,7 +44,8 @@ requests to jobs.ge and hr.ge. None of it runs against `scraplify_qa`.
      it's the real one.
    - `git status --short` — report uncommitted changes, since they will be
      compiled into the build that crawls.
-   - Confirm Docker/Postgres is up (the Postgres MCP `list_schemas` call is enough).
+   - Confirm Docker/Postgres is up (the Postgres MCP `list_schemas` call is enough;
+     if that MCP server is not connected, use the `node` connection check above).
    - Record the **before** counts with the query in step 6, so the report
      can show deltas rather than bare totals — and so step 4 knows whether a
      backlog already existed before this run touched anything.
@@ -120,8 +126,7 @@ requests to jobs.ge and hr.ge. None of it runs against `scraplify_qa`.
    ```
    `active_unlinked` should be **0** after a successful dedupe. Anything
    else is the 2026-09-15 incident signature and must be reported as a
-   failure, not a footnote. If `npm run health:check` exists by then (Phase
-   7A Stage 7-2), run it too and report its exit code.
+   failure, not a footnote. Run `npm run health:check` too and report its exit code.
 
 7. **Report.** Per source: crawl exit, dedupe exit, listings before → after,
    unlinked count, rankings produced per profile, plus anything from the logs

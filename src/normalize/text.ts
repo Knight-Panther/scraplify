@@ -6,9 +6,6 @@
  * overwrites what a source actually wrote (§14.2).
  */
 
-/** Bump when any rule here changes; recorded on every decision that used it. */
-export const TEXT_NORMALIZER_VERSION = 'v1';
-
 const QUOTE_CHARACTERS = /["'`„“”«»‘’]/g;
 const PUNCTUATION_TO_SPACE = /[.,;:!?()[\]{}\\/|_+*&@#~^<>-]+/g;
 

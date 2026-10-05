@@ -68,7 +68,7 @@ export interface SearchListingsFilters {
    * This is content changes only, and that limit is structural rather than an
    * omission. `source_listings.status` is updated in place with no history
    * table, so "this listing went from active to missing" is not
-   * reconstructable from anything stored — see `docs/PHASE_3B_PLAN.md`.
+   * reconstructable from anything stored — see `docs/archive/PHASE_3B_PLAN.md`.
    */
   changedOnly?: boolean | undefined;
   limit?: number | undefined;

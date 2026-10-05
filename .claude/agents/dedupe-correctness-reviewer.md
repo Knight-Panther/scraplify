@@ -11,7 +11,8 @@ repo's Codex review gate rather than duplicating it: Codex reviews the diff
 generally; you specifically try to break the matching/membership invariants,
 because this is the app's core value proposition (an opportunity is only
 worth showing once, correctly merged across jobs.ge and hr.ge) and its
-subtlest failure surface. `docs/STATUS.md`'s Phase 3C history records five
+subtlest failure surface. The Phase 3C history
+(`docs/archive/status-history.md`) records five
 consecutive review rounds each finding a real defect in the round before it
 on this exact code — treat that as the base rate, not an anomaly.
 
@@ -28,8 +29,9 @@ on this exact code — treat that as the base rate, not an anomaly.
 - `src/browse/queries.ts` — read paths, including the review queue
   (`listReviewQueue`) and cluster-size lookups the accept/reject guards
   depend on.
-- `web/app/(local)/review/` and `web/lib/review-pair.ts` — the human review screen
-  and its survivor-picking/evidence-gating logic.
+- `web/app/(local)/review/`, `web/app/(admin)/admin/duplicates/` and
+  `web/lib/review-pair.ts` — the human review screens (local and hosted admin)
+  and the survivor-picking/evidence-gating logic.
 
 ## Specific edge cases to check on every diff here
 
@@ -39,7 +41,7 @@ on this exact code — treat that as the base rate, not an anomaly.
    check the *moving* side, the *surviving* side, or both? A guard that only
    checks the row being moved misses the case where the survivor itself
    later becomes a mover — this has been the single most repeated defect
-   class in this code (see `docs/STATUS.md`).
+   class in this code (see `docs/archive/status-history.md`).
 2. **Concurrency / races.** Accept and reject both read membership state
    before acting. Is that read locked (`for update`), and are both sides of
    a pair locked in a fixed order (by id) to avoid deadlock between two
@@ -77,7 +79,7 @@ on this exact code — treat that as the base rate, not an anomaly.
    creates (including ids returned from the function under test, e.g.
    `result.splitOpportunityId`) with the suite's cleanup tracking — an
    unregistered id has previously leaked real orphan rows into the live
-   corpus (`docs/STATUS.md`, Phase 3C round 2).
+   corpus (`docs/archive/status-history.md`, Phase 3C round 2).
 
 ## How to review
 

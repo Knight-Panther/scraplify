@@ -32,6 +32,23 @@ import {
  * a developer last crawled.
  */
 
+/**
+ * Pages through the review queue until the given candidate turns up. A shared
+ * dev database holds thousands of real pending pairs that can outrank a test's
+ * own candidate, so a single fixed-size page would not reliably contain it.
+ */
+async function findReviewEntry(
+  candidateId: string,
+): Promise<Awaited<ReturnType<typeof listReviewQueue>>[number] | undefined> {
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await listReviewQueue(db, { limit: pageSize, offset });
+    const entry = page.find((row) => row.candidateId === candidateId);
+    if (entry !== undefined) return entry;
+    if (page.length === 0) return undefined;
+  }
+}
+
 describe('browse queries', () => {
   const sourceIds: string[] = [];
   const listingIds: string[] = [];
@@ -175,10 +192,17 @@ describe('browse queries', () => {
   it('filters by status and by source', async () => {
     const sourceId = await createTestSource();
     sourceIds.push(sourceId);
-    const active = await addListing(sourceId, { title: 'Active role', status: 'active' });
-    const closed = await addListing(sourceId, { title: 'Closed role', status: 'closed' });
+    // A unique marker scopes the search to this test's own rows; the status
+    // filter alone would be crowded out by real closed listings in a shared DB.
+    const marker = randomUUID().slice(0, 8);
+    const active = await addListing(sourceId, { title: `Active role ${marker}`, status: 'active' });
+    const closed = await addListing(sourceId, { title: `Closed role ${marker}`, status: 'closed' });
 
-    const closedOnly = await searchListings(db, { statuses: ['closed'], limit: 500 });
+    const closedOnly = await searchListings(db, {
+      text: marker,
+      statuses: ['closed'],
+      limit: 500,
+    });
     const ids = closedOnly.map((row) => row.sourceListingId);
     expect(ids).toContain(closed);
     expect(ids).not.toContain(active);
@@ -327,13 +351,18 @@ describe('browse queries', () => {
       );
     }
 
-    const first = await searchListings(db, { limit: 3, offset: 0 });
-    const second = await searchListings(db, { limit: 3, offset: 3 });
+    // Scoped to this test's own source: unscoped, the pages fall on whatever
+    // newer listings the database holds, and other test files inserting in
+    // parallel shift the window between the two queries.
+    const sourceSlug = `test-source-${sourceId}`;
+    const first = await searchListings(db, { sourceSlug, limit: 3, offset: 0 });
+    const second = await searchListings(db, { sourceSlug, limit: 3, offset: 3 });
     const paged = [...first, ...second].map((row) => row.sourceListingId);
 
     // No listing appears on both pages, which is what a missing tie-breaker
-    // silently breaks.
+    // silently breaks, and together the pages hold exactly the six tied rows.
     expect(new Set(paged).size).toBe(paged.length);
+    expect(new Set(paged)).toEqual(new Set(created));
   });
 
   it('clamps an absurd limit instead of returning the whole corpus', async () => {
@@ -499,8 +528,7 @@ describe('browse queries', () => {
       resultingDecision: 'needs_review',
     });
 
-    const queue = await listReviewQueue(db, { limit: 500 });
-    const entry = queue.find((row) => row.candidateId === candidateId);
+    const entry = await findReviewEntry(candidateId);
     expect(entry).toBeDefined();
     // Both sides fully rendered, so a reviewer needs no second lookup.
     expect(entry?.a.title).toBeTruthy();
@@ -541,8 +569,7 @@ describe('browse queries', () => {
       resultingDecision: 'needs_review',
     });
 
-    const queue = await listReviewQueue(db, { limit: 500 });
-    const entry = queue.find((row) => row.candidateId === candidateId);
+    const entry = await findReviewEntry(candidateId);
     const unclusteredSize =
       entry?.a.sourceListingId === unclustered ? entry.aClusterSize : entry?.bClusterSize;
     const clusteredSize =
@@ -615,8 +642,7 @@ describe('browse queries', () => {
       resultingDecision: 'needs_review',
     });
 
-    const queue = await listReviewQueue(db, { limit: 500 });
-    const entry = queue.find((row) => row.candidateId === candidateId);
+    const entry = await findReviewEntry(candidateId);
     expect(entry).toBeDefined();
     const clusteredSize =
       entry?.a.sourceListingId === clustered ? entry.aClusterSize : entry?.bClusterSize;

@@ -7,16 +7,16 @@ param(
     # Both sources default to 24h, and neither default is the 30-60 minute row
     # in concept docs/scraplify-concept.md section 19.2 - that row is for
     # lightweight discovery-only polling, which these crawls do not do: both
-    # refetch every discovered listing's detail page every run, which is
-    # section 19.2's "Complete source reconciliation" / "hr.ge full index
-    # reconciliation" rows instead.
+    # walk every list page each run (section 19.2's "Complete source
+    # reconciliation" / "hr.ge full index reconciliation" rows).
     #
-    # Measured runtimes (docs/STATUS.md):
-    #   jobs.ge - ~5,647 listings at jobsGePolicy's 5s crawl-delay and
-    #             maxConcurrency 1 is >= 7h50m of fetches alone per run
-    #             (adversarial review, 2026-09-05, round 8).
-    #   hr.ge   - ~3.7h for a full-coverage run over 3,354 listings
-    #             (2026-09-15, 04:25 -> 08:05 UTC).
+    # Since Phase 7C a run re-fetches only listings whose list-page
+    # fingerprint changed, plus 20 canaries, so a routine run takes minutes
+    # (2-25 min on the host, 2026-10). The RuntimeMinutes guards below still
+    # assume the worst case: a first run on an empty database, or
+    # --refetch=all, fetches every detail page (jobs.ge ~5,750 listings at
+    # 2 s spacing is hours; hr.ge measured ~3.7 h for 3,354 listings on
+    # 2026-09-15).
     # 0 means "use the source's default" below.
     [int]$IntervalMinutes = 0
 )
@@ -33,8 +33,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $defaults = @{
-    'jobs-ge' = @{ IntervalMinutes = 1440; RuntimeMinutes = 480; Description = 'roughly 8-9 hours' }
-    'hr-ge'   = @{ IntervalMinutes = 1440; RuntimeMinutes = 225; Description = 'roughly 3-4 hours' }
+    'jobs-ge' = @{ IntervalMinutes = 1440; RuntimeMinutes = 480; Description = 'minutes for a routine run, hours for a first or --refetch=all run' }
+    'hr-ge'   = @{ IntervalMinutes = 1440; RuntimeMinutes = 225; Description = 'minutes for a routine run, about 4 hours for a first or --refetch=all run' }
 }
 $sourceDefaults = $defaults[$Source]
 if ($IntervalMinutes -eq 0) {
@@ -145,7 +145,7 @@ if ($repetition -ne ('PT{0}M' -f $IntervalMinutes) -and $repetition -ne [System.
 
 Write-Host "Scheduled task '$taskName' registered: fires every $IntervalMinutes minute(s), first at $($firstRun.ToString('yyyy-MM-dd HH:mm')) local time, in a hidden window."
 Write-Host "Resolved node to: $nodePath (baked into the scheduled action, so unattended runs don't depend on fnm's PATH hook firing)."
-Write-Host "Each run is a full $Source crawl (discovery + every listing detail) followed by dedupe and taxonomy passes, measured at $($sourceDefaults.Description) end to end - not a quick poll."
+Write-Host "Each run walks every $Source list page, re-fetches the detail pages that changed, then runs dedupe, taxonomy, the matching bundle and retention: $($sourceDefaults.Description) - not a quick poll."
 if ($IntervalMinutes -lt $sourceDefaults.RuntimeMinutes) {
     Write-Warning "IntervalMinutes ($IntervalMinutes) is under the measured runtime. -MultipleInstances IgnoreNew means overlapping triggers are silently dropped rather than queued, so most firings will simply no-op while the previous run is still going."
 }

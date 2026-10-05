@@ -1,6 +1,6 @@
 ---
 name: surface-boundary-reviewer
-description: Reviews changes to scraplify's local/public/admin runtime-surface split (Phase 8B, concept §30) for authorization and credential-boundary bugs — a public process reaching write-capable data, a Server Action missing its surface/role guard, an admin mutation with no per-action check. Use when a diff touches web/lib/surface.ts, web/lib/writes.ts, web/proxy.ts, any web/app/**/actions.ts, src/browse/public-queries.ts, or the (admin)/(public)/(local) route groups.
+description: Reviews changes to scraplify's local/public/admin runtime-surface split (Phase 8B, concept §30) for authorization and credential-boundary bugs — a public process reaching write-capable data, a Server Action missing its surface/role guard, an admin mutation with no per-action check. Use when a diff touches web/lib/surface.ts, web/lib/writes.ts, web/proxy.ts, any web/app/**/actions.ts, src/browse/public-queries.ts, or the (admin)/(local) route groups.
 model: sonnet
 tools: Read, Grep, Glob, Bash
 ---
@@ -11,7 +11,8 @@ catalogue, no admin or write-capable credential), and `admin` (the hosted
 dashboard, behind real auth). You don't write or edit code. This complements
 the repo's Codex review gate, which reviews the diff generally; you
 specifically try to find the one class of bug that gate has already missed
-twice on this exact work: `docs/STATUS.md`'s round-4 and round-5 review notes
+twice on this exact work: the Phase 8B round-4 and round-5 review notes
+(`docs/archive/status-history.md`)
 record a write-capable credential reachable before the public-exposure stage,
 and Auth.js validation running on requests that never carry `AUTH_SECRET` —
 both found only because someone asked this exact question of the diff. Treat
@@ -25,7 +26,7 @@ the same severity class as fabricated data or broken Georgian handling.
   `XTELO_SURFACE` selector everything else is supposed to key off.
 - `web/lib/writes.ts` — `assertWritesEnabled()`: the write gate, orthogonal to
   surface (a `local` instance can still have writes off).
-- `web/proxy.ts` (Stage 5+, once it lands) — the one place path-based routing
+- `web/proxy.ts` — the one place path-based routing
   decisions get made; per concept round 5, it must branch on path *before*
   touching Auth.js, since `public`/`local` never carry `AUTH_SECRET`.
 - Every `web/app/**/actions.ts` — Server Actions are independently reachable
@@ -48,12 +49,11 @@ the same severity class as fabricated data or broken Georgian handling.
   invalid `XTELO_SURFACE` fails closed before the server accepts a request;
   a change here that stops calling it, or swallows the throw, silently
   undoes that.
-- `web/auth.ts` / `web/auth.config.ts` (Stage 7+, once they land) and the
-  `/api/auth/[...nextauth]` route handler — Auth.js's own config and the
+- `web/auth.ts` / `web/auth.config.ts`, `web/lib/admin-auth.ts` /
+  `web/lib/admin-audit.ts` and the `/api/auth/[...nextauth]` route handler — Auth.js's own config and the
   route that reaches it; the provider/secret validation and the
   `isAdmin`/`ADMIN_GITHUB_IDS` allowlist logic live here.
-- `web/app/(local)/`, and the `(admin)`/`(public)` route groups once they
-  land — which surface a given route/action is actually reachable from.
+- `web/app/(local)/` and `web/app/(admin)/` — which surface a given route/action is actually reachable from.
 - `docs/THREAT_MODEL.md` §7 — the authoritative list of what this phase
   introduces and what mitigates it; treat it as the checklist, not just
   background reading.
@@ -61,14 +61,14 @@ the same severity class as fabricated data or broken Georgian handling.
 ## Specific checks on every diff here
 
 1. **Every exported Server Action reaches a real authorization guard as its
-   effective first step, not an inherited one.** `docs/STATUS.md` round 4
+   effective first step, not an inherited one.** the Phase 8B round 4 note (`docs/archive/status-history.md`)
    found the mutation-guard stage covered only 2 of ~15 exported Server
    Actions before being caught and broadened. For each exported function in
    a touched `actions.ts`, trace its actual first call — including one level
    into a private helper it delegates to immediately, the pattern
    `saveOpportunity`/`dismissOpportunity` and `confirmClassification`/
    `rejectClassification` already use — and confirm it reaches
-   `assertLocalSurface()` or a future `requireAdmin()` before reading the
+   `assertLocalSurface()` or `requireAdmin()` (`web/lib/admin-auth.ts`; `requireAdminAudited` in `web/lib/admin-audit.ts` wraps it) before reading the
    request body or touching the database, not somewhere later in the
    function and not only in the page that happens to render it today.
    **`assertWritesEnabled()` (`web/lib/writes.ts`) is not a substitute for
@@ -89,7 +89,7 @@ the same severity class as fabricated data or broken Georgian handling.
 3. **Auth.js / admin auth scoped by path, not by surface-wide middleware.**
    Per concept round 5: code that runs Auth.js's own secret/provider
    validation must be reached only for `/admin*` **and** `/api/auth/*`
-   requests (`docs/STATUS.md`'s Stage 6 plan allowlists both on the admin
+   requests (the Stage 6 plan allowlists both on the admin
    surface — the callback route legitimately has to invoke Auth.js) — never
    for `public`/`local` paths, which by design carry no `AUTH_SECRET`. A
    surface-wide check that runs Auth.js unconditionally will crash or
@@ -116,15 +116,15 @@ the same severity class as fabricated data or broken Georgian handling.
    have reused `web/app/(local)/review/actions.ts`'s hardcoded `redirect('/review')`,
    which sends a successful admin mutation to a URL the admin allow-list
    itself 404s. Any new admin action needs to be checked for exactly this.
-7. **CSRF and audit logging on admin mutations**, once the admin surface has
-   real auth: `docs/THREAT_MODEL.md` §7 requires both on every admin
+7. **CSRF and audit logging on admin mutations** (the admin surface has real
+   auth, and `web/lib/admin-audit.ts` records every outcome): `docs/THREAT_MODEL.md` §7 requires both on every admin
    mutation — actor, action, outcome, no sensitive payload — not inherited
    from a shared Server Action wrapper that doesn't actually log.
 
 ## How to review
 
 Read the actual diff against `docs/THREAT_MODEL.md` §7 and the round 4/5
-notes in `docs/STATUS.md`'s Phase 8B section — most defects in this code so
+notes in the Phase 8B section of `docs/archive/status-history.md` — most defects in this code so
 far were introduced by a fix to a *different* defect in the same round, so
 don't assume a passing test means the guard is in the right place. If
 `DATABASE_URL` is reachable, you may run read-only queries (`\du`, checking

@@ -52,6 +52,8 @@ Then apply the committed migrations:
 npm run db:migrate
 ```
 
+`npm run dev` starts Postgres if needed, applies migrations and serves the web app at http://127.0.0.1:3000, read-only against the `scraplify` database.
+
 `docker-compose.yml`'s credentials are local-dev-only defaults, not secrets — the container is only ever exposed on `localhost`.
 
 Tests, migrations, and crawl commands load `.env` if present. An existing process-level `DATABASE_URL` takes precedence, including in CI. Generate a new migration with `npm run db:generate` only after intentionally changing the schema; inspect its SQL before applying it. Run `npm test`, `npm run typecheck`, `npm run lint`, `npm run format:check`, and `npm run build` before committing.
@@ -65,7 +67,9 @@ npm run crawl:hr-ge
 npm run crawl:hr-ge -- --mode=incremental --pages=2
 ```
 
-Both commands make live requests. Incremental mode walks at most the requested number of index pages (default 2, maximum 200), refreshes details in that window, skips the sitemap, and never advances missing-listing streaks or changes the full-crawl cursor. It does not yet skip unchanged detail pages within that window. Full mode validates coverage against source counts and history before reconciliation; sitemap-only candidates count toward coverage only after their details parse successfully.
+By default (`--refetch=changed`) a crawl skips the detail page of any listing whose list-page fingerprint has not changed, and re-fetches a small sample as a check. Pass `--refetch=all` to fetch every detail page, for example after a parser change. The same flag works for jobs.ge.
+
+Both commands make live requests. Incremental mode walks at most the requested number of index pages (default 2, maximum 200), refreshes details in that window, skips the sitemap, and never advances missing-listing streaks or changes the full-crawl cursor. Full mode validates coverage against source counts and history before reconciliation; sitemap-only candidates count toward coverage only after their details parse successfully.
 
 Both adapters stop further requests on rate limits or explicit blocks. `Retry-After` and exhausted `RateLimit-*` windows are persisted in `crawl_cursors.next_fetch_at`; a new invocation during that cooldown records a partial run without making source requests. A valid 200 that exhausts the allowance is still parsed. Full crawls resume at the rejected or next unattempted detail, and clear that cursor only after a healthy sweep. An interrupted run exits nonzero so an external scheduler can report it.
 
@@ -84,23 +88,23 @@ npm run build
 npm run crawl:jobs-ge
 ```
 
-This runs one full jobs.ge crawl against the live site (discovery, detail fetch, DB writes, reconciliation) and exits — it does not loop or schedule itself. A full run refetches every discovered listing's detail page (~5,647 at last count) at the site's declared 5s crawl delay, so it takes roughly 8-9 hours end to end — this is a complete-corpus reconciliation, not a quick poll. Requires `.env` (above) and the database migrated. Optional environment variables:
+This runs one full jobs.ge crawl against the live site (discovery, detail fetch, DB writes, reconciliation) and exits — it does not loop or schedule itself. The first run on an empty database fetches every discovered listing's detail page (~5,750 at last count) at the policy's 2s spacing, so it takes hours. Later runs skip unchanged listings (see `--refetch` above) and take minutes. `--refetch=all` brings back the hours-long full fetch. Requires `.env` (above) and the database migrated. Optional environment variables:
 
 - `SCRAPLIFY_USER_AGENT` — overrides the default `User-Agent` sent to source sites (`src/net/user-agent.ts`).
 - `LOG_LEVEL` — pino level, default `info`.
 
 ### Scheduling recurring runs (Windows Task Scheduler)
 
-Per `docs/scraplify-concept.md` §19.1, local runs are driven by Windows Task Scheduler rather than an in-process scheduler. Register one recurring job per source (every 24 hours by default for both; a full jobs.ge run measures ~8-9 hours, a full hr.ge run ~3-4 hours):
+Per `docs/scraplify-concept.md` §19.1, local runs are driven by Windows Task Scheduler rather than an in-process scheduler. Register one recurring job per source (every 24 hours by default for both; a first jobs.ge run takes hours, and `-IntervalMinutes` must stay above the measured runtime):
 
 ```powershell
 npm run build
 ./scripts/register-crawl-schedule.ps1 -Source jobs-ge
 ./scripts/register-crawl-schedule.ps1 -Source hr-ge
-# or: ./scripts/register-crawl-schedule.ps1 -Source hr-ge -IntervalMinutes 720   # every 12h, still >= the measured runtime
+# or: ./scripts/register-crawl-schedule.ps1 -Source hr-ge -IntervalMinutes 720   # every 12h
 ```
 
-This is a deliberate, separate step from building the CLI — registering starts real, unsupervised, recurring requests against the live site. The script checks `dist/` and `.env` exist first and refuses to register otherwise. Each run goes through `scripts/run-crawl.ps1`, which runs the crawl and then **always** a `run-dedupe --auto-link` pass (so newly crawled listings become browsable opportunities without a manual step), appends both outputs as UTF-8 to `logs/<source>-crawl-<date>.log` (gitignored), and exits non-zero if either step failed so Task Scheduler reports it. Dedupe passes from the two schedules never overlap: they are serialized by a Postgres advisory lock (`src/dedupe/dedupe-lock.ts`). Remove a task with `Unregister-ScheduledTask -TaskName 'Scraplify - jobs-ge crawl' -Confirm:$false` (or `hr-ge`).
+This is a deliberate, separate step from building the CLI — registering starts real, unsupervised, recurring requests against the live site. The script checks `dist/` and `.env` exist first and refuses to register otherwise. Each run goes through `scripts/run-crawl.ps1`, which runs the crawl and then **always** a `run-dedupe --auto-link` pass (so newly crawled listings become browsable opportunities without a manual step), a taxonomy backfill, a matching-bundle build and a retention pass (`--apply`; the last two only when their earlier steps succeeded), appends both outputs as UTF-8 to `logs/<source>-crawl-<date>.log` (gitignored), and exits non-zero if either step failed so Task Scheduler reports it. Dedupe passes from the two schedules never overlap: they are serialized by a Postgres advisory lock (`src/dedupe/dedupe-lock.ts`). Remove a task with `Unregister-ScheduledTask -TaskName 'Scraplify - jobs-ge crawl' -Confirm:$false` (or `hr-ge`).
 
 ### Health checks and held-back closures
 
@@ -117,6 +121,6 @@ A crawl records a parser incident when a finished full walk fails a whole-run gu
 The original code and documentation in this repository are under the [MIT License](LICENSE). The licence does not cover material that belongs to others, which keeps its own terms:
 
 - The saved pages and vacancy texts in the test fixtures (`src/adapters/*/fixtures/`, `src/matching/eval/fixtures/`) belong to jobs.ge, hr.ge and the employers who posted them. They are here only to test the parsers and the matching.
-- The static similarity model in `matching-models/` and the skills in `docs/skill-candidates/` are MIT under their own authors' copyright (provenance in `src/matching/models/static-e1.ts` and `docs/skill-candidates/SOURCES.md`).
+- The static similarity model in `matching-models/` is MIT under its author's copyright (provenance in `src/matching/models/static-e1.ts`).
 - The site's video and images come from free sources under their own terms (`docs/RIGHTS.md`).
 - The names Xtelo and jobster are not licensed.

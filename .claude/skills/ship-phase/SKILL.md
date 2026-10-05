@@ -23,11 +23,12 @@ since a stray file could otherwise ride into the PR.
    matches what that phase expects. Stop and ask if they don't line up —
    don't guess which phase is being shipped.
 
-2. **Confirm the exit-gate checklist.** Find this phase's exit-gate section in
-   `docs/STATUS.md`. Report which items are checked and which aren't. If any
+2. **Confirm the exit-gate checklist.** Find this phase's exit-gate items in
+   `docs/STATUS.md` (phase index and "Open items"; the detailed per-phase
+   checklists are in `docs/archive/status-history.md`). Report which items are checked and which aren't. If any
    are unchecked, ask the user whether to finish them first or ship with a
    recorded waiver (this repo has precedent for explicit, documented waivers
-   — see `docs/STATUS.md`'s waiver notes at the top — but a waiver is the
+   — see `docs/STATUS.md`'s "Owner decisions in force" section — but a waiver is the
    user's call, never assumed).
 
 3. **Push the branch.** `git push -u origin <branch>` if not already pushed,

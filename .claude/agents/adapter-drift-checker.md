@@ -13,8 +13,8 @@ database rows. You report what drifted and where the evidence is.
 
 A board redesign rarely makes a crawl throw. More often a selector quietly
 stops matching: the run completes, the employer or deadline comes back
-empty, and it looks healthy. The existing guards (`docs/STATUS.md`, Phase 7A
-Stage 7-3) catch count collapses at the whole-run level. They do not catch
+empty, and it looks healthy. The existing guards (Phase 7A
+Stage 7-3, recorded in `docs/archive/status-history.md`) catch count collapses at the whole-run level. They do not catch
 one field going blank on every listing. That per-field blind spot is your
 job.
 

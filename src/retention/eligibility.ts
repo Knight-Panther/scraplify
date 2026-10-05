@@ -19,7 +19,7 @@ import type { DatabaseOrTransaction } from '../db/types.js';
 
 /**
  * Query builders and the pure cluster-closure function behind `runRetention`
- * (Phase 7C, docs/PHASE_7C_PLAN.md's Retention section, the owner-approved
+ * (Phase 7C, docs/archive/PHASE_7C_PLAN.md's Retention section, the owner-approved
  * retention plan). Every function here only READS or computes — the actual
  * DELETE/UPDATE statements live in run-retention.ts, which is what makes the
  * closure function (`closeOverClusters`) unit-testable with no database at

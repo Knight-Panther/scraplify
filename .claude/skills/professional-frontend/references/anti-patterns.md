@@ -2,8 +2,9 @@
 
 Generic anti-slop lists spend most of their length on marketing-page failures —
 fake testimonials, pricing cards, hero gradients, three-column feature grids.
-**None of those can occur here**, because Xtelo has no marketing surface. Listing
-them would be noise that dilutes the rules that do apply.
+**None of those can occur on the working screens**, because Xtelo has no
+marketing surface there (the landing page `/` is the one named exception — see
+`design-direction.md`). Listing them would be noise that dilutes the rules that do apply.
 
 `frontend-design` already covers the general aesthetic tells (the cream/serif/
 terracotta cluster, the SaaS-card kit, ALL-CAPS eyebrows, `→` on buttons). Do not
@@ -15,7 +16,7 @@ Xtelo's entire value is that its data is real and traceable to a source. Inventi
 any of it in the UI is not a cosmetic problem, it is a correctness problem.
 
 - **Never invent listings, employers, salaries or logos** for a mockup or an empty
-  state. Use real rows from the database — there are 410.
+  state. Use real rows from the database — there are thousands.
 - **Never show a metric the backend does not compute.** No "new this week" counter,
   no match-percentage, no trend arrow, unless a real query returns it.
 - **Never fabricate a company logo or avatar.** Employers are Georgian company
@@ -37,10 +38,10 @@ any of it in the UI is not a cosmetic problem, it is a correctness problem.
 ## Density failures
 
 - Turning table rows into cards. Costs vertical space, breaks column alignment,
-  and makes 406 rows unscannable.
+  and makes long lists unscannable.
 - Card-inside-card. Especially in the review queue, where the temptation is a card
   per side inside a card per pair.
-- Full-width prose. Descriptions run to 6,657 characters; unconstrained line
+- Full-width prose. Descriptions run to thousands of characters; unconstrained line
   length makes them unreadable.
 - Giant display type for a 22-character title.
 - Whitespace so generous that fewer than ~15 rows fit on a laptop screen.
@@ -50,7 +51,7 @@ any of it in the UI is not a cosmetic problem, it is a correctness problem.
 - `text-transform: uppercase` anywhere Georgian can appear. See
   `georgian-typography.md` — Mkhedruli has no capitals.
 - A font stack that lacks Georgian coverage. Produces two typefaces in one string
-  for the 22 mixed-script titles in this corpus.
+  for the mixed-script titles in this corpus.
 - Latin-tuned letter-spacing on Georgian.
 - Truncating Georgian strings in JavaScript by character index.
 

@@ -8,7 +8,7 @@ import {
 } from '../db/schema/index.js';
 
 /**
- * Phase 7C incremental crawling (docs/PHASE_7C_PLAN.md), shared by both
+ * Phase 7C incremental crawling (docs/archive/PHASE_7C_PLAN.md), shared by both
  * adapters. Discovery still walks every list page, so closure and the
  * whole-corpus guards are unchanged; only detail fetches are skipped, for
  * listings whose list-page fingerprint is the one we last fetched.

@@ -1,6 +1,6 @@
 # Rights and licences
 
-Phase 8E release item (change.md §11: "Public deployment is gated on documented permission/terms for crawling and republishing each source. Technical access is not publication authority"). This file records what is known and what is still owed. Last checked 2026-09-26; the assets, the audit line and the repository's licence were updated on 2026-09-30.
+Phase 8E release item (`docs/archive/change.md` §11: "Public deployment is gated on documented permission/terms for crawling and republishing each source. Technical access is not publication authority"). This file records what is known and what is still owed. Last checked 2026-09-26; the assets and the repository's licence were updated on 2026-09-30, and the dependency count and audit line on 2026-10-05.
 
 ## Verdict
 
@@ -33,22 +33,23 @@ No owner action remains for either source.
 | Model | Shipped as | Licence | Status |
 | --- | --- | --- | --- |
 | `static-e1-v1` (CV Ranked title similarity) | `matching-models/static-e1-v1/` (`model.json` 1.1 MB, `table.int8` 8.9 MB; ~8 MB gzipped), served by `/api/matching/models/…` and run in the visitor's browser | MIT: derived from `intfloat/multilingual-e5-small` (MIT, per its model card) by distillation with Model2Vec (MIT), vocabulary pruning and int8 quantisation. The tokenizer pieces and scores come from the same e5 release. | Fine. MIT permits redistribution of derived weights; the copyright notice travels with the provenance note in `src/matching/models/static-e1.ts`. |
-
 | `bge-small-en-v1.5` (CV Ranked title vectors, bundle schema 2) | **Not shipped.** It runs only in the worker's daily bundle build, from `/var/lib/xtelo/models` (`Xenova/bge-small-en-v1.5` at a pinned revision, q8 ONNX, 34 MB). What ships is its output: int8 vectors for the lexicon's role labels and the vacancy title keys, in `title-vectors.int8` and `title-vectors.json` of each bundle. | MIT: `BAAI/bge-small-en-v1.5` (MIT, per its model card), ONNX conversion by Xenova, same licence. | Fine. MIT permits using the model and distributing what it computes; the provenance is in `src/matching/models/bge-small-en.ts`. |
 
-No other model is shipped or run in production. `src/matching/embed.ts` still pins the full e5 ONNX port for Node-side evaluation only; it is never served to a browser. Any further model gets a row here before it ships (change.md §11).
+No other model is shipped or run in production. `src/matching/embed.ts` still pins the full e5 ONNX port for Node-side evaluation only; it is never served to a browser. Any further model gets a row here before it ships (`docs/archive/change.md` §11).
 
 ## Dependencies
 
-Production dependency tree (`npm ls --omit=dev --all`): 131 packages, all under permissive licences.
+Production dependency tree (`npm ls --omit=dev --all`, recounted 2026-10-05 on a Windows install): 158 distinct name@version entries, all under permissive licences. The count depends on the platform, because optional native packages (for example the `@img/sharp-*` binaries) differ per OS. The earlier figure of 131 (2026-09-26) came from an older tree.
 
 | Licence | Packages |
 | --- | --- |
-| MIT | 85 |
-| BSD-2-Clause | 13 |
-| BSD-3-Clause | 12 |
-| Apache-2.0 | 8, including `pdfjs-dist@6.3.289` |
-| ISC | 7 |
+| MIT | 101 |
+| BSD-2-Clause | 14 |
+| BSD-3-Clause | 13 |
+| Apache-2.0 | 13, including `pdfjs-dist@6.3.289` |
+| ISC | 9 |
+| 0BSD | `tslib` |
+| CC-BY-4.0 | `caniuse-lite`. Browser-support data, not code, pulled in by `next`. Attribution applies if the data itself is redistributed. |
 | Unlicense | `fast-sha256` |
 | BSD | `duck` |
 | MIT OR CC0-1.0 | `type-fest` |
@@ -56,14 +57,14 @@ Production dependency tree (`npm ls --omit=dev --all`): 131 packages, all under 
 | MIT OR GPL-3.0-or-later | `jszip`. **Used under MIT.** |
 | Apache-2.0 AND LGPL-3.0-or-later | `@img/sharp-*` platform binaries. libvips is LGPL and dynamically linked, so the obligation is attribution and allowing it to be replaced, which an unmodified npm install already allows. |
 
-`npm audit` (all dependencies): **0 vulnerabilities** on 2026-09-26. On 2026-09-30 it reports **1 high**: `undici` 8.10.1, the crawler's HTTP client, fixed in 8.11.2 within the declared range. Exposure is low, since the fetcher uses none of the affected features (undici's interceptors, retry handler, WebSocket, cache or `BalancedPool`) and decompresses with `node:zlib` under its own size limit. The bump is open (`docs/STATUS.md`).
+`npm audit` (all dependencies): **0 vulnerabilities** on 2026-10-05. On 2026-09-30 it had reported 1 high, `undici` 8.10.1, the crawler's HTTP client. `undici` 8.11.2 and `next` 16.3.8 were installed that day.
 
 ## This repository's licence
 
 Since 2026-09-30 the original code and documentation are under the MIT License (`LICENSE`). It does not extend to material owned by others, which keeps its own terms:
 
 - **Source content.** The saved pages and vacancy texts in `src/adapters/*/fixtures/` and `src/matching/eval/fixtures/` belong to jobs.ge, hr.ge and the employers who posted them. They are kept only to test parsing and matching.
-- **Vendored work.** The `static-e1-v1` model (see Models) and the skills in `docs/skill-candidates/` are MIT under their own authors' copyright.
+- **Vendored work.** The `static-e1-v1` model (see Models) is MIT under its author's copyright.
 - **Site assets.** They are listed above, from free sources under their own terms.
 - **Names.** Xtelo and jobster are not licensed.
 

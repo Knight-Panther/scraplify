@@ -56,7 +56,7 @@ someone stares at daily.
 
 **SynapseX sets `Space Mono` for everything. That cannot be used for content.**
 Google's own font metadata lists Space Mono's subsets as `latin`, `latin-ext`,
-`menu` — **no Georgian**. With 388 of 410 titles in Georgian and 22 mixing both
+`menu` — **no Georgian**. With about 95% of titles in Georgian and about 5% mixing both
 scripts in a single string, adopting it would trigger exactly the two-typeface
 failure `georgian-typography.md` exists to prevent, on nearly every row.
 
@@ -80,7 +80,7 @@ used — it has no Georgian either, and the watermark itself is out (below).
 Each of these is either on `anti-patterns.md` or blocked by the corpus:
 
 - **Video backgrounds and a hero, on every working screen** — browse, detail,
-  review, ranked, shortlist, source health. Decorative motion on a surface
+  review, ranked, CV Ranked, shortlist, source health. Decorative motion on a surface
   re-scanned several times a day. **Named exception: the root landing page
   (`/`)** carries a video-background hero by explicit project-owner decision
   (`docs/STATUS.md`, Phase 3D and Phase 3E) — it is the one screen a visitor

@@ -1,6 +1,6 @@
 # Xtelo production runbook
 
-How to deploy, check, roll back and recover the hosted edition (Phase 8E; change.md §10, §15). It assumes a Linux host with systemd, Caddy and Node, which is what `deploy/` targets. The host is an OVHcloud VPS-1 (2 vCore, 4 GB RAM, 40 GB NVMe) in Gravelines, France, running Ubuntu 24.04, with no commitment (ordered 2026-09-28; Hetzner's CX23 was sold out). The domain is `jobster.fun`, registered at Cloudflare on 2026-09-28: the public site is `jobster.fun` and the admin site is `admin.jobster.fun`.
+How to deploy, check, roll back and recover the hosted edition (Phase 8E; `docs/archive/change.md` §10, §15; later mentions of change.md mean that file). It assumes a Linux host with systemd, Caddy and Node, which is what `deploy/` targets. The host is an OVHcloud VPS-1 (2 vCore, 4 GB RAM, 40 GB NVMe) in Gravelines, France, running Ubuntu 24.04, with no commitment (ordered 2026-09-28; Hetzner's CX23 was sold out). The domain is `jobster.fun`, registered at Cloudflare on 2026-09-28: the public site is `jobster.fun` and the admin site is `admin.jobster.fun`.
 
 ## 1. Shape
 
@@ -8,8 +8,8 @@ How to deploy, check, roll back and recover the hosted edition (Phase 8E; change
 | --- | --- | --- | --- | --- | --- |
 | Public site | `xtelo-web@public` | `xtelo-public` | `127.0.0.1:3000` | `scraplify_public` (read-only views) | `/etc/xtelo/public.env` |
 | Admin site | `xtelo-web@admin` | `xtelo-admin` | `127.0.0.1:3001` | `scraplify_admin` | `/etc/xtelo/admin.env` |
-| Crawl pipeline | `xtelo-pipeline@jobs-ge`, `@hr-ge` (daily timers) | `xtelo` | — | `scraplify_worker` | `/etc/xtelo/worker.env` |
-| Backup | `xtelo-backup` (nightly timer) | `xtelo` | — | `scraplify_backup` (reads all, writes nothing) | `/etc/xtelo/backup.env` |
+| Crawl pipeline | `xtelo-pipeline@jobs-ge`, `@hr-ge` (daily timers, 16:10 UTC plus up to 10 min random delay) | `xtelo` | — | `scraplify_worker` | `/etc/xtelo/worker.env` |
+| Backup | `xtelo-backup` (nightly timer, 09:00 UTC) | `xtelo` | — | `scraplify_backup` (reads all, writes nothing) | `/etc/xtelo/backup.env` |
 | Migrations | none (by hand, per release) | `xtelo` | — | `scraplify_migration` | `/etc/xtelo/migration.env` |
 | TLS and routing | Caddy | `caddy` | `:443` (`PUBLIC_HOST`, `ADMIN_HOST`) | — | `deploy/Caddyfile` |
 
@@ -18,6 +18,7 @@ Each web surface has its own OS user, and every env file is `0600 root`: systemd
 Directories:
 - `/opt/xtelo/releases/<git-sha>/` holds one build per release (owned by `xtelo`, world-readable: code only, no secrets), and `/opt/xtelo/current` is a symlink to the live one.
 - `/var/lib/xtelo/bundles` is written by the pipeline and read by the public site.
+- `/var/lib/xtelo/models` holds the pinned title-vector model, outside the releases so it survives deploys (`XTELO_MATCHING_MODEL_DIR`).
 - `/var/backups/xtelo` (`0700 xtelo`) holds the local backups; each is also copied off the host.
 
 The templates in `deploy/env/` list every variable. They hold placeholders only, and real values never go in the repository.
@@ -42,7 +43,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
    - Node 24 at `/usr/bin/node`, which the units call: the NodeSource `nodesource_setup.sh` for 24.x, then `apt install nodejs`. Not fnm or nvm: those install under a home directory, which the units cannot see.
    - Postgres 17 from the PGDG apt repository (Ubuntu 24.04 ships 16): `apt install postgresql-17`. No extension is needed.
    - Caddy (its official apt repository) and `git` from apt. `rclone` is the official build from rclone.org, pinned with its SHA-256 in `deploy/host-setup.sh`. Ubuntu's own package (1.60) stores each R2 upload and then fails it with a 501 Not Implemented, so every backup needed a retry. The host has run 1.75.1 since 2026-10-05.
-   - Log retention, 60 days like everything operational: `install -D -m 0644 deploy/journald/xtelo-retention.conf /etc/systemd/journald.conf.d/xtelo-retention.conf && systemctl restart systemd-journald` (from the release checkout, after step 2). Caddy's own access logs expire after 60 days by `deploy/Caddyfile`.
+   - Log retention, 60 days like everything operational (the journal is also capped at 1 GB): `install -D -m 0644 deploy/journald/xtelo-retention.conf /etc/systemd/journald.conf.d/xtelo-retention.conf && systemctl restart systemd-journald` (from the release checkout, after step 2). Caddy's own access logs expire after 60 days by `deploy/Caddyfile`.
    - Users and directories:
      ```sh
      useradd --system --create-home --home-dir /var/lib/xtelo --shell /usr/sbin/nologin xtelo
@@ -62,10 +63,13 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
    - Every role password: `openssl rand -hex 32`. `apply-db-roles.sh` accepts letters and digits only, so nothing needs escaping.
    - The admin OAuth app is a **production GitHub OAuth app** ("Xtelo Admin", registered 2026-09-27): homepage `https://admin.jobster.fun`, callback `https://admin.jobster.fun/api/auth/callback/github`, and `AUTH_URL=https://admin.jobster.fun`. Generate its client secret on deploy day, straight into `admin.env`. `ADMIN_GITHUB_IDS` holds numeric ids.
    - `backup.env`: the off-host remote (R2 example in the template). `BACKUP_REMOTE=none` only until that storage exists; each run then warns.
-2. **Code.** As `xtelo`, clone the release into `/opt/xtelo/releases/<sha>` and build it:
+2. **Code.** As `xtelo`, clone the release into `/opt/xtelo/releases/<sha>` (the full commit sha) and build it:
    ```sh
-   sudo -u xtelo -H bash -c 'cd /opt/xtelo/releases/<sha> && npm ci && npm run build && NEXT_TELEMETRY_DISABLED=1 npm run build:web'
-   ln -sfn /opt/xtelo/releases/<sha> /opt/xtelo/current
+   SHA=<full sha>
+   sudo -u xtelo -H git clone -q https://github.com/Knight-Panther/scraplify.git /opt/xtelo/releases/$SHA
+   sudo -u xtelo -H git -C /opt/xtelo/releases/$SHA checkout -q --detach $SHA
+   sudo -u xtelo -H bash -c "cd /opt/xtelo/releases/$SHA && npm ci && npm run build && NEXT_TELEMETRY_DISABLED=1 npm run build:web"
+   ln -sfn /opt/xtelo/releases/$SHA /opt/xtelo/current
    ```
 3. **Database and migration role.** `/opt/xtelo/current/deploy/apply-db-roles.sh bootstrap` creates the database if missing and the migration role, with its password from `migration.env`.
 4. **Schema.** `/opt/xtelo/current/deploy/with-env.sh migration npm run db:migrate`. Every table and view is created, and owned, by `scraplify_migration`. Migrations are additive (change.md §15).
@@ -91,10 +95,12 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
 
 ## 3. Deploying a new version
 
-1. Build the new release in `/opt/xtelo/releases/<new-sha>` (step 2 above). Nothing live changes yet.
+Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xtelo/current` at 16:10 UTC (up to 10 minutes later), so finish the whole deploy, probe included, well before then: a repoint during a run puts it on a different release's files.
+
+1. Build the new release in `/opt/xtelo/releases/<new-sha>` (step 2 above, with `sudo` on the `ln`). Nothing live changes yet.
 2. If it has migrations: take a backup (`systemctl start xtelo-backup`), then run them from the new release: `/opt/xtelo/releases/<new-sha>/deploy/with-env.sh migration npm run db:migrate`. **Then always `/opt/xtelo/releases/<new-sha>/deploy/apply-db-roles.sh grants`**: a migration that recreates a view drops its grants, and a new table has none. Migrations are additive, so the old release keeps working against the new schema.
-3. Repoint `/opt/xtelo/current` to the new release and run `systemctl restart xtelo-web@admin xtelo-web@public`.
-4. Run `npm run probe -- https://jobster.fun`. If it does not print `probe: ok`, roll back (§5, "Web").
+3. Repoint and restart: `sudo ln -sfn /opt/xtelo/releases/<new-sha> /opt/xtelo/current && sudo systemctl restart xtelo-web@admin xtelo-web@public`.
+4. From a dev machine, run `npm run probe -- https://jobster.fun`. If it does not print `probe: ok`, roll back (§5, "Web").
 5. **Retention (Phase 7C, first deploy after merge only).** Migration 0037 (`source_listing_revisions.trimmed_at`) and its worker grants land the same way as any other migration — step 2 above already covers `db:migrate` then `apply-db-roles.sh grants`, in that order, since the grants name a column that only exists once migrated. Before letting it run for real, do one dry run: `deploy/with-env.sh worker npm run retention` (no `--apply`) and read its logged tier counts. `deploy/run-pipeline.sh`/`scripts/run-crawl.ps1` then run it with `--apply` automatically after every crawl and dedupe that both exit 0 — no separate schedule to enable.
 6. **Title vectors (CV Ranked A′, first deploy after merge only).** Bundle schema 2 embeds with a model kept outside the release. Do this **before** step 3 repoints `current`, because the new release's first scheduled bundle build needs the model:
    ```sh
@@ -121,7 +127,7 @@ In change.md §15's order. Each step is independent; stop at the first one that 
 
 1. **CV Ranked misbehaves.** Set `XTELO_CV_RANKED=off` in `/etc/xtelo/public.env` and `systemctl restart xtelo-web@public`. The nav link and landing chooser disappear and `/cv-ranked` says CV Ranked is paused; Browse and Listings are untouched. Turn it back on by removing the line and restarting.
 2. **The matching bundle is wrong.** `sudo /opt/xtelo/current/deploy/with-env.sh worker npm run matching:rollback`. It repoints to the previous verified build and re-checks that build's files first; it refuses, and changes nothing, if they no longer match.
-3. **Web.** Repoint `/opt/xtelo/current` to the previous release and restart both web units. Leave the additive schema in place; a migration down is its own reviewed change.
+3. **Web.** Repoint `/opt/xtelo/current` to the previous release (`sudo ln -sfn /opt/xtelo/releases/<previous-sha> /opt/xtelo/current`) and restart both web units. Leave the additive schema in place; a migration down is its own reviewed change.
 4. A crawler, builder or admin outage never needs the public site taken down: it keeps serving the last good catalogue and bundle.
 
 ## 6. Backup and restore
@@ -130,7 +136,7 @@ In change.md §15's order. Each step is independent; stop at the first one that 
 - **Restore:**
   1. Stop the web units and timers.
   2. If the dump is off-host only: `rclone copyto <remote>/<file> /var/backups/xtelo/<file>` with the backup env's variables.
-  3. `sudo -u postgres createdb <fresh>`, then `sudo -u postgres pg_restore --no-owner --dbname=<fresh> <dump>`. Everything is now owned by `postgres`.
+  3. `sudo -u postgres createdb <fresh>`, then `sudo -u xtelo cat /var/backups/xtelo/<dump> | sudo -u postgres pg_restore --no-owner --dbname=<fresh>`. The `postgres` user cannot read `/var/backups/xtelo` (0700, `xtelo`), hence the pipe; the 2026-10-05 drill restored this way. Everything is now owned by `postgres`.
   4. Point every `/etc/xtelo/*.env` `DATABASE_URL` at `<fresh>` (or rename the databases), then `deploy/apply-db-roles.sh grants`: it hands ownership back to `scraplify_migration` and re-grants every role.
   5. Start everything again in the §2 order.
 - **Drill:** `scripts/restore-db-drill.ps1` (on the operator machine) restores the newest backup into a throwaway database and compares every table's row count with the source. Last run: 2026-09-26, on a fresh 11.1 MB backup of the real corpus. It passed: every table's count matched, and the throwaway database was dropped.
@@ -151,7 +157,7 @@ In change.md §15's order. Each step is independent; stop at the first one that 
 | A crawl logs "settled runs left unsettled by a crawl process that died" | A previous crawl process was killed or the host went down mid-run. The new process holds that source's advisory lock, so no live process owned the run, and it was settled as `failed` automatically (`src/db/crawl-process-lock.ts`). | Nothing. The crawl continues normally. Frequent occurrences mean crawls are being killed; check the timer's timeout and the host. |
 | A crawl exits at once with "another crawl process for this source is running" | A crawl for that source is genuinely still in flight, holding its lock. | Nothing, unless it keeps happening: then a crawl is hanging. Find and stop that process; the next run settles its row. |
 | After a parser change, fields look stale on old listings | Scheduled crawls fetch a detail page only when its list-page row changed (Phase 7C), so an improved parser reaches old listings only when they change. | Run each crawl once with `--refetch=all` (e.g. `node dist/cli/run-jobs-ge-crawl.js --refetch=all`). That is a multi-hour run at the sources' crawl delays. |
-| A crawl's log shows a high `refetch.canaryChanged` over several runs | The 20 random canaries re-fetched each run found content changes the list-page fingerprint did not reveal. | Widen the fingerprint fields in that adapter's discovery parser (`docs/PHASE_7C_PLAN.md` §1), not a periodic full re-scrape. |
+| A crawl's log shows a high `refetch.canaryChanged` over several runs | The 20 random canaries re-fetched each run found content changes the list-page fingerprint did not reveal. | Widen the fingerprint fields in that adapter's discovery parser (`docs/archive/PHASE_7C_PLAN.md` §1), not a periodic full re-scrape. |
 | `readyz` → 503 | The database is unreachable or refusing the role. | Check Postgres and the env file's `DATABASE_URL`. The web process needs no restart once the database is back. |
 | Probe `manifest` warns `stale` | No bundle published for 72 h, usually because crawls stopped and the builder's health gate refused. | Fix the crawls. `deploy/with-env.sh worker npm run matching:build -- --override-health-gate` exists but is recorded on the build and shown on `/admin/matching`; use it knowingly. |
 | Visitors get 429 | One address exceeded a limit (`web/lib/rate-limit.ts`). Several people behind one NAT share an address. | If it is real traffic, raise that class's numbers in code and deploy. Probes are never limited. |

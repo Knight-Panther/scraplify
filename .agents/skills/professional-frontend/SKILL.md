@@ -37,7 +37,7 @@ Read the relevant ones before reviewing UI code.
 
 3. **Georgian script handling.** A font stack without Georgian coverage,
    `text-transform: uppercase` reaching Georgian text, or JavaScript string
-   truncation by index. 388 of 410 titles are Georgian and 22 mix scripts, so
+   truncation by index. About 95% of titles are Georgian and about 5% mix scripts, so
    these are certain to bite, not hypothetical.
 
 4. **Raw internals leaking to the user.** Enum values (`missing_suspected`,
