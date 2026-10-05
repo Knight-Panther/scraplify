@@ -133,7 +133,16 @@ In change.md §15's order. Each step is independent; stop at the first one that 
   3. `sudo -u postgres createdb <fresh>`, then `sudo -u postgres pg_restore --no-owner --dbname=<fresh> <dump>`. Everything is now owned by `postgres`.
   4. Point every `/etc/xtelo/*.env` `DATABASE_URL` at `<fresh>` (or rename the databases), then `deploy/apply-db-roles.sh grants`: it hands ownership back to `scraplify_migration` and re-grants every role.
   5. Start everything again in the §2 order.
-- **Drill:** `scripts/restore-db-drill.ps1` (on the operator machine) restores the newest backup into a throwaway database and compares every table's row count with the source. Last run: 2026-09-26, on a fresh 11.1 MB backup of the real corpus. It passed: every table's count matched, and the throwaway database was dropped. A hosted drill is still owed once the host exists.
+- **Drill:** `scripts/restore-db-drill.ps1` (on the operator machine) restores the newest backup into a throwaway database and compares every table's row count with the source. Last run: 2026-09-26, on a fresh 11.1 MB backup of the real corpus. It passed: every table's count matched, and the throwaway database was dropped.
+- **Hosted drill** (passed 2026-10-05: 30 tables and 123,473 rows matched). Run it as `ubuntu` with no pipeline or backup running, so the live counts cannot move during the drill:
+  1. `sudo systemctl start xtelo-backup`, then note the new dump's name from `journalctl -u xtelo-backup`.
+  2. Right away, record every table's row count in `scraplify` from a read-only session (`sudo -u postgres env PGOPTIONS='-c default_transaction_read_only=on' psql -d scraplify`).
+  3. Fetch that dump back from R2: `sudo /opt/xtelo/current/deploy/with-env.sh backup rclone copyto --checksum offsite:<bucket>/<path>/<dump> /var/backups/xtelo/restore-drill/<dump>`. Its `sha256sum` must equal the local copy's.
+  4. `sudo -u postgres createdb scraplify_restore_drill`, then `REVOKE CONNECT ON DATABASE scraplify_restore_drill FROM PUBLIC`.
+  5. `sudo -u xtelo cat <dump> | sudo -u postgres pg_restore --no-owner --dbname=scraplify_restore_drill`. The `postgres` user cannot read `/var/backups/xtelo`, hence the pipe.
+  6. Count every table again in the drill database. The two lists must be identical.
+  7. `sudo -u postgres dropdb scraplify_restore_drill`, then delete the fetched copy.
+- **Rollback drills** (passed 2026-10-05). For the web, repoint `current` to the previous release, restart both units, run the probe, then repoint forward and probe again; each switch costs about a second of 502s. For the bundle, run `matching:rollback` (§5 step 2). There is no roll-forward command, so finish with `matching:build`, which rebuilds the same data in about 30 s.
 
 ## 7. Incidents
 
