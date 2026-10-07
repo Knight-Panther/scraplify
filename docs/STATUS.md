@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-10-07 (Phase 10A smart search built on `phase-10a-smart-search`; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-10-07 (Phase 10A smart search live as 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
@@ -18,7 +18,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] Unit and DB tests: `search-terms.test.ts` (14) and 7 new DB tests across both surfaces; full suite on `scraplify_qa` 1,622 passed, 7 skipped.
     - [x] Real-browser QA on `scraplify_qa`, local and public surfaces, 390 and 1280 px: "GIZ", "forest video" (the GIZ tender), "accountant", "mdzgoli", "ბათუმში", the "Did you mean accountant?" link for "acountant", none for nonsense; no overflow, no console errors, no uppercased Georgian.
     - [x] Tests green in CI (PR #46, 2026-10-07).
-    - [ ] Deployed (a plain deploy: no migration, no grants).
+    - [x] Deployed (a plain deploy: no migration, no grants): `754a636` at 13:46 UTC 2026-10-07, `probe: ok`. Live: "GIZ" 3, "forest video" 1, "accountant" 163, "mdzgoli" 276, "acountant" offers "Did you mean accountant?".
 
 - **Phase 9 (tenders from etenders.ge), started 2026-10-07; 9A merged the same day (PR #41).** Study and strategy: [`addEtender.md`](addEtender.md). Three sub-phases, each its own PR:
   - **9A, acquisition (merged, PR #41):** etenders.ge source policy, adapter and CLI (`npm run crawl:etenders-ge`), fetcher `redirect: 'manual'` mode, the `tender` opportunity type (migration 0038), dedupe typing by source (never pairing a tender with a vacancy), and tenders kept out of the CV Ranked bundle. Until tenders have their own rows, Browse, its counts and the sitemap leave the `tender` type and the etenders.ge board out by default (`TYPES_HIDDEN_BY_DEFAULT`, `SOURCES_HIDDEN_FROM_BROWSE` in `src/browse/queries.ts`); the Listings page shows them. **Not** added to the hosted pipeline: nothing reaches `jobster.fun` until 9C. Migration 0038 is applied to `scraplify_qa` and `scraplify` (owner, 2026-10-07; 39 migrations recorded); the host gets it with the 9A–9C release.
@@ -53,7 +53,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] No tender posts left in the vacancy catalogue: on QA a dedupe pass retyped all 7 board tender posts there to `tender` and folded hr.ge 492864 into etenders.ge 69470's opportunity.
     - [x] Every new guard is load-bearing: each DB test in `tender-typing.test.ts` fails with its fix removed. Full suite on `scraplify_qa`: 1,594 passed, 7 skipped.
 
-- **Live release:** `9cf5065` (9A–9C plus the PR #45 hotfix), deployed 2026-10-07. Earlier releases (`a9c5c2c`, `cf4efe0`) stay on the host for rollback.
+- **Live release:** `754a636` (10A smart search, PR #46), deployed 2026-10-07 at 13:46 UTC as a plain deploy. Earlier releases (`9cf5065`, `a9c5c2c`, `cf4efe0`) stay on the host for rollback.
 - **Dependency patches (2026-10-07):** Dependabot alerts 1 and 3 (high) fixed by lockfile updates: `sharp` 0.35.5 (librsvg in libvips 1.3.4) and `source-map-js` 1.2.2; live since the 9A–9C release. Alert 2 (`sprintf-js`, moderate, no fixed release) was dismissed as not used: it arrives through `mammoth` → `argparse@1`, which only mammoth's command-line tool loads, never the library our CV parsing imports.
 - **Live bundle:** `16ad15a8` (8,669 opportunities), built by the 2026-10-07 12:41 UTC etenders.ge run.
 - **Schedules:** the three pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `@hr-ge`, `@etenders-ge`); the nightly backup runs at 09:00 UTC. Backup copies off the host are in R2, whose lifecycle rule deletes them after 30 days; `deploy/backup-db.sh` also keeps the off-host copies under 8 GB, oldest first and never the newest.
@@ -118,7 +118,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 9A — etenders.ge tender acquisition | merged; deployed 2026-10-07 | #41 | Study `addEtender.md`; migration 0038 (`tender` type) on `scraplify_qa`, `scraplify` and the host. |
 | 9B — job-board tender posts and tender dedupe | merged; deployed 2026-10-07 | #42 | Detector, tender scorer, buyer key, the two 9A P2s. |
 | 9C — tenders in Browse | merged; deployed 2026-10-07 as `9cf5065` | #44, #45 | First hosted dedupe failed on a column grant; fixed by the #45 hotfix without widening any grant. |
-| 10A — smart search | built 2026-10-07 | — | No migration; query-time matching (`src/browse/search-terms.ts`). |
+| 10A — smart search | merged; deployed 2026-10-07 as `754a636` | #46 | No migration; query-time matching (`src/browse/search-terms.ts`). |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; the `discharge-codex-debt` skill that paid them back was retired on 2026-10-05.
 
@@ -177,7 +177,7 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
 ## Upcoming, most valuable first
 
 1. **Public-repository follow-up** (Open items): optionally redact the eval fixture's contact details. The unused-code removal is done.
-2. **Privacy e2e outside CI.** CI runs `test:e2e` and `test:e2e:surfaces` but not `test:e2e:privacy`, so the canary-CV test went stale when PR #36 moved role entry to "Your roles", and nobody noticed until PR #38's local QA. Run it by hand before any CV Ranked change, or add it to CI if its database and bundle needs allow.
+2. **Privacy e2e outside CI.** CI runs `test:e2e` and `test:e2e:surfaces` but not `test:e2e:privacy`, so the canary-CV test went stale when PR #36 moved role entry to "Your roles", and nobody noticed until PR #38's local QA. Run it by hand before any CV Ranked change, or add it to CI if its database and bundle needs allow. Until then, `scripts/review-nudge.sh` reminds a Claude session to run it on the first edit to the CV Ranked path.
 3. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
 4. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
 5. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (Archive, "Phase 8E", end of the CV matching notes). The model question is closed (A′: precomputed `bge-small-en` title vectors, Phase 8D; EmbeddingGemma 2 tested 2026-10-07 and lost, see 10A).
