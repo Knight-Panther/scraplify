@@ -130,3 +130,4 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
 3. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
 4. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
 5. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (Archive, "Phase 8E", end of the CV matching notes). The model question is closed (A′: precomputed `bge-small-en` title vectors, Phase 8D).
+6. **Candidate: tenders from etenders.ge** (study 2026-10-05, nothing built): findings, crawl plan and open owner decisions are in [`addEtender.md`](addEtender.md). Waiting on the owner's go/no-go, scope and a permission request to etenders.ge.
