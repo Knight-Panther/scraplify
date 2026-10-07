@@ -383,10 +383,15 @@ What this means:
 
 ### 14.6 Dedupe and the tender-post detector
 
-- **Within etenders:** a re-run ("განმეორებით") is a new procedure with a new ID. Link it as a successor, not as a duplicate.
-- **Across sources:** build candidates within the same buyer (normalized, with GE/EN aliases), then score with equal deadline date, publication within ±7 days, title similarity (after stripping "ტენდერი -" style prefixes) and the buyer's reference codes (`№597`, `0007464`) when both sides have them.
-- **Golden pairs:** the 9 matches in §11. **Hard negatives:** Aversi's 4 different September tenders, Telasi's many similar equipment tenders, Ori Nabiji's repeated vehicle sales.
-- **Detector for jobs.ge and hr.ge:** a title beginning with ტენდერი, or containing tender, ფასთა გამოკითხვა, RFQ, RFP or "expression of interest", **and** no job-role words (მენეჯერი, სპეციალისტი, manager, specialist, officer, კოორდინატორი) makes the item a `tender`. Check it on the full corpus before switching it on (22 hits in 35 days).
+Built in Phase 9B (2026-10-07); every rule was measured on the real corpus first.
+
+- **Within etenders:** a re-run ("განმეორებით") is a new procedure with a new ID, so two etenders.ge listings are never duplicates (same-source rule). Linking a re-run to its predecessor as a successor needs a schema change and is deferred.
+- **Detector for jobs.ge and hr.ge** (`src/dedupe/tender-post.ts`): a listing is a `tender` when its title opens with "ტენდერი", "ტენ." or "tender"; or names a procurement act or format (ფასთა გამოკითხვა, ინტერესთა გამოხატვა, "მომსახურების გაწევა/მიწოდება/შესყიდვა", "სამუშაოების შესრულება/შესყიდვა", "…შესყიდვის თაობაზე", "…შესყიდვაზე/შეძენაზე/გაყიდვაზე", RFQ, RFP, request for quotation, expression of interest); or its description says "აცხადებს ტენდერს" ("announces a tender"). A nominative job-role word in the title (მენეჯერი, სპეციალისტი, კოორდინატორი, manager, officer, consultant…) vetoes all of these. Measured on 14,655 job-board listings: 27 flagged, all tender posts. "შესყიდვ…" alone is a job word (150 role titles), and "სატენდერო დოკუმენტაცია" appears in 30 job ads as a duty, so neither is a rule. Known miss: a consultancy call that names no procurement act (UNDP's "ციფრული ტრანსფორმაციის მხარდაჭერა").
+- **Buyer key** (`tender-buyer.ts`): the vacancy organization key plus dotted legal forms (`ს.ს.`, `შ.პ.ს`), dashes, a GE/EN alias list (UNDP ↔ გაეროს განვითარების პროგრამა, UNICEF, UN Women, World Vision, SOS, GIZ, NALAG, Aversi) and a leading-words match (`ს.ს. ლომისი` ↔ `ლომისი - ლუდსახარში ნატახტარი`). Tenders block on the buyer key and its first identifying word; a buyer block yields cross-source pairs only.
+- **Scoring** (`score-tender-pair.ts`, ruleset `tender-v1`): different buyers, or different reference codes (`DR0018/09/26`), are distinct. An **automatic merge** needs the deadlines on the same Tbilisi calendar day (jobs.ge stores a closing day as 20:00 UTC the day before), publication within 7 days, and subjects that agree (≥ 0.5 after stripping tender wording and "X აცხადებს ტენდერს") in the same language, or an equal reference code. A deadline or publication within 3 days with partly agreeing subjects, or titles in two languages, goes to **review**.
+- **Guards in the pass:** a listing that would merge with two listings of one other source is held for review (one buyer's lots); no opportunity takes a second listing from a source it already holds; two ruleset-made single-listing tender opportunities are folded into the older one, so posts canonicalized before 9B merge too.
+- **Golden pairs** (`score-tender-pair.test.ts`): the §11 matches plus Lomisi's Access Control and World Vision's taxi tender. Same-day deadlines merge (10 pairs); Lomisi fire detection (deadline 3 days off), UNDP transport (English vs Georgian, 7 days off) and UNICEF printing (two languages) go to review. **Hard negatives** that stay distinct: Aversi Clinic's carts and gynecological chairs (same buyer, same deadline day), its B-scan and HVAC tenders, Lomisi's two tenders, Aversi Pharma against Aversi Clinic, and UNICEF against World Vision printing.
+- **Measured end to end (2026-10-07):** the 27 real board tender posts against QA's 209 etenders.ge tenders give 12 automatic merges, all true, and 8 review pairs (3 true).
 
 ### 14.7 Public surface
 
@@ -443,7 +448,7 @@ What this means:
 
 1. **Owner decisions** (§17), and contact etenders.ge.
 2. **Adapter, policy and fixtures**, local surface only. *Exit:* fixture tests pass; a live dry run on `scraplify_qa`; 7 days of scheduled polling with no anomalies; the live-set count equals the site's own count.
-3. **`tender` type migration** (owner approval), the jobs.ge/hr.ge tender-post detector, and dedupe rules with golden pairs. *Exit:* precision checked on the golden pairs; no tender posts left in the vacancy catalogue.
+3. **`tender` type migration** (owner approval), the jobs.ge/hr.ge tender-post detector, and dedupe rules with golden pairs. *Exit:* precision checked on the golden pairs; no tender posts left in the vacancy catalogue. Built as Phase 9B (§14.6).
 4. **Tenders in Browse** (§14.7). *Exit:* real-browser QA, then deploy.
 5. Optional: the CPV-to-role crosswalk for CV Ranked; more tender sources.
 

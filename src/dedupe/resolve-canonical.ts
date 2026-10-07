@@ -8,6 +8,8 @@ import {
   sourceListings,
 } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import type { OpportunityType } from '../domain/opportunity.js';
+import { descriptionAnnouncesTenderSql, opportunityTypeForListing } from './tender-post.js';
 
 /**
  * Recomputes one opportunity's canonical state from whatever its LIVE members
@@ -59,6 +61,27 @@ function resolveStatus(memberStatuses: readonly string[]): (typeof STATUS_PRECED
   // No live members at all — an opportunity emptied by a review correction.
   // 'closed' rather than 'active': nothing supports it any more.
   return 'closed';
+}
+
+/**
+ * Vacancy or tender, resolved across members (Phase 9B). Any member being a
+ * tender makes the opportunity a tender: the tender-post detector is built to
+ * be precise, so one board calling it a tender is the stronger evidence. Only
+ * the job/tender distinction is derived here; the other types are set by
+ * hand and kept.
+ *
+ * Derived on every resolve, because a listing's type can change after its
+ * opportunity was created: a re-crawl edits a title, or the detector itself
+ * improves. Before this, the type was written once at creation and never
+ * revisited (dedupe review, 2026-10-07).
+ */
+function resolveType(
+  stored: OpportunityType,
+  memberTypes: readonly OpportunityType[],
+): OpportunityType {
+  if (memberTypes.length === 0) return stored;
+  if (memberTypes.includes('tender')) return 'tender';
+  return stored === 'tender' ? 'job' : stored;
 }
 
 /**
@@ -129,6 +152,7 @@ export async function resolveCanonicalOpportunity(
   const [opportunity] = await tx
     .select({
       id: opportunities.id,
+      type: opportunities.type,
       currentRevisionId: opportunities.currentCanonicalRevisionId,
     })
     .from(opportunities)
@@ -141,10 +165,12 @@ export async function resolveCanonicalOpportunity(
   const members = await tx
     .select({
       sourceListingId: sourceListings.id,
+      sourceId: sourceListings.sourceId,
       revisionId: sourceListingRevisions.id,
       title: sourceListingRevisions.titleRaw,
       organization: sourceListingRevisions.organizationRaw,
       status: sourceListings.status,
+      descriptionAnnouncesTender: descriptionAnnouncesTenderSql(sourceListingRevisions.description),
     })
     .from(opportunitySourceMemberships)
     .innerJoin(sourceListings, eq(sourceListings.id, opportunitySourceMemberships.sourceListingId))
@@ -162,6 +188,26 @@ export async function resolveCanonicalOpportunity(
 
   const expectedVersions: Record<string, string> = {};
   for (const member of members) expectedVersions[member.sourceListingId] = member.revisionId;
+
+  // The type lives on the opportunity row only (no revision carries it), so
+  // it is brought up to date here, before the content-hash check below can
+  // return early on an otherwise unchanged cluster.
+  const resolvedType = resolveType(
+    opportunity.type,
+    members.map((member) =>
+      opportunityTypeForListing({
+        sourceId: member.sourceId,
+        title: member.title,
+        descriptionAnnouncesTender: member.descriptionAnnouncesTender,
+      }),
+    ),
+  );
+  if (resolvedType !== opportunity.type) {
+    await tx
+      .update(opportunities)
+      .set({ type: resolvedType, updatedAt: now })
+      .where(eq(opportunities.id, opportunityId));
+  }
 
   const canonicalStatus = resolveStatus(members.map((member) => member.status));
   // The first member by a stable ordering, so the chosen title does not flip
