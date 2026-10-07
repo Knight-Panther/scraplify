@@ -11,14 +11,19 @@ import type { Database, DatabaseOrTransaction } from '../db/types.js';
 import type { OpportunityType } from '../domain/opportunity.js';
 import { normalizeOrganizationName } from '../normalize/organization.js';
 import { normalizeApplicationValue } from '../normalize/text.js';
-import { etendersGeSource } from '../policies/etenders-ge.js';
+import { reassignListingWithin } from './membership-review.js';
 import { resolveCanonicalOpportunity } from './resolve-canonical.js';
 import {
   DEDUPE_RULESET_VERSION,
   type ListingForScoring,
   type PairScore,
+  type ScoringContext,
+  type SignalBreakdown,
   scorePair,
 } from './score-pair.js';
+import { scoreTenderPair, type TenderSignalBreakdown } from './score-tender-pair.js';
+import { buyerHeadWord, normalizeBuyerName } from './tender-buyer.js';
+import { descriptionAnnouncesTenderSql, opportunityTypeForListing } from './tender-post.js';
 
 /**
  * The cross-source deduplication pass (§14): loads the current view of every
@@ -47,6 +52,20 @@ import {
  * the largest real organization block in the live corpus is 20.
  */
 const MAX_BLOCK_SIZE = 200;
+
+/**
+ * The cap for a tender buyer block, which only ever yields CROSS-source pairs.
+ * One buyer's etenders.ge history grows without end (Telasi posted 41 tenders
+ * in 60 days), and the vacancy cap would silently drop a big buyer's block,
+ * and with it every board post about that buyer's tenders. Skipping
+ * same-source pairs keeps the work at "that buyer's tenders times its board
+ * posts", so the cap only guards against a runaway key.
+ */
+const MAX_TENDER_BLOCK_SIZE = 5_000;
+const TENDER_BLOCK_PREFIX = 'tender-buyer:';
+
+/** Either scorer's result: vacancies and tenders carry different signals. */
+type AnyPairScore = PairScore<SignalBreakdown | TenderSignalBreakdown>;
 
 export interface RunDedupeOptions {
   /** Wall clock, injectable for deterministic tests. */
@@ -90,9 +109,27 @@ interface LoadedListing extends ListingForScoring {
   status: string;
 }
 
-/** etenders.ge carries procurement tenders; every other registered source carries vacancies. */
-export function opportunityTypeForSource(sourceId: string): OpportunityType {
-  return sourceId === etendersGeSource.id ? 'tender' : 'job';
+/** The verdict for a tender paired with a vacancy: never the same opportunity. */
+function typeMismatchScore(
+  a: LoadedListing,
+  b: LoadedListing,
+  context: ScoringContext,
+): AnyPairScore {
+  return {
+    ...scorePair(a, b, context),
+    decision: 'distinct',
+    confidence: 0,
+    reasons: ['one listing is a tender and the other a vacancy'],
+  };
+}
+
+/** The scorer for a pair of one type: tenders and vacancies are evidenced differently. */
+function scoreSameTypePair(
+  a: LoadedListing,
+  b: LoadedListing,
+  context: ScoringContext,
+): AnyPairScore {
+  return a.opportunityType === 'tender' ? scoreTenderPair(a, b) : scorePair(a, b, context);
 }
 
 async function loadListings(
@@ -111,6 +148,7 @@ async function loadListings(
       publishedAt: sourceListings.sourcePublishedAt,
       deadlineAt: sourceListings.sourceDeadlineAt,
       status: sourceListings.status,
+      descriptionAnnouncesTender: descriptionAnnouncesTenderSql(sourceListingRevisions.description),
     })
     .from(sourceListings)
     .innerJoin(
@@ -132,10 +170,13 @@ async function loadListings(
       publishedAt: row.publishedAt,
       deadlineAt: row.deadlineAt,
       status: row.status,
-      // Typed by source: every etenders.ge listing is a tender, every
-      // job-board listing a vacancy. Classifying the job boards' own tender
-      // posts is Phase 9B (docs/addEtender.md §14.6), not a title guess here.
-      opportunityType: opportunityTypeForSource(row.sourceId),
+      // Every etenders.ge listing is a tender; a job-board listing is a
+      // tender when it is a buyer's tender post (tender-post.ts, Phase 9B).
+      opportunityType: opportunityTypeForListing({
+        sourceId: row.sourceId,
+        title: row.titleRaw,
+        descriptionAnnouncesTender: row.descriptionAnnouncesTender,
+      }),
     };
   });
 }
@@ -163,8 +204,125 @@ function buildBlocks(listings: LoadedListing[]): Map<string, LoadedListing[]> {
     add(normalizeApplicationValue(listing.applicationType, listing.applicationValue), listing);
     const organization = normalizeOrganizationName(listing.organizationRaw);
     add(organization === null ? null : `org:${organization}`, listing);
+    if (listing.opportunityType === 'tender') {
+      // Tenders also block by buyer (docs/addEtender.md §14.6): the full buyer
+      // key, and its first identifying word, so `ს.ს. ლომისი` meets
+      // `ლომისი - ლუდსახარში ნატახტარი`. The scorer decides whether the
+      // buyers really match.
+      const buyer = normalizeBuyerName(listing.organizationRaw);
+      if (buyer !== null) {
+        add(`${TENDER_BLOCK_PREFIX}${buyer}`, listing);
+        const head = buyerHeadWord(buyer);
+        if (head !== null && head !== buyer) add(`${TENDER_BLOCK_PREFIX}head:${head}`, listing);
+      }
+    }
   }
   return blocks;
+}
+
+/**
+ * Downgrades every automatic merge that would make one listing the duplicate
+ * of TWO listings on the same other source. Within a source every listing is a
+ * separate posting (§12.1), so at most one of them can be the right partner,
+ * and choosing between them is a human's call. Without this, transitivity
+ * would do the choosing: a board post matching two of one buyer's etenders.ge
+ * tenders would pull both tenders into one opportunity.
+ */
+function holdAmbiguousMerges(
+  scored: Array<{ a: LoadedListing; b: LoadedListing; score: AnyPairScore }>,
+): void {
+  const partners = new Map<string, number>();
+  const count = (listing: LoadedListing, other: LoadedListing): void => {
+    const key = `${listing.sourceListingId}|${other.sourceId}`;
+    partners.set(key, (partners.get(key) ?? 0) + 1);
+  };
+  for (const { a, b, score } of scored) {
+    if (score.decision !== 'confirmed_same') continue;
+    count(a, b);
+    count(b, a);
+  }
+  for (const entry of scored) {
+    if (entry.score.decision !== 'confirmed_same') continue;
+    const ambiguousA = (partners.get(`${entry.a.sourceListingId}|${entry.b.sourceId}`) ?? 0) > 1;
+    const ambiguousB = (partners.get(`${entry.b.sourceListingId}|${entry.a.sourceId}`) ?? 0) > 1;
+    if (!ambiguousA && !ambiguousB) continue;
+    entry.score = {
+      ...entry.score,
+      decision: 'needs_review',
+      confidence: 0.6,
+      reasons: [
+        ...entry.score.reasons,
+        'one side also matches another listing on the same source; a human picks the right one',
+      ],
+    };
+  }
+}
+
+/**
+ * Merges two TENDER opportunities that each hold one listing, put there by
+ * the ruleset, when their listings now score as one tender. Returns false,
+ * changing nothing, for anything else.
+ *
+ * linkPair otherwise never joins two existing clusters, because undoing a
+ * merge someone or something decided is a human's call (§14.2). A pair of
+ * single-listing opportunities holds no such decision: each is just a listing
+ * canonicalized alone, and merging them is the same act as linking two fresh
+ * listings. Tenders need it because their rules arrived after the listings
+ * did. Every job-board tender post from before Phase 9B already sits in its
+ * own opportunity, so without this the hr.ge and jobs.ge copies of one tender
+ * would stay apart for good. A human-made single-listing opportunity (a
+ * reviewer's split) is never folded.
+ *
+ * The listing moves through the reviewer's own reassign path, so the emptied
+ * opportunity's saved or dismissed decision follows it. The older opportunity
+ * survives, keeping the id that has been public longest.
+ */
+async function foldTenderSingleton(
+  tx: DatabaseOrTransaction,
+  opportunityA: string,
+  opportunityB: string,
+  score: AnyPairScore,
+  now: string,
+): Promise<boolean> {
+  const members = await tx
+    .select({
+      opportunityId: opportunitySourceMemberships.opportunityId,
+      sourceListingId: opportunitySourceMemberships.sourceListingId,
+      decidedBy: opportunitySourceMemberships.decidedBy,
+      createdAt: opportunities.createdAt,
+    })
+    .from(opportunitySourceMemberships)
+    .innerJoin(opportunities, eq(opportunities.id, opportunitySourceMemberships.opportunityId))
+    .where(
+      and(
+        inArray(opportunitySourceMemberships.opportunityId, [opportunityA, opportunityB]),
+        isNull(opportunitySourceMemberships.supersededAt),
+      ),
+    );
+  const memberA = members.filter((member) => member.opportunityId === opportunityA);
+  const memberB = members.filter((member) => member.opportunityId === opportunityB);
+  const [onlyA] = memberA;
+  const [onlyB] = memberB;
+  if (memberA.length !== 1 || memberB.length !== 1 || onlyA === undefined || onlyB === undefined) {
+    return false;
+  }
+  if (onlyA.decidedBy !== 'ruleset' || onlyB.decidedBy !== 'ruleset') return false;
+
+  const [survivor, mover] = onlyA.createdAt <= onlyB.createdAt ? [onlyA, onlyB] : [onlyB, onlyA];
+  // Brings the survivor's type up to date first: an opportunity made before
+  // its listing was recognized as a tender still reads 'job', and the move
+  // refuses to put a tender into a vacancy.
+  await resolveCanonicalOpportunity(tx, survivor.opportunityId, now);
+  await reassignListingWithin(tx, {
+    sourceListingId: mover.sourceListingId,
+    toOpportunityId: survivor.opportunityId,
+    decision: score.decision,
+    confidence: score.confidence,
+    evidence: { signals: score.signals, reasons: score.reasons },
+    actor: { decidedBy: 'ruleset', version: score.rulesetVersion },
+    at: now,
+  });
+  return true;
 }
 
 /** Distinct listings carrying each normalized application value — the selectivity signal. */
@@ -194,7 +352,7 @@ async function linkPair(
   tx: DatabaseOrTransaction,
   a: LoadedListing,
   b: LoadedListing,
-  score: PairScore,
+  score: AnyPairScore,
   now: string,
 ): Promise<{ createdOpportunity: boolean; createdMemberships: number; conflict: boolean }> {
   const liveMembership = async (sourceListingId: string) => {
@@ -222,6 +380,11 @@ async function linkPair(
       // sourceMembershipVersions describing content neither source shows any
       // more (adversarial review, 2026-09-06).
       await resolveCanonicalOpportunity(tx, existingA, now);
+    } else if (
+      a.opportunityType === 'tender' &&
+      (await foldTenderSingleton(tx, existingA, existingB, score, now))
+    ) {
+      return { createdOpportunity: false, createdMemberships: 1, conflict: false };
     }
     // Two separate clusters are deliberately left alone: joining established
     // clusters is destructive and §14.2 says a human authorizes it.
@@ -234,6 +397,33 @@ async function linkPair(
 
   let opportunityId = existingA ?? existingB;
   let createdOpportunity = false;
+
+  if (opportunityId !== null) {
+    // Joining an existing cluster: never as a second listing from a source the
+    // cluster already holds. Two postings on one source are two postings
+    // (§12.1), so a cluster holding both would be a false merge however the
+    // pair scored — reachable for tenders, whose merges rest on dates and
+    // titles rather than on a link only two listings can share.
+    const joining = existingA === null ? a : b;
+    const [sameSourceMember] = await tx
+      .select({ id: opportunitySourceMemberships.id })
+      .from(opportunitySourceMemberships)
+      .innerJoin(
+        sourceListings,
+        eq(sourceListings.id, opportunitySourceMemberships.sourceListingId),
+      )
+      .where(
+        and(
+          eq(opportunitySourceMemberships.opportunityId, opportunityId),
+          isNull(opportunitySourceMemberships.supersededAt),
+          eq(sourceListings.sourceId, joining.sourceId),
+        ),
+      )
+      .limit(1);
+    if (sameSourceMember !== undefined) {
+      return { createdOpportunity: false, createdMemberships: 0, conflict: true };
+    }
+  }
 
   if (opportunityId === null) {
     // A SHELL only — no revision. The canonical revision is built at the end,
@@ -315,18 +505,23 @@ export async function runDedupe(
   const blocks = buildBlocks(listings);
 
   const seenPairs = new Set<string>();
-  const scored: Array<{ a: LoadedListing; b: LoadedListing; score: PairScore }> = [];
+  const scored: Array<{ a: LoadedListing; b: LoadedListing; score: AnyPairScore }> = [];
   /** Pairs now scoring 'distinct' — only acted on if they are currently linked. */
-  const contradictedPairs: Array<{ a: LoadedListing; b: LoadedListing; score: PairScore }> = [];
+  const contradictedPairs: Array<{ a: LoadedListing; b: LoadedListing; score: AnyPairScore }> = [];
   let pairsCompared = 0;
 
-  for (const group of blocks.values()) {
-    if (group.length < 2 || group.length > MAX_BLOCK_SIZE) continue;
+  for (const [blockKey, group] of blocks) {
+    const tenderBlock = blockKey.startsWith(TENDER_BLOCK_PREFIX);
+    const maxSize = tenderBlock ? MAX_TENDER_BLOCK_SIZE : MAX_BLOCK_SIZE;
+    if (group.length < 2 || group.length > maxSize) continue;
     for (let i = 0; i < group.length; i++) {
       for (let j = i + 1; j < group.length; j++) {
         const first = group[i];
         const second = group[j];
         if (first === undefined || second === undefined) continue;
+        // A buyer block can hold hundreds of one buyer's own tenders; only
+        // its cross-source pairs can be duplicates (see MAX_TENDER_BLOCK_SIZE).
+        if (tenderBlock && first.sourceId === second.sourceId) continue;
         // Order the pair by id so a pair reachable through two different
         // blocks is compared once, and so the stored row matches the
         // duplicate_candidates unique constraint's (a < b) expectation.
@@ -336,10 +531,16 @@ export async function runDedupe(
         if (seenPairs.has(key)) continue;
         seenPairs.add(key);
         // A tender and a vacancy are never the same opportunity, however
-        // alike the buyer and title read.
-        if (a.opportunityType !== b.opportunityType) continue;
+        // alike the buyer and title read. Kept as a contradiction, like a
+        // 'distinct' score, so a link made before one side was reclassified
+        // (a vacancy merge whose listing turned out to be a tender post) is
+        // queued for review instead of standing unexamined.
+        if (a.opportunityType !== b.opportunityType) {
+          contradictedPairs.push({ a, b, score: typeMismatchScore(a, b, context) });
+          continue;
+        }
         pairsCompared++;
-        const score = scorePair(a, b, context);
+        const score = scoreSameTypePair(a, b, context);
         // A pair that now scores 'distinct' is still kept when the two are
         // currently linked: their existing automatic membership was built on
         // evidence that no longer holds, and dropping the pair here would
@@ -351,6 +552,7 @@ export async function runDedupe(
       }
     }
   }
+  holdAmbiguousMerges(scored);
 
   const byDecision: Record<string, number> = {};
   let candidatesWritten = 0;
@@ -485,7 +687,10 @@ export async function runDedupe(
         const key = `${low.sourceListingId}|${high.sourceListingId}`;
         if (seenPairs.has(key)) continue;
         seenPairs.add(key);
-        const rescored = scorePair(low, high, context);
+        const rescored =
+          low.opportunityType === high.opportunityType
+            ? scoreSameTypePair(low, high, context)
+            : typeMismatchScore(low, high, context);
         if (rescored.decision !== 'confirmed_same') {
           contradictedPairs.push({ a: low, b: high, score: rescored });
         }

@@ -10,6 +10,7 @@ import type { Database, DatabaseOrTransaction } from '../db/types.js';
 import type { OpportunityType } from '../domain/opportunity.js';
 import { resolveCanonicalOpportunity } from './resolve-canonical.js';
 import type { DedupeDecision } from './score-pair.js';
+import { loadListingOpportunityType } from './tender-post.js';
 
 /**
  * Human review operations over cluster membership (§12.5: "moving a source
@@ -393,17 +394,30 @@ export async function reassignListing(
  * which the next dedupe pass then re-queued, asking a reviewer to decide again
  * something they had already decided, with the merge already applied.
  */
-async function reassignListingWithin(
+export async function reassignListingWithin(
   tx: DatabaseOrTransaction,
   input: ReassignInput,
 ): Promise<{ previousOpportunityId: string | null; alreadyInTarget: boolean }> {
   {
     const [target] = await tx
-      .select({ id: opportunities.id })
+      .select({ id: opportunities.id, type: opportunities.type })
       .from(opportunities)
       .where(eq(opportunities.id, input.toOpportunityId));
     if (target === undefined) {
       throw new Error(`reassignListing: no opportunity with id ${input.toOpportunityId}`);
+    }
+
+    // A tender never joins a vacancy, or the reverse — the same rule the
+    // dedupe pass applies to its own merges. Without it a reviewer's accept
+    // could put a tender post inside a vacancy's opportunity, and the
+    // resolver, which makes any cluster holding a tender a tender, would then
+    // take the vacancy out of CV Ranked (dedupe review, 2026-10-07).
+    const listingType = await loadListingOpportunityType(tx, input.sourceListingId);
+    if (listingType !== null && listingType !== target.type) {
+      throw new Error(
+        `reassignListing: listing ${input.sourceListingId} is a ${listingType} and opportunity ` +
+          `${input.toOpportunityId} is a ${target.type}; they cannot be the same opportunity.`,
+      );
     }
 
     const previousOpportunityId = await retireLiveMembership(tx, input.sourceListingId, input.at);

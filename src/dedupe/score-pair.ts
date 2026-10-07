@@ -87,11 +87,16 @@ export interface SignalBreakdown {
   deadlineWithinWindow: boolean | null;
 }
 
-export interface PairScore {
+/**
+ * A scored pair. The signal set depends on the scorer — this file's for
+ * vacancies, `score-tender-pair.ts` for tenders — and only the title
+ * similarity is read back structurally (as the candidate's similarity score).
+ */
+export interface PairScore<Signals extends { titleSimilarity: number } = SignalBreakdown> {
   decision: DedupeDecision;
   /** 0-1. Deliberately NOT a probability — a monotone ordering for review queues. */
   confidence: number;
-  signals: SignalBreakdown;
+  signals: Signals;
   /** Human-readable justification; stored as evidence so a decision is explainable (§14.2). */
   reasons: string[];
   rulesetVersion: string;

@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-10-07 (Phase 9A merged: etenders.ge tenders are crawled and stored locally; the owner chose to show them in Browse in 9C).
+Last updated: 2026-10-07 (Phase 9B built: job-board tender posts are typed as tenders and merged with their etenders.ge copies; PR pending).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
@@ -10,7 +10,11 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
 
 - **Phase 9 (tenders from etenders.ge), started 2026-10-07; 9A merged the same day (PR #41).** Study and strategy: [`addEtender.md`](addEtender.md). Three sub-phases, each its own PR:
   - **9A, acquisition (merged, PR #41):** etenders.ge source policy, adapter and CLI (`npm run crawl:etenders-ge`), fetcher `redirect: 'manual'` mode, the `tender` opportunity type (migration 0038), dedupe typing by source (never pairing a tender with a vacancy), and tenders kept out of the CV Ranked bundle. Until tenders have their own rows, Browse, its counts and the sitemap leave the `tender` type and the etenders.ge board out by default (`TYPES_HIDDEN_BY_DEFAULT`, `SOURCES_HIDDEN_FROM_BROWSE` in `src/browse/queries.ts`); the Listings page shows them. **Not** added to the hosted pipeline: nothing reaches `jobster.fun` until 9C. Migration 0038 is applied to `scraplify_qa` (2026-10-07); applying it to `scraplify` and the host waits on the owner.
-  - **9B:** classify the job boards' own tender posts as tenders (22 in 35 days, about 40% duplicating etenders.ge), plus buyer-blocked dedupe rules with golden pairs (`addEtender.md` §11, §14.6). It must also close two P2s from the 9A dedupe review (2026-10-07; no P0/P1 found): a human accept or reassign does not check that both sides are the same type, and an existing opportunity's `type` is never updated when its listings are reclassified (both latent until 9B makes a listing's type change).
+  - **9B, job-board tender posts and tender dedupe (built 2026-10-07, PR pending):** `addEtender.md` §14.6 has the measured rules.
+    - **Detector** (`src/dedupe/tender-post.ts`): a jobs.ge or hr.ge listing is a tender when its title opens with "ტენდერი"/"ტენ."/"tender" or names a procurement act ("…შესყიდვაზე", "მომსახურების გაწევა", "სამუშაოების შესრულება", RFQ, expression of interest…), or its description says "აცხადებს ტენდერს"; a job-role word in the title ("მენეჯერი", "Tender Manager") vetoes all of it. On the real corpus it flags 27 of 14,655 listings, all tender posts (read one by one).
+    - **Tender dedupe** (`score-tender-pair.ts`, `tender-buyer.ts`, ruleset `tender-v1`): tenders block by buyer (legal forms, dashes, a GE/EN alias list, leading-words match). An automatic merge needs the same buyer, deadlines on the same Tbilisi day, publication within 7 days and agreeing subjects (or an equal reference code); a near miss or a pair in two languages goes to review. A listing matching two listings of one other source is held for review, and no opportunity takes a second listing from a source it already holds. Old single-listing tender opportunities made by the ruleset are folded together, so posts from before 9B merge too.
+    - **The two 9A review P2s are closed:** the resolver derives `job`/`tender` from the live members on every resolve (any tender member makes a tender), and a reviewer's accept or reassign refuses to mix the two. An automatic vacancy merge whose listing turns out to be a tender post is queued for review.
+    - **Order of operations:** 9B code writes the `tender` type, so migration 0038 must be applied before the first dedupe pass on this code: on `scraplify` (`npm run db:migrate`) and on the host (the usual release order). Once deployed, the job boards' tender posts leave Browse and CV Ranked until 9C shows tenders.
   - **9C, tenders in Browse** (owner, 2026-10-07; `addEtender.md` §14.7, replacing the separate Tenders tab): tenders and vacancies in one list by default; a "tender" tag on tender rows; "tender" in the Kind filter and etenders.ge in the Board filter; a simple tender detail page (title, buyer, dates, estimated value when stated, "Open on etenders.ge"; no CPV codes, method, documents or Q&A); Georgian and English copy that mentions tenders; the two interim hide-lists emptied; public-view handling of the type; and etenders.ge in the hosted pipeline.
   - **9A exit gate:**
     - [x] Fixture and crawl tests green in CI (PR #41, 2026-10-07).
@@ -18,6 +22,11 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] Dedupe on QA types every etenders.ge opportunity `tender` (209 of 209; 0 tender–vacancy candidate pairs).
     - [x] The local surface shows them: the Listings page lists all 209, and Browse leaves them out (browser-checked on QA).
     - [x] The bundle builder leaves them out: on QA, 37 open tenders are in the public views and none reach the snapshot (966 vacancies).
+  - **9B exit gate:**
+    - [ ] Tests green in CI.
+    - [x] Precision on the golden pairs (2026-10-07): the 27 real board tender posts scored against QA's 209 etenders.ge tenders give 12 automatic merges, all true; 8 pairs go to review (3 true, 5 wrong but same-buyer); no golden pair is lost; every hard negative stays apart (`score-tender-pair.test.ts`).
+    - [x] No tender posts left in the vacancy catalogue: on QA a dedupe pass retyped all 7 board tender posts there to `tender` and folded hr.ge 492864 into etenders.ge 69470's opportunity.
+    - [x] Every new guard is load-bearing: each DB test in `tender-typing.test.ts` fails with its fix removed. Full suite on `scraplify_qa`: 1,594 passed, 7 skipped.
 
 - **Live release:** `cf4efe0` (PR #39, the ops follow-ups), deployed 2026-10-05 at 17:16 UTC as a plain deploy. The previous release, `30e68a7`, stays on the host for rollback.
 - **Live bundle:** `b9b8e49a` (8,663 vacancies), built by hand at the end of the rollback drill.
@@ -81,6 +90,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 8E — hosted readiness | **deployed** 2026-09-28 (`jobster.fun`); all 7 stages closed 2026-10-05 | #24 | Nothing remaining. Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). |
 | 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `archive/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0037 (retention) is applied to `scraplify` (38 recorded, checked 2026-09-30) and on the host; `scraplify_qa` was not rechecked. |
 | 9A — etenders.ge tender acquisition | **merged** 2026-10-07 | #41 | Study `addEtender.md`; migration 0038 (`tender` type) applied to `scraplify_qa`, waiting on the owner for `scraplify` and the host; not in the hosted pipeline yet. 9B (job-board reclassification) and 9C (tenders in Browse) follow. |
+| 9B — job-board tender posts and tender dedupe | built 2026-10-07, PR pending | — | Detector, tender scorer, buyer key, the two 9A P2s. Needs migration 0038 before its first dedupe pass on `scraplify` and the host. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; the `discharge-codex-debt` skill that paid them back was retired on 2026-10-05.
 
