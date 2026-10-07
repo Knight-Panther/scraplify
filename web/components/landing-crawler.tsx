@@ -43,7 +43,7 @@ export function LandingCrawler({ children }: { children: ReactNode }) {
       <canvas
         ref={canvasRef}
         aria-hidden="true"
-        className="pointer-events-none absolute -inset-10 h-[calc(100%+5rem)] w-[calc(100%+5rem)]"
+        className="pointer-events-none absolute -inset-14 h-[calc(100%+7rem)] w-[calc(100%+7rem)]"
       />
     </div>
   );

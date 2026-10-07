@@ -80,9 +80,9 @@ describe('easeFactor', () => {
 });
 
 describe('crawlerScale', () => {
-  it('is 1.3x on desktop and shrinks smoothly to 0.8x on a phone', () => {
-    expect(crawlerScale(1920)).toBe(1.3);
-    expect(crawlerScale(1060)).toBe(1.3);
+  it('is 1.69x on desktop and shrinks smoothly to 0.8x on a phone', () => {
+    expect(crawlerScale(1920)).toBe(1.69);
+    expect(crawlerScale(1060)).toBe(1.69);
     expect(crawlerScale(390)).toBeCloseTo(0.8, 6);
     expect(crawlerScale(320)).toBeCloseTo(0.8, 6);
     expect(crawlerScale(768)).toBeGreaterThan(0.95);

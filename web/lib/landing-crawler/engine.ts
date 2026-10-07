@@ -29,7 +29,7 @@ import {
  * while the area is off screen or the tab is hidden.
  */
 
-const PAD = 40; // the canvas overhangs the host by this much on every side (fits 1.3x legs)
+const PAD = 56; // the canvas overhangs the host by this much on every side (fits 1.69x legs)
 const UPPER = 26;
 const LOWER = 30;
 const SPEED = 85; // px/s while crawling: one loop of the panel in about 20 s
@@ -228,7 +228,9 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
           // only turns to face the way it walks. A jittered pace keeps the
           // insect rhythm without ever overshooting.
           faceToward(goal, dt);
-          const stride = ((SPEED * scale * dt) / 1000) * (0.7 + Math.random() * 0.6);
+          // Pace grows with size only up to 1.3x: a bigger desktop spider
+          // racing through the same panel would look frantic.
+          const stride = ((SPEED * Math.min(scale, 1.3) * dt) / 1000) * (0.7 + Math.random() * 0.6);
           body = stepToward(body, goal, stride);
         }
       }
