@@ -1,0 +1,45 @@
+import { describe, expect, it } from 'vitest';
+import { angleDelta, distance, fromBody, solveKnee } from './geometry.js';
+
+describe('solveKnee', () => {
+  it('keeps both segment lengths for a foot within reach', () => {
+    const hip = { x: 0, y: 0 };
+    const foot = { x: 40, y: 20 };
+    const knee = solveKnee(hip, foot, 30, 34, { x: -10, y: 0 });
+    expect(distance(hip, knee)).toBeCloseTo(30, 6);
+    expect(distance(knee, foot)).toBeCloseTo(34, 6);
+  });
+
+  it('bends the knee away from the body', () => {
+    const hip = { x: 0, y: 0 };
+    const foot = { x: 50, y: 0 };
+    expect(solveKnee(hip, foot, 30, 34, { x: 25, y: 10 }).y).toBeLessThan(0);
+    expect(solveKnee(hip, foot, 30, 34, { x: 25, y: -10 }).y).toBeGreaterThan(0);
+  });
+
+  it('straightens toward a foot out of reach instead of failing', () => {
+    const knee = solveKnee({ x: 0, y: 0 }, { x: 500, y: 0 }, 30, 34, { x: 0, y: 5 });
+    expect(Number.isFinite(knee.x) && Number.isFinite(knee.y)).toBe(true);
+    expect(knee.x).toBeCloseTo(30, 1);
+  });
+
+  it('survives a foot planted on the hip', () => {
+    const knee = solveKnee({ x: 3, y: 3 }, { x: 3, y: 3 }, 30, 34, { x: 0, y: 0 });
+    expect(Number.isFinite(knee.x) && Number.isFinite(knee.y)).toBe(true);
+  });
+});
+
+describe('fromBody', () => {
+  it('turns a body-frame offset by the heading', () => {
+    const point = fromBody({ x: 10, y: 10 }, Math.PI / 2, 5, 0);
+    expect(point.x).toBeCloseTo(10, 6);
+    expect(point.y).toBeCloseTo(15, 6);
+  });
+});
+
+describe('angleDelta', () => {
+  it('takes the short way round', () => {
+    expect(angleDelta(0.1, 2 * Math.PI - 0.1)).toBeCloseTo(-0.2, 6);
+    expect(angleDelta(-3, 3)).toBeCloseTo(6 - 2 * Math.PI, 6);
+  });
+});

@@ -118,13 +118,17 @@ export function CrawlStatus({
           // column) continues under the text rather than under the dot.
           // Spacing, not a "·", separates the two parts: a separator would
           // dangle at the end of a wrapped line.
+          // `data-crawl-stop` / `data-crawl`: where the landing crawler walks
+          // and what it may highlight (`landing-crawler/engine.ts`). Inert
+          // anywhere the crawler is not mounted.
           <li
             key={view.sourceSlug}
+            data-crawl-stop=""
             className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-baseline gap-x-2"
           >
             <span className="flex items-center gap-2">
               <StateDot view={view} dotClass={classes.dot} />
-              <span className={classes.source} translate="no">
+              <span className={classes.source} translate="no" data-crawl="">
                 {sourceLabel(view.sourceSlug)}
               </span>
             </span>
@@ -134,7 +138,11 @@ export function CrawlStatus({
                 {view.lastUpdatedAt === null ? (
                   copy.noUpdateYet
                 ) : (
-                  <time dateTime={view.lastUpdatedAt} className="whitespace-nowrap tabular-nums">
+                  <time
+                    dateTime={view.lastUpdatedAt}
+                    className="whitespace-nowrap tabular-nums"
+                    data-crawl=""
+                  >
                     {updateDateTime(view.lastUpdatedAt, locale)}
                   </time>
                 )}

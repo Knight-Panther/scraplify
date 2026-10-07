@@ -17,6 +17,7 @@ import { CvChooser } from '../../components/cv-chooser.js';
 import { HeroTicker } from '../../components/hero-ticker.js';
 import { HeroPoster, HeroVideo } from '../../components/hero-video.js';
 import { KindTag } from '../../components/kind-tag.js';
+import { LandingCrawler } from '../../components/landing-crawler.js';
 import { cvRankedEnabled } from '../../lib/cv-ranked/availability.js';
 import { count } from '../../lib/format.js';
 import { type HeadlineRun, type HeroCopy, heroCopy } from '../../lib/hero-copy.js';
@@ -237,25 +238,29 @@ export default async function Page() {
               {/* Each board's last full update and a countdown to its next
                   scheduled one, above the newest listings it vouches for.
                   Its own query, so it shows even when the hero data failed. */}
-              {crawlStatus !== null && (
-                <div className="mb-6">
-                  <CrawlStatus
-                    initial={crawlStatus.sources}
-                    initialNowMs={crawlStatus.nowMs}
+              {/* The crawler walks these rows (Phase 10B pilot); it steps
+                  aside when a reader points, touches or tabs in. */}
+              <LandingCrawler>
+                {crawlStatus !== null && (
+                  <div className="mb-6">
+                    <CrawlStatus
+                      initial={crawlStatus.sources}
+                      initialNowMs={crawlStatus.nowMs}
+                      locale={locale}
+                      pollUrl="/api/crawl-status"
+                      tone="hero"
+                    />
+                  </div>
+                )}
+                {hero.ok && (
+                  <NewestPanel
+                    rows={hero.panelRows}
+                    openCount={hero.openCount}
+                    copy={copy}
                     locale={locale}
-                    pollUrl="/api/crawl-status"
-                    tone="hero"
                   />
-                </div>
-              )}
-              {hero.ok && (
-                <NewestPanel
-                  rows={hero.panelRows}
-                  openCount={hero.openCount}
-                  copy={copy}
-                  locale={locale}
-                />
-              )}
+                )}
+              </LandingCrawler>
             </div>
           )}
         </div>
@@ -502,9 +507,10 @@ function NewestPanel({
             ))}
             <a
               href="/opportunities?status=active"
+              data-crawl-stop=""
               className="block px-[18px] py-3.5 text-[13px] text-[var(--color-browse-accent)] transition-colors duration-150 hover:text-[var(--color-browse-accent-hover)]"
             >
-              {copy.seeAllOpenings(count(openCount))}
+              <span data-crawl="">{copy.seeAllOpenings(count(openCount))}</span>
             </a>
           </>
         )}
@@ -528,6 +534,7 @@ function NewestRow({
   const employers = row.employers.join(' · ');
   return (
     <div
+      data-crawl-stop=""
       className={`flex items-start gap-3.5 border-b border-[var(--color-browse-border)] px-[18px] py-4 last:border-b-0 ${
         hideWhenShort ? 'lg:[@media(max-height:760px)]:hidden' : ''
       }`}
@@ -544,6 +551,7 @@ function NewestRow({
         )}
         <a
           href={`/opportunities/${row.opportunityId}`}
+          data-crawl=""
           className="block truncate text-[15px] font-semibold text-white leading-[var(--leading-body)] hover:text-[var(--color-browse-accent)]"
           title={row.title}
         >
@@ -551,6 +559,7 @@ function NewestRow({
         </a>
         {row.employers.length > 0 && (
           <p
+            data-crawl=""
             className="truncate text-[13px] text-[var(--color-browse-text-muted)] leading-[var(--leading-body)]"
             title={employers}
           >
@@ -597,6 +606,7 @@ function NewestRow({
               target="_blank"
               rel="noreferrer"
               translate="no"
+              data-crawl=""
               aria-label={`${row.title} on ${sourceLabel(source.sourceSlug)}${
                 inactive ? `, ${label.short} on this board` : ''
               } (opens in a new tab)`}
