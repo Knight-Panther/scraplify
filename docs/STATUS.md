@@ -33,7 +33,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
 - **Live bundle:** `b9b8e49a` (8,663 vacancies), built by hand at the end of the rollback drill.
 - **Schedules:** both pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `xtelo-pipeline@hr-ge.timer`); the nightly backup runs at 09:00 UTC. Backup copies off the host are in R2, whose lifecycle rule deletes them after 30 days; `deploy/backup-db.sh` also keeps the off-host copies under 8 GB, oldest first and never the newest.
 - **MVP is complete (owner, 2026-09-30):** no P0 or P1 is open. What stays open is P2/P3, optional clean-up and post-MVP work. The next step is to watch real users' feedback and traffic, then tune step by step. With no alert channel, a crawl failure or a source layout change leaves the catalogue quietly stale (the site keeps serving the last good one). The "Board updates" panel on `/admin` says "Late" or "last attempt incomplete" when a run misses; a look every day or two catches it.
-- **Still to see (2026-10-06):** the first scheduled run on `cf4efe0` (16:10 UTC) should show hr.ge's `canaryChanged` back near 0, and the 09:00 backup should log no rclone error.
+- **Checked 2026-10-07 (read-only on the host):** the 2026-10-06 hr.ge run on `cf4efe0` finished with `canaryChanged` 0, the 2026-10-06 and 2026-10-07 09:00 backups finished with no error lines, and no unit is failed.
 
 **Five-day ops check of `30e68a7` (2026-10-05, read-only on the host): all fine.**
 
