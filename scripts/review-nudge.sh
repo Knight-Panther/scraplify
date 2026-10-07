@@ -5,13 +5,19 @@
 #
 # .claude/agents/ defines specialist reviewers for classes of change a
 # general review is most likely to skim past — schema migrations,
-# cross-source dedupe logic, and (Phase 8B on) the local/public/admin
-# surface boundary — but an agent definition only helps if someone
+# cross-source dedupe logic, (Phase 8B on) the local/public/admin surface
+# boundary, and (Phase 10A on) search-term expansion — but an agent
+# definition only helps if someone
 # remembers to invoke it. This makes the reminder deterministic instead of
 # memory-dependent. It never blocks and never runs the reviewer itself: it
 # adds one line of context, and the judgment of when to actually run the
 # review (usually once the change is complete, not after every keystroke of
 # it) stays with the session.
+#
+# One class points at a test suite rather than an agent: CV Ranked's privacy
+# e2e (`npm run test:e2e:privacy`) is not in CI, and it already went stale
+# once without anyone noticing (docs/STATUS.md, "Upcoming" item 2), so an
+# edit to the in-browser CV path is the moment to say so.
 #
 # Once per session per reviewer, keyed by session_id: a dedupe change is often
 # a dozen edits, and a dozen identical reminders become noise that trains the
@@ -37,6 +43,8 @@ file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // empty | gsub("\\
 msg_migration=""
 msg_dedupe=""
 msg_surface=""
+msg_privacy=""
+msg_search=""
 
 case "$file" in
   */drizzle/migrations/*.sql | */src/db/schema/*)
@@ -56,7 +64,24 @@ case "$file" in
     ;;
 esac
 
-[ -n "$msg_migration$msg_dedupe$msg_surface" ] || exit 0
+# The in-browser CV path and what it fetches: the worker and its client
+# modules, the CV parsers and model pins they import, the routes that serve
+# bundles and models, and the suite itself.
+case "$file" in
+  */web/lib/cv-ranked/* | */web/app/\(local\)/cv-ranked/* | */src/cv-parsing/* | */src/matching/models/* | */web/lib/matching-delivery.ts | */web/app/api/matching/* | */e2e/privacy/* | */playwright.privacy.config.ts)
+    msg_privacy="CV Ranked code edited ($file). \`npm run test:e2e:privacy\` is not in CI and has gone stale unnoticed before (docs/STATUS.md, Upcoming item 2): run it before this change lands. It builds the web app first."
+    ;;
+esac
+
+# What a search box matches (Phase 10A): the term expansion, and the stemmer
+# and dictionary it shares with CV matching.
+case "$file" in
+  */src/browse/search-terms.ts | */src/matching/lexical/text.ts | */src/matching/semantic/title-dictionary.json)
+    msg_search="Search-term expansion edited ($file). Once this change is complete, run the search-relevance-checker agent over it: it measures hits, false positives and query cost against the real corpus, read-only."
+    ;;
+esac
+
+[ -n "$msg_migration$msg_dedupe$msg_surface$msg_privacy$msg_search" ] || exit 0
 
 gitdir=$(git rev-parse --git-common-dir 2>/dev/null || echo .git)
 state="$gitdir/review-nudge"
@@ -117,6 +142,8 @@ $text"
 add_if_new migration-safety-reviewer "$msg_migration"
 add_if_new dedupe-correctness-reviewer "$msg_dedupe"
 add_if_new surface-boundary-reviewer "$msg_surface"
+add_if_new privacy-e2e "$msg_privacy"
+add_if_new search-relevance-checker "$msg_search"
 
 # Bounded by line count, not by session: this file is shared across every
 # concurrent session/worktree, so filtering to "only this session's lines"

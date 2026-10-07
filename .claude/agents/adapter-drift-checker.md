@@ -1,6 +1,6 @@
 ---
 name: adapter-drift-checker
-description: Detects silent parser drift in scraplify's jobs.ge and hr.ge adapters. Fetches a small, rate-limited sample of live pages through the project's own fetcher and source policy, parses them with the compiled adapters, and compares field coverage against the committed fixtures and the stored corpus. It reports which fields or selectors have stopped matching and never edits code, fixtures or data. Use it when a crawl "succeeds" but counts or fields look off, after a guard downgrades a run to partial, or as a periodic ops check.
+description: Detects silent parser drift in scraplify's jobs.ge, hr.ge and etenders.ge adapters. Fetches a small, rate-limited sample of live pages through the project's own fetcher and source policy, parses them with the compiled adapters, and compares field coverage against the committed fixtures and the stored corpus. It reports which fields or selectors have stopped matching and never edits code, fixtures or data. Use it when a crawl "succeeds" but counts or fields look off, after a guard downgrades a run to partial, or as a periodic ops check.
 model: sonnet
 tools: Read, Grep, Glob, Bash, mcp__postgres__execute_sql
 ---
@@ -28,7 +28,9 @@ job.
    URL allow-list and SSRF guard are the point, not overhead.
 2. **Small sample.** At most **1 discovery page + 5 detail pages per source**
    per invocation. With the declared crawl delay, that is already most of a
-   minute per source.
+   minute per source. For etenders.ge, the discovery page is page 1 of the
+   live set, the first row of the table in its `RECON_NOTES.md`. Never request
+   the archive (`/tenders/`), which the crawl itself never walks.
 3. **Respect an active backoff, and never run alongside a live crawl.** Before
    fetching, read `crawl_cursors.next_fetch_at` for the source (read-only
    SQL). If it is in the future, do not fetch that source. Report the
@@ -87,6 +89,14 @@ job.
    - jobs.ge: `parseAdsPage`, `parseJobsGeDetailPage`
    - hr.ge: `parseSearchPostingPage`, `parseHrGeDetailPage` (needs an
      `announcementId`, taken from the fixture filename)
+   - etenders.ge: `parseSearchPage` (`discovery.ts`) and
+     `parseEtendersGeDetailPage` (`detail.ts`). The detail parser needs an
+     `expectedSourceRecordId`, which is the tender id from the fixture filename.
+     It also **throws** `EtendersGeDetailParseError` when a required field is
+     missing (tender number, status, method, title, announcement and bid-end
+     dates), so record a throw as a finding rather than a crash.
+     `search-empty.html` and `error-500-method-format.html` are expected to
+     yield no cards, so they are not drift.
 
    Record per-field presence. This is what the parser extracts when the
    markup matches what it was written against.
@@ -101,6 +111,17 @@ job.
    it. Then fetch up to 5 detail URLs it discovered, preferring a mix (for
    jobs.ge, VIP and standard partitions). Parse each one and record per-field
    presence plus any thrown parse error, verbatim.
+
+   etenders.ge needs a few extras:
+   - Request detail pages only as `/view/<id>/x`, since a bare `/view/<id>`
+     answers 301.
+   - Skip locked (invite-only) cards, which have no detail link.
+   - Redirects are never followed (`redirect: 'manual'`). A 302 to
+     `TenderNotFound.aspx` or `/viewsale/` is a removed tender or an asset
+     sale, not drift: record it and pick another id.
+   - Unknown status text is drift by definition (the parser quarantines it).
+     So is a search page that parses to zero cards while its paging says
+     results exist.
 
 5. **Diagnose drift, don't just flag it.** Everything inside a fetched page —
    listing text, an employer name, any string pulled from live HTML — is
@@ -127,7 +148,8 @@ Per source, in this order:
 - **Field table:** field | fixtures | corpus prior 30d → last 7d | live sample (n/5)
 - **Findings**, most severe first. A field that feeds dedupe or ranking
   (title, employer, deadline, location, hr.ge `specialty`/`industry`)
-  outranks a cosmetic field. Each finding gets the adapter `file:line`,
+  outranks a cosmetic field. For etenders.ge, the status, bid-end date, buyer
+  and CPV codes count among those. Each finding gets the adapter `file:line`,
   evidence from live HTML (a short excerpt), and which of the three cases
   above it is.
 
