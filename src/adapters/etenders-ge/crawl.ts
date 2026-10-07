@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto';
-import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import {
   type CrawlRunCounts,
   extendSourceBackoff,
   failUnsettledCrawlRun,
   finishCrawlRun,
-  getLastCompletedCrawlRun,
   getSourceBackoffUntil,
   recordFetchAttempt,
   recordParserIncident,
@@ -13,7 +12,7 @@ import {
   upsertResource,
 } from '../../db/ingest.js';
 import { expireOverdueListings } from '../../db/reconcile-source-listings.js';
-import { type CrawlRunRow, sourceListings, sources } from '../../db/schema/index.js';
+import { type CrawlRunRow, crawlRuns, sourceListings, sources } from '../../db/schema/index.js';
 import { type SyncSourcePolicyResult, syncSourcePolicy } from '../../db/source-policies.js';
 import type { Database } from '../../db/types.js';
 import {
@@ -377,19 +376,35 @@ async function recordNotFound(
   return closed ? 'closed' : 'suspected';
 }
 
+/**
+ * When the source's last completed run started. Not `getLastCompletedCrawlRun`:
+ * that one counts only full-coverage runs, the job boards' collapse baseline,
+ * and an etenders.ge run never is one, so every run would walk the first-run
+ * window.
+ */
+async function lastCompletedRunStartedAt(db: Database): Promise<string | null> {
+  const [row] = await db
+    .select({ startedAt: crawlRuns.startedAt })
+    .from(crawlRuns)
+    .where(and(eq(crawlRuns.sourceId, etendersGeSource.id), eq(crawlRuns.status, 'completed')))
+    .orderBy(desc(crawlRuns.startedAt))
+    .limit(1);
+  return row?.startedAt ?? null;
+}
+
 function windowFromDate(
   options: RunEtendersGeCrawlOptions,
-  lastCompleted: CrawlRunRow | null,
+  lastCompletedStartedAt: string | null,
   nowMs: number,
 ): string {
   const dayMs = 24 * 60 * 60 * 1000;
   let days: number;
   if (options.windowDays !== undefined) {
     days = options.windowDays;
-  } else if (lastCompleted === null) {
+  } else if (lastCompletedStartedAt === null) {
     days = DEFAULT_FIRST_RUN_WINDOW_DAYS;
   } else {
-    const since = (nowMs - Date.parse(lastCompleted.startedAt)) / dayMs;
+    const since = (nowMs - Date.parse(lastCompletedStartedAt)) / dayMs;
     days = Math.ceil(since) + WINDOW_OVERLAP_DAYS;
   }
   if (!Number.isInteger(days) || days < 1 || days > MAX_WINDOW_DAYS) {
@@ -438,9 +453,9 @@ export async function runEtendersGeCrawl(
     policySync.currentRevisionId,
   );
 
-  const lastCompleted = await getLastCompletedCrawlRun(db, etendersGeSource.id);
+  const lastCompletedStartedAt = await lastCompletedRunStartedAt(db);
   const startedAt = now();
-  const windowFrom = windowFromDate(options, lastCompleted, Date.parse(startedAt));
+  const windowFrom = windowFromDate(options, lastCompletedStartedAt, Date.parse(startedAt));
   const crawlRun = await startCrawlRun(db, {
     sourceId: etendersGeSource.id,
     startedAt,

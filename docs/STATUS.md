@@ -9,10 +9,15 @@ This file is the **current-state index**: what is done, what is open, and what g
 The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 7B, the Phase 1C remainder and Phase 9 (tenders, in progress).
 
 - **Phase 9 (tenders from etenders.ge), started 2026-10-07 on `phase-9a-etenders-adapter`.** Study and strategy: [`addEtender.md`](addEtender.md). Three sub-phases, each its own PR:
-  - **9A, acquisition (this branch):** etenders.ge source policy, adapter and CLI (`npm run crawl:etenders-ge`), fetcher `redirect: 'manual'` mode, the `tender` opportunity type (migration 0038), dedupe typing by source (never pairing a tender with a vacancy), and tenders kept out of the CV Ranked bundle. **Not** added to the hosted pipeline: nothing reaches `jobster.fun` until 9C. Migration 0038 is applied to `scraplify_qa` (2026-10-07); applying it to `scraplify` and the host waits on the owner.
+  - **9A, acquisition (this branch):** etenders.ge source policy, adapter and CLI (`npm run crawl:etenders-ge`), fetcher `redirect: 'manual'` mode, the `tender` opportunity type (migration 0038), dedupe typing by source (never pairing a tender with a vacancy), and tenders kept out of the CV Ranked bundle. Until tenders have their own rows, Browse, its counts and the sitemap leave the `tender` type and the etenders.ge board out by default (`TYPES_HIDDEN_BY_DEFAULT`, `SOURCES_HIDDEN_FROM_BROWSE` in `src/browse/queries.ts`); the Listings page shows them. **Not** added to the hosted pipeline: nothing reaches `jobster.fun` until 9C. Migration 0038 is applied to `scraplify_qa` (2026-10-07); applying it to `scraplify` and the host waits on the owner.
   - **9B:** classify the job boards' own tender posts as tenders (22 in 35 days, about 40% duplicating etenders.ge), plus buyer-blocked dedupe rules with golden pairs (`addEtender.md` §11, §14.6). It must also close two P2s from the 9A dedupe review (2026-10-07; no P0/P1 found): a human accept or reassign does not check that both sides are the same type, and an existing opportunity's `type` is never updated when its listings are reclassified (both latent until 9B makes a listing's type change).
   - **9C:** the public "Tenders" tab, public-view handling of the `tender` type, and etenders.ge in the hosted pipeline.
-  - **9A exit gate:** fixture and crawl tests green in CI; a live run into `scraplify_qa` completes with no quarantines; dedupe on QA types every etenders.ge opportunity `tender`; the local surface shows them; the bundle builder leaves them out.
+  - **9A exit gate:**
+    - [ ] Fixture and crawl tests green in CI.
+    - [x] A live run into `scraplify_qa` completes with no quarantines (2026-10-07: 209 tenders, 37 open and 172 closed by their own pages, 224 requests, 0 failed; a second run the same morning fetched 1 changed tender and skipped 208).
+    - [x] Dedupe on QA types every etenders.ge opportunity `tender` (209 of 209; 0 tender–vacancy candidate pairs).
+    - [x] The local surface shows them: the Listings page lists all 209, and Browse leaves them out (browser-checked on QA).
+    - [x] The bundle builder leaves them out: on QA, 37 open tenders are in the public views and none reach the snapshot (966 vacancies).
 
 - **Live release:** `cf4efe0` (PR #39, the ops follow-ups), deployed 2026-10-05 at 17:16 UTC as a plain deploy. The previous release, `30e68a7`, stays on the host for rollback.
 - **Live bundle:** `b9b8e49a` (8,663 vacancies), built by hand at the end of the rollback drill.

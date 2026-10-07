@@ -8,6 +8,7 @@ import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
 import { etendersGeSource } from '../../policies/etenders-ge.js';
 import {
   buildSearchUrl,
+  DEFAULT_FIRST_RUN_WINDOW_DAYS,
   ensureEtendersGeSourceSeeded,
   runEtendersGeCrawl,
   tbilisiSearchDate,
@@ -251,6 +252,27 @@ describe('runEtendersGeCrawl', () => {
     const third = await run(NOW + 21 * 60 * 60 * 1000);
     expect(third.stats.detailFetches).toBe(3);
     expect(third.crawlRun.skippedCount).toBe(2);
+  });
+
+  it('walks the first-run window once, then only back to the last completed run', async () => {
+    const run = (at: number, windowFrom: string) =>
+      runEtendersGeCrawl({
+        db,
+        httpFetcher: new FakeFetcher(siteResponses({ live: LIVE, window: WINDOW, windowFrom })),
+        now: clock(at),
+      });
+
+    const firstFrom = tbilisiSearchDate(NOW - DEFAULT_FIRST_RUN_WINDOW_DAYS * DAY_MS);
+    const first = await run(NOW, firstFrom);
+    expect(first.crawlRun.status).toBe('completed');
+    expect(first.stats.windowFrom).toBe(firstFrom);
+
+    // A day later: one day since the last run, plus the two-day overlap.
+    const next = NOW + DAY_MS;
+    const nextFrom = tbilisiSearchDate(next - 3 * DAY_MS);
+    const second = await run(next, nextFrom);
+    expect(second.crawlRun.status).toBe('completed');
+    expect(second.stats.windowFrom).toBe(nextFrom);
   });
 
   it('reads how an open tender that left the live set ended, and treats not-found as missing twice before closing', async () => {

@@ -23,6 +23,7 @@ import {
   publicLastSeen,
   publicSearchListings,
   publicSearchOpportunities,
+  publicSitemapOpportunities,
   publicSourceOverview,
 } from './public-queries.js';
 
@@ -51,6 +52,7 @@ describe('public queries', () => {
     opportunityId?: string;
     /** Force `source_listings.id` rather than a random uuid — for tests where the sort tie-break matters. */
     listingId?: string;
+    type?: 'job' | 'tender';
   }): Promise<{ opportunityId: string; listingId: string; sourceId: string }> {
     let sourceId = spec.existingSourceId;
     if (sourceId === undefined) {
@@ -105,7 +107,7 @@ describe('public queries', () => {
       opportunityIds.push(opportunityId);
       await db.insert(opportunities).values({
         id: opportunityId,
-        type: 'job',
+        type: spec.type ?? 'job',
         canonicalTitle: spec.title,
         organizationId: null,
         canonicalStatus: spec.status === 'quarantined' ? 'quarantined' : 'active',
@@ -531,6 +533,20 @@ describe('public queries', () => {
 
     const rows = await publicSearchOpportunities(db, { text: suffix, sourceSlug: slugA });
     expect(rows.map((r) => r.canonicalTitle)).toEqual([`On A ${suffix}`]);
+  });
+
+  it('leaves tenders out of the catalogue, its count and the sitemap unless asked for by type', async () => {
+    const suffix = randomUUID().slice(0, 8);
+    const vacancy = await addOpportunity({ title: `Vacancy ${suffix}` });
+    const tender = await addOpportunity({ title: `Tender ${suffix}`, type: 'tender' });
+
+    const rows = await publicSearchOpportunities(db, { text: suffix });
+    expect(rows.map((r) => r.canonicalTitle)).toEqual([`Vacancy ${suffix}`]);
+    expect(await publicCountOpportunities(db, { text: suffix })).toBe(1);
+    expect(await publicCountOpportunities(db, { text: suffix, types: ['tender'] })).toBe(1);
+    const sitemap = (await publicSitemapOpportunities(db)).map((entry) => entry.opportunityId);
+    expect(sitemap).toContain(vacancy.opportunityId);
+    expect(sitemap).not.toContain(tender.opportunityId);
   });
 
   it('publicLastSeen is the oldest of each source own latest, only when every source has one', () => {

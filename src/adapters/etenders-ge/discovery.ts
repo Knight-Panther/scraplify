@@ -57,9 +57,10 @@ function labelledDate(text: string, label: string): string | null {
   return match?.[1] ?? null;
 }
 
-function detailLink(
-  card: ReturnType<cheerio.CheerioAPI>,
-): { url: string | null; kind: TenderCard['kind'] } {
+function detailLink(card: ReturnType<cheerio.CheerioAPI>): {
+  url: string | null;
+  kind: TenderCard['kind'];
+} {
   // The "details" button sits outside the card's own table, in the
   // enclosing one (desktop) and a sibling table (mobile); the nearest
   // enclosing table holds the desktop copy.

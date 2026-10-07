@@ -1,4 +1,16 @@
-import { type AnyColumn, and, eq, gte, ilike, inArray, lte, or, type SQL, sql } from 'drizzle-orm';
+import {
+  type AnyColumn,
+  and,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  lte,
+  notInArray,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import {
   publicOpportunities,
   publicOpportunityMembers,
@@ -7,7 +19,7 @@ import {
 import type { DatabaseOrTransaction } from '../db/types.js';
 import { sourcePolicies } from '../policies/index.js';
 import type { ListingView, OpportunityView, SearchListingsFilters } from './queries.js';
-import type { SearchOpportunitiesFilters } from './queries.js';
+import { type SearchOpportunitiesFilters, TYPES_HIDDEN_BY_DEFAULT } from './queries.js';
 
 /**
  * The public-surface query boundary (Phase 8B Stage 4, concept §30.2/§30.4).
@@ -352,6 +364,11 @@ function publicOpportunityConditions(filters: SearchOpportunitiesFilters): SQL[]
         publicOpportunities.type,
         filters.types as unknown as (typeof publicOpportunities.type.enumValues)[number][],
       ),
+    );
+  } else {
+    // As text, for the reason `opportunityConditions` gives.
+    conditions.push(
+      notInArray(sql`${publicOpportunities.type}::text`, [...TYPES_HIDDEN_BY_DEFAULT]),
     );
   }
   if (filters.sourceSlug !== undefined) {

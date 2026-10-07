@@ -134,6 +134,7 @@ export function opportunityTypeLabel(type: string): Label {
 export const sourceLabels: Record<string, string> = {
   'jobs-ge': 'jobs.ge',
   'hr-ge': 'hr.ge',
+  'etenders-ge': 'etenders.ge',
 };
 
 export function sourceLabel(slug: string): string {
