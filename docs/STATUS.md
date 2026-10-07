@@ -4,7 +4,7 @@ Last updated: 2026-10-07 (Phase 9B built: job-board tender posts are typed as te
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Phase 9B — job-board tender posts and tender dedupe (live operations continue)
+## Current phase: Phase 9C — tenders in Browse (live operations continue)
 
 The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 7B, the Phase 1C remainder and Phase 9 (tenders, in progress).
 
