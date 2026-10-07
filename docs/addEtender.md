@@ -1,6 +1,6 @@
 # Adding tenders from etenders.ge: study and strategy
 
-**Status:** decided 2026-10-07 (go; see §17). Being built as Phase 9 (`docs/STATUS.md`): 9A acquisition, 9B job-board reclassification and dedupe, 9C the public Tenders tab.
+**Status:** decided 2026-10-07 (go; see §17). Being built as Phase 9 (`docs/STATUS.md`): 9A acquisition, 9B job-board reclassification and dedupe, 9C tenders in Browse (revised the same day from a separate tab; §17 item 5).
 **Date of measurements:** 2026-10-05, about 21:30–22:40 Tbilisi time.
 **How it was measured:** about 100 read-only requests to `etenders.ge`. Most were cookieless `curl` with 2–3 s spacing; the rest came from one Playwright session that watched the site's own search form. Every number below is a dated observation, not a guarantee. Re-measure before building and keep the fresh results in `src/adapters/etenders-ge/RECON_NOTES.md`, as was done for the other two sources.
 
@@ -314,9 +314,10 @@ What this means:
 
 ### 14.1 Product framing (recommended)
 
-- Add **tenders as a separate opportunity type and a separate "Tenders" tab**, aimed at freelancers, consultants and small firms. Don't mix them into vacancies or into the vacancy CV ranking by default.
+- Add **tenders as a separate opportunity type, shown in Browse together with vacancies** and tagged "tender", aimed at freelancers, consultants and small firms. Keep them out of the vacancy CV ranking. (The study first recommended a separate "Tenders" tab; the owner chose Browse instead, §17 item 5.)
 - **Scope v1:** public purchase tenders only. Skip asset sales (`/viewsale`), locked or restricted cards and anonymous currency purchases. Optionally count restricted ones without showing details.
-- **Show:** title, normalized buyer, deadline (date and time, Tbilisi), status, method, value (only when stated, with currency and VAT basis), delivery place, CPV labels (GE/EN), document count and types, and an "Open on etenders.ge" link (bidding happens there and is paid). Write "not specified" wherever the source says so; never invent a value.
+- **Show:** title, buyer, announced date, bid deadline (date and time, Tbilisi), status, estimated value (only when stated, with currency), and an "Open on etenders.ge" link (bidding happens there and is paid). Write "not specified" wherever the source says so; never invent a value.
+- **Leave out of the UI** (still stored): CPV codes, procurement method, documents, Q&A, bid steps and VAT detail, so a tender fits Browse's row and detail format without extra columns.
 - **Don't show** descriptions, until permission is granted (policy `mayRepublishFullContent: false`), and don't show Q&A or logos.
 
 ### 14.2 Acquisition plan
@@ -389,7 +390,12 @@ What this means:
 
 ### 14.7 Public surface
 
-- A "Tenders" tab sorted by soonest bid end, with filters for CPV group, buyer, method and value range. Shows a real deadline countdown and the structured fields only.
+- **Browse, not a separate tab** (owner, 2026-10-07). Tenders and vacancies share one list by default. Each tender row is Browse's usual row (title, buyer in the employer line, board chip, state, closing date) plus a small "tender" tag, because rows never print "job" and a job seeker must be able to tell the two apart.
+- **Filters:** "tender" becomes a box in Browse's existing Kind filter, and etenders.ge joins the Board filter. No CPV, method or value filters.
+- **Detail page:** title, buyer, announced date, bid deadline, estimated value when stated, and an "Open on etenders.ge" button.
+- **Copy:** text that says only "vacancies from jobs.ge and hr.ge" (Browse subtitle, home page, open counters) changes to cover tenders, in Georgian and English.
+- **CV Ranked** stays vacancies-only.
+- Until this ships, Browse leaves tenders out on purpose (`TYPES_HIDDEN_BY_DEFAULT` and `SOURCES_HIDDEN_FROM_BROWSE` in `src/browse/queries.ts`, Phase 9A); 9C empties both lists.
 - Follow the frontend rules in CLAUDE.md: never invent data, never uppercase Georgian, and browser QA through the `professional-frontend` skill before calling it done.
 
 ### 14.8 Operations
@@ -424,7 +430,7 @@ What this means:
 
 | Risk | Mitigation |
 |---|---|
-| Audience fit: tenders are B2B, and bidders need a company or sole-proprietor registration plus a fee | Start as a separate tab, measure clicks, keep the scope small |
+| Audience fit: tenders are B2B, and bidders need a company or sole-proprietor registration plus a fee | A clear "tender" tag and Kind filter in Browse, out of CV Ranked; measure clicks on tender rows; keep the scope small |
 | Permission and rights | Ask etenders.ge first; show only structured fields and a link |
 | Site rebuilt or markup changed | Canary checks, quarantine, fixtures, adapter isolation |
 | Server slowness or outages | Timeouts, backoff, last good data; the cost is negligible |
@@ -438,17 +444,18 @@ What this means:
 1. **Owner decisions** (§17), and contact etenders.ge.
 2. **Adapter, policy and fixtures**, local surface only. *Exit:* fixture tests pass; a live dry run on `scraplify_qa`; 7 days of scheduled polling with no anomalies; the live-set count equals the site's own count.
 3. **`tender` type migration** (owner approval), the jobs.ge/hr.ge tender-post detector, and dedupe rules with golden pairs. *Exit:* precision checked on the golden pairs; no tender posts left in the vacancy catalogue.
-4. **Public "Tenders" tab.** *Exit:* real-browser QA, then deploy.
+4. **Tenders in Browse** (§14.7). *Exit:* real-browser QA, then deploy.
 5. Optional: the CPV-to-role crosswalk for CV Ranked; more tender sources.
 
 ---
 
 ## 17. Owner decisions (2026-10-07)
 
-1. **Go**, as a separate "Tenders" tab for freelancers and small firms; not mixed into vacancies or CV Ranked.
+1. **Go**, for freelancers and small firms, kept out of CV Ranked. First decided as a separate "Tenders" tab; replaced the same day by item 5.
 2. **Scope:** public purchase tenders only. Asset sales, invite-only tenders and anonymous currency purchases are skipped.
 3. **Permission:** the owner asked etenders.ge and has its confirmation (recorded in `docs/RIGHTS.md`). Descriptions stay unpublished for now, like the job boards' (`mayRepublishFullContent: false`), because they carry personal contacts.
 4. **Job-board tender posts** are reclassified as tenders (Phase 9B).
+5. **Tenders join Browse** (later on 2026-10-07, replacing the separate tab): together with vacancies by default, a "tender" tag on each tender row, "tender" in the Kind filter, and a simple detail page without CPV codes or other procurement detail (§14.7). The owner's reason: users filter everything in one window, and someone who wants only tenders ticks one box.
 
 ## 18. Not verified yet (check at build time)
 

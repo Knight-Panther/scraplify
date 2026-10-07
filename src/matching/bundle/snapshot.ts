@@ -54,7 +54,8 @@ export async function readCorpusSnapshot(
           : inArray(pom.sourceSlug, [...options.sourceSlugs]);
 
       // Vacancies only: CV Ranked matches a person to jobs. Tenders are
-      // offers a business bids on and get their own surface (Phase 9C).
+      // offers a business bids on; Browse shows them, CV Ranked does not
+      // (owner decision, 2026-10-07).
       const eligibleRows = await tx
         .select({ opportunityId: pom.opportunityId, sourceListingId: pom.sourceListingId })
         .from(pom)
