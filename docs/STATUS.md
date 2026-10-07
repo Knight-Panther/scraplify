@@ -15,7 +15,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
   - **10B exit gate:**
     - [x] Typecheck, lint, `geometry.test.ts` (10).
     - [x] Real-browser QA (local surface, real corpus, read-only): path traced at a real 60 fps (boards, then every listing, then back); hover hides and returns in ~0.29 s at the same spot; a touch hides; clicks reach the link underneath; reduced motion draws nothing; no overflow at 390/768/1280/1920; no console errors.
-    - [ ] Tests green in CI.
+    - [x] Tests green in CI (PR #47, 2026-10-07).
     - [ ] Deployed (plain deploy, owner's go).
 
 - **Phase 10A, smart search (built 2026-10-07, owner request):** Browse searched the title only, as one contiguous substring, so "GIZ" (a buyer), "Batumi" (a location), "accountant" (Georgian titles) and "forest video" (words apart) all found nothing. `src/browse/search-terms.ts` now turns the search text into one Postgres regex per word; every word must match somewhere, in any order:
