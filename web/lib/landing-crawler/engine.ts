@@ -1,4 +1,13 @@
-import { angleDelta, distance, fromBody, lerp, solveKnee, type Vec } from './geometry.js';
+import {
+  angleDelta,
+  distance,
+  easeFactor,
+  fromBody,
+  lerp,
+  solveKnee,
+  stepToward,
+  type Vec,
+} from './geometry.js';
 
 /**
  * The landing page's crawler (Phase 10B pilot): a small eight-legged
@@ -75,6 +84,8 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
   let heading = 0;
   let waypoint = 0;
   let direction = 1;
+  /** Where across the current row it aims, as a share of the row's width. */
+  let across = 0.2;
   let dwellUntil = 0;
   let startAt = 0;
   let mode: Mode = 'crawl';
@@ -168,6 +179,9 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
     if (list.length === 0) return;
     if (waypoint + direction < 0 || waypoint + direction >= list.length) direction *= -1;
     waypoint = Math.max(0, Math.min(list.length - 1, waypoint + direction));
+    // A new spot across each row, so the path wanders instead of running
+    // down one straight line.
+    across = 0.08 + Math.random() * 0.6;
     dwellUntil = now + 450 + Math.random() * 900;
     // Sometimes throw a thread to the row's board link, as if tying the
     // vacancy to its source.
@@ -183,12 +197,18 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
     const stop = list[Math.min(waypoint, list.length - 1)];
     if (stop === undefined) return null;
     const box = boxOf(stop);
-    // Walk the left part of each row, where its text starts.
-    return { x: box.left + Math.min(box.width * 0.35, 150), y: box.top + box.height / 2 };
+    return { x: box.left + box.width * across, y: box.top + box.height / 2 };
   }
 
   function exitPoint(): Vec {
     return { x: -60, y: Math.max(PAD, Math.min(height - PAD, body.y)) };
+  }
+
+  /** Turn the body toward `point`, eased by time so every frame rate turns alike. */
+  function faceToward(point: Vec, dt: number) {
+    if (distance(body, point) < 1) return;
+    const want = Math.atan2(point.y - body.y, point.x - body.x);
+    heading += angleDelta(heading, want) * easeFactor(dt, 110);
   }
 
   function update(dt: number, now: number) {
@@ -200,20 +220,20 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
         if (gap < 4) {
           if (now >= dwellUntil) nextWaypoint(now);
         } else if (now >= dwellUntil) {
-          const want = Math.atan2(goal.y - body.y, goal.x - body.x);
-          heading += angleDelta(heading, want) * Math.min(1, dt / 180);
-          const stride = Math.min(gap, (SPEED * dt) / 1000) * (0.7 + Math.random() * 0.6);
-          body = { x: body.x + Math.cos(heading) * stride, y: body.y + Math.sin(heading) * stride };
+          // Straight at the goal, never past it (`stepToward`); the body
+          // only turns to face the way it walks. A jittered pace keeps the
+          // insect rhythm without ever overshooting.
+          faceToward(goal, dt);
+          const stride = ((SPEED * dt) / 1000) * (0.7 + Math.random() * 0.6);
+          body = stepToward(body, goal, stride);
         }
       }
     } else {
       opacity = Math.max(0, opacity - dt / 260);
       const exit = exitPoint();
-      const gap = distance(body, exit);
-      if (gap > 2) {
-        heading += angleDelta(heading, Math.atan2(exit.y - body.y, exit.x - body.x)) * 0.5;
-        const stride = Math.min(gap, (FLEE_SPEED * dt) / 1000);
-        body = { x: body.x + Math.cos(heading) * stride, y: body.y + Math.sin(heading) * stride };
+      if (distance(body, exit) > 2) {
+        faceToward(exit, dt);
+        body = stepToward(body, exit, (FLEE_SPEED * dt) / 1000);
       }
       if (opacity === 0) mode = 'hidden';
     }
@@ -243,7 +263,8 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
           stepped = true;
         }
       }
-      if (stepped || Math.random() < 0.2) stepGroup = stepGroup === 0 ? 1 : 0;
+      // Per unit of time, not per frame, so the gait is the same at 60 Hz and 144 Hz.
+      if (stepped || Math.random() < dt / 80) stepGroup = stepGroup === 0 ? 1 : 0;
     }
 
     for (const [element, until] of scraped) {

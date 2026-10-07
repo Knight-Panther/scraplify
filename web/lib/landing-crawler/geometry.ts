@@ -48,6 +48,30 @@ export function solveKnee(hip: Vec, foot: Vec, upper: number, lower: number, awa
   return distance(a, away) >= distance(b, away) ? a : b;
 }
 
+/**
+ * One move of at most `stride` straight toward `goal`, never past it. The
+ * crawler moves with this and only turns its body to face the way it goes:
+ * steering by heading (turn a little, then move forward) circles a close
+ * target forever once the frame rate is high enough that each frame's turn
+ * is small, which is what happened on the board rows at 60 fps and above.
+ */
+export function stepToward(from: Vec, goal: Vec, stride: number): Vec {
+  const gap = distance(from, goal);
+  if (gap <= stride || gap === 0) return { x: goal.x, y: goal.y };
+  return {
+    x: from.x + ((goal.x - from.x) / gap) * stride,
+    y: from.y + ((goal.y - from.y) / gap) * stride,
+  };
+}
+
+/**
+ * The fraction to close toward a target this frame for an exponential ease
+ * with time constant `tau` ms: the same motion at any frame rate.
+ */
+export function easeFactor(dt: number, tau: number): number {
+  return 1 - Math.exp(-dt / tau);
+}
+
 /** Shortest signed turn from angle `from` to angle `to`, in (-π, π]. */
 export function angleDelta(from: number, to: number): number {
   let delta = (to - from) % (2 * Math.PI);
