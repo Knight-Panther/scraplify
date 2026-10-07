@@ -25,18 +25,20 @@ export default function OpportunityNotFound() {
   if (currentSurface() === 'public') {
     return (
       <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
-        <h1 className="text-pretty text-xl font-semibold">This vacancy is no longer listed</h1>
+        <h1 className="text-pretty text-xl font-semibold">
+          This vacancy or tender is no longer listed
+        </h1>
         <p className="mt-4 max-w-[var(--measure)] text-sm text-muted">
           It has closed, passed its deadline, or the board that posted it took it down. Xtelo only
-          shows vacancies that are still open. If you typed or pasted the address, check that it is
-          complete.
+          shows vacancies and tenders that are still open. If you typed or pasted the address, check
+          that it is complete.
         </p>
         <p className="mt-4 text-sm">
           <a
             className="text-accent underline underline-offset-2 hover:text-foreground"
             href="/opportunities"
           >
-            Browse open vacancies
+            Browse open vacancies and tenders
           </a>
         </p>
       </main>

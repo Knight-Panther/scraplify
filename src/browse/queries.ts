@@ -1,17 +1,4 @@
-import {
-  and,
-  desc,
-  eq,
-  gte,
-  ilike,
-  inArray,
-  isNull,
-  lte,
-  notInArray,
-  or,
-  type SQL,
-  sql,
-} from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, type SQL, sql } from 'drizzle-orm';
 import {
   crawlRuns,
   duplicateCandidates,
@@ -24,6 +11,7 @@ import {
   sources,
 } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import { SOURCES_WITHOUT_FULL_COVERAGE } from '../source-traits.js';
 import { UNLINKED_GRACE_HOURS } from './source-health.js';
 
 /**
@@ -242,34 +230,12 @@ export interface OpportunityView {
  * retired membership row survives for audit. An opportunity left with NO live
  * member is excluded entirely — see `opportunityConditions`.
  */
-/**
- * Types a search leaves out unless it names them. Tenders are stored from
- * Phase 9A, but Browse has no row or detail format for them until Phase 9C,
- * so they stay out of every vacancy list, count and sitemap until then. A
- * caller that wants them names the type.
- */
-export const TYPES_HIDDEN_BY_DEFAULT: readonly string[] = ['tender'];
-
-/**
- * Sources that carry only hidden types (etenders.ge lists tenders and nothing
- * else), so Browse leaves them out of its board list, header and sync time
- * too: a board filter that can only ever return nothing, and a "synced" time
- * that never appears because the source never runs full coverage. Emptied in
- * the same change as `TYPES_HIDDEN_BY_DEFAULT`.
- */
-export const SOURCES_HIDDEN_FROM_BROWSE: readonly string[] = ['etenders-ge'];
-
-/** Browse's own view of the source list: everything but `SOURCES_HIDDEN_FROM_BROWSE`. */
-export function browseSources<T extends { sourceSlug: string }>(rows: readonly T[]): T[] {
-  return rows.filter((row) => !SOURCES_HIDDEN_FROM_BROWSE.includes(row.sourceSlug));
-}
-
 export interface SearchOpportunitiesFilters {
   /** Case-insensitive substring over the canonical title. */
   text?: string | undefined;
   /** §13 canonical states; omitted means every state. */
   statuses?: readonly string[] | undefined;
-  /** §12.3 opportunity types (job, summer_school, …); omitted means every type but `TYPES_HIDDEN_BY_DEFAULT`. */
+  /** §12.3 opportunity types (job, tender, …); omitted means every type. */
   types?: readonly string[] | undefined;
   /** Has at least one LIVE member from this source. */
   sourceSlug?: string | undefined;
@@ -378,11 +344,6 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
     conditions.push(
       inArray(opportunities.type, filters.types as unknown as typeof opportunities.type.enumValues),
     );
-  } else {
-    // Compared as text: a database still waiting for migration 0038 has no
-    // 'tender' label, and Postgres rejects an unknown label for an enum column
-    // rather than matching nothing.
-    conditions.push(notInArray(sql`${opportunities.type}::text`, [...TYPES_HIDDEN_BY_DEFAULT]));
   }
   if (filters.sourceSlug !== undefined) {
     conditions.push(liveMemberExists(sql`s.slug = ${filters.sourceSlug}`));
@@ -1092,6 +1053,17 @@ export interface SourceHealthView {
   lastRunAt: string | null;
   lastRunStatus: string | null;
   lastFullCoverageRunAt: string | null;
+  /**
+   * False for a source whose runs never claim full coverage because closure
+   * is read from each listing's own page (`SOURCES_WITHOUT_FULL_COVERAGE`).
+   */
+  fullCoverageApplies: boolean;
+  /**
+   * When this source's content was last confirmed complete: its last
+   * completed full-coverage run, or, where full coverage does not apply, its
+   * last completed run.
+   */
+  lastSyncedAt: string | null;
   unresolvedIncidents: number;
   /** The subset of those at `critical` severity: a count collapse or a held-back mass closure. */
   unresolvedCriticalIncidents: number;
@@ -1170,6 +1142,10 @@ export async function getSourceHealth(db: DatabaseOrTransaction): Promise<Source
     }
     const runs = runRows.filter((row) => row.sourceId === source.id);
     const lastFullCoverage = runs.find((row) => row.fullCoverage && row.status === 'completed');
+    const fullCoverageApplies = !SOURCES_WITHOUT_FULL_COVERAGE.includes(source.slug);
+    const lastSynced = fullCoverageApplies
+      ? lastFullCoverage
+      : runs.find((row) => row.status === 'completed');
     const unlinked = unlinkedRows.find((row) => row.sourceId === source.id);
     const incidents = incidentRows.find((row) => row.sourceId === source.id);
     return {
@@ -1178,6 +1154,8 @@ export async function getSourceHealth(db: DatabaseOrTransaction): Promise<Source
       lastRunAt: runs[0]?.startedAt ?? null,
       lastRunStatus: runs[0]?.status ?? null,
       lastFullCoverageRunAt: lastFullCoverage?.startedAt ?? null,
+      fullCoverageApplies,
+      lastSyncedAt: lastSynced?.startedAt ?? null,
       unresolvedIncidents: incidents?.count ?? 0,
       unresolvedCriticalIncidents: incidents?.critical ?? 0,
       unlinkedActiveListings: unlinked?.total ?? 0,

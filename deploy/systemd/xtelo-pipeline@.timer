@@ -1,7 +1,7 @@
 # Daily crawl pipeline per source, like the Windows schedule
 # (scripts/register-crawl-schedule.ps1).
 #
-#   sudo systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer
+#   sudo systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-pipeline@etenders-ge.timer
 
 [Unit]
 Description=Daily Xtelo crawl pipeline (%i)

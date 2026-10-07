@@ -1,5 +1,5 @@
-import { sourceDayKey } from './format.js';
 import type { OpportunityDetailView } from '../../src/browse/queries.js';
+import { sourceDayKey } from './format.js';
 
 /**
  * The detail screen's derivations, kept out of the component so they can be
@@ -38,7 +38,11 @@ export interface BoardColumn {
  */
 export type Cell =
   | { kind: 'text'; value: string }
-  | { kind: 'date'; iso: string }
+  /**
+   * `withTime` only where the board states a time of day (etenders.ge's bid
+   * window, to the minute); a board stating a calendar day gets the day.
+   */
+  | { kind: 'date'; iso: string; withTime?: boolean }
   | { kind: 'status'; value: string };
 
 export interface ComparisonRow {
@@ -226,8 +230,9 @@ export function text(value: string | null | undefined): Cell | null {
   return trimmed === '' ? null : { kind: 'text', value: trimmed };
 }
 
-export function date(iso: string | null): Cell | null {
-  return iso === null ? null : { kind: 'date', iso };
+export function date(iso: string | null, withTime = false): Cell | null {
+  if (iso === null) return null;
+  return withTime ? { kind: 'date', iso, withTime } : { kind: 'date', iso };
 }
 
 export function row(
@@ -476,23 +481,80 @@ export function experienceField(attributes: unknown): ExtraField | null {
   };
 }
 
-export function toDetail(view: OpportunityDetailView): OpportunityDetail {
-  const members = view.members;
-  const columns = members.map(column);
+/**
+ * True for a member parsed from an etenders.ge tender page, whose revision
+ * carries the tender attributes (`src/adapters/etenders-ge/detail.ts`). A
+ * job board's tender post is a tender too, but carries none of them.
+ */
+function hasTenderAttributes(attributes: unknown): boolean {
+  return asRecord(attributes).kind === 'tender';
+}
 
-  const comparison = [
+const AMOUNT = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 2 });
+
+/**
+ * A tender's maximum value as etenders.ge states it: the amount and its
+ * currency, or the board's own words when the amount does not parse. Null
+ * when the board does not state one ("არ არის მითითებული"), which the parser
+ * already turns into null rather than a guess. The VAT basis stays out, like
+ * the rest of the price detail (`docs/addEtender.md` §14.1).
+ */
+export function tenderValue(attributes: unknown): Cell | null {
+  if (!hasTenderAttributes(attributes)) return null;
+  const value = asRecord(asRecord(attributes).maxValue);
+  const amount = typeof value.amount === 'number' ? value.amount : null;
+  const currency = typeof value.currency === 'string' ? value.currency : null;
+  if (amount !== null) {
+    return {
+      kind: 'text',
+      value: currency === null ? AMOUNT.format(amount) : `${AMOUNT.format(amount)} ${currency}`,
+    };
+  }
+  return typeof value.raw === 'string' ? text(value.raw) : null;
+}
+
+/** The member fields a comparison reads, on both surfaces. */
+export interface ComparedMember {
+  title: string;
+  organization: string | null;
+  status: string;
+  deadlineAt: string | null;
+  publishedAt: string | null;
+  locations: unknown;
+  salaryRaw: string | null;
+  structuredAttributes: unknown;
+}
+
+/**
+ * The boards side by side, one row per field, shared by the local and public
+ * detail screens so a rule changes in one place.
+ *
+ * A tender keeps the same rows under the words a bidder uses (buyer,
+ * announced, bid deadline) plus the maximum value when stated; CPV codes,
+ * method, documents and Q&A stay off this screen (owner, 2026-10-07).
+ */
+export function comparisonRows(type: string, members: readonly ComparedMember[]): ComparisonRow[] {
+  const tender = type === 'tender';
+  return [
     row(
       'title',
       'Title',
       'The boards word the title differently.',
       members.map((m) => text(m.title)),
     ),
-    row(
-      'employer',
-      'Employer',
-      'The boards name the employer differently.',
-      members.map((m) => text(m.organization)),
-    ),
+    tender
+      ? row(
+          'employer',
+          'Buyer',
+          'The boards name the buyer differently.',
+          members.map((m) => text(m.organization)),
+        )
+      : row(
+          'employer',
+          'Employer',
+          'The boards name the employer differently.',
+          members.map((m) => text(m.organization)),
+        ),
     row(
       'state',
       'State',
@@ -506,21 +568,46 @@ export function toDetail(view: OpportunityDetailView): OpportunityDetail {
       'The boards report different states, and a missed crawl is a suspicion rather than a takedown.',
       members.map((m): Cell => ({ kind: 'status', value: m.status })),
     ),
-    row(
-      'deadline',
-      'Closes',
-      'The boards state different closing dates.',
-      members.map((m) => date(m.deadlineAt)),
-    ),
-    row(
-      'published',
-      'Posted',
-      'The boards state different posting dates.',
-      members.map((m) => date(m.publishedAt)),
-    ),
+    tender
+      ? row(
+          'published',
+          'Announced',
+          'The boards state different announcement dates.',
+          members.map((m) => date(m.publishedAt, hasTenderAttributes(m.structuredAttributes))),
+        )
+      : null,
+    tender
+      ? row(
+          'deadline',
+          'Bid deadline',
+          'The boards state different bid deadlines.',
+          members.map((m) => date(m.deadlineAt, hasTenderAttributes(m.structuredAttributes))),
+        )
+      : row(
+          'deadline',
+          'Closes',
+          'The boards state different closing dates.',
+          members.map((m) => date(m.deadlineAt)),
+        ),
+    tender
+      ? row(
+          'value',
+          'Maximum value',
+          'The boards state different values.',
+          members.map((m) => tenderValue(m.structuredAttributes)),
+        )
+      : null,
+    tender
+      ? null
+      : row(
+          'published',
+          'Posted',
+          'The boards state different posting dates.',
+          members.map((m) => date(m.publishedAt)),
+        ),
     row(
       'location',
-      'Location',
+      tender ? 'Delivery place' : 'Location',
       'The boards state different locations.',
       members.map((m) => locationText(m.locations)),
     ),
@@ -531,6 +618,13 @@ export function toDetail(view: OpportunityDetailView): OpportunityDetail {
       members.map((m) => text(m.salaryRaw)),
     ),
   ].filter((entry): entry is ComparisonRow => entry !== null);
+}
+
+export function toDetail(view: OpportunityDetailView): OpportunityDetail {
+  const members = view.members;
+  const columns = members.map(column);
+
+  const comparison = comparisonRows(view.type, members);
 
   const extras: BoardExtras[] = [];
   for (const member of members) {

@@ -22,6 +22,8 @@ export interface HeroCopy {
   closingSoon: string;
   noAccountNeeded: string;
   statOpenVacancies: string;
+  /** The tag on a tender row in the newest-listings panel. */
+  tenderTag: string;
   statBoardsMerged: string;
   statListingsTracked: string;
   newestListings: string;
@@ -54,11 +56,12 @@ const EN: HeroCopy = {
     [{ text: 'POSTED!', accent: true }],
   ],
   subhead:
-    'Job vacancies from jobs.ge and hr.ge, deduplicated into one record — browse, filter and shortlist without checking two sites separately.',
+    'Job vacancies from jobs.ge and hr.ge and tenders from etenders.ge, one record each — browse, filter and shortlist without checking three sites.',
   browseOpenings: 'Browse openings',
   closingSoon: 'Closing soon',
   noAccountNeeded: 'no account needed',
-  statOpenVacancies: 'open vacancies',
+  statOpenVacancies: 'open vacancies and tenders',
+  tenderTag: 'tender',
   statBoardsMerged: 'boards merged',
   statListingsTracked: 'listings tracked',
   newestListings: 'Newest listings',
@@ -104,15 +107,16 @@ const KA: HeroCopy = {
     [{ text: 'მარტივად!', accent: true }],
   ],
   subhead:
-    'ვაკანსიები jobs.ge-დან და hr.ge-დან, გაერთიანებული ერთ ჩანაწერად — დაათვალიერე, გაფილტრე და შეინახე, ორი საიტის ცალ-ცალკე შემოწმების გარეშე.',
-  browseOpenings: 'ვაკანსიების დათვალიერება',
+    'ვაკანსიები jobs.ge-დან და hr.ge-დან, ტენდერები etenders.ge-დან, ერთ ჩანაწერად — დაათვალიერე, გაფილტრე და შეინახე, სამი საიტის ცალ-ცალკე შემოწმების გარეშე.',
+  browseOpenings: 'განცხადებების დათვალიერება',
   closingSoon: 'მალე იხურება',
   noAccountNeeded: 'რეგისტრაციის გარეშე',
-  statOpenVacancies: 'ღია ვაკანსია',
+  statOpenVacancies: 'ღია ვაკანსია და ტენდერი',
+  tenderTag: 'ტენდერი',
   statBoardsMerged: 'გაერთიანებული საიტი',
   statListingsTracked: 'აღრიცხული განცხადება',
   newestListings: 'უახლესი განცხადებები',
-  seeAllOpenings: (count) => `ყველა ${count} ვაკანსიის ნახვა →`,
+  seeAllOpenings: (count) => `ყველა ${count} განცხადების ნახვა →`,
   emptyState:
     'ჯერჯერობით ვაკანსიები არ არის. ისინი გამოჩნდება საიტების შემოწმებისა და განცხადებების დაჯგუფების შემდეგ.',
   deadlinePassed: 'ვადა გავიდა',

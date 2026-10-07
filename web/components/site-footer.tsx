@@ -19,8 +19,9 @@ export function SiteFooter() {
   return (
     <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-5 sm:px-6">
       <p className="numeric text-xs text-faint">
-        Xtelo — jobs.ge <span className="text-[var(--color-browse-accent)]">+</span> hr.ge,
-        deduplicated into one row per vacancy.
+        Xtelo — jobs.ge <span className="text-[var(--color-browse-accent)]">+</span> hr.ge{' '}
+        <span className="text-[var(--color-browse-accent)]">+</span> etenders.ge, deduplicated into
+        one row per vacancy or tender.
       </p>
       <div className="flex items-center gap-4">
         {/* The owner's own wording (2026-09-28). */}

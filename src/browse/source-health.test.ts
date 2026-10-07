@@ -15,6 +15,8 @@ function view(overrides: Partial<SourceHealthView> = {}): SourceHealthView {
     lastRunAt: hoursAgo(10),
     lastRunStatus: 'completed',
     lastFullCoverageRunAt: hoursAgo(10),
+    fullCoverageApplies: true,
+    lastSyncedAt: hoursAgo(10),
     unresolvedIncidents: 0,
     unresolvedCriticalIncidents: 0,
     unlinkedActiveListings: 0,
@@ -67,6 +69,30 @@ describe('assessSourceHealth', () => {
       'warning:full_coverage_stale',
     ]);
     expect(codes(view({ lastFullCoverageRunAt: hoursAgo(6 * 24) }))).toEqual([]);
+  });
+
+  it('never asks a source that reads closure from its own pages for full coverage', () => {
+    // etenders.ge: every run is bounded by design, and closure still happens.
+    expect(
+      codes(
+        view({
+          sourceSlug: 'etenders-ge',
+          fullCoverageApplies: false,
+          lastFullCoverageRunAt: null,
+        }),
+      ),
+    ).toEqual([]);
+    // The other alerts still apply to it.
+    expect(
+      codes(
+        view({
+          sourceSlug: 'etenders-ge',
+          fullCoverageApplies: false,
+          lastFullCoverageRunAt: null,
+          lastRunStatus: 'failed',
+        }),
+      ),
+    ).toEqual(['critical:last_run_failed']);
   });
 
   it('warns about unresolved incidents', () => {

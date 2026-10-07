@@ -25,8 +25,8 @@ describe('crawl schedule slots', () => {
 });
 
 describe('CRAWL_SCHEDULES', () => {
-  it('declares both sources', () => {
-    expect(Object.keys(CRAWL_SCHEDULES).sort()).toEqual(['hr-ge', 'jobs-ge']);
+  it('declares every scheduled source', () => {
+    expect(Object.keys(CRAWL_SCHEDULES).sort()).toEqual(['etenders-ge', 'hr-ge', 'jobs-ge']);
   });
 
   it('matches the hosted systemd timer, so "next update" states what actually runs', () => {

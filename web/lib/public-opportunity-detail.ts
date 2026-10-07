@@ -5,14 +5,11 @@ import {
   type BoardColumn,
   type BoardDescription,
   type BoardExtras,
-  column,
   type ComparisonRow,
-  date,
+  column,
+  comparisonRows,
   experienceField,
   extraFields,
-  locationText,
-  row,
-  text,
 } from './opportunity-detail.js';
 
 /**
@@ -63,50 +60,7 @@ export function toPublicDetail(view: PublicOpportunityDetailView): PublicOpportu
   const members = view.members;
   const columns = members.map(column);
 
-  const comparison = [
-    row(
-      'title',
-      'Title',
-      'The boards word the title differently.',
-      members.map((m) => text(m.title)),
-    ),
-    row(
-      'employer',
-      'Employer',
-      'The boards name the employer differently.',
-      members.map((m) => text(m.organization)),
-    ),
-    row(
-      'state',
-      'State',
-      'The boards report different states, and a missed crawl is a suspicion rather than a takedown.',
-      members.map((m) => ({ kind: 'status' as const, value: m.status })),
-    ),
-    row(
-      'deadline',
-      'Closes',
-      'The boards state different closing dates.',
-      members.map((m) => date(m.deadlineAt)),
-    ),
-    row(
-      'published',
-      'Posted',
-      'The boards state different posting dates.',
-      members.map((m) => date(m.publishedAt)),
-    ),
-    row(
-      'location',
-      'Location',
-      'The boards state different locations.',
-      members.map((m) => locationText(m.locations)),
-    ),
-    row(
-      'salary',
-      'Pay',
-      'The boards state different pay.',
-      members.map((m) => text(m.salaryRaw)),
-    ),
-  ].filter((entry): entry is ComparisonRow => entry !== null);
+  const comparison = comparisonRows(view.type, members);
 
   const extras: BoardExtras[] = [];
   for (const member of members) {

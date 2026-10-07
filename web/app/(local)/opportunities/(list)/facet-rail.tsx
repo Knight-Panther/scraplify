@@ -141,8 +141,8 @@ export function FacetRail({
             type="checkbox"
             name="cross"
             value="1"
-            label="On both boards"
-            title="Only vacancies that more than one board carries."
+            label="On more than one board"
+            title="Only vacancies or tenders that more than one board carries."
             defaultChecked={query.form.crossPosted}
           />
         </div>
