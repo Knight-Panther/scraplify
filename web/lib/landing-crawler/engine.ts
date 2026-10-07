@@ -1,5 +1,6 @@
 import {
   angleDelta,
+  crawlerScale,
   distance,
   easeFactor,
   fromBody,
@@ -28,7 +29,7 @@ import {
  * while the area is off screen or the tab is hidden.
  */
 
-const PAD = 24; // the canvas overhangs the host by this much on every side
+const PAD = 40; // the canvas overhangs the host by this much on every side (fits 1.3x legs)
 const UPPER = 26;
 const LOWER = 30;
 const SPEED = 85; // px/s while crawling: one loop of the panel in about 20 s
@@ -81,6 +82,8 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
   let width = 0;
   let height = 0;
   let body: Vec = { x: PAD + 40, y: PAD + 20 };
+  /** Drawing size, from the viewport width (`crawlerScale`); set on every resize. */
+  let scale = 1;
   let heading = 0;
   let waypoint = 0;
   let direction = 1;
@@ -117,7 +120,7 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
 
   function restPoint(side: -1 | 1, slot: number): Vec {
     const leg = LEGS[slot] ?? LEGS[0];
-    return fromBody(body, heading, leg.forward, leg.lateral * side);
+    return fromBody(body, heading, leg.forward * scale, leg.lateral * side * scale);
   }
 
   /** An element's box in canvas coordinates. */
@@ -225,7 +228,7 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
           // only turns to face the way it walks. A jittered pace keeps the
           // insect rhythm without ever overshooting.
           faceToward(goal, dt);
-          const stride = ((SPEED * dt) / 1000) * (0.7 + Math.random() * 0.6);
+          const stride = ((SPEED * scale * dt) / 1000) * (0.7 + Math.random() * 0.6);
           body = stepToward(body, goal, stride);
         }
       }
@@ -256,10 +259,10 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
       for (const leg of legs) {
         if (leg.group !== stepGroup) continue;
         const rest = restPoint(leg.side, leg.slot);
-        if (distance(leg.foot, rest) > STEP_AT || mode !== 'crawl') {
-          const lead = mode === 'crawl' ? 6 : 18;
+        if (distance(leg.foot, rest) > STEP_AT * scale || mode !== 'crawl') {
+          const lead = (mode === 'crawl' ? 6 : 18) * scale;
           leg.from = leg.foot;
-          leg.to = fromBody(rest, heading, lead, (Math.random() - 0.5) * 6);
+          leg.to = fromBody(rest, heading, lead, (Math.random() - 0.5) * 6 * scale);
           leg.progress = 0;
           stepped = true;
         }
@@ -293,10 +296,10 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
 
     for (const leg of legs) {
       const slot = LEGS[leg.slot] ?? LEGS[0];
-      const hip = fromBody(body, heading, slot.hip, 3 * leg.side);
-      const knee = solveKnee(hip, leg.foot, UPPER, LOWER, body);
+      const hip = fromBody(body, heading, slot.hip * scale, 3 * leg.side * scale);
+      const knee = solveKnee(hip, leg.foot, UPPER * scale, LOWER * scale, body);
       ctx.strokeStyle = colors.leg;
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = Math.max(1.1, 1.4 * scale);
       ctx.beginPath();
       ctx.moveTo(hip.x, hip.y);
       ctx.lineTo(knee.x, knee.y);
@@ -305,7 +308,7 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
       ctx.fillStyle = colors.joint;
       for (const joint of [knee, leg.foot]) {
         ctx.beginPath();
-        ctx.arc(joint.x, joint.y, 2.2, 0, Math.PI * 2);
+        ctx.arc(joint.x, joint.y, 2.2 * scale, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -314,6 +317,8 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
     ctx.save();
     ctx.translate(body.x, body.y);
     ctx.rotate(heading);
+    // Body and head are drawn at 1x and scaled here, line width included.
+    ctx.scale(scale, scale);
     ctx.fillStyle = '#0e1114';
     ctx.strokeStyle = colors.leg;
     ctx.lineWidth = 1.5;
@@ -344,6 +349,7 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
 
   function resize() {
     const ratio = window.devicePixelRatio || 1;
+    scale = crawlerScale(window.innerWidth);
     width = host.clientWidth + PAD * 2;
     height = host.clientHeight + PAD * 2;
     canvas.width = Math.round(width * ratio);

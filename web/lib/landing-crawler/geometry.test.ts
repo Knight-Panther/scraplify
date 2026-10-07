@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { angleDelta, distance, easeFactor, fromBody, solveKnee, stepToward } from './geometry.js';
+import {
+  angleDelta,
+  crawlerScale,
+  distance,
+  easeFactor,
+  fromBody,
+  solveKnee,
+  stepToward,
+} from './geometry.js';
 
 describe('solveKnee', () => {
   it('keeps both segment lengths for a foot within reach', () => {
@@ -68,6 +76,20 @@ describe('easeFactor', () => {
       return left;
     };
     expect(remaining(60)).toBeCloseTo(remaining(144), 9);
+  });
+});
+
+describe('crawlerScale', () => {
+  it('is 1.3x on desktop and shrinks smoothly to 0.8x on a phone', () => {
+    expect(crawlerScale(1920)).toBe(1.3);
+    expect(crawlerScale(1060)).toBe(1.3);
+    expect(crawlerScale(390)).toBeCloseTo(0.8, 6);
+    expect(crawlerScale(320)).toBeCloseTo(0.8, 6);
+    expect(crawlerScale(768)).toBeGreaterThan(0.95);
+    expect(crawlerScale(768)).toBeLessThan(1);
+    for (let w = 390; w < 1059; w += 7) {
+      expect(crawlerScale(w + 7)).toBeGreaterThanOrEqual(crawlerScale(w));
+    }
   });
 });
 

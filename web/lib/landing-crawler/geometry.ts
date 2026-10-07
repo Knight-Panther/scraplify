@@ -72,6 +72,18 @@ export function easeFactor(dt: number, tau: number): number {
   return 1 - Math.exp(-dt / tau);
 }
 
+/**
+ * How big the crawler is drawn for a viewport width: 1.3× on desktop (the
+ * landing's two-column layout, from 1060 px), and below that growing
+ * smoothly from 0.8× at a 390 px phone to ~1.1× just under desktop, so it
+ * keeps the same size relative to the panel it walks on.
+ */
+export function crawlerScale(viewportWidth: number): number {
+  if (viewportWidth >= 1060) return 1.3;
+  const clamped = Math.min(Math.max(viewportWidth, 390), 1060);
+  return 0.8 + ((clamped - 390) / (1060 - 390)) * 0.3;
+}
+
 /** Shortest signed turn from angle `from` to angle `to`, in (-π, π]. */
 export function angleDelta(from: number, to: number): number {
   let delta = (to - from) % (2 * Math.PI);
