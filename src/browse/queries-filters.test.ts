@@ -94,6 +94,7 @@ describe('opportunity filters, counts and ordering', () => {
     firstSeenAt?: string;
     /** Per-member first-seen, for the case where the members disagree. */
     firstSeenAts?: readonly string[];
+    type?: 'job' | 'tender';
   }): Promise<{ opportunityId: string; listingIds: string[]; slugs: string[] }> {
     const created: string[] = [];
     const slugs: string[] = [];
@@ -116,7 +117,7 @@ describe('opportunity filters, counts and ordering', () => {
     opportunityIds.push(opportunityId);
     await db.insert(opportunities).values({
       id: opportunityId,
-      type: 'job',
+      type: spec.type ?? 'job',
       canonicalTitle: spec.title,
       organizationId: null,
       canonicalStatus: spec.status ?? 'active',
@@ -396,6 +397,18 @@ describe('opportunity filters, counts and ordering', () => {
     expect(
       await countOpportunities(db, { text: marker, statuses: ['active', 'missing_suspected'] }),
     ).toBe(2);
+  });
+
+  it('leaves tenders out unless a search asks for them by type', async () => {
+    const marker = `Type filter ${randomUUID().slice(0, 8)}`;
+    await makeCluster({ title: `${marker} vacancy`, sourceCount: 1 });
+    await makeCluster({ title: `${marker} tender`, sourceCount: 1, type: 'tender' });
+
+    const rows = await searchOpportunities(db, { text: marker });
+    expect(rows.map((row) => row.canonicalTitle)).toEqual([`${marker} vacancy`]);
+    expect(await countOpportunities(db, { text: marker })).toBe(1);
+    expect(await countOpportunities(db, { text: marker, types: ['tender'] })).toBe(1);
+    expect(await countOpportunities(db, { text: marker, types: ['job', 'tender'] })).toBe(2);
   });
 
   it('orders by when a vacancy first appeared, not by updatedAt', async () => {

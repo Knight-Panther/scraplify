@@ -11,8 +11,15 @@ import {
 } from './ids.js';
 import { SourceListingStatus } from './source-listing.js';
 
-/** Initial opportunity types (§12.3). */
-export const OpportunityType = z.enum(['job', 'summer_school', 'scholarship', 'grant', 'event']);
+/** Opportunity types (§12.3); `tender` is a procurement tender a business bids on (Phase 9A). */
+export const OpportunityType = z.enum([
+  'job',
+  'summer_school',
+  'scholarship',
+  'grant',
+  'event',
+  'tender',
+]);
 export type OpportunityType = z.infer<typeof OpportunityType>;
 
 /**

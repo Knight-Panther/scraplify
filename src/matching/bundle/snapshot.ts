@@ -53,10 +53,14 @@ export async function readCorpusSnapshot(
           ? undefined
           : inArray(pom.sourceSlug, [...options.sourceSlugs]);
 
+      // Vacancies only: CV Ranked matches a person to jobs. Tenders are
+      // offers a business bids on; Browse shows them, CV Ranked does not
+      // (owner decision, 2026-10-07).
       const eligibleRows = await tx
         .select({ opportunityId: pom.opportunityId, sourceListingId: pom.sourceListingId })
         .from(pom)
-        .where(and(eligible(options.asOf), scope));
+        .innerJoin(publicOpportunities, eq(publicOpportunities.id, pom.opportunityId))
+        .where(and(eligible(options.asOf), eq(publicOpportunities.type, 'job'), scope));
       const eligibleListingIds = new Set(eligibleRows.map((row) => row.sourceListingId));
       const opportunityIds = [...new Set(eligibleRows.map((row) => row.opportunityId))];
       if (opportunityIds.length === 0) {

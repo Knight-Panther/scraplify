@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { ensureEtendersGeSourceSeeded } from '../adapters/etenders-ge/crawl.js';
 import { ensureHrGeSourceSeeded } from '../adapters/hr-ge/crawl.js';
 import { ensureJobsGeSourceSeeded } from '../adapters/jobs-ge/crawl.js';
 import { db } from '../db/client.js';
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
   for (const [source, ensure] of [
     ['jobs-ge', ensureJobsGeSourceSeeded],
     ['hr-ge', ensureHrGeSourceSeeded],
+    ['etenders-ge', ensureEtendersGeSourceSeeded],
   ] as const) {
     const { outcome } = await ensure(db);
     if (outcome === 'refused-stale') {

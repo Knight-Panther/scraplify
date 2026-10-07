@@ -1,4 +1,17 @@
-import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  lte,
+  notInArray,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import {
   crawlRuns,
   duplicateCandidates,
@@ -229,12 +242,34 @@ export interface OpportunityView {
  * retired membership row survives for audit. An opportunity left with NO live
  * member is excluded entirely — see `opportunityConditions`.
  */
+/**
+ * Types a search leaves out unless it names them. Tenders are stored from
+ * Phase 9A, but Browse has no row or detail format for them until Phase 9C,
+ * so they stay out of every vacancy list, count and sitemap until then. A
+ * caller that wants them names the type.
+ */
+export const TYPES_HIDDEN_BY_DEFAULT: readonly string[] = ['tender'];
+
+/**
+ * Sources that carry only hidden types (etenders.ge lists tenders and nothing
+ * else), so Browse leaves them out of its board list, header and sync time
+ * too: a board filter that can only ever return nothing, and a "synced" time
+ * that never appears because the source never runs full coverage. Emptied in
+ * the same change as `TYPES_HIDDEN_BY_DEFAULT`.
+ */
+export const SOURCES_HIDDEN_FROM_BROWSE: readonly string[] = ['etenders-ge'];
+
+/** Browse's own view of the source list: everything but `SOURCES_HIDDEN_FROM_BROWSE`. */
+export function browseSources<T extends { sourceSlug: string }>(rows: readonly T[]): T[] {
+  return rows.filter((row) => !SOURCES_HIDDEN_FROM_BROWSE.includes(row.sourceSlug));
+}
+
 export interface SearchOpportunitiesFilters {
   /** Case-insensitive substring over the canonical title. */
   text?: string | undefined;
   /** §13 canonical states; omitted means every state. */
   statuses?: readonly string[] | undefined;
-  /** §12.3 opportunity types (job, summer_school, …); omitted means every type. */
+  /** §12.3 opportunity types (job, summer_school, …); omitted means every type but `TYPES_HIDDEN_BY_DEFAULT`. */
   types?: readonly string[] | undefined;
   /** Has at least one LIVE member from this source. */
   sourceSlug?: string | undefined;
@@ -343,6 +378,11 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
     conditions.push(
       inArray(opportunities.type, filters.types as unknown as typeof opportunities.type.enumValues),
     );
+  } else {
+    // Compared as text: a database still waiting for migration 0038 has no
+    // 'tender' label, and Postgres rejects an unknown label for an enum column
+    // rather than matching nothing.
+    conditions.push(notInArray(sql`${opportunities.type}::text`, [...TYPES_HIDDEN_BY_DEFAULT]));
   }
   if (filters.sourceSlug !== undefined) {
     conditions.push(liveMemberExists(sql`s.slug = ${filters.sourceSlug}`));

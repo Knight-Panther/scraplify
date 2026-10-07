@@ -115,6 +115,10 @@ export const opportunityTypeLabels: Record<OpportunityType, Label> = {
   },
   grant: { short: 'grant', explanation: 'Funding awarded for a project or activity.' },
   event: { short: 'event', explanation: 'A one-off event, such as a conference or competition.' },
+  tender: {
+    short: 'tender',
+    explanation: 'A purchase a company or organisation puts out to bid; suppliers submit offers.',
+  },
 };
 
 export function opportunityTypeLabel(type: string): Label {
@@ -130,6 +134,7 @@ export function opportunityTypeLabel(type: string): Label {
 export const sourceLabels: Record<string, string> = {
   'jobs-ge': 'jobs.ge',
   'hr-ge': 'hr.ge',
+  'etenders-ge': 'etenders.ge',
 };
 
 export function sourceLabel(slug: string): string {

@@ -109,6 +109,15 @@ export interface HttpFetcherOptions {
   userAgent: string;
   /** Maximum redirect hops to follow before giving up. Default 5. */
   maxRedirects?: number;
+  /**
+   * 'follow' (the default) follows redirects by hand, re-checking policy on
+   * every hop. 'manual' returns a 3xx response as the result, `location`
+   * header included, without following it: for a source whose redirects are
+   * signals rather than moves (etenders.ge answers an out-of-range page with
+   * a 302 back to page 1, and a missing tender with a 302 to a not-found
+   * page, never a 404), so the adapter can classify them itself.
+   */
+  redirect?: 'follow' | 'manual';
   /** Per-request timeout (covers each redirect hop individually, not the whole chain). Default 15000. */
   requestTimeoutMs?: number;
   /** Response bodies are untrusted input (§2); abort past this many bytes. Default 10_000_000. */
@@ -265,7 +274,11 @@ export function createHttpFetcher(options: HttpFetcherOptions): HttpFetcher {
 
         const location = response.headers.location;
         const locationValue = Array.isArray(location) ? location[0] : location;
-        if (REDIRECT_STATUS_CODES.has(response.statusCode) && locationValue !== undefined) {
+        if (
+          options.redirect !== 'manual' &&
+          REDIRECT_STATUS_CODES.has(response.statusCode) &&
+          locationValue !== undefined
+        ) {
           await response.body.dump({ limit: maxResponseBytes });
           currentUrl = new URL(locationValue, currentUrl).toString();
           continue;

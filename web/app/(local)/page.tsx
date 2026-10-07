@@ -6,6 +6,7 @@ import {
   publicSourceOverview,
 } from '../../../src/browse/public-queries.js';
 import {
+  browseSources,
   countOpportunities,
   getSourceHealth,
   type OpportunityView,
@@ -315,13 +316,13 @@ async function loadBoardOverview(surface: ReturnType<typeof currentSurface>): Pr
   trackedCount: number;
 }> {
   if (surface === 'public') {
-    const overview = await publicSourceOverview(db);
+    const overview = browseSources(await publicSourceOverview(db));
     return {
       sortedSlugs: overview.map((source) => source.sourceSlug).sort(),
       trackedCount: overview.reduce((sum, source) => sum + source.trackedCount, 0),
     };
   }
-  const health = await getSourceHealth(db);
+  const health = browseSources(await getSourceHealth(db));
   // getSourceHealth's row order is whatever Postgres happened to return (no
   // ORDER BY in the query) — sorted here so the kicker's board list reads the
   // same on every render rather than depending on incidental result order (a

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."opportunity_type" ADD VALUE 'tender';

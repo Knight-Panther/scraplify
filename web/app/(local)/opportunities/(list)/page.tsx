@@ -5,6 +5,7 @@ import {
   publicSourceOverview,
 } from '../../../../../src/browse/public-queries.js';
 import {
+  browseSources,
   countOpportunities,
   getSourceHealth,
   searchOpportunities,
@@ -97,7 +98,7 @@ export default async function OpportunitiesPage({
   const { slugs, lastSync, lastSyncLabel } =
     surface === 'public'
       ? await (async () => {
-          const overview = await publicSourceOverview(db);
+          const overview = browseSources(await publicSourceOverview(db));
           return {
             slugs: overview.map((s) => s.sourceSlug),
             lastSync: publicLastSeen(overview),
@@ -105,7 +106,7 @@ export default async function OpportunitiesPage({
           };
         })()
       : await (async () => {
-          const health = await getSourceHealth(db);
+          const health = browseSources(await getSourceHealth(db));
           return {
             slugs: health.map((s) => s.sourceSlug),
             lastSync: lastCompletedSync(health),

@@ -225,8 +225,10 @@ describe('source policy records', () => {
     expect(isHrGeUrlAllowed('http://')).toBe(false);
   });
 
-  it('exposes both records by slug, matching each source’s own slug field', () => {
-    expect(Object.keys(sourcePolicies).sort()).toEqual(['hr-ge', 'jobs-ge']);
+  it('exposes every record by slug, matching each source’s own slug field', () => {
+    expect(Object.keys(sourcePolicies).sort()).toEqual(['etenders-ge', 'hr-ge', 'jobs-ge']);
+    for (const [slug, record] of Object.entries(sourcePolicies))
+      expect(record.source.slug).toBe(slug);
     expect(sourcePolicies['jobs-ge'].source.id).toBe(jobsGeSource.id);
     expect(sourcePolicies['jobs-ge'].source.slug).toBe('jobs-ge');
     expect(sourcePolicies['hr-ge'].source.id).toBe(hrGeSource.id);

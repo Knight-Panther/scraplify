@@ -12,6 +12,8 @@
 
 **Phase 4 scope amendment:** 2026-09-23 — narrowed §16 and §25's Phase 4 at the start of that phase, by project-owner decision, before any code. The live corpus shows attachment frequency too low (27 of 3,524 current hr.ge listings, zero on jobs.ge) to justify §16's fetch/quarantine/resource-graph machinery, and every observed attachment URL is a presigned link that expires in minutes — see §16's own note and `docs/STATUS.md`'s Phase 4 section for the full reasoning. Fetching, quarantining, and processing attachment content is deferred indefinitely rather than built; Phase 4 instead surfaces attachment presence as a visible flag, linking to the source listing where a person retrieves the file themselves.
 
+**Tender source amendment:** 2026-10-07 — owner decision to add procurement tenders from etenders.ge, a private B2B tender board, as a third source and a new opportunity type, `tender` (§12.3). They appear in Browse together with vacancies, tagged and filterable by kind, but stay out of CV Ranked (the owner replaced a separate Tenders tab with this the same day); v1 ingests public purchase tenders only. The study, the site's traps and the crawl strategy are in `docs/addEtender.md`; acquisition specifics are in §5.4 below and `src/adapters/etenders-ge/RECON_NOTES.md`; delivery is tracked as Phase 9 in `docs/STATUS.md`.
+
 ## 1. Purpose of this document
 
 This document is the proposed source of truth for Scraplify's product direction and system architecture. It combines:
@@ -166,6 +168,10 @@ Each source requires a versioned policy record containing:
 - Review date, evidence, notes, and decision owner.
 
 Where practical, request an official feed/API or written permission before sustained production use.
+
+### 5.4 etenders.ge (added 2026-10-07)
+
+A private B2B tender board (server-rendered ASP.NET, no API, no robots.txt or sitemap). Discovery reads the live set (`/search/?ts=_1_2_3_…`, about 40 tenders) and a recent-announcements date window instead of the 11,000-tender archive. Closure is read from each tender's own page (completed, terminated, failed), so runs are never full coverage and absence never advances a missing streak; only the site's not-found redirect, seen on two runs, closes a removed tender. Invite-only and anonymous-buyer tenders are never fetched: their details are closed to the public by the site's terms. Full evidence: `docs/addEtender.md`, `src/adapters/etenders-ge/RECON_NOTES.md`.
 
 ## 6. Requirements
 
@@ -479,6 +485,7 @@ Initial opportunity types:
 - `scholarship`
 - `grant`
 - `event`
+- `tender` (added 2026-10-07: a purchase a business bids on; etenders.ge, and later the job boards' own tender posts)
 
 Type-specific attributes belong in `job_details`, `program_details`, or equivalent records rather than a single nullable table.
 

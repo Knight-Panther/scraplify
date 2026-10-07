@@ -8,8 +8,10 @@ import {
   sourceListings,
 } from '../db/schema/index.js';
 import type { Database, DatabaseOrTransaction } from '../db/types.js';
+import type { OpportunityType } from '../domain/opportunity.js';
 import { normalizeOrganizationName } from '../normalize/organization.js';
 import { normalizeApplicationValue } from '../normalize/text.js';
+import { etendersGeSource } from '../policies/etenders-ge.js';
 import { resolveCanonicalOpportunity } from './resolve-canonical.js';
 import {
   DEDUPE_RULESET_VERSION,
@@ -83,9 +85,14 @@ export interface RunDedupeResult {
 
 interface LoadedListing extends ListingForScoring {
   currentRevisionId: string;
-  opportunityType: 'job';
+  opportunityType: OpportunityType;
   /** §13 lifecycle state of the contributing source listing. */
   status: string;
+}
+
+/** etenders.ge carries procurement tenders; every other registered source carries vacancies. */
+export function opportunityTypeForSource(sourceId: string): OpportunityType {
+  return sourceId === etendersGeSource.id ? 'tender' : 'job';
 }
 
 async function loadListings(
@@ -125,11 +132,10 @@ async function loadListings(
       publishedAt: row.publishedAt,
       deadlineAt: row.deadlineAt,
       status: row.status,
-      // Every listing both sources currently carry is a job vacancy. The
-      // other §12.3 types (scholarship, grant, event) become reachable once
-      // classification exists; hardcoding the honest current value beats
-      // inventing a type from a title guess.
-      opportunityType: 'job' as const,
+      // Typed by source: every etenders.ge listing is a tender, every
+      // job-board listing a vacancy. Classifying the job boards' own tender
+      // posts is Phase 9B (docs/addEtender.md §14.6), not a title guess here.
+      opportunityType: opportunityTypeForSource(row.sourceId),
     };
   });
 }
@@ -329,6 +335,9 @@ export async function runDedupe(
         const key = `${a.sourceListingId}|${b.sourceListingId}`;
         if (seenPairs.has(key)) continue;
         seenPairs.add(key);
+        // A tender and a vacancy are never the same opportunity, however
+        // alike the buyer and title read.
+        if (a.opportunityType !== b.opportunityType) continue;
         pairsCompared++;
         const score = scorePair(a, b, context);
         // A pair that now scores 'distinct' is still kept when the two are

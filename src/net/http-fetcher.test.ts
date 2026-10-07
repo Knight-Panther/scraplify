@@ -237,6 +237,32 @@ describe('createHttpFetcher', () => {
     await expect(fetcher.fetch(`${ORIGIN}/ge/`)).rejects.toThrow(SsrfBlockedError);
   });
 
+  it("returns a redirect unfollowed, location included, in 'manual' redirect mode", async () => {
+    mockAgent
+      .get(ORIGIN)
+      .intercept({ path: '/tenders/?pg=394', method: 'GET' })
+      .reply(302, '<html>Object moved</html>', { headers: { location: '/tenders/?pg=1' } });
+
+    const seenUrls: string[] = [];
+    const fetcher = createHttpFetcher({
+      isUrlAllowed: (url) => {
+        seenUrls.push(url);
+        return true;
+      },
+      rateLimiter,
+      userAgent: USER_AGENT,
+      dispatcher: mockAgent,
+      redirect: 'manual',
+    });
+
+    const result = await fetcher.fetch(`${ORIGIN}/tenders/?pg=394`);
+
+    expect(result).toMatchObject({ status: 302, redirectCount: 0 });
+    expect(result.headers.location).toBe('/tenders/?pg=1');
+    expect(result.finalUrl).toBe(`${ORIGIN}/tenders/?pg=394`);
+    expect(seenUrls).toEqual([`${ORIGIN}/tenders/?pg=394`]);
+  });
+
   it('gives up after exceeding the configured redirect limit', async () => {
     mockAgent
       .get(ORIGIN)

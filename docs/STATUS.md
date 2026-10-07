@@ -4,9 +4,20 @@ Last updated: 2026-10-05 (hosted restore and rollback drills passed, closing 8E 
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Live operations (Phases 8A–8E complete)
+## Current phase: Phase 9A — etenders.ge tender acquisition (live operations continue)
 
-The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 7B and the Phase 1C remainder.
+The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 7B, the Phase 1C remainder and Phase 9 (tenders, in progress).
+
+- **Phase 9 (tenders from etenders.ge), started 2026-10-07 on `phase-9a-etenders-adapter`.** Study and strategy: [`addEtender.md`](addEtender.md). Three sub-phases, each its own PR:
+  - **9A, acquisition (this branch):** etenders.ge source policy, adapter and CLI (`npm run crawl:etenders-ge`), fetcher `redirect: 'manual'` mode, the `tender` opportunity type (migration 0038), dedupe typing by source (never pairing a tender with a vacancy), and tenders kept out of the CV Ranked bundle. Until tenders have their own rows, Browse, its counts and the sitemap leave the `tender` type and the etenders.ge board out by default (`TYPES_HIDDEN_BY_DEFAULT`, `SOURCES_HIDDEN_FROM_BROWSE` in `src/browse/queries.ts`); the Listings page shows them. **Not** added to the hosted pipeline: nothing reaches `jobster.fun` until 9C. Migration 0038 is applied to `scraplify_qa` (2026-10-07); applying it to `scraplify` and the host waits on the owner.
+  - **9B:** classify the job boards' own tender posts as tenders (22 in 35 days, about 40% duplicating etenders.ge), plus buyer-blocked dedupe rules with golden pairs (`addEtender.md` §11, §14.6). It must also close two P2s from the 9A dedupe review (2026-10-07; no P0/P1 found): a human accept or reassign does not check that both sides are the same type, and an existing opportunity's `type` is never updated when its listings are reclassified (both latent until 9B makes a listing's type change).
+  - **9C, tenders in Browse** (owner, 2026-10-07; `addEtender.md` §14.7, replacing the separate Tenders tab): tenders and vacancies in one list by default; a "tender" tag on tender rows; "tender" in the Kind filter and etenders.ge in the Board filter; a simple tender detail page (title, buyer, dates, estimated value when stated, "Open on etenders.ge"; no CPV codes, method, documents or Q&A); Georgian and English copy that mentions tenders; the two interim hide-lists emptied; public-view handling of the type; and etenders.ge in the hosted pipeline.
+  - **9A exit gate:**
+    - [x] Fixture and crawl tests green in CI (PR #41, 2026-10-07).
+    - [x] A live run into `scraplify_qa` completes with no quarantines (2026-10-07: 209 tenders, 37 open and 172 closed by their own pages, 224 requests, 0 failed; a second run the same morning fetched 1 changed tender and skipped 208).
+    - [x] Dedupe on QA types every etenders.ge opportunity `tender` (209 of 209; 0 tender–vacancy candidate pairs).
+    - [x] The local surface shows them: the Listings page lists all 209, and Browse leaves them out (browser-checked on QA).
+    - [x] The bundle builder leaves them out: on QA, 37 open tenders are in the public views and none reach the snapshot (966 vacancies).
 
 - **Live release:** `cf4efe0` (PR #39, the ops follow-ups), deployed 2026-10-05 at 17:16 UTC as a plain deploy. The previous release, `30e68a7`, stays on the host for rollback.
 - **Live bundle:** `b9b8e49a` (8,663 vacancies), built by hand at the end of the rollback drill.
@@ -33,7 +44,8 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 - **Alert channel dropped** (2026-09-27; concept §30.6): no alerting functionality.
 - **Review severity:** only P0/P1 findings are implemented; P2 and lower are skipped under "the P0/P1 rule" and recorded as open items.
 - **Codex reviews are manual only** (2026-10-05): `.githooks/pre-commit` no longer runs Codex, and no review is required before merging; `/codex:review` or `/codex:adversarial-review` run only when the owner asks. Before that, waivers applied: not waiting on Codex cooldowns (2026-09-23), and work done on Opus skipping both Codex gates (2026-09-25). 8B's whole-branch review was owner-waived (not passed); 8D used one Opus high-effort pass in place of the Codex adversarial review (owner decision).
-- **Source permissions:** granted for jobs.ge and hr.ge (2026-09-26, `docs/RIGHTS.md`).
+- **Source permissions:** granted for jobs.ge and hr.ge (2026-09-26) and etenders.ge (2026-10-07), `docs/RIGHTS.md`.
+- **Tenders (2026-10-07):** build tenders from etenders.ge for freelancers and small firms, shown in Browse together with vacancies (a "tender" tag and Kind filter; this replaced a separate Tenders tab the same day) and kept out of CV Ranked; v1 ingests public purchase tenders only (no asset sales, invite-only or anonymous tenders); the job boards' own tender posts are reclassified as tenders.
 - **Crawl pacing:** jobs.ge crawl delay removed under policy v2 (2026-09-26), then set to 2 s under v3 after a soft block (2026-09-27); hr.ge keeps 3 s.
 - **Retention:** the 60/60/180-day policy was owner-approved (2026-09-27; concept §6.1 amendment).
 - **Schema and role changes on the real database** need the owner's approval (migration and grants approval is asked for first).
@@ -68,6 +80,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 8D — browser CV Ranked | merged; A′ and role quality deployed 2026-09-30 | #23, #35, #36 | Opus review in place of Codex adversarial review (owner decision); open P2/P3 under Open items. |
 | 8E — hosted readiness | **deployed** 2026-09-28 (`jobster.fun`); all 7 stages closed 2026-10-05 | #24 | Nothing remaining. Also carries hybrid CV matching (E1). Whole-branch Codex review skipped (Opus rule). |
 | 7C — incremental crawling and retention | merged (#25); retention merged (#31) | #25, #31 | Plan in `archive/PHASE_7C_PLAN.md`. Also carries crawl self-healing (advisory lock). Migration 0037 (retention) is applied to `scraplify` (38 recorded, checked 2026-09-30) and on the host; `scraplify_qa` was not rechecked. |
+| 9A — etenders.ge tender acquisition | **in progress** (`phase-9a-etenders-adapter`) | — | Study `addEtender.md`; migration 0038 (`tender` type) on `scraplify_qa` only; 9B (job-board reclassification) and 9C (tenders in Browse) follow. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; the `discharge-codex-debt` skill that paid them back was retired on 2026-10-05.
 
@@ -130,3 +143,4 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
 3. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
 4. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
 5. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (Archive, "Phase 8E", end of the CV matching notes). The model question is closed (A′: precomputed `bge-small-en` title vectors, Phase 8D).
+6. **Phase 9, tenders from etenders.ge:** in progress (see the current-phase section). 9A acquisition, then 9B job-board reclassification and dedupe, then 9C tenders in Browse.

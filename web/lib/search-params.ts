@@ -1,4 +1,7 @@
-import type { SearchOpportunitiesFilters } from '../../src/browse/queries.js';
+import {
+  type SearchOpportunitiesFilters,
+  TYPES_HIDDEN_BY_DEFAULT,
+} from '../../src/browse/queries.js';
 import { opportunityTypeEnum } from '../../src/db/schema/opportunities.js';
 import { sourceListingStatusEnum } from '../../src/db/schema/source-listings.js';
 
@@ -44,8 +47,14 @@ export const STATUS_OPTIONS = [
   'discovered',
 ] as const;
 
-/** §12.3 opportunity types offered as facet checkboxes, in display order. */
-export const TYPE_OPTIONS = opportunityTypeEnum.enumValues;
+/**
+ * §12.3 opportunity types offered as facet checkboxes, in display order —
+ * minus the ones Browse leaves out (`TYPES_HIDDEN_BY_DEFAULT`), so a ticked
+ * box or a hand-edited `?type=tender` cannot bring them back in.
+ */
+export const TYPE_OPTIONS = opportunityTypeEnum.enumValues.filter(
+  (type) => !TYPES_HIDDEN_BY_DEFAULT.includes(type),
+);
 
 /**
  * One growing list rather than numbered pages.
@@ -119,7 +128,7 @@ function many(value: string | string[] | undefined): string[] {
 }
 
 const STATUSES: readonly string[] = sourceListingStatusEnum.enumValues;
-const TYPES: readonly string[] = opportunityTypeEnum.enumValues;
+const TYPES: readonly string[] = TYPE_OPTIONS;
 
 /**
  * Text is capped rather than passed through at any length.
