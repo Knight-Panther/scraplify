@@ -2,7 +2,7 @@
 param(
     # Which board to crawl. Each maps to its own dist/cli/run-<source>-crawl.js.
     [Parameter(Mandatory = $true)]
-    [ValidateSet('jobs-ge', 'hr-ge')]
+    [ValidateSet('jobs-ge', 'hr-ge', 'etenders-ge')]
     [string]$Source,
 
     # Absolute path to node.exe, resolved once by register-crawl-schedule.ps1

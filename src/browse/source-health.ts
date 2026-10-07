@@ -113,7 +113,9 @@ export function assessSourceHealth(
     }
   }
 
-  if (source.lastRunAt !== null) {
+  // Not for a source that reads closure from each listing's own page: it never
+  // claims full coverage, and needs none to close what has ended.
+  if (source.lastRunAt !== null && source.fullCoverageApplies) {
     if (source.lastFullCoverageRunAt === null) {
       add(
         'warning',

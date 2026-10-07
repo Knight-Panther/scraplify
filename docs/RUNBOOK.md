@@ -8,7 +8,7 @@ How to deploy, check, roll back and recover the hosted edition (Phase 8E; `docs/
 | --- | --- | --- | --- | --- | --- |
 | Public site | `xtelo-web@public` | `xtelo-public` | `127.0.0.1:3000` | `scraplify_public` (read-only views) | `/etc/xtelo/public.env` |
 | Admin site | `xtelo-web@admin` | `xtelo-admin` | `127.0.0.1:3001` | `scraplify_admin` | `/etc/xtelo/admin.env` |
-| Crawl pipeline | `xtelo-pipeline@jobs-ge`, `@hr-ge` (daily timers, 16:10 UTC plus up to 10 min random delay) | `xtelo` | — | `scraplify_worker` | `/etc/xtelo/worker.env` |
+| Crawl pipeline | `xtelo-pipeline@jobs-ge`, `@hr-ge`, `@etenders-ge` (daily timers, 16:10 UTC plus up to 10 min random delay) | `xtelo` | — | `scraplify_worker` | `/etc/xtelo/worker.env` |
 | Backup | `xtelo-backup` (nightly timer, 09:00 UTC) | `xtelo` | — | `scraplify_backup` (reads all, writes nothing) | `/etc/xtelo/backup.env` |
 | Migrations | none (by hand, per release) | `xtelo` | — | `scraplify_migration` | `/etc/xtelo/migration.env` |
 | TLS and routing | Caddy | `caddy` | `:443` (`PUBLIC_HOST`, `ADMIN_HOST`) | — | `deploy/Caddyfile` |
@@ -90,7 +90,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
    - Scanners find a new hostname within seconds of its certificate appearing in the public certificate logs, so start `admin` before or together with Caddy. The admin surface serves only `/admin*`, auth and health: `https://admin.jobster.fun/` is a 404 by design, and `/admin` redirects to GitHub sign-in.
 10. **Check.** `npm run probe -- https://jobster.fun` (from the release directory, or anywhere with the repo) must print `probe: ok` (see §4). Sign in on `https://admin.jobster.fun` once.
 11. **Backup.** `systemctl start xtelo-backup && journalctl -u xtelo-backup -n 20`: it must say `Copied off the host`.
-12. **Schedules.** `systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-backup.timer`.
+12. **Schedules.** `systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-pipeline@etenders-ge.timer xtelo-backup.timer`. (etenders.ge joined in Phase 9C; on a host set up before it, enable just `xtelo-pipeline@etenders-ge.timer` once the 9C release is deployed.)
 13. **Observe** the probe and `deploy/with-env.sh worker node dist/cli/health-check.js` for a few days before announcing anything (change.md §15 step 7). Public launch is also gated on `docs/RIGHTS.md`.
 
 ## 3. Deploying a new version

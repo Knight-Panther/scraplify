@@ -6,7 +6,6 @@ import {
   publicSourceOverview,
 } from '../../../src/browse/public-queries.js';
 import {
-  browseSources,
   countOpportunities,
   getSourceHealth,
   type OpportunityView,
@@ -17,6 +16,7 @@ import { CrawlStatus } from '../../components/crawl-status.js';
 import { CvChooser } from '../../components/cv-chooser.js';
 import { HeroTicker } from '../../components/hero-ticker.js';
 import { HeroPoster, HeroVideo } from '../../components/hero-video.js';
+import { KindTag } from '../../components/kind-tag.js';
 import { cvRankedEnabled } from '../../lib/cv-ranked/availability.js';
 import { count } from '../../lib/format.js';
 import { type HeadlineRun, type HeroCopy, heroCopy } from '../../lib/hero-copy.js';
@@ -316,13 +316,13 @@ async function loadBoardOverview(surface: ReturnType<typeof currentSurface>): Pr
   trackedCount: number;
 }> {
   if (surface === 'public') {
-    const overview = browseSources(await publicSourceOverview(db));
+    const overview = await publicSourceOverview(db);
     return {
       sortedSlugs: overview.map((source) => source.sourceSlug).sort(),
       trackedCount: overview.reduce((sum, source) => sum + source.trackedCount, 0),
     };
   }
-  const health = browseSources(await getSourceHealth(db));
+  const health = await getSourceHealth(db);
   // getSourceHealth's row order is whatever Postgres happened to return (no
   // ORDER BY in the query) — sorted here so the kicker's board list reads the
   // same on every render rather than depending on incidental result order (a
@@ -537,6 +537,11 @@ function NewestRow({
         className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-[var(--color-browse-accent)]"
       />
       <div className="min-w-0 flex-1">
+        {row.type !== 'job' && (
+          <span className="mb-1 block">
+            <KindTag type={row.type} label={row.type === 'tender' ? copy.tenderTag : undefined} />
+          </span>
+        )}
         <a
           href={`/opportunities/${row.opportunityId}`}
           className="block truncate text-[15px] font-semibold text-white leading-[var(--leading-body)] hover:text-[var(--color-browse-accent)]"

@@ -11,6 +11,7 @@ import { getOpportunity } from '../../../../../src/browse/queries.js';
 import { db } from '../../../../../src/db/client.js';
 import { decisionsByOpportunity } from '../../../../../src/shortlist/decisions.js';
 import { DecisionControl } from '../../../../components/decision-control.js';
+import { KindTag } from '../../../../components/kind-tag.js';
 import { StatusChip } from '../../../../components/status-chip.js';
 import {
   absoluteTime,
@@ -24,7 +25,6 @@ import {
   dedupeDecisionLabel,
   extractionMethodLabel,
   listingStatusLabel,
-  opportunityTypeLabel,
   sourceLabel,
 } from '../../../../lib/labels.js';
 import {
@@ -116,7 +116,7 @@ export async function generateMetadata({
   const { id } = await params;
   const view = await loadPublicOpportunity(id);
   // The page renders not-found.tsx's public copy: usually a closed vacancy.
-  if (view === null) return { title: 'Vacancy no longer listed · Xtelo' };
+  if (view === null) return { title: 'No longer listed · Xtelo' };
   const title = `${view.canonicalTitle} · Xtelo`;
   const description = opportunityDescription(view);
   const path = `/opportunities/${view.opportunityId}`;
@@ -277,7 +277,6 @@ function Header({
    */
   hasFormerBoards: boolean;
 }) {
-  const type = detail.type === 'job' ? null : opportunityTypeLabel(detail.type);
   const employers = [
     ...new Set(
       detail.comparison
@@ -293,13 +292,9 @@ function Header({
         {detail.title}
       </h1>
       <p className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-muted">
+        <KindTag type={detail.type} />
         <StatusChip status={detail.status} />
         {employers.length > 0 && <span>{employers.join(' · ')}</span>}
-        {type !== null && (
-          <span className="text-accent" title={type.explanation}>
-            {type.short}
-          </span>
-        )}
       </p>
       {/* Currency, not correctness. The title and state above come from the
           last dedupe pass; `resolveCanonicalOpportunity` does not run after
@@ -373,7 +368,13 @@ function CellValue({ cell }: { cell: Cell | null }) {
     case 'status':
       return <StatusChip status={cell.value} />;
     case 'date':
-      return (
+      // The minute only where the board states one (a tender's bid window);
+      // a calendar date gets its day, with the instant in the tooltip.
+      return cell.withTime ? (
+        <time className="numeric" dateTime={cell.iso}>
+          {sourceDateTime(cell.iso)}
+        </time>
+      ) : (
         <time className="numeric" dateTime={cell.iso} title={sourceDateTime(cell.iso)}>
           {sourceDate(cell.iso)}
         </time>
@@ -489,6 +490,7 @@ function applicationHost(href: string): string {
 
 function Apply({ detail }: { detail: DetailForDisplay }) {
   if (detail.apply.length === 0) return null;
+  if (detail.type === 'tender') return <Bid detail={detail} />;
 
   return (
     <section className="mt-8">
@@ -534,6 +536,37 @@ function Apply({ detail }: { detail: DetailForDisplay }) {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/**
+ * A tender's action: open it on the board, which is where bidding happens.
+ *
+ * One button per board rather than a single "Open on etenders.ge", because a
+ * job board's tender post can be all there is. Nothing else: an etenders.ge
+ * contact address is read out of the description, which stays unpublished
+ * because it carries personal contacts (`docs/addEtender.md` §17 item 3), so
+ * the board's own page is the only route shown.
+ */
+function Bid({ detail }: { detail: DetailForDisplay }) {
+  return (
+    <section className="mt-8">
+      <SectionHeading>How to bid</SectionHeading>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {detail.columns.map((column) => (
+          <a
+            key={column.sourceListingId}
+            href={column.url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`Open ${detail.title} on ${sourceLabel(column.sourceSlug)} (opens in a new tab)`}
+            className="inline-flex items-center rounded-[var(--radius)] border border-accent px-4 py-2 text-sm font-semibold text-accent hover:bg-surface-raised"
+          >
+            Open on&nbsp;<span translate="no">{sourceLabel(column.sourceSlug)}</span>
+          </a>
+        ))}
+      </div>
     </section>
   );
 }

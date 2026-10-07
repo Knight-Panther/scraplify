@@ -399,16 +399,19 @@ describe('opportunity filters, counts and ordering', () => {
     ).toBe(2);
   });
 
-  it('leaves tenders out unless a search asks for them by type', async () => {
+  it('lists tenders with vacancies by default and filters by kind', async () => {
     const marker = `Type filter ${randomUUID().slice(0, 8)}`;
     await makeCluster({ title: `${marker} vacancy`, sourceCount: 1 });
     await makeCluster({ title: `${marker} tender`, sourceCount: 1, type: 'tender' });
 
-    const rows = await searchOpportunities(db, { text: marker });
-    expect(rows.map((row) => row.canonicalTitle)).toEqual([`${marker} vacancy`]);
-    expect(await countOpportunities(db, { text: marker })).toBe(1);
+    const rows = await searchOpportunities(db, { text: marker, sort: 'title' });
+    expect(rows.map((row) => row.canonicalTitle)).toEqual([
+      `${marker} tender`,
+      `${marker} vacancy`,
+    ]);
+    expect(await countOpportunities(db, { text: marker })).toBe(2);
     expect(await countOpportunities(db, { text: marker, types: ['tender'] })).toBe(1);
-    expect(await countOpportunities(db, { text: marker, types: ['job', 'tender'] })).toBe(2);
+    expect(await countOpportunities(db, { text: marker, types: ['job'] })).toBe(1);
   });
 
   it('orders by when a vacancy first appeared, not by updatedAt', async () => {

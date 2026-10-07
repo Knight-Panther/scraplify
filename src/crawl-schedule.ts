@@ -6,7 +6,7 @@
  * ways: a test checks the systemd timer against it, and the site shows a
  * source as late when a slot passes with no run, instead of trusting it.
  *
- * Both run daily at 16:10 UTC, 20:10 in Tbilisi (Georgia has no DST).
+ * All three run daily at 16:10 UTC, 20:10 in Tbilisi (Georgia has no DST).
  */
 
 export interface DailySchedule {
@@ -17,6 +17,7 @@ export interface DailySchedule {
 export const CRAWL_SCHEDULES: Readonly<Record<string, DailySchedule>> = {
   'jobs-ge': { hourUtc: 16, minuteUtc: 10 },
   'hr-ge': { hourUtc: 16, minuteUtc: 10 },
+  'etenders-ge': { hourUtc: 16, minuteUtc: 10 },
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;

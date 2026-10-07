@@ -1,7 +1,4 @@
-import {
-  type SearchOpportunitiesFilters,
-  TYPES_HIDDEN_BY_DEFAULT,
-} from '../../src/browse/queries.js';
+import type { SearchOpportunitiesFilters } from '../../src/browse/queries.js';
 import { opportunityTypeEnum } from '../../src/db/schema/opportunities.js';
 import { sourceListingStatusEnum } from '../../src/db/schema/source-listings.js';
 
@@ -48,13 +45,15 @@ export const STATUS_OPTIONS = [
 ] as const;
 
 /**
- * §12.3 opportunity types offered as facet checkboxes, in display order —
- * minus the ones Browse leaves out (`TYPES_HIDDEN_BY_DEFAULT`), so a ticked
- * box or a hand-edited `?type=tender` cannot bring them back in.
+ * §12.3 opportunity types offered as facet checkboxes, in display order: the
+ * two kinds the corpus actually holds first (vacancies, then tenders, which
+ * share the list since Phase 9C), then every other schema value.
  */
-export const TYPE_OPTIONS = opportunityTypeEnum.enumValues.filter(
-  (type) => !TYPES_HIDDEN_BY_DEFAULT.includes(type),
-);
+export const TYPE_OPTIONS = [
+  'job',
+  'tender',
+  ...opportunityTypeEnum.enumValues.filter((type) => type !== 'job' && type !== 'tender'),
+] as const satisfies readonly (typeof opportunityTypeEnum.enumValues)[number][];
 
 /**
  * One growing list rather than numbered pages.
@@ -338,7 +337,7 @@ export function appliedFilters(
   if (form.crossPosted) {
     chips.push({
       key: 'cross',
-      label: 'on both boards',
+      label: 'on more than one board',
       href: buildHref(query, { form: { crossPosted: false } }),
     });
   }

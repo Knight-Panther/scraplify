@@ -710,3 +710,98 @@ describe('toDetail — a grouping is more than one listing, not more than one bo
     expect(detail.grouped).toBe(true);
   });
 });
+
+describe('toDetail — a tender', () => {
+  /**
+   * The shape the etenders.ge parser stores (`src/adapters/etenders-ge/detail.ts`),
+   * trimmed to what the screen reads; the amount is the one docs/addEtender.md
+   * §14.4 quotes ("120 000 დოლარი დ.ღ.გ.-ს გარეშე").
+   */
+  function tenderMember(overrides: Partial<OpportunityMemberDetail> = {}) {
+    return member({
+      sourceSlug: 'etenders-ge',
+      canonicalUrl: 'https://etenders.ge/view/69617/x',
+      organization: 'ს.ს. ლომისი',
+      publishedAt: '2026-10-01T06:30:00.000Z',
+      deadlineAt: '2026-10-09T13:00:00.000Z',
+      locations: [],
+      applicationMethod: { type: 'form', value: 'https://etenders.ge/view/69617/x' },
+      structuredAttributes: {
+        kind: 'tender',
+        tenderNumber: '69617',
+        maxValue: {
+          raw: '120 000 დოლარი დ.ღ.გ.-ს გარეშე',
+          amount: 120000,
+          vat: 'excluded',
+          currency: 'USD',
+        },
+      },
+      ...overrides,
+    });
+  }
+
+  function tenderView(members: OpportunityMemberDetail[]) {
+    return { ...view(members), type: 'tender' };
+  }
+
+  it('uses a bidder’s words for the rows and orders them for a tender', () => {
+    const detail = toDetail(tenderView([tenderMember()]));
+    expect(detail.comparison.map((entry) => entry.label)).toEqual([
+      'Title',
+      'Buyer',
+      'State',
+      'Announced',
+      'Bid deadline',
+      'Maximum value',
+    ]);
+  });
+
+  it('shows the minute of an etenders.ge date, and only the day of a job board’s', () => {
+    const detail = toDetail(
+      tenderView([
+        tenderMember(),
+        member({ deadlineAt: '2026-10-08T20:00:00.000Z', structuredAttributes: {} }),
+      ]),
+    );
+    expect(row(detail, 'deadline')?.cells).toEqual([
+      { kind: 'date', iso: '2026-10-09T13:00:00.000Z', withTime: true },
+      { kind: 'date', iso: '2026-10-08T20:00:00.000Z' },
+    ]);
+    // The same Tbilisi day on both boards: not a disagreement.
+    expect(row(detail, 'deadline')?.differs).toBe(false);
+  });
+
+  it('prints the stated value with its currency, and leaves out the VAT basis', () => {
+    const detail = toDetail(tenderView([tenderMember()]));
+    expect(row(detail, 'value')?.cells).toEqual([{ kind: 'text', value: '120,000 USD' }]);
+  });
+
+  it('falls back to the board’s own words when the amount does not parse', () => {
+    const detail = toDetail(
+      tenderView([
+        tenderMember({
+          structuredAttributes: {
+            kind: 'tender',
+            maxValue: { raw: 'იხ. დოკუმენტაცია', amount: null, vat: null, currency: null },
+          },
+        }),
+      ]),
+    );
+    expect(row(detail, 'value')?.cells).toEqual([{ kind: 'text', value: 'იხ. დოკუმენტაცია' }]);
+  });
+
+  it('omits the value when the board does not state one, rather than inventing it', () => {
+    const detail = toDetail(
+      tenderView([tenderMember({ structuredAttributes: { kind: 'tender', maxValue: null } })]),
+    );
+    expect(row(detail, 'value')).toBeUndefined();
+  });
+
+  it('never reads a value off a vacancy’s attributes', () => {
+    const detail = toDetail(
+      view([member({ structuredAttributes: { maxValue: { amount: 5, currency: 'GEL' } } })]),
+    );
+    expect(row(detail, 'value')).toBeUndefined();
+    expect(detail.comparison.map((entry) => entry.label)).toContain('Employer');
+  });
+});

@@ -5,7 +5,6 @@ import {
   publicSourceOverview,
 } from '../../../../../src/browse/public-queries.js';
 import {
-  browseSources,
   countOpportunities,
   getSourceHealth,
   searchOpportunities,
@@ -13,6 +12,7 @@ import {
 import { db } from '../../../../../src/db/client.js';
 import { decisionsByOpportunity } from '../../../../../src/shortlist/decisions.js';
 import { DecisionControl } from '../../../../components/decision-control.js';
+import { KindTag } from '../../../../components/kind-tag.js';
 import { StatusChip } from '../../../../components/status-chip.js';
 import {
   absoluteTime,
@@ -23,8 +23,6 @@ import {
 } from '../../../../lib/format.js';
 import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../../../lib/labels.js';
 import { type OpportunityRow, toRow } from '../../../../lib/opportunity-row.js';
-import { currentSurface, type Surface } from '../../../../lib/surface.js';
-import { lastCompletedSync } from '../../../../lib/sync.js';
 import {
   appliedFilters,
   buildHref,
@@ -35,6 +33,8 @@ import {
   ROW_CHUNK,
   SORTS,
 } from '../../../../lib/search-params.js';
+import { currentSurface, type Surface } from '../../../../lib/surface.js';
+import { lastCompletedSync } from '../../../../lib/sync.js';
 import { FacetRail } from './facet-rail.js';
 import { StickyFilterBar } from './sticky-filter-bar.js';
 
@@ -98,7 +98,7 @@ export default async function OpportunitiesPage({
   const { slugs, lastSync, lastSyncLabel } =
     surface === 'public'
       ? await (async () => {
-          const overview = browseSources(await publicSourceOverview(db));
+          const overview = await publicSourceOverview(db);
           return {
             slugs: overview.map((s) => s.sourceSlug),
             lastSync: publicLastSeen(overview),
@@ -106,7 +106,7 @@ export default async function OpportunitiesPage({
           };
         })()
       : await (async () => {
-          const health = browseSources(await getSourceHealth(db));
+          const health = await getSourceHealth(db);
           return {
             slugs: health.map((s) => s.sourceSlug),
             lastSync: lastCompletedSync(health),
@@ -205,8 +205,7 @@ export default async function OpportunitiesPage({
                 Browse
               </h1>
               <p className="mt-2 max-w-[var(--measure)] text-sm text-faint">
-                One row per vacancy with the boards that carry it. A vacancy posted to both appears
-                once.
+                One row per vacancy or tender, with every board that carries it.
               </p>
             </div>
           }
@@ -428,7 +427,6 @@ function Row({
   back: string;
   surface: Surface;
 }) {
-  const type = row.type === 'job' ? null : opportunityTypeLabel(row.type);
   const href = `/opportunities/${row.opportunityId}?${new URLSearchParams({ back })}`;
 
   return (
@@ -442,7 +440,8 @@ function Row({
           repurposed, but `ShowMore` below needs to jump to "row N" before it
           knows which opportunity will land there. */}
       <td id={`row-${position}`} className="block py-1 pr-4 lg:table-cell lg:py-4">
-        <p className="numeric flex items-center gap-2 text-xs text-faint">
+        <p className="numeric flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">
+          <KindTag type={row.type} />
           <StatusChip status={row.status} />
           {row.firstSeen !== null && (
             <time dateTime={row.firstSeen} title={absoluteTime(row.firstSeen)}>
@@ -460,14 +459,6 @@ function Row({
           <p className="mt-0.5 truncate text-muted" title={row.employers.join(' · ')}>
             {row.employers.join(' · ')}
           </p>
-        )}
-        {type !== null && (
-          <span
-            className="mt-1 inline-block text-xs text-[var(--color-browse-accent)]"
-            title={type.explanation}
-          >
-            {type.short}
-          </span>
         )}
       </td>
 

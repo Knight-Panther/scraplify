@@ -16,7 +16,9 @@ import type { SourceHealthView } from '../../src/browse/queries.js';
  * from two copies of this rule.
  */
 export function lastCompletedSync(health: readonly SourceHealthView[]): string | undefined {
-  const completedRuns = health.map((source) => source.lastFullCoverageRunAt);
+  // `lastSyncedAt`, not `lastFullCoverageRunAt`: etenders.ge never claims
+  // full coverage, so the latter would hide "synced" for good once it joined.
+  const completedRuns = health.map((source) => source.lastSyncedAt);
   return completedRuns.every((value): value is string => value !== null)
     ? completedRuns.slice().sort()[0]
     : undefined;

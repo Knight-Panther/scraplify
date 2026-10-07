@@ -123,11 +123,19 @@ function SourceCard({ source, alerts }: { source: SourceHealthView; alerts: Heal
           </Field>
 
           <Field label="Last full-coverage crawl">
-            <Timestamp
-              iso={source.lastFullCoverageRunAt}
-              absentMessage="Never. Until one runs, listings that disappear from this source cannot be closed."
-              warnWhenAbsent
-            />
+            {source.fullCoverageApplies ? (
+              <Timestamp
+                iso={source.lastFullCoverageRunAt}
+                absentMessage="Never. Until one runs, listings that disappear from this source cannot be closed."
+                warnWhenAbsent
+              />
+            ) : (
+              // etenders.ge (`src/source-traits.ts`): no run ever covers the
+              // whole board, and none needs to.
+              <p className="text-sm text-muted">
+                Not used for this board: each listing's own page says when it closes.
+              </p>
+            )}
           </Field>
 
           <Field label="Unresolved parser incidents">

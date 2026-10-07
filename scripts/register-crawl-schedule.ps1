@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('jobs-ge', 'hr-ge')]
+    [ValidateSet('jobs-ge', 'hr-ge', 'etenders-ge')]
     [string]$Source,
 
     # Both sources default to 24h, and neither default is the 30-60 minute row
@@ -35,6 +35,10 @@ $ErrorActionPreference = 'Stop'
 $defaults = @{
     'jobs-ge' = @{ IntervalMinutes = 1440; RuntimeMinutes = 480; Description = 'minutes for a routine run, hours for a first or --refetch=all run' }
     'hr-ge'   = @{ IntervalMinutes = 1440; RuntimeMinutes = 225; Description = 'minutes for a routine run, about 4 hours for a first or --refetch=all run' }
+    # Routine runs fetch only new or changed tenders plus the live set (~40-75
+    # requests at 3 s); a first run reads ~250 pages, about 20 minutes
+    # (docs/addEtender.md section 14.2).
+    'etenders-ge' = @{ IntervalMinutes = 1440; RuntimeMinutes = 60; Description = 'minutes for a routine run, about 20 minutes for a first run' }
 }
 $sourceDefaults = $defaults[$Source]
 if ($IntervalMinutes -eq 0) {
