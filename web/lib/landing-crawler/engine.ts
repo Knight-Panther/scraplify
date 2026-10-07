@@ -37,8 +37,8 @@ const STEP_AT = 22; // a planted foot steps once its rest point is this far away
 const STEP_MS = 95;
 const SCRAPE_MS = 1500;
 const PALETTE_MS = 7000;
-const RETURN_AFTER_LEAVE_MS = 2500;
-const RETURN_AFTER_TOUCH_MS = 5000;
+const RETURN_AFTER_LEAVE_MS = 250; // almost at once once the pointer or focus leaves
+const RETURN_AFTER_TOUCH_MS = 1500; // a touch has no "leave", so give the reader a moment
 
 /** Hip along the body, and the foot's rest point, both in the body's frame (forward, lateral). */
 const LEGS = [
@@ -96,6 +96,7 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
   let stepGroup: 0 | 1 = 0;
   let returnTimer = 0;
   let thread: { element: Element; until: number } | null = null;
+  let leftFrom: { body: Vec; heading: number } | null = null;
   const scraped = new Map<Element, number>();
 
   const legs: Leg[] = [];
@@ -213,7 +214,7 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
 
   function update(dt: number, now: number) {
     if (mode === 'crawl') {
-      if (now >= startAt) opacity = Math.min(1, opacity + dt / 400);
+      if (now >= startAt) opacity = Math.min(1, opacity + dt / 180);
       const goal = target();
       if (goal !== null) {
         const gap = distance(body, goal);
@@ -353,7 +354,10 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
 
   function hide(returnAfter: number | null) {
     window.clearTimeout(returnTimer);
-    if (mode === 'crawl') mode = 'hiding';
+    if (mode === 'crawl') {
+      mode = 'hiding';
+      leftFrom = { body, heading };
+    }
     clearAll();
     schedule();
     if (returnAfter !== null) returnTimer = window.setTimeout(reappear, returnAfter);
@@ -362,9 +366,10 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
   function reappear() {
     if (host.matches(':hover') || host.contains(document.activeElement)) return;
     mode = 'crawl';
-    // Re-enter from the edge it left by.
-    body = exitPoint();
-    heading = 0;
+    // Back where it was when the reader came in, fading in there, rather
+    // than walking all the way in from the edge it fled to.
+    body = leftFrom?.body ?? exitPoint();
+    heading = leftFrom?.heading ?? 0;
     for (const leg of legs) {
       leg.foot = restPoint(leg.side, leg.slot);
       leg.progress = 1;
