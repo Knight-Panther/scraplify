@@ -123,14 +123,18 @@ async function reconcileShortlistDecision(
     );
   if (stillHasMembers !== undefined) return;
 
+  // Only `opportunity_id` is read, and rows are keyed by it (unique): the
+  // hosted worker, which reaches here through dedupe's tender fold, may
+  // SELECT that one column and nothing else of this table (phase-8b grants,
+  // §30.4). Hosted has no shortlist rows, so it always returns here.
   const [losingDecision] = await tx
-    .select()
+    .select({ opportunityId: opportunityDecisions.opportunityId })
     .from(opportunityDecisions)
     .where(eq(opportunityDecisions.opportunityId, losingOpportunityId));
   if (losingDecision === undefined) return;
 
   const [survivingDecision] = await tx
-    .select({ id: opportunityDecisions.id })
+    .select({ opportunityId: opportunityDecisions.opportunityId })
     .from(opportunityDecisions)
     .where(eq(opportunityDecisions.opportunityId, survivingOpportunityId));
 
@@ -138,9 +142,11 @@ async function reconcileShortlistDecision(
     await tx
       .update(opportunityDecisions)
       .set({ opportunityId: survivingOpportunityId })
-      .where(eq(opportunityDecisions.id, losingDecision.id));
+      .where(eq(opportunityDecisions.opportunityId, losingOpportunityId));
   } else {
-    await tx.delete(opportunityDecisions).where(eq(opportunityDecisions.id, losingDecision.id));
+    await tx
+      .delete(opportunityDecisions)
+      .where(eq(opportunityDecisions.opportunityId, losingOpportunityId));
   }
 }
 
