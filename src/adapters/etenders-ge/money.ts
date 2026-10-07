@@ -70,7 +70,7 @@ export function parsePriceBasis(text: string | null | undefined): PriceBasis | n
  * A leading number with spaces as thousands separators, and an optional
  * decimal part after a comma or dot ("12 200", "1 000", "120 000,50").
  */
-const AMOUNT_RE = /^(\d{1,3}(?:[  ]\d{3})*|\d+)(?:[.,](\d{1,2}))?(?=\s|$)/;
+const AMOUNT_RE = /^(\d{1,3}(?:[  ]\d{3})*|\d+)(?:[.,](\d{1,2}))?(?=\s|$)/;
 
 export function parseMoneyAmount(text: string | null | undefined): MoneyAmount | null {
   const raw = clean(text);
@@ -79,7 +79,7 @@ export function parseMoneyAmount(text: string | null | undefined): MoneyAmount |
   const amount =
     match === null
       ? null
-      : Number(`${(match[1] ?? '').replace(/[  ]/g, '')}${match[2] ? `.${match[2]}` : ''}`);
+      : Number(`${(match[1] ?? '').replace(/[  ]/g, '')}${match[2] ? `.${match[2]}` : ''}`);
   return {
     raw,
     amount: amount !== null && Number.isFinite(amount) ? amount : null,

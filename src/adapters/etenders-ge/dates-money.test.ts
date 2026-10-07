@@ -77,6 +77,10 @@ describe('parseMoneyAmount', () => {
     expect(parseMoneyAmount('2 000 ლარი')).toMatchObject({ amount: 2000, currency: 'GEL' });
   });
 
+  it('reads a non-breaking space as a thousands separator too', () => {
+    expect(parseMoneyAmount('12 200 ლარი')).toMatchObject({ amount: 12200, currency: 'GEL' });
+  });
+
   it('reads an unseparated number and a decimal part', () => {
     expect(parseMoneyAmount('140000 ლარი')).toMatchObject({ amount: 140000 });
     expect(parseMoneyAmount('12 200,50 ლარი')).toMatchObject({ amount: 12200.5 });

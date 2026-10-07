@@ -231,7 +231,6 @@ export function parseEtendersGeDetailPage(
   input: ParseEtendersGeDetailPageInput,
 ): SourceListingRevisionContent {
   const $ = cheerio.load(input.html);
-  const headerLines = blockText($, $('b')).split('\n');
   const headerText = $('b')
     .toArray()
     .map((node) => clean($(node).text()) ?? '');
