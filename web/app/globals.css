@@ -208,6 +208,32 @@ th {
   font-variant-numeric: tabular-nums;
 }
 
+/* The landing crawler's "scraped" states (web/lib/landing-crawler/engine.ts).
+   Outline, background and colour only: nothing that changes a box's size,
+   so a scraped title never reflows its row, and never a font swap, which
+   would put Georgian into a face without Georgian glyphs. */
+[data-scraped] {
+  border-radius: 3px;
+  transition:
+    outline-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+[data-scraped="box"] {
+  outline: 1px solid var(--scrape-color);
+  outline-offset: 2px;
+}
+[data-scraped="bar"] {
+  background-color: color-mix(in srgb, var(--scrape-color) 30%, transparent);
+}
+[data-scraped="tint"] {
+  color: var(--scrape-color);
+}
+[data-scraped="invert"] {
+  background-color: var(--scrape-color);
+  color: var(--color-browse-ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
