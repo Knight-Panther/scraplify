@@ -267,6 +267,13 @@
       "when": 1790537860591,
       "tag": "0037_old_victor_mancha",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791351738851,
+      "tag": "0038_parched_kulan_gath",
+      "breakpoints": true
     }
   ]
 }

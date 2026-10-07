@@ -7,6 +7,7 @@ import {
   opportunitySourceMemberships,
 } from '../db/schema/index.js';
 import type { Database, DatabaseOrTransaction } from '../db/types.js';
+import type { OpportunityType } from '../domain/opportunity.js';
 import { resolveCanonicalOpportunity } from './resolve-canonical.js';
 import type { DedupeDecision } from './score-pair.js';
 
@@ -691,7 +692,7 @@ export async function acceptDuplicateCandidate(
 export interface SplitInput {
   sourceListingId: string;
   canonicalTitle: string;
-  type: 'job' | 'summer_school' | 'scholarship' | 'grant' | 'event';
+  type: OpportunityType;
   evidence: Record<string, unknown>;
   actor: ReviewActor;
   at: string;

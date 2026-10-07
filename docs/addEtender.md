@@ -1,6 +1,6 @@
 # Adding tenders from etenders.ge: study and strategy
 
-**Status:** study only. Nothing is built. The owner's go/no-go decision is pending (see §17).
+**Status:** decided 2026-10-07 (go; see §17). Being built as Phase 9 (`docs/STATUS.md`): 9A acquisition, 9B job-board reclassification and dedupe, 9C the public Tenders tab.
 **Date of measurements:** 2026-10-05, about 21:30–22:40 Tbilisi time.
 **How it was measured:** about 100 read-only requests to `etenders.ge`. Most were cookieless `curl` with 2–3 s spacing; the rest came from one Playwright session that watched the site's own search form. Every number below is a dated observation, not a guarantee. Re-measure before building and keep the fresh results in `src/adapters/etenders-ge/RECON_NOTES.md`, as was done for the other two sources.
 
@@ -443,14 +443,12 @@ What this means:
 
 ---
 
-## 17. Open decisions (owner)
+## 17. Owner decisions (2026-10-07)
 
-1. **Go or no-go**, and the audience. Recommended: a separate "Tenders" tab for freelancers and small firms.
-2. **Scope.** Recommended: public purchase tenders only; skip sales, restricted tenders and anonymous currency purchases.
-3. **Permission.** Recommended: ask etenders.ge for a written OK, and a feed if they offer one.
-4. **Display.** Recommended: structured fields and a link only; descriptions only after permission.
-
----
+1. **Go**, as a separate "Tenders" tab for freelancers and small firms; not mixed into vacancies or CV Ranked.
+2. **Scope:** public purchase tenders only. Asset sales, invite-only tenders and anonymous currency purchases are skipped.
+3. **Permission:** the owner asked etenders.ge and has its confirmation (recorded in `docs/RIGHTS.md`). Descriptions stay unpublished for now, like the job boards' (`mayRepublishFullContent: false`), because they carry personal contacts.
+4. **Job-board tender posts** are reclassified as tenders (Phase 9B).
 
 ## 18. Not verified yet (check at build time)
 

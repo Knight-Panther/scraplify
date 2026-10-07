@@ -32,7 +32,7 @@ import { Pool, type PoolClient } from 'pg';
  * guard that read its own definition of "real" through a mockable import
  * could be silently neutered by the very thing it is watching for.
  */
-const REAL_SOURCE_SLUGS = ['jobs-ge', 'hr-ge'];
+const REAL_SOURCE_SLUGS = ['jobs-ge', 'hr-ge', 'etenders-ge'];
 
 /**
  * One checksum over every row of every table a crawl, reconciliation or

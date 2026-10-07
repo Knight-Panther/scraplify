@@ -28,6 +28,7 @@
     "db:migrate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs migrate",
     "crawl:jobs-ge": "node --env-file-if-exists=.env dist/cli/run-jobs-ge-crawl.js",
     "crawl:hr-ge": "node --env-file-if-exists=.env dist/cli/run-hr-ge-crawl.js",
+    "crawl:etenders-ge": "node --env-file-if-exists=.env dist/cli/run-etenders-ge-crawl.js",
     "dedupe": "node --env-file-if-exists=.env dist/cli/run-dedupe.js",
     "sync-policies": "node --env-file-if-exists=.env dist/cli/sync-source-policies.js",
     "browse": "node --env-file-if-exists=.env dist/cli/browse.js",

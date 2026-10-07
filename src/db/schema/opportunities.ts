@@ -16,13 +16,14 @@ import {
 import { organizations } from './organizations.js';
 import { sourceListingStatusEnum, sourceListings } from './source-listings.js';
 
-/** Initial opportunity types (§12.3). */
+/** Opportunity types (§12.3); `tender` added for etenders.ge (Phase 9A, docs/addEtender.md). */
 export const opportunityTypeEnum = pgEnum('opportunity_type', [
   'job',
   'summer_school',
   'scholarship',
   'grant',
   'event',
+  'tender',
 ]);
 
 /** Dedupe decision states (§14.1 stage 5). */
