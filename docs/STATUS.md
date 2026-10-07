@@ -1,12 +1,22 @@
 # scraplify — implementation status
 
-Last updated: 2026-10-07 (Phase 10A smart search live as 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-10-07 (Phase 10B landing crawler built; Phase 10A smart search live as 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Phase 10A — smart search
+## Current phase: Phase 10B — landing crawler
 
-The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 7B, the Phase 1C remainder and 10A (in progress).
+The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 7B and the Phase 1C remainder.
+
+- **Phase 10B, landing crawler (built 2026-10-07, owner request, from a reference video):** an eight-legged "spider" drawn on a canvas over the landing page's board-update rows and newest listings (`web/lib/landing-crawler/`, `web/components/landing-crawler.tsx`). It walks the board rows, then each listing down to "See all", and back; where a foot lands on an element marked `data-crawl` the element is "scraped" for 1.5 s (outline, highlight bar, tint or invert: `[data-scraped]` in `globals.css`, never a text, font or size change), and it sometimes throws a thread to a listing's board chip.
+  - **Readers first:** a pointer, touch or keyboard focus in the area fades it out and clears every effect; it returns ~0.3 s after the pointer leaves (1.5 s after a touch). The canvas takes no pointer events and is hidden from assistive technology; nothing starts under `prefers-reduced-motion`, and it pauses off screen or in a hidden tab. Plain Canvas 2D, no library (the anti-patterns rule on animation libraries stands).
+  - **Size:** `crawlerScale` gives 1.69x from 1060 px (desktop), growing from 0.8x at 390 px below that; pace grows only to 1.3x.
+  - **Found in the pilot:** heading-based steering circled a close target forever at 60 Hz and above (spinning on the board rows on load); it now moves straight at each stop (`stepToward`) and turns by time (`easeFactor`), tested at 30–240 Hz.
+  - **10B exit gate:**
+    - [x] Typecheck, lint, `geometry.test.ts` (10).
+    - [x] Real-browser QA (local surface, real corpus, read-only): path traced at a real 60 fps (boards, then every listing, then back); hover hides and returns in ~0.29 s at the same spot; a touch hides; clicks reach the link underneath; reduced motion draws nothing; no overflow at 390/768/1280/1920; no console errors.
+    - [ ] Tests green in CI.
+    - [ ] Deployed (plain deploy, owner's go).
 
 - **Phase 10A, smart search (built 2026-10-07, owner request):** Browse searched the title only, as one contiguous substring, so "GIZ" (a buyer), "Batumi" (a location), "accountant" (Georgian titles) and "forest video" (words apart) all found nothing. `src/browse/search-terms.ts` now turns the search text into one Postgres regex per word; every word must match somewhere, in any order:
   - **Fields:** Browse matches any visible member's title, organization, locations and board categories (local: any live member's current revision); Listings matches title and organization (all its public view carries).
@@ -120,6 +130,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 9B — job-board tender posts and tender dedupe | merged; deployed 2026-10-07 | #42 | Detector, tender scorer, buyer key, the two 9A P2s. |
 | 9C — tenders in Browse | merged; deployed 2026-10-07 as `9cf5065` | #44, #45 | First hosted dedupe failed on a column grant; fixed by the #45 hotfix without widening any grant. |
 | 10A — smart search | merged; deployed 2026-10-07 as `754a636` | #46 | No migration; query-time matching (`src/browse/search-terms.ts`). |
+| 10B — landing crawler | built 2026-10-07 | — | Canvas spider over the landing panel (`web/lib/landing-crawler/`); hides for readers, off under reduced motion. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; the `discharge-codex-debt` skill that paid them back was retired on 2026-10-05.
 
