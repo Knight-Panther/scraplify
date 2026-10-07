@@ -17,7 +17,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
   - **10A exit gate:**
     - [x] Unit and DB tests: `search-terms.test.ts` (14) and 7 new DB tests across both surfaces; full suite on `scraplify_qa` 1,622 passed, 7 skipped.
     - [x] Real-browser QA on `scraplify_qa`, local and public surfaces, 390 and 1280 px: "GIZ", "forest video" (the GIZ tender), "accountant", "mdzgoli", "ბათუმში", the "Did you mean accountant?" link for "acountant", none for nonsense; no overflow, no console errors, no uppercased Georgian.
-    - [ ] Tests green in CI.
+    - [x] Tests green in CI (PR #46, 2026-10-07).
     - [ ] Deployed (a plain deploy: no migration, no grants).
 
 - **Phase 9 (tenders from etenders.ge), started 2026-10-07; 9A merged the same day (PR #41).** Study and strategy: [`addEtender.md`](addEtender.md). Three sub-phases, each its own PR:
