@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-10-07 (Phase 9C built: tenders and vacancies share Browse, tender detail page, etenders.ge in the hosted pipeline).
+Last updated: 2026-10-07 (Phase 9C built: tenders and vacancies share Browse, tender detail page, etenders.ge in the hosted pipeline; PR #44).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
@@ -24,7 +24,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - **Reviews (2026-10-07):** the surface-boundary and dedupe-correctness agents found no P0–P2; their one P3 (the false "Never" on the health pages) is fixed above. Optional hardening, not done: `public_opportunity_members` still passes `application_method` through, which for etenders.ge holds an email read from the unpublished description. Nothing renders it (a tender shows only "Open on <board>"), but redacting it in the view like `description` would close it for good.
     - **Seen in QA:** the first crawl's backfill gives every tender the same first-seen time, so they top "newest first" until newer vacancies arrive (on QA, all four landing-panel rows). Expect the same for a day after the first hosted run; on public, only the open ones (36 on QA).
   - **9C exit gate:**
-    - [ ] Tests green in CI.
+    - [x] Tests green in CI (PR #44, 2026-10-07).
     - [x] Real-browser QA on `scraplify_qa`, local and public surfaces (2026-10-07): Browse filtered to tenders, the merged etenders.ge 69470 + hr.ge 492864 tender, a tender with a stated value (585,276.21 GEL), and the GE and EN landing, at 390/768/1280/1920 with no horizontal overflow, no uppercased Georgian and no console errors. The public tender page carries no description or contact (checked in the HTML).
     - [x] Full suite on `scraplify_qa`: 1,601 passed, 7 skipped.
     - [ ] Released with 9A and 9B: backup, migration 0038 on the host, grants, deploy, then `systemctl enable --now xtelo-pipeline@etenders-ge.timer` and one first run.
