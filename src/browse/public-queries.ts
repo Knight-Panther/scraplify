@@ -1,4 +1,4 @@
-import { type AnyColumn, and, eq, gte, ilike, inArray, lte, or, type SQL, sql } from 'drizzle-orm';
+import { type AnyColumn, and, eq, gte, inArray, lte, type SQL, sql } from 'drizzle-orm';
 import {
   publicOpportunities,
   publicOpportunityMembers,
@@ -12,6 +12,7 @@ import type {
   SearchListingsFilters,
   SearchOpportunitiesFilters,
 } from './queries.js';
+import { searchTerms } from './search-terms.js';
 
 /**
  * The public-surface query boundary (Phase 8B Stage 4, concept §30.2/§30.4).
@@ -88,9 +89,13 @@ function publicDescription(sourceSlug: string, description: string): string {
   return mayRepublishFullContent(sourceSlug) ? description : '';
 }
 
-function searchPattern(text: string): string {
-  return `%${text.trim().normalize('NFC')}%`;
-}
+/**
+ * What a search word is matched against on Browse: every field a visitor can
+ * see on a member row (title, organization, locations, board categories).
+ * `concat_ws` skips a null organization; the jsonb arrays read as their JSON
+ * text, whose quotes and commas sit between words like any other separator.
+ */
+const PUBLIC_MEMBER_SEARCH_TEXT = sql`concat_ws(' ', pom.title, pom.organization, pom.locations::text, pom.source_categories::text)`;
 
 /* ---------------------------------------------------------------------- */
 /* Listings ("what one board said") — from public_source_listings, which   */
@@ -110,13 +115,12 @@ function publicListingConditions(filters: SearchListingsFilters): SQL[] {
   // than ignore the filter (which would silently return an unfiltered set
   // under a URL claiming to show only changed listings), force zero rows.
   if (filters.changedOnly === true) conditions.push(sql`false`);
-  if (filters.text !== undefined && filters.text.trim().length > 0) {
-    const pattern = searchPattern(filters.text);
-    const match = or(
-      ilike(publicSourceListings.title, pattern),
-      ilike(publicSourceListings.organization, pattern),
+  // The listings view carries only title and organization to search; every
+  // word must match one of them (`search-terms.ts`).
+  for (const term of searchTerms(filters.text ?? '')) {
+    conditions.push(
+      sql`concat_ws(' ', ${publicSourceListings.title}, ${publicSourceListings.organization}) ~* ${term.pattern}`,
     );
-    if (match !== undefined) conditions.push(match);
   }
   if (filters.sourceSlug !== undefined) {
     conditions.push(eq(publicSourceListings.sourceSlug, filters.sourceSlug));
@@ -339,8 +343,12 @@ function publicOpportunityConditions(filters: SearchOpportunitiesFilters): SQL[]
   const asOf = filters.genuinelyOpenAsOf ?? new Date().toISOString();
   const eligible = publicEligibleMemberSql(asOf);
   const conditions: SQL[] = [];
-  if (filters.text !== undefined && filters.text.trim().length > 0) {
-    conditions.push(ilike(PUBLIC_CANONICAL_TITLE, searchPattern(filters.text)));
+  // One EXISTS per word, so the words of one search may come from different
+  // fields or boards of the same opportunity ("GIZ forest": the buyer on one
+  // line, the subject in the title). Visible members only: the view already
+  // drops a quarantined one, whose text must not make a row match.
+  for (const term of searchTerms(filters.text ?? '')) {
+    conditions.push(publicLiveMemberExists(sql`${PUBLIC_MEMBER_SEARCH_TEXT} ~* ${term.pattern}`));
   }
   if (filters.statuses !== undefined && filters.statuses.length > 0) {
     conditions.push(

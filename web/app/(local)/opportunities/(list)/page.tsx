@@ -9,6 +9,7 @@ import {
   getSourceHealth,
   searchOpportunities,
 } from '../../../../../src/browse/queries.js';
+import { suggestSearch } from '../../../../../src/browse/search-terms.js';
 import { db } from '../../../../../src/db/client.js';
 import { decisionsByOpportunity } from '../../../../../src/shortlist/decisions.js';
 import { DecisionControl } from '../../../../components/decision-control.js';
@@ -134,6 +135,19 @@ export default async function OpportunitiesPage({
   const opportunities = await fetchRows(surface, query, Math.min(query.show, total), publicFilters);
 
   const rows = opportunities.map(toRow);
+
+  // A search that finds nothing may be one misspelt word away from one that
+  // does. Offered as a link, never applied silently, and only when the
+  // corrected search, with every other filter kept, actually finds something.
+  const corrected = total === 0 && query.form.q !== '' ? suggestSearch(query.form.q) : null;
+  const suggestion =
+    corrected === null
+      ? null
+      : (surface === 'public'
+            ? await publicCountOpportunities(db, { ...publicFilters, text: corrected })
+            : await countOpportunities(db, { ...query.filters, text: corrected })) > 0
+        ? { text: corrected, href: buildHref(query, { form: { q: corrected } }) }
+        : null;
   // No shortlist on the public surface at all — Save/Dismiss/Undo are local-
   // only Server Actions (Stage 2's assertLocalSurface()), and decisionsByOpportunity
   // reads opportunity_decisions, a table the public database role has no
@@ -222,7 +236,7 @@ export default async function OpportunitiesPage({
                   // half. The cap is applied server-side by grapheme instead.
                   spellCheck={false}
                   autoComplete="off"
-                  placeholder="title or employer…"
+                  placeholder="title, employer or city…"
                   className="h-[46px] w-full rounded-[var(--radius)] border border-border bg-surface px-3 text-sm text-foreground placeholder:text-faint"
                 />
               </label>
@@ -282,7 +296,10 @@ export default async function OpportunitiesPage({
 
         <div className="min-w-0 px-4 py-6 sm:px-6">
           {rows.length === 0 ? (
-            <EmptyState filtered={chips.length > 0 || query.form.q !== ''} />
+            <EmptyState
+              filtered={chips.length > 0 || query.form.q !== ''}
+              suggestion={suggestion}
+            />
           ) : (
             <>
               <ResultsTable rows={rows} decisions={decisions} back={back} surface={surface} />
@@ -543,12 +560,30 @@ function Deadline({ row }: { row: OpportunityRow }) {
   );
 }
 
-function EmptyState({ filtered }: { filtered: boolean }) {
+function EmptyState({
+  filtered,
+  suggestion,
+}: {
+  filtered: boolean;
+  suggestion: { text: string; href: string } | null;
+}) {
   return (
     <p className="rounded-[var(--radius)] border border-border bg-surface px-4 py-6 text-sm text-muted">
       {filtered ? (
         <>
           No opportunity matches these filters.{' '}
+          {suggestion !== null && (
+            <>
+              Did you mean{' '}
+              <a
+                className="text-[var(--color-browse-accent)] underline underline-offset-2"
+                href={suggestion.href}
+              >
+                {suggestion.text}
+              </a>
+              ?{' '}
+            </>
+          )}
           <a
             className="text-[var(--color-browse-accent)] underline underline-offset-2"
             href="/opportunities"
