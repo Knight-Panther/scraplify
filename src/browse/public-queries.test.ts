@@ -53,6 +53,8 @@ describe('public queries', () => {
     /** Force `source_listings.id` rather than a random uuid — for tests where the sort tie-break matters. */
     listingId?: string;
     type?: 'job' | 'tender';
+    organization?: string;
+    locations?: string[];
   }): Promise<{ opportunityId: string; listingId: string; sourceId: string }> {
     let sourceId = spec.existingSourceId;
     if (sourceId === undefined) {
@@ -82,9 +84,9 @@ describe('public queries', () => {
       meaningfulContentHash: randomUUID().replace(/-/g, '').padEnd(64, '0'),
       titleRaw: spec.title,
       titleNormalized: spec.title.toLowerCase(),
-      organizationRaw: 'Public Query Test Org',
+      organizationRaw: spec.organization ?? 'Public Query Test Org',
       description: spec.description ?? 'a public-safe description',
-      locations: [],
+      locations: spec.locations ?? [],
       publishedDate: { raw: '', parsed: '2026-09-01T00:00:00Z' },
       deadlineDate: { raw: '', parsed: spec.deadlineAt ?? '2026-12-01T00:00:00Z' },
       applicationMethod: { type: 'email', value: 'apply@example.invalid' },
@@ -214,6 +216,70 @@ describe('public queries', () => {
 
     const total = await publicCountOpportunities(db, { text: 'Public search' });
     expect(total).toBe(1);
+  });
+
+  describe('search (Phase 10A, search-terms.ts)', () => {
+    it('finds a tender by its buyer and by buyer and subject words in any order', async () => {
+      const marker = randomUUID().slice(0, 8);
+      const { opportunityId } = await addOpportunity({
+        title: `Animated Educational Videos on Sustainable Forest Management ${marker}`,
+        organization: 'GIZ - გერმანიის საერთაშორისო თანამშრომლობის საზოგადოება',
+        type: 'tender',
+      });
+      for (const text of [`GIZ ${marker}`, `${marker} forest GIZ`, `video ${marker}`]) {
+        const ids = (await publicSearchOpportunities(db, { text })).map((r) => r.opportunityId);
+        expect(ids, text).toEqual([opportunityId]);
+        expect(await publicCountOpportunities(db, { text }), text).toBe(1);
+      }
+      expect(await publicCountOpportunities(db, { text: `${marker} pipeline` })).toBe(0);
+    });
+
+    it('lets each word come from a different board of one opportunity', async () => {
+      const marker = randomUUID().slice(0, 8);
+      const { opportunityId } = await addOpportunity({ title: `Logistics coordinator ${marker}` });
+      await addOpportunity({
+        title: `ლოჯისტიკის კოორდინატორი ${marker}`,
+        organization: 'Zorbex Freight',
+        opportunityId,
+      });
+      const ids = (
+        await publicSearchOpportunities(db, { text: `zorbex coordinator ${marker}` })
+      ).map((r) => r.opportunityId);
+      expect(ids).toEqual([opportunityId]);
+    });
+
+    it('carries English to Georgian titles and matches locations with case endings', async () => {
+      const marker = randomUUID().slice(0, 8);
+      const { opportunityId } = await addOpportunity({
+        title: `მთავარი ბუღალტერი ${marker}`,
+        locations: ['ბათუმი'],
+      });
+      for (const text of [`accountant ${marker}`, `bugalteri ${marker}`, `ბათუმში ${marker}`]) {
+        const ids = (await publicSearchOpportunities(db, { text })).map((r) => r.opportunityId);
+        expect(ids, text).toEqual([opportunityId]);
+      }
+    });
+
+    it('never matches the text of a quarantined member', async () => {
+      const marker = randomUUID().slice(0, 8);
+      const { opportunityId } = await addOpportunity({ title: `Visible role ${marker}` });
+      await addOpportunity({
+        title: `Hidden role ${marker}`,
+        organization: 'Quarzinth Hidden Org',
+        status: 'quarantined',
+        opportunityId,
+      });
+      expect(await publicCountOpportunities(db, { text: `quarzinth ${marker}` })).toBe(0);
+      expect(await publicCountOpportunities(db, { text: `visible ${marker}` })).toBe(1);
+    });
+
+    it('searches listings by title and organization words in any order', async () => {
+      const marker = randomUUID().slice(0, 8);
+      const { listingId } = await addBareListing({ title: `Forest ranger ${marker}` });
+      const rows = await publicSearchListings(db, { text: `${marker} query test forest` });
+      expect(rows.map((r) => r.sourceListingId)).toEqual([listingId]);
+      expect(await publicCountListings(db, { text: `${marker} query test forest` })).toBe(1);
+    });
   });
 
   it('derives the public canonical title from a visible member, never a hidden quarantined one', async () => {

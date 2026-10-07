@@ -18,6 +18,8 @@ import {
   createTestSourceListing,
 } from '../db/test-support.js';
 import {
+  countListings,
+  countOpportunities,
   getOpportunity,
   getSourceHealth,
   listReviewQueue,
@@ -187,6 +189,77 @@ describe('browse queries', () => {
 
     const byOrganization = await searchListings(db, { text: `Zorbulon Ltd ${marker}` });
     expect(byOrganization.map((row) => row.sourceListingId)).toContain(listingId);
+  });
+
+  it('matches search words in any order, across fields, and English to Georgian', async () => {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const marker = randomUUID().slice(0, 8);
+    const listingId = await addListing(sourceId, {
+      title: `მთავარი ბუღალტერი ${marker}`,
+      organization: 'Zorbulon Holding',
+    });
+    for (const text of [
+      `zorbulon ${marker}`,
+      `${marker} accountant zorbulon`,
+      `bugalteri ${marker}`,
+    ]) {
+      const ids = (await searchListings(db, { text })).map((row) => row.sourceListingId);
+      expect(ids, text).toEqual([listingId]);
+      expect(await countListings(db, { text }), text).toBe(1);
+    }
+    expect(await countListings(db, { text: `${marker} driver` })).toBe(0);
+  });
+
+  it('matches an opportunity on any live member, never a retired one', async () => {
+    const sourceA = await createTestSource();
+    const sourceB = await createTestSource();
+    const sourceC = await createTestSource();
+    sourceIds.push(sourceA, sourceB, sourceC);
+    const marker = randomUUID().slice(0, 8);
+    const listingA = await addListing(sourceA, { title: `Logistics coordinator ${marker}` });
+    const listingB = await addListing(sourceB, {
+      title: `ლოჯისტიკის კოორდინატორი ${marker}`,
+      organization: 'Zorbex Freight',
+    });
+    const retired = await addListing(sourceC, {
+      title: `Old post ${marker}`,
+      organization: 'Quarzinth Retired',
+    });
+    const opportunityId = randomUUID();
+    opportunityIds.push(opportunityId);
+    await db.insert(opportunities).values({
+      id: opportunityId,
+      type: 'job',
+      canonicalTitle: `Logistics coordinator ${marker}`,
+      organizationId: null,
+      canonicalStatus: 'active',
+      currentCanonicalRevisionId: null,
+      createdAt: '2026-09-06T12:00:00Z',
+      updatedAt: '2026-09-06T12:00:00Z',
+    });
+    for (const [listingId, supersededAt] of [
+      [listingA, null],
+      [listingB, null],
+      [retired, '2026-09-07T00:00:00Z'],
+    ] as const) {
+      await db.insert(opportunitySourceMemberships).values({
+        id: randomUUID(),
+        opportunityId,
+        sourceListingId: listingId,
+        decision: 'confirmed_same',
+        confidence: 0.97,
+        evidence: {},
+        decidedBy: 'ruleset',
+        decidedAt: '2026-09-06T12:00:00Z',
+        dedupeModelOrRulesetVersion: 'v1',
+        supersededAt,
+      });
+    }
+
+    const both = await searchOpportunities(db, { text: `zorbex logistics ${marker}` });
+    expect(both.map((view) => view.opportunityId)).toEqual([opportunityId]);
+    expect(await countOpportunities(db, { text: `quarzinth ${marker}` })).toBe(0);
   });
 
   it('filters by status and by source', async () => {

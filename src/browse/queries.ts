@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, type SQL, sql } from 'drizzle-orm';
 import {
   crawlRuns,
   duplicateCandidates,
@@ -12,6 +12,7 @@ import {
 } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
 import { SOURCES_WITHOUT_FULL_COVERAGE } from '../source-traits.js';
+import { searchTerms } from './search-terms.js';
 import { UNLINKED_GRACE_HOURS } from './source-health.js';
 
 /**
@@ -46,7 +47,10 @@ export interface ListingView {
 }
 
 export interface SearchListingsFilters {
-  /** Case-insensitive substring over title and organization. */
+  /**
+   * Every word must match the title, organization, locations or categories
+   * (on public, title or organization): see `search-terms.ts`.
+   */
   text?: string | undefined;
   sourceSlug?: string | undefined;
   /** §13 lifecycle states; omitted means every state. */
@@ -91,15 +95,14 @@ function clampLimit(limit: number | undefined): number {
  * healthy wants to see exactly what a source said, undeduplicated.
  */
 /**
- * Search text, normalized.
- *
- * NFC because Georgian text pasted from a browser and Georgian text typed into
- * an input can carry different Unicode normalizations for the same word, and
- * `ilike` compares bytes. Case folding is a no-op for Mkhedruli, which has no
- * capitals, but it still matters for the Latin employer names in the corpus.
+ * What a search word is matched against: a listing's title, organization,
+ * locations and board categories, the same fields the public Browse search
+ * reads (`public-queries.ts`). The words themselves come from
+ * `searchTerms` (`search-terms.ts`), which normalizes them (NFKC) and
+ * expands each into its stem, dictionary translations and transliteration.
  */
-function searchPattern(text: string): string {
-  return `%${text.trim().normalize('NFC')}%`;
+function revisionSearchText(revision: SQL): SQL {
+  return sql`concat_ws(' ', ${revision}.title_raw, ${revision}.organization_raw, ${revision}.locations::text, ${revision}.source_categories::text)`;
 }
 
 /**
@@ -126,13 +129,8 @@ const HAS_BEEN_REVISED = sql`exists (
 
 function listingConditions(filters: SearchListingsFilters): SQL[] {
   const conditions: SQL[] = [];
-  if (filters.text !== undefined && filters.text.trim().length > 0) {
-    const pattern = searchPattern(filters.text);
-    const match = or(
-      ilike(sourceListingRevisions.titleRaw, pattern),
-      ilike(sourceListingRevisions.organizationRaw, pattern),
-    );
-    if (match !== undefined) conditions.push(match);
+  for (const term of searchTerms(filters.text ?? '')) {
+    conditions.push(sql`${revisionSearchText(sql`${sourceListingRevisions}`)} ~* ${term.pattern}`);
   }
   if (filters.sourceSlug !== undefined) conditions.push(eq(sources.slug, filters.sourceSlug));
   if (filters.statuses !== undefined && filters.statuses.length > 0) {
@@ -231,7 +229,10 @@ export interface OpportunityView {
  * member is excluded entirely — see `opportunityConditions`.
  */
 export interface SearchOpportunitiesFilters {
-  /** Case-insensitive substring over the canonical title. */
+  /**
+   * Every word must match some live member's title, organization, locations
+   * or categories, in any order: see `search-terms.ts`.
+   */
   text?: string | undefined;
   /** §13 canonical states; omitted means every state. */
   statuses?: readonly string[] | undefined;
@@ -329,8 +330,16 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
   // total that claims to be one row per vacancy. Its history stays reachable
   // through the membership tombstones, which is where audit belongs.
   const conditions: SQL[] = [liveMemberExists(sql`true`)];
-  if (filters.text !== undefined && filters.text.trim().length > 0) {
-    conditions.push(ilike(opportunities.canonicalTitle, searchPattern(filters.text)));
+  // One EXISTS per word, over any live member's current revision, so the
+  // words may come from different fields or boards of one opportunity.
+  for (const term of searchTerms(filters.text ?? '')) {
+    conditions.push(
+      liveMemberExists(sql`exists (
+        select 1 from ${sourceListingRevisions} r
+        where r.id = sl.current_revision_id
+          and ${revisionSearchText(sql`r`)} ~* ${term.pattern}
+      )`),
+    );
   }
   if (filters.statuses !== undefined && filters.statuses.length > 0) {
     conditions.push(
