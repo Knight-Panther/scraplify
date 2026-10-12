@@ -164,7 +164,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 10A — smart search | merged; deployed 2026-10-07 as `754a636` | #46 | No migration; query-time matching (`src/browse/search-terms.ts`). |
 | 10B — landing crawler | merged; deployed 2026-10-12 as `0cfbf86` | #47 | Canvas spider over the landing panel (`web/lib/landing-crawler/`); hides for readers, off under reduced motion. |
 | 11B — the ss.ge crawler | **in review** on `phase-11b-ss-ge-crawler` | #49 | Parsers, walker, expiry rule, `npm run crawl:ss-ge`; the first full pass is the open gate box. Not in the hosted pipeline. |
-| 11A — real-estate foundation (ss.ge) | merged 2026-10-12 | #48 | Guideline `real-estate-implementation-guideline.md`; migration `0039` (new `realestate` schema), applied by the owner to the local databases; the host gets it with 11E. |
+| 11A — real-estate foundation (ss.ge) | merged 2026-10-12 | #48 | Guideline `real-estate-implementation-guideline.md`; migration `0039` (new `realestate` schema), reviewed and approved; the owner applies it to the local databases, and the host gets it with 11E. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; the `discharge-codex-debt` skill that paid them back was retired on 2026-10-05.
 
