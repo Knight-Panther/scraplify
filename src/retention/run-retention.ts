@@ -14,6 +14,7 @@ import {
   sources,
 } from '../db/schema/index.js';
 import type { Database, DatabaseOrTransaction } from '../db/types.js';
+import { REAL_ESTATE_SOURCES } from '../source-traits.js';
 import {
   type ClusterClosureResult,
   type ClusterGraph,
@@ -108,7 +109,7 @@ export async function runRetention(
   pool: Pool,
   options: RunRetentionOptions,
 ): Promise<RunRetentionOutcome> {
-  const sourceIds = options.sourceIds ?? (await allSourceIds(db));
+  const sourceIds = options.sourceIds ?? (await retentionSourceIds(db));
   const locked = await withRetentionLocks(pool, sourceIds, () =>
     runRetentionLocked(db, { ...options, sourceIds }),
   );
@@ -116,9 +117,17 @@ export async function runRetention(
   return { ran: true, result: locked.result };
 }
 
-async function allSourceIds(db: Database): Promise<string[]> {
-  const rows = await db.select({ id: sources.id }).from(sources);
-  return rows.map((row) => row.id);
+/**
+ * Every source retention covers when none is named: all of them except
+ * real-estate sources, which keep nothing in the tables retention trims and
+ * whose crawls hold their lock for hours (`REAL_ESTATE_SOURCES`).
+ */
+export async function retentionSourceIds(
+  db: Database,
+  excludeSlugs: readonly string[] = REAL_ESTATE_SOURCES,
+): Promise<string[]> {
+  const rows = await db.select({ id: sources.id, slug: sources.slug }).from(sources);
+  return rows.filter((row) => !excludeSlugs.includes(row.slug)).map((row) => row.id);
 }
 
 async function runRetentionLocked(

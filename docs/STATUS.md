@@ -1,12 +1,27 @@
 # scraplify — implementation status
 
-Last updated: 2026-10-12 (Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-10-12 (Phase 11A real-estate foundation in progress on its branch; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Phase 10B — landing crawler
+## Current phase: Phase 11A — real-estate foundation
 
-The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 7B and the Phase 1C remainder.
+The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 11A (in progress), 7B and the Phase 1C remainder.
+
+- **Phase 11A, real-estate foundation (started 2026-10-12, owner request):** a second domain beside opportunities, residential listings from ss.ge for a Real estate tab (concept §31). Study, design and every phase's gates: [`real-estate-implementation-guideline.md`](real-estate-implementation-guideline.md). myhome.ge was studied too and dropped the same day: it shows the production server a Cloudflare challenge.
+  - **What ss.ge is like:** about 117,000 readable listings in scope across six lists (flats, houses, cottages × sale, rent); results pages of 16 at about 7 s; a page past the end silently returns page 1; flat lists hide look-alikes, so the site's counters (290,000) overstate; no listing sitemap, so removal is inferred from each listing's 30-day life. The production server reaches it normally.
+  - **Kept apart from vacancies:** rows live in a Postgres schema of their own (`realestate`, migration `0039`: `listings`, `price_changes`, `crawl_runs`), written by `src/realestate/ingest.ts`. ss.ge sits in the shared `sources` table for its policy alone, so `getSourceHealth` and retention leave out `REAL_ESTATE_SOURCES` (`src/source-traits.ts`); without that a real-estate source reads as a board that never synced and can hold the matching bundle's gate shut.
+  - **Migration `0039` is applied to a throwaway database only.** Applying it to `scraplify`, `scraplify_qa` and the host needs the owner's approval and a `migration-safety-reviewer` pass first; it is additive (a new schema, nothing existing altered).
+  - **11A exit gate:**
+    - [x] ss.ge source and policy records with `isSsGeUrlAllowed` (`src/policies/ss-ge.ts`, 9 tests).
+    - [x] `REAL_ESTATE_SOURCES` and the two exclusions, each with a test; the existing health and retention tests pass unchanged.
+    - [x] The `realestate` schema and migration `0039`.
+    - [x] `upsertListing`: new, changed (with a price-change row), bumped, unchanged, reopened (8 DB tests).
+    - [x] `real-data-guard.ts` fingerprints the new schema for ss.ge (its own query, so an unmigrated database cannot switch the guard off), and `cleanupTestSource` removes a test source's real-estate rows.
+    - [x] Concept §31, the `docs/RIGHTS.md` row, this file.
+    - [x] Full suite on a throwaway Postgres with all 40 migrations: 1,654 passed, 8 skipped. Typecheck clean; lint and format clean on every changed file. A first run had one failure, `dedupe-lock.test.ts` "gives up with a typed error once the wait exceeds its timeout"; it passes alone and passed on the re-run, so it is a timing test that can lose a race under a parallel run, not something this branch touches.
+    - [ ] Tests green in CI.
+  - **Next, Phase 11B (the ss.ge crawler):** results-page and detail-page parsers with scrubbed fixtures, the walker with the page-1 fallback check and resumable progress, the expiry rule, the `run-ss-ge-crawl` command, then a first pass on a local database.
 
 - **Phase 10B, landing crawler (built 2026-10-07, owner request, from a reference video):** an eight-legged "spider" drawn on a canvas over the landing page's board-update rows and newest listings (`web/lib/landing-crawler/`, `web/components/landing-crawler.tsx`). It walks the board rows, then each listing down to "See all", and back; where a foot lands on an element marked `data-crawl` the element is "scraped" for 1.5 s (outline, highlight bar, tint or invert: `[data-scraped]` in `globals.css`, never a text, font or size change), and it sometimes throws a thread to a listing's board chip.
   - **Readers first:** a pointer, touch or keyboard focus in the area fades it out and clears every effect; it returns ~0.3 s after the pointer leaves (1.5 s after a touch). The canvas takes no pointer events and is hidden from assistive technology; nothing starts under `prefers-reduced-motion`, and it pauses off screen or in a hidden tab. Plain Canvas 2D, no library (the anti-patterns rule on animation libraries stands).
@@ -90,7 +105,8 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 - **Alert channel dropped** (2026-09-27; concept §30.6): no alerting functionality.
 - **Review severity:** only P0/P1 findings are implemented; P2 and lower are skipped under "the P0/P1 rule" and recorded as open items.
 - **Codex reviews are manual only** (2026-10-05): `.githooks/pre-commit` no longer runs Codex, and no review is required before merging; `/codex:review` or `/codex:adversarial-review` run only when the owner asks. Before that, waivers applied: not waiting on Codex cooldowns (2026-09-23), and work done on Opus skipping both Codex gates (2026-09-25). 8B's whole-branch review was owner-waived (not passed); 8D used one Opus high-effort pass in place of the Codex adversarial review (owner decision).
-- **Source permissions:** granted for jobs.ge and hr.ge (2026-09-26) and etenders.ge (2026-10-07), `docs/RIGHTS.md`.
+- **Source permissions:** granted for jobs.ge and hr.ge (2026-09-26) and etenders.ge (2026-10-07); ss.ge by verbal agreement (2026-10-12), `docs/RIGHTS.md`.
+- **Real estate (2026-10-12):** built for the website first, with any ChatGPT, Claude or local-LLM connection deferred; ss.ge only (myhome.ge dropped); flats and houses for sale and long-term rent, all Georgia, with summer cottages included by default; text-only rows that link out, no photos; its own tab and its own tables; limited public usage.
 - **Descriptions stay off the public site** (2026-10-07): permission allows them, but every board keeps `mayRepublishFullContent: false`. Showing them would keep visitors (and their views and applications) away from the boards whose goodwill the catalogue depends on. Considered and set aside: an excerpt with a "read the full vacancy" link, and counting the clicks sent to each board.
 - **Tenders (2026-10-07):** build tenders from etenders.ge for freelancers and small firms, shown in Browse together with vacancies (a "tender" tag and Kind filter; this replaced a separate Tenders tab the same day) and kept out of CV Ranked; v1 ingests public purchase tenders only (no asset sales, invite-only or anonymous tenders); the job boards' own tender posts are reclassified as tenders.
 - **Crawl pacing:** jobs.ge crawl delay removed under policy v2 (2026-09-26), then set to 2 s under v3 after a soft block (2026-09-27); hr.ge keeps 3 s.
@@ -132,6 +148,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 9C — tenders in Browse | merged; deployed 2026-10-07 as `9cf5065` | #44, #45 | First hosted dedupe failed on a column grant; fixed by the #45 hotfix without widening any grant. |
 | 10A — smart search | merged; deployed 2026-10-07 as `754a636` | #46 | No migration; query-time matching (`src/browse/search-terms.ts`). |
 | 10B — landing crawler | merged; deployed 2026-10-12 as `0cfbf86` | #47 | Canvas spider over the landing panel (`web/lib/landing-crawler/`); hides for readers, off under reduced motion. |
+| 11A — real-estate foundation (ss.ge) | **in progress** on `phase-11a-real-estate-foundation` | — | Guideline `real-estate-implementation-guideline.md`; migration `0039` (new `realestate` schema) not yet applied to any real database. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; the `discharge-codex-debt` skill that paid them back was retired on 2026-10-05.
 

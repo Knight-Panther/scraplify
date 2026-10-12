@@ -28,7 +28,7 @@ import {
   createTestSourceListing,
 } from '../db/test-support.js';
 import { planTier2Revisions } from './eligibility.js';
-import { runRetention } from './run-retention.js';
+import { retentionSourceIds, runRetention } from './run-retention.js';
 
 /**
  * Real-database tests for the whole retention pass (Phase 7C). Every source
@@ -183,6 +183,15 @@ describe('runRetention', () => {
     for (const profileId of profileIds.splice(0)) {
       await db.delete(candidateProfiles).where(eq(candidateProfiles.id, profileId));
     }
+  });
+
+  it('leaves real-estate sources out of the sources it locks: a crawl of theirs runs for hours and would make every pass skip', async () => {
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const slug = `test-source-${sourceId}`;
+
+    expect(await retentionSourceIds(db, [])).toContain(sourceId);
+    expect(await retentionSourceIds(db, [slug])).not.toContain(sourceId);
   });
 
   it('tier 1: deletes aged fetch_attempts and resolved incidents; an unresolved incident, a still-referenced resource, and fresh telemetry all survive', async () => {

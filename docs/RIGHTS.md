@@ -15,10 +15,11 @@ Crawling behaviour follows each source's `robots.txt` and a versioned policy rec
 | jobs.ge | allows listing pages; its generic `Crawl-delay: 5` (unchanged since 2019) is waived under the permission: one request at a time, backing off on 429/503 (policy v2, 2026-09-26) | settled by permission | **granted:** the owner has full permission from jobs.ge (recorded 2026-09-26). Settled; not to be re-questioned. | title, employer, dates, a link back to jobs.ge. Descriptions are shown only where the source policy allows (redacted in SQL, Phase 8B). |
 | hr.ge | allows public paths | settled by permission | **granted:** the owner has full permission from hr.ge (recorded 2026-09-26). Settled; not to be re-questioned. | the same, plus hr.ge's own category labels |
 | etenders.ge | none (404) and no sitemap; 3 s between requests, one at a time (policy v1, 2026-10-07) | read 2026-10-05: no clause on automated access; posted information is open to all users except bids, invite-only details and anonymous buyers (`termsUrl` in the policy) | **granted:** the owner asked etenders.ge and has its confirmation (recorded 2026-10-07). Settled; not to be re-questioned. | not shown publicly yet (Phase 9C). Planned: structured tender fields, CPV labels, a document count and a link back; no descriptions, Q&A, documents or logos (`docs/addEtender.md` §13–14). Invite-only and anonymous tenders are never fetched. |
+| ss.ge | disallows only `/ka/user`, `/en/user` and `/ru/user`; no `Crawl-delay`; 3 s between requests, one at a time (policy v1, 2026-10-12) | posting rules read 2026-10-12: no clause on automated access or reuse (`termsUrl` in the policy) | **verbal agreement:** the owner has ss.ge's verbal OK (recorded 2026-10-12). Not in writing, and no request budget or channel has been agreed yet. Only public pages are read; the site's own JSON gateway is not used. | nothing yet: the Real estate tab is not built. When it is: structured fields (deal, kind, rooms, area, floor, price, location, street) and a link to the listing. Descriptions are searched but not shown; phone numbers and names are never stored. |
 
 Checked 2026-09-26: `terms_url` is empty in both live policy rows (acquisition reviews dated 2026-09-03 and 2026-09-05, owner "project owner"). Those reviews covered acquisition, not republication.
 
-No owner action remains for any source.
+No owner action remains for jobs.ge, hr.ge or etenders.ge. For ss.ge one is open: agreeing a request budget and a channel with the site (`docs/real-estate-implementation-guideline.md` §2.2).
 
 ## Site assets
 

@@ -11,7 +11,7 @@ import {
   sources,
 } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
-import { SOURCES_WITHOUT_FULL_COVERAGE } from '../source-traits.js';
+import { REAL_ESTATE_SOURCES, SOURCES_WITHOUT_FULL_COVERAGE } from '../source-traits.js';
 import { searchTerms } from './search-terms.js';
 import { UNLINKED_GRACE_HOURS } from './source-health.js';
 
@@ -1095,8 +1095,16 @@ export interface SourceHealthView {
  * absence reconciliation silently stops happening (§10.2). Showing only "last
  * run" would make that look healthy.
  */
-export async function getSourceHealth(db: DatabaseOrTransaction): Promise<SourceHealthView[]> {
-  const sourceRows = await db.select({ id: sources.id, slug: sources.slug }).from(sources);
+export async function getSourceHealth(
+  db: DatabaseOrTransaction,
+  options: { excludeSlugs?: readonly string[] } = {},
+): Promise<SourceHealthView[]> {
+  // Real-estate sources have no job-board runs or listings to report on
+  // (`REAL_ESTATE_SOURCES`); here they would read as boards that never synced.
+  const excludeSlugs = options.excludeSlugs ?? REAL_ESTATE_SOURCES;
+  const sourceRows = (await db.select({ id: sources.id, slug: sources.slug }).from(sources)).filter(
+    (source) => !excludeSlugs.includes(source.slug),
+  );
 
   const statusRows = await db
     .select({

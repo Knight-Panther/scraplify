@@ -20,6 +20,8 @@ import {
   outreachDrafts,
   parserIncidents,
   rankings,
+  realEstateCrawlRuns,
+  realEstateListings,
   resources,
   type SourceListingRow,
   sourceListingRevisions,
@@ -463,6 +465,10 @@ export async function cleanupTestSource(
     // source would abort the sources delete below on the same FK-violation
     // class this function already unwinds by hand for every other table.
     await tx.delete(sourceTaxonomyMappings).where(eq(sourceTaxonomyMappings.sourceId, sourceId));
+    // The `realestate` schema's rows for this source (migration 0039); both
+    // tables FK into sources.id. Price changes go with their listing.
+    await tx.delete(realEstateListings).where(eq(realEstateListings.sourceId, sourceId));
+    await tx.delete(realEstateCrawlRuns).where(eq(realEstateCrawlRuns.sourceId, sourceId));
 
     // Only ever deletes a term the CALLER named — see this function's own
     // doc comment for why inferring ownership from "nothing currently

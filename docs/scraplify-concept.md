@@ -90,6 +90,7 @@ The crawler is infrastructure. The agent operates above the database through exp
 - Additional opportunity types and sources.
 - Supervised parser-repair proposals.
 - **A hosted public catalogue plus privacy-first, browser-only CV matching, and a separately authenticated admin control plane — added 2026-09-23, see §30.** Distinct from the CV upload/structured profile line above, which stays the local/operator flow; the hosted public path is a new, memory-only browser capability with no server-side candidate data for a visitor.
+- **Real-estate listings from ss.ge as a second, separate domain — added 2026-10-12, see §31.**
 
 ### 4.3 Explicit non-goals for the initial release
 
@@ -1312,3 +1313,28 @@ Each sub-phase follows the same review discipline as every phase before it (root
 | API vacancy embeddings paired with a different browser CV model | Embedding spaces from different contracts are not comparable (§30.3) |
 | Immediate `pgvector`/HNSW for public ranking | Browser exact search meets current corpus scale (§30.3) |
 | One hosted process serving both public and admin | A public compromise would expose admin secrets; two profiles are cheap isolation (§30.2) |
+
+## 31. Real estate from ss.ge (amendment, 2026-10-12)
+
+**Status of this section:** accepted direction, in progress as Phase 11 (`docs/STATUS.md`). The study, the design and the phase gates are in `docs/real-estate-implementation-guideline.md`; this section records the decision and how it sits beside the rest of this document.
+
+### 31.1 Decision summary
+
+Xtelo gains a second domain beside opportunities: residential real-estate listings from ss.ge, shown in their own Real estate tab. The owner asked for it on 2026-10-12, with ss.ge's verbal agreement, for limited public usage.
+
+- **Scope of version 1:** flats, houses and summer cottages, for sale and long-term rent, all of Georgia. Text-only rows that link to the original listing. No photos, no daily rent, land or commercial property.
+- **Website only.** Connecting the catalogue to an LLM (a ChatGPT or Claude connector, or a local model) was discussed and deferred.
+- **myhome.ge was studied and dropped the same day.** From the production server it answers with a Cloudflare challenge, and §4.3's rule against access-control circumvention stands. It can be reopened if its operator allows the server or offers API access.
+
+### 31.2 What it shares with the rest of the system, and what it does not
+
+A real-estate listing is not an opportunity. Nothing in §12–§17 applies to it: no source-listing revisions, no canonical opportunity, no cross-source deduplication, no taxonomy, no CV matching, no outreach.
+
+- **Shared:** the modular monolith (§8.1), HTTP-first acquisition behind a source adapter (§8.2, §8.3), PostgreSQL as system of record (§8.4), the versioned source policy with its fail-closed checks (§5.3), the policy-bound fetcher and its remote-content rules (§23.1), and the three runtime surfaces (§30).
+- **Separate:** its tables live in a Postgres schema of their own, `realestate`, holding one current row per listing plus a record of price changes. Its crawl has its own schedule and never runs the job pipeline's dedupe, taxonomy, bundle or retention steps. Source health, retention and the matching bundle leave real-estate sources out (`REAL_ESTATE_SOURCES` in `src/source-traits.ts`), so a slow or failed real-estate run cannot hold up vacancies.
+
+### 31.3 Compliance and privacy
+
+§5.3 applies unchanged: ss.ge has a policy record, and only the public pages its robots.txt allows are read. The site's own JSON gateway, which its frontend calls with a site-issued token, is not used unless ss.ge says so.
+
+Listing pages carry phone numbers and people's names. They are dropped by the parser and never stored. Descriptions are stored for search and, as for the job boards (§23.3 and the owner's decision of 2026-10-07), not republished on the public surface.

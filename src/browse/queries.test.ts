@@ -750,6 +750,21 @@ describe('browse queries', () => {
     expect(row?.lastFullCoverageRunAt).toBeNull();
   });
 
+  it('leaves out a real-estate source: it has no job-board runs, and would otherwise read as a board that never synced', async () => {
+    // Everything built on this view treats a source as a job board: the health
+    // page, `health:check`, and the matching bundle's gate, which a source
+    // with no completed run would hold shut.
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+    const slug = `test-source-${sourceId}`;
+
+    const all = await getSourceHealth(db, { excludeSlugs: [] });
+    expect(all.some((entry) => entry.sourceSlug === slug)).toBe(true);
+
+    const withoutIt = await getSourceHealth(db, { excludeSlugs: [slug] });
+    expect(withoutIt.some((entry) => entry.sourceSlug === slug)).toBe(false);
+  });
+
   it('counts active listings with no live opportunity, and which of them are too old to be waiting on dedupe', async () => {
     // The 2026-09-15 incident's signature: active listings that dedupe never
     // canonicalized, invisible everywhere except the raw listings view.
