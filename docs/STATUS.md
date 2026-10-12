@@ -59,7 +59,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
       - [ ] Each filtered page answers in under a second on the full corpus (needs the first pass to finish).
       - [ ] Browser check on the public surface in a browser (served and read by HTTP so far), and keyboard traversal.
       - [ ] Migration `0040` applied to `scraplify` and `scraplify_qa`, and the first pass's listings loaded into `scraplify` (owner approval).
-      - [ ] Tests green in CI.
+      - [x] Tests green in CI (PR #50, 2026-10-12).
 
 - **Phase 10B, landing crawler (built 2026-10-07, owner request, from a reference video):** an eight-legged "spider" drawn on a canvas over the landing page's board-update rows and newest listings (`web/lib/landing-crawler/`, `web/components/landing-crawler.tsx`). It walks the board rows, then each listing down to "See all", and back; where a foot lands on an element marked `data-crawl` the element is "scraped" for 1.5 s (outline, highlight bar, tint or invert: `[data-scraped]` in `globals.css`, never a text, font or size change), and it sometimes throws a thread to a listing's board chip.
   - **Readers first:** a pointer, touch or keyboard focus in the area fades it out and clears every effect; it returns ~0.3 s after the pointer leaves (1.5 s after a touch). The canvas takes no pointer events and is hidden from assistive technology; nothing starts under `prefers-reduced-motion`, and it pauses off screen or in a hidden tab. Plain Canvas 2D, no library (the anti-patterns rule on animation libraries stands).
