@@ -20,7 +20,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] `real-data-guard.ts` fingerprints the new schema for ss.ge (its own query, so an unmigrated database cannot switch the guard off), and `cleanupTestSource` removes a test source's real-estate rows.
     - [x] Concept §31, the `docs/RIGHTS.md` row, this file.
     - [x] Full suite on a throwaway Postgres with all 40 migrations: 1,654 passed, 8 skipped. Typecheck clean; lint and format clean on every changed file. A first run had one failure, `dedupe-lock.test.ts` "gives up with a typed error once the wait exceeds its timeout"; it passes alone and passed on the re-run, so it is a timing test that can lose a race under a parallel run, not something this branch touches.
-    - [ ] Tests green in CI.
+    - [x] Tests green in CI (PR #48, 2026-10-12).
   - **Next, Phase 11B (the ss.ge crawler):** results-page and detail-page parsers with scrubbed fixtures, the walker with the page-1 fallback check and resumable progress, the expiry rule, the `run-ss-ge-crawl` command, then a first pass on a local database.
 
 - **Phase 10B, landing crawler (built 2026-10-07, owner request, from a reference video):** an eight-legged "spider" drawn on a canvas over the landing page's board-update rows and newest listings (`web/lib/landing-crawler/`, `web/components/landing-crawler.tsx`). It walks the board rows, then each listing down to "See all", and back; where a foot lands on an element marked `data-crawl` the element is "scraped" for 1.5 s (outline, highlight bar, tint or invert: `[data-scraped]` in `globals.css`, never a text, font or size change), and it sometimes throws a thread to a listing's board chip.
