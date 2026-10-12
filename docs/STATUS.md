@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-10-07 (Phase 10B landing crawler built; Phase 10A smart search live as 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-10-12 (Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
@@ -16,7 +16,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] Typecheck, lint, `geometry.test.ts` (10).
     - [x] Real-browser QA (local surface, real corpus, read-only): path traced at a real 60 fps (boards, then every listing, then back); hover hides and returns in ~0.29 s at the same spot; a touch hides; clicks reach the link underneath; reduced motion draws nothing; no overflow at 390/768/1280/1920; no console errors.
     - [x] Tests green in CI (PR #47, 2026-10-07).
-    - [ ] Deployed (plain deploy, owner's go).
+    - [x] Deployed (a plain deploy: no migration, no grants): `0cfbf86` at 11:57 UTC 2026-10-12, `probe: ok`, `health-check` exit 0 on all three sources. Live at 1440 px: the canvas draws over the newest listings and marks them scraped, no console errors.
 
 - **Phase 10A, smart search (built 2026-10-07, owner request):** Browse searched the title only, as one contiguous substring, so "GIZ" (a buyer), "Batumi" (a location), "accountant" (Georgian titles) and "forest video" (words apart) all found nothing. `src/browse/search-terms.ts` now turns the search text into one Postgres regex per word; every word must match somewhere, in any order:
   - **Fields:** Browse matches any visible member's title, organization, locations and board categories (local: any live member's current revision); Listings matches title and organization (all its public view carries).
@@ -63,7 +63,8 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] No tender posts left in the vacancy catalogue: on QA a dedupe pass retyped all 7 board tender posts there to `tender` and folded hr.ge 492864 into etenders.ge 69470's opportunity.
     - [x] Every new guard is load-bearing: each DB test in `tender-typing.test.ts` fails with its fix removed. Full suite on `scraplify_qa`: 1,594 passed, 7 skipped.
 
-- **Live release:** `754a636` (10A smart search, PR #46), deployed 2026-10-07 at 13:46 UTC as a plain deploy. Earlier releases (`9cf5065`, `a9c5c2c`, `cf4efe0`) stay on the host for rollback.
+- **Live release:** `0cfbf86` (10B landing crawler, PR #47), deployed 2026-10-12 at 11:57 UTC as a plain deploy. Earlier releases (`754a636`, `9cf5065`, `a9c5c2c`) stay on the host for rollback.
+- **Parser incidents:** none open. The only one ever, an hr.ge `field_missing` warning on vacancy 491909 in the 2026-09-28 run, was a one-off (the listing parsed on later runs and expired normally; the page is now 410) and was marked resolved on the host by the owner's go, 2026-10-12. Every crawl run from 2026-10-06 to 10-11 completed, with 0 active listings left unlinked.
 - **Dependency patches (2026-10-07):** Dependabot alerts 1 and 3 (high) fixed by lockfile updates: `sharp` 0.35.5 (librsvg in libvips 1.3.4) and `source-map-js` 1.2.2; live since the 9A–9C release. Alert 2 (`sprintf-js`, moderate, no fixed release) was dismissed as not used: it arrives through `mammoth` → `argparse@1`, which only mammoth's command-line tool loads, never the library our CV parsing imports.
 - **Live bundle:** `16ad15a8` (8,669 opportunities), built by the 2026-10-07 12:41 UTC etenders.ge run.
 - **Schedules:** the three pipelines run on the host daily at 16:10 UTC (`xtelo-pipeline@jobs-ge.timer`, `@hr-ge`, `@etenders-ge`); the nightly backup runs at 09:00 UTC. Backup copies off the host are in R2, whose lifecycle rule deletes them after 30 days; `deploy/backup-db.sh` also keeps the off-host copies under 8 GB, oldest first and never the newest.
@@ -130,7 +131,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 9B — job-board tender posts and tender dedupe | merged; deployed 2026-10-07 | #42 | Detector, tender scorer, buyer key, the two 9A P2s. |
 | 9C — tenders in Browse | merged; deployed 2026-10-07 as `9cf5065` | #44, #45 | First hosted dedupe failed on a column grant; fixed by the #45 hotfix without widening any grant. |
 | 10A — smart search | merged; deployed 2026-10-07 as `754a636` | #46 | No migration; query-time matching (`src/browse/search-terms.ts`). |
-| 10B — landing crawler | built 2026-10-07 | — | Canvas spider over the landing panel (`web/lib/landing-crawler/`); hides for readers, off under reduced motion. |
+| 10B — landing crawler | merged; deployed 2026-10-12 as `0cfbf86` | #47 | Canvas spider over the landing panel (`web/lib/landing-crawler/`); hides for readers, off under reduced motion. |
 
 Codex review debt: per-commit reviews recorded as **OWED** during usage-limit outages are listed in `archive/status-history.md` (`rg -n OWED docs/archive/status-history.md`). They are historical, not merge blockers, now that Codex reviews are manual; the `discharge-codex-debt` skill that paid them back was retired on 2026-10-05.
 
