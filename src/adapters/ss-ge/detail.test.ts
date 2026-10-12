@@ -9,35 +9,45 @@ function fixture(name: string): string {
 
 describe('parseDetailPage', () => {
   it('reads a live listing and when the site will drop it', () => {
-    expect(parseDetailPage(fixture('detail-active.html'))).toEqual({
+    expect(parseDetailPage(fixture('detail-active.html'), '35834941')).toEqual({
       status: 'active',
       endAt: '2026-11-11T12:46:44.954Z',
     });
   });
 
   it('reads a long-running listing, whose end is years away', () => {
-    expect(parseDetailPage(fixture('detail-long-running.html'))).toEqual({
+    expect(parseDetailPage(fixture('detail-long-running.html'), '6113387')).toEqual({
       status: 'active',
       endAt: '2039-12-31T20:00:00.000Z',
     });
   });
 
   it('reads an expired listing as gone: the site still answers 200 for it', () => {
-    expect(parseDetailPage(fixture('detail-expired.html'))).toEqual({
+    expect(parseDetailPage(fixture('detail-expired.html'), '30000000')).toEqual({
       status: 'gone',
       reason: 'expired',
     });
   });
 
   it('reads a page with no listing record as gone: the site has no 404', () => {
-    expect(parseDetailPage(fixture('detail-missing.html'))).toEqual({
+    expect(parseDetailPage(fixture('detail-missing.html'), '123')).toEqual({
       status: 'gone',
       reason: 'missing',
     });
   });
 
+  it('refuses a page that shows another listing than the one asked for', () => {
+    // Read as it stands, it would mark the wrong listing live or gone.
+    expect(() => parseDetailPage(fixture('detail-active.html'), '35834942')).toThrow(
+      SsGePageShapeError,
+    );
+    expect(() => parseDetailPage(fixture('detail-expired.html'), '35834942')).toThrow(
+      SsGePageShapeError,
+    );
+  });
+
   it('refuses a page that is not a listing page at all', () => {
-    expect(() => parseDetailPage('<html><body>Just a moment...</body></html>')).toThrow(
+    expect(() => parseDetailPage('<html><body>Just a moment...</body></html>', '123')).toThrow(
       SsGePageShapeError,
     );
   });

@@ -258,11 +258,14 @@ Whether an edit always moves a listing's order time is not known. One sweep two 
 Absence from a list proves nothing, because flat lists hide look-alikes.
 
 1. On every sighting, `expected_end_at` is the order time plus 30 days.
-2. A row is shown only while the current time is before `expected_end_at` plus a two-day grace period.
-3. Each night, the detail pages of up to 1,000 rows nearest their expected end are fetched, oldest first (1.25 s each). `Active` with a later `endDate` extends the row. `Expired`, inactive or missing marks it gone.
-4. Long-running listings (an `endDate` far in the future) are re-checked monthly.
+2. A row is shown only while the current time is before the later of `expected_end_at` and `last_seen_at`, plus a two-day grace period. `last_seen_at` counts because a row the site listed this week is live, whatever its order time says.
+3. Each run, the detail pages of up to 1,000 rows past their expected end are fetched (1.25 s each). First the rows the site still listed after that date, then the most recently expired. `Active` extends the row to its `endDate`; `Expired`, inactive or missing marks it gone. A page that fails to load changes nothing.
+4. An `endDate` is never believed more than 30 days ahead, so a long-running listing is re-checked monthly. An `Active` listing whose `endDate` has passed is re-checked in three days.
+5. A row nobody has seen or confirmed for a week past its expected end is marked gone (`lapsed`). A gone row is deleted after 14 days.
 
 A row that is neither re-seen nor checked in time is hidden at its expected end. That errs towards hiding a live listing over showing a dead one.
+
+**Measured while building (2026-10-12, `src/adapters/ss-ge/RECON_NOTES.md`):** the first 90–95% of each list is in strict order of order time, down to about 29 days. Rent lists then end with listings 30–45 days old; sale lists end with a block of business listings in no date order, up to 943 days old. Thirteen listings older than 30 days were checked, and all were live with an end 45 days after their order time. Rule 3's ordering exists for these.
 
 ---
 
