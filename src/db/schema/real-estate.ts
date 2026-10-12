@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -21,6 +23,33 @@ import { sources } from './sources.js';
  * `sources` row and its policy are shared with the rest of the database.
  */
 export const realEstate = pgSchema('realestate');
+
+const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' });
+
+/**
+ * What a listing is searched by: its street, its location names and its
+ * description, as a set of lowercased words.
+ *
+ * Built by hand, not by `to_tsvector`: the text-search parser decides what a
+ * letter is from the database's locale, and the local and hosted databases
+ * differ there (the same reason `src/browse/search-terms.ts` spells out its
+ * letter ranges). Words are cut at anything outside digits, Latin and
+ * Georgian letters.
+ *
+ * Two things are taken out of the description first. Runs of digits long
+ * enough to be a phone number, because this column is readable through the
+ * public view and descriptions are where posters type their numbers. And any
+ * unbroken run of 60 characters or more, which is never a word and would be
+ * refused as a lexeme.
+ */
+const LISTING_SEARCH_SQL = sql.raw(
+  [
+    'array_to_tsvector(array_remove(regexp_split_to_array(regexp_replace(lower(',
+    "coalesce(street_name, '') || ' ' || coalesce(city_name, '') || ' ' || coalesce(district_name, '') || ' ' || coalesce(subdistrict_name, '') || ' ' || ",
+    "regexp_replace(coalesce(description, ''), '[0-9][0-9 ()+-]{5,}[0-9]', ' ', 'g')",
+    "), '[0-9a-zა-ჿ]{60,}', ' ', 'g'), '[^0-9a-zა-ჿ]+'), ''))",
+  ].join(''),
+);
 
 export const realEstateDealTypeEnum = realEstate.enum('deal_type', ['sale', 'rent']);
 export const realEstatePropertyTypeEnum = realEstate.enum('property_type', [
@@ -109,6 +138,7 @@ export const realEstateListings = realEstate.table(
     goneReason: text('gone_reason'),
     /** Hash of the fields whose change matters, so an unchanged row is never rewritten. */
     contentHash: text('content_hash').notNull(),
+    search: tsvector('search').generatedAlwaysAs(LISTING_SEARCH_SQL),
   },
   (table) => [
     uniqueIndex('listings_source_key_idx').on(table.sourceId, table.sourceListingKey),
@@ -123,8 +153,89 @@ export const realEstateListings = realEstate.table(
     index('listings_price_usd_idx').on(table.priceUsd),
     index('listings_area_idx').on(table.areaM2),
     index('listings_expected_end_idx').on(table.status, table.expectedEndAt),
+    index('listings_search_idx').using('gin', table.search),
   ],
 );
+
+/**
+ * What the Real estate tab reads, on every surface, and all the public
+ * database role can see of this schema: active listings without their
+ * description. The description is searched (through `search`, which holds
+ * its words but not its text) and never shown, by the source policy's
+ * display rule.
+ *
+ * Whether a listing is still on show depends on the time of asking, so that
+ * part is in `src/realestate/queries.ts`, as with the other public views.
+ */
+export const realEstatePublicListings = realEstate
+  .view('public_listings', {
+    id: uuid('id').notNull(),
+    sourceId: uuid('source_id').notNull(),
+    canonicalUrl: text('canonical_url').notNull(),
+    dealType: realEstateDealTypeEnum('deal_type').notNull(),
+    propertyType: realEstatePropertyTypeEnum('property_type').notNull(),
+    rooms: smallint('rooms'),
+    bedrooms: smallint('bedrooms'),
+    areaM2: numeric('area_m2', { precision: 10, scale: 2 }),
+    floor: smallint('floor'),
+    totalFloors: smallint('total_floors'),
+    priceGel: numeric('price_gel', { precision: 14, scale: 2 }),
+    priceUsd: numeric('price_usd', { precision: 14, scale: 2 }),
+    pricePerM2Usd: numeric('price_per_m2_usd', { precision: 12, scale: 2 }),
+    currencyPosted: realEstateCurrencyEnum('currency_posted'),
+    cityRef: integer('city_ref'),
+    cityName: text('city_name'),
+    districtRef: integer('district_ref'),
+    districtName: text('district_name'),
+    subdistrictRef: integer('subdistrict_ref'),
+    subdistrictName: text('subdistrict_name'),
+    streetName: text('street_name'),
+    streetNumber: text('street_number'),
+    posterType: realEstatePosterTypeEnum('poster_type').notNull(),
+    promoted: boolean('promoted').notNull(),
+    sourceUpdatedAt: timestamp('source_updated_at', {
+      mode: 'string',
+      withTimezone: true,
+    }).notNull(),
+    expectedEndAt: timestamp('expected_end_at', { mode: 'string', withTimezone: true }),
+    firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+    search: tsvector('search'),
+  })
+  .as(sql`
+    select
+      ${realEstateListings.id} as id,
+      ${realEstateListings.sourceId} as source_id,
+      ${realEstateListings.canonicalUrl} as canonical_url,
+      ${realEstateListings.dealType} as deal_type,
+      ${realEstateListings.propertyType} as property_type,
+      ${realEstateListings.rooms} as rooms,
+      ${realEstateListings.bedrooms} as bedrooms,
+      ${realEstateListings.areaM2} as area_m2,
+      ${realEstateListings.floor} as floor,
+      ${realEstateListings.totalFloors} as total_floors,
+      ${realEstateListings.priceGel} as price_gel,
+      ${realEstateListings.priceUsd} as price_usd,
+      ${realEstateListings.pricePerM2Usd} as price_per_m2_usd,
+      ${realEstateListings.currencyPosted} as currency_posted,
+      ${realEstateListings.cityRef} as city_ref,
+      ${realEstateListings.cityName} as city_name,
+      ${realEstateListings.districtRef} as district_ref,
+      ${realEstateListings.districtName} as district_name,
+      ${realEstateListings.subdistrictRef} as subdistrict_ref,
+      ${realEstateListings.subdistrictName} as subdistrict_name,
+      ${realEstateListings.streetName} as street_name,
+      ${realEstateListings.streetNumber} as street_number,
+      ${realEstateListings.posterType} as poster_type,
+      ${realEstateListings.promoted} as promoted,
+      ${realEstateListings.sourceUpdatedAt} as source_updated_at,
+      ${realEstateListings.expectedEndAt} as expected_end_at,
+      ${realEstateListings.firstSeenAt} as first_seen_at,
+      ${realEstateListings.lastSeenAt} as last_seen_at,
+      ${realEstateListings.search} as search
+    from ${realEstateListings}
+    where ${realEstateListings.status} = 'active'
+  `);
 
 /** The only history kept: each time a listing's price moved, and from what to what. */
 export const realEstatePriceChanges = realEstate.table(
