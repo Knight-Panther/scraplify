@@ -38,7 +38,7 @@
 | # | Question | Default taken | Why |
 |---|---|---|---|
 | 1 | Summer cottages (აგარაკი) | Included as a third property kind | 1,280 listings; residential; the same filters apply |
-| 2 | Request budget | One request at a time, 3 s apart; nightly runs sized under 2,000 requests; one first pass of about 7,300 | Nothing has been agreed with ss.ge. These are the project's usual politeness floor. |
+| 2 | Request budget | One request at a time, 3 s apart; nightly runs sized under 2,000 requests; one first pass of about 7,300 | Settled by the owner on 2026-10-12: no budget is negotiated with ss.ge, and these cautious limits stand. They are the project's usual politeness floor. |
 | 3 | How to read ss.ge | Public pages only | Its frontend pages through a JSON gateway with a site-issued token (§4.8). Faster, but using it needs ss.ge to say so. |
 | 4 | Listing descriptions | Stored and searched; not shown on the public site | Same reasoning as the 2026-10-07 decision for the job boards |
 | 5 | Default view | One row per listing first; grouped view when Phase 11D lands | §5 |
@@ -161,7 +161,7 @@ So ss.ge's own collapsing does most of the work, and the tab is usable without g
 | Gate | State |
 |---|---|
 | The production server reaches ss.ge | Passed, 2026-10-12 (§4.9) |
-| Request budget and channel agreed with ss.ge | Open. Defaults in §2.2 rows 2 and 3 are used until then. |
+| Request budget and channel agreed with ss.ge | Closed (owner, 2026-10-12): not negotiated. The cautious limits in §2.2 rows 2 and 3 stand, and only public pages are read. |
 | `docs/RIGHTS.md` has a row for ss.ge | Done with Phase 11A |
 | Concept §31 | Done with Phase 11A |
 | Migration `0039` on the real databases | Needs the owner's approval and the `migration-safety-reviewer` pass first. The owner applies it. |
