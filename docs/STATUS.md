@@ -21,7 +21,16 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] Concept §31, the `docs/RIGHTS.md` row, this file.
     - [x] Full suite on a throwaway Postgres with all 40 migrations: 1,654 passed, 8 skipped. Typecheck clean; lint and format clean on every changed file. A first run had one failure, `dedupe-lock.test.ts` "gives up with a typed error once the wait exceeds its timeout"; it passes alone and passed on the re-run, so it is a timing test that can lose a race under a parallel run, not something this branch touches.
     - [ ] Tests green in CI.
-  - **Next, Phase 11B (the ss.ge crawler):** results-page and detail-page parsers with scrubbed fixtures, the walker with the page-1 fallback check and resumable progress, the expiry rule, the `run-ss-ge-crawl` command, then a first pass on a local database.
+  - **Phase 11B, the ss.ge crawler (started 2026-10-12, branch `phase-11b-ss-ge-crawler`, stacked on 11A):** reads results pages into `ListingCard`s and detail pages into "live until" or "gone" (`src/adapters/ss-ge/`).
+    - **Found while building the parsers (1,328 sampled rows):** order times end in `Z` on 60% of results rows, not only on detail pages, and are still Tbilisi wall-clock, so every time is read as wall-clock whatever marker follows; the cottage kind code is 1; a floor can be a list or a range (`7, 10, 11`, `2-14`) and is then left unknown; a price or bedroom count of 0 means unknown; `userInfo.userType` 3 is taken as a developer (seen on construction companies' listings), 2 as an agent.
+    - **11B exit gate:**
+      - [x] Results-page and detail-page parsers (`list.ts`, `detail.ts`, `page.ts`) with nine scrubbed fixtures: 29 tests, including the page-1 fallback, the short last page, the missing and expired listing, and the false `Z`.
+      - [x] `fixtures.test.ts` fails on any fixture carrying a token, phone number or name (checked by planting one).
+      - [ ] The walker: six lists newest first, the fallback check, resumable progress in `realestate.crawl_runs`, the nightly stop rule.
+      - [ ] The expiry rule and the nightly detail-check budget.
+      - [ ] `run-ss-ge-crawl` command and `npm run crawl:ss-ge`.
+      - [ ] First pass on a local database: readable rows within 5% of the guideline's §4.4; table and index size recorded.
+      - [ ] `src/adapters/ss-ge/RECON_NOTES.md`.
 
 - **Phase 10B, landing crawler (built 2026-10-07, owner request, from a reference video):** an eight-legged "spider" drawn on a canvas over the landing page's board-update rows and newest listings (`web/lib/landing-crawler/`, `web/components/landing-crawler.tsx`). It walks the board rows, then each listing down to "See all", and back; where a foot lands on an element marked `data-crawl` the element is "scraped" for 1.5 s (outline, highlight bar, tint or invert: `[data-scraped]` in `globals.css`, never a text, font or size change), and it sometimes throws a thread to a listing's board chip.
   - **Readers first:** a pointer, touch or keyboard focus in the area fades it out and clears every effect; it returns ~0.3 s after the pointer leaves (1.5 s after a touch). The canvas takes no pointer events and is hidden from assistive technology; nothing starts under `prefers-reduced-motion`, and it pauses off screen or in a hidden tab. Plain Canvas 2D, no library (the anti-patterns rule on animation libraries stands).
