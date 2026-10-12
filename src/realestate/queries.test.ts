@@ -211,6 +211,35 @@ describe('real-estate queries', () => {
       expect(await find(sourceId, { text: 'დარეკეთ' })).toHaveLength(1);
     });
 
+    it('takes a phone number out however its digits are spaced', async () => {
+      const sourceId = await newSource();
+      await listing(sourceId, {
+        description: [
+          'წერტილებით 577.11.22.33',
+          'ხაზებით 568/44/55/66',
+          'უწყვეტი ჰარით 591\u00a077\u00a088\u00a099',
+          'ახალი ხაზით 555\n12\n34\n56',
+          'კოდით (+995) 514-10-20-30',
+        ].join(' ; '),
+      });
+
+      for (const fragment of ['577', '568', '591', '555', '514', '995', '22', '66', '99', '34']) {
+        expect(await find(sourceId, { text: fragment }), fragment).toEqual([]);
+      }
+      // The words around the numbers are still found.
+      expect(await find(sourceId, { text: 'წერტილებით კოდით' })).toHaveLength(1);
+    });
+
+    it('keeps short numbers a reader may search by', async () => {
+      const sourceId = await newSource();
+      const flat = await listing(sourceId, {
+        description: 'კორპუსი 12, მე-3 სადარბაზო, 2020 წელი',
+      });
+
+      expect(await find(sourceId, { text: '2020' })).toEqual([flat]);
+      expect(await find(sourceId, { text: 'კორპუსი 12' })).toEqual([flat]);
+    });
+
     it('survives anything typed into it', async () => {
       const sourceId = await newSource();
       await listing(sourceId);

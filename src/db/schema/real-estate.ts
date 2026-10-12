@@ -36,9 +36,11 @@ const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' });
  * letter ranges). Words are cut at anything outside digits, Latin and
  * Georgian letters.
  *
- * Two things are taken out of the description first. Runs of digits long
- * enough to be a phone number, because this column is readable through the
- * public view and descriptions are where posters type their numbers. And any
+ * Two things are taken out of the description first. Any seven digits or
+ * more with at most three non-letters between each pair, which is a phone
+ * number however it is spaced (599 12 34 56, 599.12.34.56, +995 599-123-456),
+ * because this column is readable through the public view and descriptions
+ * are where posters type their numbers. And any
  * unbroken run of 60 characters or more, which is never a word and would be
  * refused as a lexeme.
  */
@@ -46,7 +48,7 @@ const LISTING_SEARCH_SQL = sql.raw(
   [
     'array_to_tsvector(array_remove(regexp_split_to_array(regexp_replace(lower(',
     "coalesce(street_name, '') || ' ' || coalesce(city_name, '') || ' ' || coalesce(district_name, '') || ' ' || coalesce(subdistrict_name, '') || ' ' || ",
-    "regexp_replace(coalesce(description, ''), '[0-9][0-9 ()+-]{5,}[0-9]', ' ', 'g')",
+    "regexp_replace(coalesce(description, ''), '[0-9]([^0-9a-zA-Zა-ჿ]{0,3}[0-9]){6,}', ' ', 'g')",
     "), '[0-9a-zა-ჿ]{60,}', ' ', 'g'), '[^0-9a-zა-ჿ]+'), ''))",
   ].join(''),
 );
