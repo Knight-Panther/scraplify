@@ -162,6 +162,44 @@ describe('parseResultsPage', () => {
     expect(page.cards).toEqual([]);
   });
 
+  it('drops characters a text column cannot hold, wherever a poster typed them', () => {
+    // A description on the live site carried U+0000 between two words
+    // (listing 36827800, 2026-10-12); Postgres refuses it in a text value.
+    const row = {
+      applicationId: 36827800,
+      type: 4,
+      dealType: 1,
+      title: 'x',
+      orderDate: '2026-09-24T16:32:10.586Z',
+      description: 'ქირავდება\u0000სახლი\u0007 ბაღში\u007f',
+      address: {
+        cityId: 96,
+        cityTitle: 'ბათ\u0000უმი',
+        streetTitle: '\u0000აეროპორტის გზატ.',
+        streetNumber: '1\u00000',
+      },
+    };
+    const data = {
+      props: { pageProps: { initialPage: 1, applicationList: { realStateItemModel: [row] } } },
+    };
+    const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
+    const expected = { propertyType: 'house', dealType: 'rent', page: 1 } as const;
+    const page = parseResultsPage(html, expected);
+
+    expect(page.cards).toHaveLength(1);
+    expect(page.cards[0]).toMatchObject({
+      description: 'ქირავდება სახლი ბაღში',
+      cityName: 'ბათუმი',
+      streetName: 'აეროპორტის გზატ.',
+      streetNumber: '10',
+    });
+    const stored = Object.values(page.cards[0] ?? {})
+      .filter((value) => typeof value === 'string')
+      .join('');
+    const codes = [...stored].map((char) => char.charCodeAt(0));
+    expect(codes.filter((code) => code < 32 || code === 127)).toEqual([]);
+  });
+
   it('refuses a page with no listing data instead of reading it as an empty list', () => {
     expect(() =>
       parseResultsPage('<html><body>Just a moment...</body></html>', {

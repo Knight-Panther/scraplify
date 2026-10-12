@@ -32,6 +32,7 @@ Kinds: `bina` (flat), `kerdzo-saxli` (house), `agaraki` (summer cottage). Deals:
 6. **A price or bedroom count of 0 means unknown.**
 7. **Without `order=1` a list is promoted-first**, and a walk that stops at the first old row stops in the wrong place. `isSsGeUrlAllowed` refuses a results address without it.
 8. **A page with no rows is a fault, not an empty list.** Every list holds hundreds of listings at least.
+9. **Posters paste control characters into text.** One description held U+0000 between two words (listing 36827800), Postgres refused the row, and the first pass ended at page 1,472 with 23,531 listings stored. The list parser now drops control characters other than whitespace from every text field. A run ended this way resumes five pages back.
 
 ## How the lists are ordered (measured 2026-10-12, 84 requests)
 
