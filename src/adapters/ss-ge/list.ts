@@ -65,9 +65,17 @@ function reference(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
 }
 
+/**
+ * Control characters other than whitespace. Posters paste them in, and
+ * Postgres refuses U+0000 in a text value: one such description ended a whole
+ * run (listing 36827800, 2026-10-12).
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point
+const CONTROL_RE = /[\u0000-\u0008\u000e-\u001f\u007f]/g;
+
 function text(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
+  const trimmed = value.replace(CONTROL_RE, '').trim();
   return trimmed === '' ? null : trimmed;
 }
 
@@ -94,6 +102,7 @@ function description(value: unknown): string | null {
     .replace(/<[^>]*>/g, ' ')
     .replace(/&(?:nbsp|amp|lt|gt|quot|#39);/g, (entity) => ENTITIES[entity] ?? ' ')
     .replace(/[<>]/g, ' ')
+    .replace(CONTROL_RE, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return plain === '' ? null : plain;
