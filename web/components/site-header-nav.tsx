@@ -25,6 +25,7 @@ import type { Surface } from '../lib/surface.js';
 const NAV_EN = [
   { href: '/opportunities', label: 'Browse' },
   { href: '/listings', label: 'Listings' },
+  { href: '/real-estate', label: 'Real estate' },
   { href: '/cv-ranked', label: 'CV Ranked' },
   { href: '/profile', label: 'Profile' },
   { href: '/ranked', label: 'Ranked' },
@@ -38,6 +39,7 @@ const NAV_EN = [
 const NAV_KA = [
   { href: '/opportunities', label: 'ვაკანსიები' },
   { href: '/listings', label: 'განცხადებები' },
+  { href: '/real-estate', label: 'უძრავი ქონება' },
   { href: '/cv-ranked', label: 'CV რანჟირება' },
   { href: '/profile', label: 'პროფილი' },
   { href: '/ranked', label: 'რანჟირება' },
@@ -98,8 +100,8 @@ export function SiteHeaderNav({
   const isActive = (href: string) =>
     href === '/' || href === '/admin' ? pathname === href : (pathname?.startsWith(href) ?? false);
   const navFull = locale === 'ka' ? NAV_KA : NAV_EN;
-  // Public hosted nav is `Browse | Listings | CV Ranked` only (concept
-  // §30.1; the first three entries of both lists) — the other links
+  // Public hosted nav is `Browse | Listings | Real estate | CV Ranked` only
+  // (concept §30.1 and §31; the first four entries of both lists) — the other links
   // (`/profile`, `/ranked`, `/drafts`, `/review`, `/taxonomy-review`,
   // `/health`) all 404 once Stage 6 allow-lists routes by surface, and
   // linking to them here would send a public visitor at a dead end. Sliced
@@ -110,7 +112,7 @@ export function SiteHeaderNav({
   // `navFull`: none of `navFull`'s links exist on that surface at all, unlike
   // public's subset which genuinely is a subset of local's.
   const surfaceNav =
-    surface === 'admin' ? NAV_ADMIN : surface === 'public' ? navFull.slice(0, 3) : navFull;
+    surface === 'admin' ? NAV_ADMIN : surface === 'public' ? navFull.slice(0, 4) : navFull;
   const nav = cvRanked ? surfaceNav : surfaceNav.filter((item) => item.href !== '/cv-ranked');
   // Per-locale, not one shared value: Georgian's longer nav words need
   // more room than English's (see the desktop-nav comment below), and a
@@ -120,8 +122,30 @@ export function SiteHeaderNav({
   // name (`min-[1480px]:flex`, `min-[1720px]:flex`, ...) so Tailwind's
   // source scanner — which matches raw text, not evaluated JS — still
   // finds and generates both.
-  const deskFlex = locale === 'ka' ? 'min-[1810px]:flex' : 'min-[1560px]:flex';
-  const deskHidden = locale === 'ka' ? 'min-[1810px]:hidden' : 'min-[1560px]:hidden';
+  //
+  // Per surface too, since the 11th link, "Real estate" (Phase 11C,
+  // 2026-10-12). The local bar carries all eleven and measured 1740px wide
+  // in English and 1992px in Georgian, so it needs 1780px and 2030px. The
+  // public bar carries four links and the admin bar five, which fit with
+  // room to spare, so they keep 1560px and 1810px: raising those would push
+  // every public visitor below 2030px into the popover for nothing.
+  const allLinks = surface === 'local';
+  const deskFlex =
+    locale === 'ka'
+      ? allLinks
+        ? 'min-[2030px]:flex'
+        : 'min-[1810px]:flex'
+      : allLinks
+        ? 'min-[1780px]:flex'
+        : 'min-[1560px]:flex';
+  const deskHidden =
+    locale === 'ka'
+      ? allLinks
+        ? 'min-[2030px]:hidden'
+        : 'min-[1810px]:hidden'
+      : allLinks
+        ? 'min-[1780px]:hidden'
+        : 'min-[1560px]:hidden';
 
   return (
     <header className="flex h-[58px] items-stretch bg-[var(--color-browse-nav-yellow)] lg:h-[78px]">

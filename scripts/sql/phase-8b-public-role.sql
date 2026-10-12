@@ -97,6 +97,12 @@ GRANT SELECT ON public.public_active_matching_bundle TO scraplify_public;
 -- Migration 0036: each source's newest run start and status and its last
 -- completed update, for the landing pages' "last update / next update".
 GRANT SELECT ON public.public_crawl_status TO scraplify_public;
+-- Phase 11C (migration 0040): the Real estate tab. Active listings without
+-- their description, and nothing else in that schema: no grant on
+-- realestate.listings, price_changes or crawl_runs. USAGE on the schema
+-- only lets the role name the view.
+GRANT USAGE ON SCHEMA realestate TO scraplify_public;
+GRANT SELECT ON realestate.public_listings TO scraplify_public;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --
