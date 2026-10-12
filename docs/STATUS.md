@@ -20,7 +20,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] `real-data-guard.ts` fingerprints the new schema for ss.ge (its own query, so an unmigrated database cannot switch the guard off), and `cleanupTestSource` removes a test source's real-estate rows.
     - [x] Concept §31, the `docs/RIGHTS.md` row, this file.
     - [x] Full suite on a throwaway Postgres with all 40 migrations: 1,654 passed, 8 skipped. Typecheck clean; lint and format clean on every changed file. A first run had one failure, `dedupe-lock.test.ts` "gives up with a typed error once the wait exceeds its timeout"; it passes alone and passed on the re-run, so it is a timing test that can lose a race under a parallel run, not something this branch touches.
-    - [ ] Tests green in CI.
+    - [x] Tests green in CI (PR #48, 2026-10-12).
   - **Phase 11B, the ss.ge crawler (started 2026-10-12, branch `phase-11b-ss-ge-crawler`, stacked on 11A):** reads results pages into `ListingCard`s and detail pages into "live until" or "gone" (`src/adapters/ss-ge/`).
     - **Found while building the parsers (1,328 sampled rows):** order times end in `Z` on 60% of results rows, not only on detail pages, and are still Tbilisi wall-clock, so every time is read as wall-clock whatever marker follows; the cottage kind code is 1; a floor can be a list or a range (`7, 10, 11`, `2-14`) and is then left unknown; a price or bedroom count of 0 means unknown; `userInfo.userType` 3 is taken as a developer (seen on construction companies' listings), 2 as an agent.
     - **11B exit gate:**
