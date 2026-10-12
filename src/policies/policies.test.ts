@@ -226,7 +226,12 @@ describe('source policy records', () => {
   });
 
   it('exposes every record by slug, matching each source’s own slug field', () => {
-    expect(Object.keys(sourcePolicies).sort()).toEqual(['etenders-ge', 'hr-ge', 'jobs-ge']);
+    expect(Object.keys(sourcePolicies).sort()).toEqual([
+      'etenders-ge',
+      'hr-ge',
+      'jobs-ge',
+      'ss-ge',
+    ]);
     for (const [slug, record] of Object.entries(sourcePolicies))
       expect(record.source.slug).toBe(slug);
     expect(sourcePolicies['jobs-ge'].source.id).toBe(jobsGeSource.id);

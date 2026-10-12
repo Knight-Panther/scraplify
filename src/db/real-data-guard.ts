@@ -32,7 +32,7 @@ import { Pool, type PoolClient } from 'pg';
  * guard that read its own definition of "real" through a mockable import
  * could be silently neutered by the very thing it is watching for.
  */
-const REAL_SOURCE_SLUGS = ['jobs-ge', 'hr-ge', 'etenders-ge'];
+const REAL_SOURCE_SLUGS = ['jobs-ge', 'hr-ge', 'etenders-ge', 'ss-ge'];
 
 /**
  * One checksum over every row of every table a crawl, reconciliation or
@@ -123,6 +123,55 @@ const FINGERPRINT_SQL = `
 const UNDEFINED_TABLE = '42P01';
 
 /**
+ * The same promise for the `realestate` schema (migration 0039): whole rows
+ * of every table a real-estate crawl writes, for the guarded sources.
+ *
+ * A query of its own, not three more subqueries above. On a database where
+ * migration 0039 has not been applied these tables do not exist, and folding
+ * them into the main query would turn its "relation does not exist" into
+ * the benign no-schema answer for every table at once, switching the whole
+ * guard off without a word.
+ */
+const REAL_ESTATE_FINGERPRINT_SQL = `
+  select md5(concat_ws('|',
+    (select coalesce(string_agg(md5(l::text), ',' order by l.id), '')
+      from realestate.listings l
+      join sources s on s.id = l.source_id
+      where s.slug = any($1)),
+    (select coalesce(string_agg(md5(pc::text), ',' order by pc.id), '')
+      from realestate.price_changes pc
+      join realestate.listings l on l.id = pc.listing_id
+      join sources s on s.id = l.source_id
+      where s.slug = any($1)),
+    (select coalesce(string_agg(md5(cr::text), ',' order by cr.id), '')
+      from realestate.crawl_runs cr
+      join sources s on s.id = cr.source_id
+      where s.slug = any($1))
+  )) as fingerprint
+`;
+
+/** Exported for its own test; the guard calls it with `REAL_SOURCE_SLUGS`. */
+export async function realEstateFingerprint(
+  pool: Pick<Pool, 'query'>,
+  slugs: readonly string[],
+): Promise<string> {
+  try {
+    const { rows } = await pool.query<{ fingerprint: string }>(REAL_ESTATE_FINGERPRINT_SQL, [
+      slugs,
+    ]);
+    const fingerprint = rows[0]?.fingerprint;
+    if (typeof fingerprint !== 'string') {
+      throw new Error('real-data guard: real-estate fingerprint query returned no value');
+    }
+    return fingerprint;
+  } catch (err) {
+    // Only "no such table": the schema is not there yet, so there is nothing to guard.
+    if ((err as { code?: string } | null)?.code === UNDEFINED_TABLE) return 'no-realestate-schema';
+    throw err;
+  }
+}
+
+/**
  * Deliberately narrow error handling. An earlier version caught every error
  * and returned a constant, which meant a malformed query produced the SAME
  * value before and after and the guard passed silently — it was broken for
@@ -146,7 +195,7 @@ async function fingerprintRealData(): Promise<string> {
     if (typeof fingerprint !== 'string') {
       throw new Error('real-data guard: fingerprint query returned no value');
     }
-    return fingerprint;
+    return `${fingerprint}|${await realEstateFingerprint(pool, REAL_SOURCE_SLUGS)}`;
   } catch (err) {
     if (
       typeof err === 'object' &&

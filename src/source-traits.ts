@@ -1,4 +1,5 @@
 import { etendersGeSource } from './policies/etenders-ge.js';
+import { ssGeSource } from './policies/ss-ge.js';
 
 /**
  * Per-source facts that change how the rest of the system treats a board,
@@ -21,3 +22,14 @@ export const SOURCES_WITHOUT_FULL_COVERAGE: readonly string[] = [etendersGeSourc
  * vacancy bundle.
  */
 export const TENDER_ONLY_SOURCES: readonly string[] = [etendersGeSource.slug];
+
+/**
+ * Sources whose listings are real estate, kept in the `realestate` schema and
+ * never in `source_listings` or `crawl_runs`
+ * (`docs/real-estate-implementation-guideline.md` §8). They share the
+ * `sources` and `source_policies` tables for the policy record alone, so
+ * whatever walks every source as a job board must leave these out: source
+ * health (and with it `health:check` and the matching bundle's gate) and
+ * retention's locks.
+ */
+export const REAL_ESTATE_SOURCES: readonly string[] = [ssGeSource.slug];
