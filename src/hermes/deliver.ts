@@ -1,6 +1,7 @@
-import { promises as fs } from 'node:fs';
+import { constants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { listOutbox } from './outbox.js';
+import { parseHermesEvent } from './schema.js';
 import { signHermesRequest } from './signature.js';
 
 /**
@@ -12,7 +13,8 @@ import { signHermesRequest } from './signature.js';
  * queue, and it is moved aside, never deleted.
  *
  * Nothing here reads the database, and no header value or secret is logged:
- * a log line names the event, the answer and the event's age.
+ * a log line names the event, the answer and the event's age. A file that is
+ * not exactly an event is never signed or sent.
  */
 
 export const REQUEST_TIMEOUT_MS = 20_000;
@@ -117,21 +119,48 @@ interface PendingEvent {
   emittedAtMs: number;
 }
 
-/** An id that is safe to send as a header value. */
-const EVENT_ID = /^[\x21-\x7e]{1,200}$/;
+/** An event is under a kilobyte; nothing this large is one. */
+const MAX_EVENT_BYTES = 16 * 1024;
 
+/**
+ * The file as an event, or `null` when it is not exactly one
+ * (`src/hermes/schema.ts`). The outbox is written by the crawl pipeline, a
+ * different user from this sender, and what is signed here Hermes takes as
+ * this host's word, so nothing is signed that is not a real event: the body
+ * sent is the checked event written out again, never the file's own bytes.
+ */
 async function readPending(directory: string, name: string): Promise<PendingEvent | null> {
-  const file = path.join(directory, name);
-  const body = await fs.readFile(file);
+  let text: string;
   try {
-    const event = JSON.parse(body.toString('utf8')) as { event_id?: unknown; emitted_at?: unknown };
-    const emittedAtMs = typeof event.emitted_at === 'string' ? Date.parse(event.emitted_at) : NaN;
-    if (typeof event.event_id !== 'string' || !EVENT_ID.test(event.event_id)) return null;
-    if (Number.isNaN(emittedAtMs)) return null;
-    return { name, body, eventId: event.event_id, emittedAtMs };
+    // Never through a link: the name was a plain file when it was listed.
+    const handle = await fs.open(
+      path.join(directory, name),
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+    );
+    try {
+      const { size } = await handle.stat();
+      if (size > MAX_EVENT_BYTES) return null;
+      text = await handle.readFile('utf8');
+    } finally {
+      await handle.close();
+    }
   } catch {
     return null;
   }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const event = parseHermesEvent(value);
+  if (event === null) return null;
+  return {
+    name,
+    body: Buffer.from(JSON.stringify(event), 'utf8'),
+    eventId: event.event_id,
+    emittedAtMs: Date.parse(event.emitted_at),
+  };
 }
 
 /** The failure's kind, e.g. `TimeoutError`, `ECONNREFUSED` or `EACCES`: never a message, which can quote a URL. */
@@ -191,7 +220,7 @@ export async function deliverOutbox(options: DeliverOptions): Promise<DeliverRes
     for (const name of names) {
       seen.add(name);
       const event = await readPending(outboxDir, name);
-      if (event === null) await bury(name, name, 'unreadable');
+      if (event === null) await bury(name, name, 'not an event');
       else pending.push(event);
     }
     pending.sort((a, b) => a.emittedAtMs - b.emittedAtMs || a.name.localeCompare(b.name));

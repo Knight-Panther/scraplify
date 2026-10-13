@@ -192,6 +192,16 @@ signature) is built as written and was checked against Hermes' own receiver
     behind Access also works. `HERMES_HOOK_URL` must be `https`.
 12. **Not built:** the optional `xtelo.backup.finished` event.
 13. **A hard kill** (SIGKILL, out of memory, power loss) writes no event. Treat silence as unknown.
+14. **The sender runs as its own user, `xtelo-hermes`,** not as `xtelo`. With one shared user the
+    crawl pipeline, which reads pages from the open web, could read the hook's secrets out of the
+    sender's process through `/proc` (shown in rehearsal). The outbox is `xtelo:xtelo-hermes` mode
+    `2770`: the pipeline writes it and the sender reads and empties it through the group.
+15. **The sender signs only an exact event.** Each outbox file is checked against
+    `src/hermes/schema.ts` first: known keys only, and every value an id, a code, a count, a time
+    or one of a fixed set of words. Anything else is moved to the dead directory unsigned, and the
+    body sent is the checked event written out again. So a signed request from this host cannot
+    carry a sentence, whatever ends up in the outbox. The cost: a new field, counter, source or
+    event type has to be added to that file in the same change, or its events are refused.
 
 ### For Phase 11E (real estate)
 
@@ -199,7 +209,8 @@ signature) is built as written and was checked against Hermes' own receiver
 keys: `realestate.crawl_runs` has `page_count`, `row_count`, `new_count`, `changed_count`,
 `bumped_count`, `unchanged_count`, `reopened_count`, `gone_count`, `verified_count`, and no
 `discovered`, `missing`, `expired` or `quarantined`. Expect a `counts` object with those names under
-`"domain": "realestate"`, and no `full_coverage`.
+`"domain": "realestate"`, and no `full_coverage`. Until 11E adds that shape to
+`src/hermes/schema.ts`, the sender refuses a real-estate event.
 
 ### One thing on Hermes' side
 
@@ -221,8 +232,8 @@ should not record the id until the delivery has succeeded.
 
    The test event: `{"event_type":"xtelo.test","schema":1,"event_id":"test:<emitted_at>","release":"…","host":"…","emitted_at":"…"}`.
 3. Names as built:
-   - Units: `xtelo-hermes-notify.service`, `xtelo-hermes-notify.timer` (every 15 minutes), and
-     `OnSuccess=`/`OnFailure=` on `xtelo-pipeline@.service`.
+   - Units: `xtelo-hermes-notify.service` (user `xtelo-hermes`), `xtelo-hermes-notify.timer`
+     (every 15 minutes), and `OnSuccess=`/`OnFailure=` on `xtelo-pipeline@.service`.
    - Outbox `/var/lib/xtelo/hermes/outbox`; dead events `/var/lib/xtelo/hermes/dead`.
    - `/etc/xtelo/hermes-hook.env`: `HERMES_HOOK_URL`, `HERMES_HOOK_SECRET`, `CF_ACCESS_CLIENT_ID`,
      `CF_ACCESS_CLIENT_SECRET`. `/etc/xtelo/worker.env`: `HERMES_HOOK_ENABLED=1`.
@@ -231,7 +242,7 @@ should not record the id until the delivery has succeeded.
      secret of 64 hex characters.
 4. A test event by hand on the host:
    `sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/hermes-event.js --test && sudo systemctl start xtelo-hermes-notify && journalctl -u xtelo-hermes-notify -n 5 -o cat`
-5. What the brief got wrong: items 1 to 4 above. `crawl_runs` has the columns it names, plus
+5. What the brief got wrong: items 1 to 4 and 14 above. `crawl_runs` has the columns it names, plus
    `skipped_count`. The units are not re-copied by a plain deploy, so "plain deploy" needs the three
    commands in RUNBOOK §3 step 7. RUNBOOK §4 and concept §30.6 said nothing pushes a notification;
    both now name this hook as the one exception.

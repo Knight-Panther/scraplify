@@ -5,7 +5,10 @@
 # unreachable, which is normal: the PC may be off for hours.
 #
 # It holds the hook's secrets and no database credential; the pipeline holds
-# the database credential and no hook secret.
+# the database credential and no hook secret. That only holds because the two
+# run as different users: one user's processes can read each other's
+# environment through /proc (the reason xtelo-web@ has a user per surface),
+# and the pipeline is the process that reads pages from the open web.
 
 [Unit]
 Description=Xtelo events to Hermes
@@ -18,8 +21,8 @@ ConditionDirectoryNotEmpty=/var/lib/xtelo/hermes/outbox
 
 [Service]
 Type=oneshot
-User=xtelo
-Group=xtelo
+User=xtelo-hermes
+Group=xtelo-hermes
 WorkingDirectory=/opt/xtelo/current
 # Optional ("-"): the release is deployed before Hermes' side exists. Without
 # the file the sender keeps every event and says the hook is not set up.
@@ -35,7 +38,8 @@ ProtectHome=true
 PrivateTmp=true
 ProtectProc=invisible
 InaccessiblePaths=-/etc/xtelo -/var/backups/xtelo
-# The outbox and the dead events, through their parent: each writable path is
+# The outbox (written by xtelo, group xtelo-hermes) and the dead events
+# (xtelo-hermes only), through their parent: each writable path is
 # a mount of its own here, and a refused event is moved from one to the other
 # by a rename, which cannot cross mounts. Optional ("-") like the pipeline's:
 # see xtelo-pipeline@.service.

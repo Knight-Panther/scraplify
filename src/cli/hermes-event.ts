@@ -10,6 +10,7 @@ import {
   releaseFromDirectory,
 } from '../hermes/event.js';
 import { DEFAULT_OUTBOX_DIR, writeOutboxEvent } from '../hermes/outbox.js';
+import { parseHermesEvent } from '../hermes/schema.js';
 import { logger } from '../logger.js';
 import { PUBLIC_MATCHING_CHANNEL } from '../matching/bundle/contract.js';
 import { parseHermesEventOptions } from './hermes-event-options.js';
@@ -50,6 +51,11 @@ async function main(): Promise<void> {
     event = buildPipelineEvent(options.run, facts, context);
   }
 
+  // The sender refuses anything that is not exactly an event; say so here,
+  // where the cause is, and do not leave it a file to bury.
+  if (parseHermesEvent(event) === null) {
+    throw new Error('the event built does not match src/hermes/schema.ts');
+  }
   const directory = process.env.HERMES_OUTBOX_DIR ?? DEFAULT_OUTBOX_DIR;
   await writeOutboxEvent(directory, event);
   logger.info(

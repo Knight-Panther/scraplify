@@ -4,10 +4,11 @@ import type { HermesEvent } from './event.js';
 
 /**
  * The outbox: one JSON file per event, written by the pipeline and delivered
- * by a separate unit (`src/hermes/deliver.ts`). The pipeline holds the
- * database credential and never the hook's secrets; the sender holds the
- * secrets and never a database credential. A file's bytes are the request
- * body exactly as it will be signed and sent.
+ * by a separate unit under a separate user (`src/hermes/deliver.ts`). The
+ * pipeline holds the database credential and never the hook's secrets; the
+ * sender holds the secrets and never a database credential. The sender does
+ * not trust a file because it is here: it checks each one against the event's
+ * exact shape before signing it (`src/hermes/schema.ts`).
  */
 
 export const DEFAULT_OUTBOX_DIR = '/var/lib/xtelo/hermes/outbox';
@@ -26,14 +27,16 @@ export function outboxFileName(eventId: string): string {
 
 /**
  * Writes the event under a hidden temporary name and renames it into place,
- * so the sender never reads half a file.
+ * so the sender never reads half a file. Group-readable: the sender is a
+ * different user (`xtelo-hermes`), which reads the outbox through its group.
+ * An event holds nothing secret.
  */
 export async function writeOutboxEvent(directory: string, event: HermesEvent): Promise<string> {
   const name = outboxFileName(event.event_id);
   const target = path.join(directory, name);
   const temporary = path.join(directory, `.${name}.${process.pid}.tmp`);
   try {
-    await fs.writeFile(temporary, JSON.stringify(event), { mode: 0o600 });
+    await fs.writeFile(temporary, JSON.stringify(event), { mode: 0o640 });
     await fs.rename(temporary, target);
   } catch (err) {
     await fs.rm(temporary, { force: true });

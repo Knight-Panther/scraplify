@@ -18,6 +18,8 @@ url="${1:-}"
 [[ "$url" =~ ^https://[a-z0-9.-]+/webhooks/[A-Za-z0-9_-]+$ ]] ||
   { echo "usage: $0 https://<hook host>/webhooks/<route>" >&2; exit 2; }
 [ -d /etc/xtelo ] || { echo "/etc/xtelo is missing; run deploy/host-setup.sh first" >&2; exit 1; }
+id xtelo-hermes >/dev/null 2>&1 ||
+  { echo "the xtelo-hermes user is missing; do RUNBOOK section 3 step 7 first" >&2; exit 1; }
 release="$(cd "$(dirname "$0")/.." && pwd)"
 [ -f "$release/dist/cli/hermes-event.js" ] || { echo "$release is not a built release" >&2; exit 1; }
 
@@ -49,7 +51,9 @@ mv "$tmp" "$file"
 
 outbox=/var/lib/xtelo/hermes/outbox
 dead=/var/lib/xtelo/hermes/dead
-install -d -o xtelo -g xtelo -m 0700 /var/lib/xtelo/hermes "$outbox" "$dead"
+install -d -o xtelo-hermes -g xtelo-hermes -m 0755 /var/lib/xtelo/hermes
+install -d -o xtelo -g xtelo-hermes -m 2770 "$outbox"
+install -d -o xtelo-hermes -g xtelo-hermes -m 0700 "$dead"
 
 echo "Saved. Sending one test event..."
 # An earlier attempt's refused test event would read as this one's.

@@ -1,15 +1,6 @@
 import { parseArgs } from 'node:util';
 import { PIPELINE_STEPS, type PipelineRun, type StepCodes } from '../hermes/event.js';
-import { etendersGeSource } from '../policies/etenders-ge.js';
-import { hrGeSource } from '../policies/hr-ge.js';
-import { jobsGeSource } from '../policies/jobs-ge.js';
-
-/** The sources `deploy/run-pipeline.sh` runs. ss.ge joins with Phase 11E. */
-const PIPELINE_SOURCES: readonly string[] = [
-  jobsGeSource.slug,
-  hrGeSource.slug,
-  etendersGeSource.slug,
-];
+import { PIPELINE_SOURCES } from '../hermes/schema.js';
 
 export type HermesEventOptions = { kind: 'test' } | { kind: 'pipeline'; run: PipelineRun };
 
