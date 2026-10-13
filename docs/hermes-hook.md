@@ -223,9 +223,10 @@ should not record the id until the delivery has succeeded.
 ### Report
 
 1. PR and release: <https://github.com/Knight-Panther/scraplify/pull/51>, merged as `6a186b4` and
-   live on the host since 17:25 UTC on 2026-10-13, dormant: the units and the retry timer are
-   installed, `HERMES_HOOK_ENABLED` is unset and `/etc/xtelo/hermes-hook.env` does not exist. The
-   host's name, which every event carries as `host`, is whatever `hostname` prints there.
+   live on the host since 17:25 UTC on 2026-10-13. <https://github.com/Knight-Panther/scraplify/pull/52>
+   (the Access client secret's format) followed as `9dfe55f` at 17:47 UTC. Switched on at 17:49 UTC
+   the same day. Every event carries the host's name as `host`: whatever `hostname` prints there
+   (not written here, like the host's address).
 2. An event as built, from a rehearsal run under systemd (stand-in crawl, real event and sender code,
    a mock receiver that checks the signature and the five-minute window):
 
@@ -234,6 +235,12 @@ should not record the id until the delivery has succeeded.
    ```
 
    The test event: `{"event_type":"xtelo.test","schema":1,"event_id":"test:<emitted_at>","release":"…","host":"…","emitted_at":"…"}`.
+
+   The first real one, from the host on 2026-10-13 (the day's jobs-ge run; switched on at 17:49 UTC):
+
+   ```json
+   {"event_type":"xtelo.pipeline.finished","schema":1,"event_id":"jobs-ge:205b95fc-84fc-44dd-97c6-3b4708cd79d1","domain":"opportunities","source":"jobs-ge","status":"succeeded","exit_code":0,"steps":{"crawl":0,"dedupe":0,"taxonomy":0,"bundle":0,"retention":0},"crawl_run":{"id":"205b95fc-84fc-44dd-97c6-3b4708cd79d1","status":"completed","started_at":"2026-10-13T16:16:56.858Z","finished_at":"2026-10-13T16:29:35.510Z"},"counts":{"discovered":5687,"new":317,"changed":7,"unchanged":20,"skipped":5343,"missing":283,"expired":31,"reopened":1,"quarantined":0,"failed":0},"full_coverage":true,"bundle":{"id":"04ff6844-6210-40ad-95e5-2fff9abd7b71","opportunities":8990},"release":"9dfe55f1ab0329036f575330352f379b2cd3cd17","host":"<the host's name>","emitted_at":"2026-10-13T17:51:15.666Z"}
+   ```
 3. Names as built:
    - Units: `xtelo-hermes-notify.service` (user `xtelo-hermes`), `xtelo-hermes-notify.timer`
      (every 15 minutes), and `OnSuccess=`/`OnFailure=` on `xtelo-pipeline@.service`.
