@@ -396,16 +396,16 @@ function ResultsTable({ rows, currency }: { rows: RealEstateRow[]; currency: Cur
       <table className="w-full table-fixed border-collapse text-sm leading-[var(--leading-body)]">
         <thead>
           <tr className="border-b border-border text-left text-xs text-faint">
-            <Th className="w-[46%] sm:w-[30%] md:w-[20%] xl:w-[14%]">Listing</Th>
+            <Th className="w-[42%] sm:w-[30%] md:w-[20%] xl:w-[14%]">Listing</Th>
             <Th className="hidden text-right xl:table-cell xl:w-[6%]">Rooms</Th>
             <Th className="hidden text-right md:table-cell md:w-[10%] xl:w-[7%]">Area</Th>
             <Th className="hidden text-right xl:table-cell xl:w-[8%]">Floor</Th>
-            <Th className="w-[30%] text-right sm:w-[18%] md:w-[14%] xl:w-[10%]">Price</Th>
+            <Th className="w-[27%] text-right sm:w-[18%] md:w-[14%] xl:w-[10%]">Price</Th>
             <Th className="hidden text-right md:table-cell md:w-[12%] xl:w-[8%]">Per m²</Th>
             <Th className="hidden pl-4 sm:table-cell sm:w-[32%] md:w-[26%] xl:w-[17%]">Location</Th>
             <Th className="hidden xl:table-cell xl:w-[12%]">Street</Th>
             <Th className="hidden xl:table-cell xl:w-[8%]">Posted by</Th>
-            <Th className="w-[24%] sm:w-[20%] md:w-[18%] xl:w-[10%]">Updated</Th>
+            <Th className="w-[31%] sm:w-[20%] md:w-[18%] xl:w-[10%]">Updated</Th>
           </tr>
         </thead>
         <tbody>

@@ -1,4 +1,4 @@
-ALTER TABLE "realestate"."listings" ADD COLUMN "search" "tsvector" GENERATED ALWAYS AS (array_to_tsvector(array_remove(regexp_split_to_array(regexp_replace(lower(coalesce(street_name, '') || ' ' || coalesce(city_name, '') || ' ' || coalesce(district_name, '') || ' ' || coalesce(subdistrict_name, '') || ' ' || regexp_replace(coalesce(description, ''), '[0-9]([^0-9a-zA-Zა-ჿ]{0,3}[0-9]){6,}', ' ', 'g')), '[0-9a-zა-ჿ]{60,}', ' ', 'g'), '[^0-9a-zა-ჿ]+'), ''))) STORED;--> statement-breakpoint
+ALTER TABLE "realestate"."listings" ADD COLUMN "search" "tsvector" GENERATED ALWAYS AS (array_to_tsvector(array_remove(regexp_split_to_array(regexp_replace(lower(coalesce(street_name, '') || ' ' || coalesce(city_name, '') || ' ' || coalesce(subdistrict_name, '') || ' ' || regexp_replace(coalesce(description, ''), '[0-9]([^0-9a-zA-Zა-ჿ]{0,3}[0-9]){6,}', ' ', 'g')), '[0-9a-zა-ჿ]{60,}', ' ', 'g'), '[^0-9a-zა-ჿ]+'), ''))) STORED;--> statement-breakpoint
 CREATE INDEX "listings_search_idx" ON "realestate"."listings" USING gin ("search");--> statement-breakpoint
 CREATE VIEW "realestate"."public_listings" AS (
     select

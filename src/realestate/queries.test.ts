@@ -192,6 +192,19 @@ describe('real-estate queries', () => {
       }
     });
 
+    it('does not answer a neighbourhood with the whole district that carries its name', async () => {
+      // Tbilisi districts are named as pairs ('ვაკე-საბურთალო'); with the
+      // district searched, 'vake' returned 5,812 houses for rent of which 479
+      // were in Vake (first pass, 2026-10-13).
+      const sourceId = await newSource();
+      await listing(sourceId);
+      const vake = await listing(sourceId, { subdistrictRef: 2, subdistrictName: 'ვაკე' });
+
+      for (const text of ['ვაკე', 'ვაკეში', 'vake']) {
+        expect(await find(sourceId, { text }), text).toEqual([vake]);
+      }
+    });
+
     it('finds by street and by a word of the description, every word required', async () => {
       const sourceId = await newSource();
       const renovated = await listing(sourceId, { description: '<b>ახალი</b> რემონტით, ავეჯით' });
