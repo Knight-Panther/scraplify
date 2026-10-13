@@ -7,6 +7,13 @@
 Description=Xtelo crawl pipeline (%i)
 After=network-online.target postgresql.service
 Wants=network-online.target postgresql.service
+# The Hermes hook (docs/hermes-hook.md): however the run ended, send the event
+# it left in the outbox. A stopped or timed-out run counts as failed here.
+# Naming the same unit twice makes systemd log "multiple trigger source
+# candidates for exit status propagation ... skipping", which is harmless: the
+# sender does not read the run's result from systemd, it reads the outbox.
+OnSuccess=xtelo-hermes-notify.service
+OnFailure=xtelo-hermes-notify.service
 
 [Service]
 Type=oneshot
@@ -29,3 +36,6 @@ InaccessiblePaths=-/etc/xtelo -/var/backups/xtelo
 # journal. systemd refuses to start the unit if this directory is missing
 # (RUNBOOK §2 step 0 creates it).
 ReadWritePaths=/var/lib/xtelo/bundles
+# The Hermes outbox, optional ("-"): a host where it was never created must
+# still crawl. The event is then not written, which the run's journal says.
+ReadWritePaths=-/var/lib/xtelo/hermes/outbox
