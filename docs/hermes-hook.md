@@ -242,7 +242,9 @@ should not record the id until the delivery has succeeded.
      `CF_ACCESS_CLIENT_SECRET`. `/etc/xtelo/worker.env`: `HERMES_HOOK_ENABLED=1`.
    - `deploy/set-hermes-hook.sh` accepts an HMAC secret of 16 or more characters from
      `A-Z a-z 0-9 . _ ~ + / = -`, a client id of 32 hex characters plus `.access`, and a client
-     secret of 64 hex characters.
+     secret of 32 to 128 letters, digits, `_` or `-`. (As first deployed it took only 64 hex
+     characters; the token Cloudflare issued on 2026-10-13 is 54 letters, digits and underscores,
+     found by Hermes before the owner's first try.)
 4. A test event by hand on the host:
    `sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/hermes-event.js --test && sudo systemctl start xtelo-hermes-notify && journalctl -u xtelo-hermes-notify -n 5 -o cat`
 5. What the brief got wrong: items 1 to 4 and 14 above. `crawl_runs` has the columns it names, plus

@@ -118,6 +118,8 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
     - [x] Full suite on a throwaway Postgres: 1,738 passed, 2 skipped. Typecheck and lint clean; the new files pass the format check.
     - [x] Tests green in CI (PR #51, 2026-10-13).
     - [x] Deployed dormant: `6a186b4` at 17:25 UTC 2026-10-13, no migration, no grants. The `xtelo-hermes` user, the two directories, the three units and the retry timer are on the host; `HERMES_HOOK_ENABLED` is unset and there is no `hermes-hook.env`. Checked on the host: the event command writes nothing, the sender is skipped on the empty outbox, no failed unit, `health-check` exit 0 on all three sources. `probe: ok`; landing, Browse, a detail page and Listings opened at 390 and 1280 px with no console message and no sideways scroll.
+    - [x] Hermes' side is live (2026-10-13, reported by Hermes): tunnel `hermes-pc`, `hooks.jobster.fun` proxied, an Access application with one Service Auth policy on the service token `xtelo-host` (expires 2027-10-13), the `xtelo-pipeline` route on `127.0.0.1:8644`. A signed test post through the tunnel was accepted, a repeat answered `duplicate`, no token 403, wrong signature 401.
+    - [x] Found at switch-on, before the first try: `set-hermes-hook.sh` took an Access client secret of 64 hex characters only, and the one Cloudflare issued is 54 letters, digits and underscores. The check now takes 32 to 128 letters, digits, `_` or `-`. Nothing else checks that format.
     - [ ] Switched on, by the owner, once Hermes' side is live (RUNBOOK §3 step 7): `set-hermes-hook.sh` ends with "Delivered.", then `HERMES_HOOK_ENABLED=1` in `worker.env`.
 
 ## Owner decisions in force
