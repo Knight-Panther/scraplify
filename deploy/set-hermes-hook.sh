@@ -34,8 +34,10 @@ echo
   { echo "the HMAC secret is 16 or more letters, digits or . _ ~ + / = -; nothing changed" >&2; exit 1; }
 [[ "$access_id" =~ ^[0-9a-f]{32}\.access$ ]] ||
   { echo "the Access Client ID is 32 hex characters followed by .access; nothing changed" >&2; exit 1; }
-[[ "$access_secret" =~ ^[0-9a-f]{64}$ ]] ||
-  { echo "the Access Client Secret is 64 hex characters; nothing changed" >&2; exit 1; }
+# Cloudflare has issued this as 64 hex characters and (2026-10-13) as 54
+# letters, digits and underscores. Checked for what an env file takes unquoted.
+[[ "$access_secret" =~ ^[A-Za-z0-9_-]{32,128}$ ]] ||
+  { echo "the Access Client Secret is 32 to 128 letters, digits, _ or -; nothing changed" >&2; exit 1; }
 
 file=/etc/xtelo/hermes-hook.env
 tmp="$(mktemp /etc/xtelo/.hermes-hook.env.XXXXXX)"
