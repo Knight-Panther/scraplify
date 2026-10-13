@@ -91,6 +91,8 @@ id xtelo-admin >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr
 # 0755, not useradd's 0750: the public site reads the bundles below it.
 install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles /var/lib/xtelo/models
 install -d -o xtelo -g xtelo -m 0700 /var/backups/xtelo
+# The Hermes hook's queue and its dead events (docs/hermes-hook.md).
+install -d -o xtelo -g xtelo -m 0700 /var/lib/xtelo/hermes /var/lib/xtelo/hermes/outbox /var/lib/xtelo/hermes/dead
 install -d -o root -g root -m 0700 /etc/xtelo
 
 echo "== summary"
