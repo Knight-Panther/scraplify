@@ -197,8 +197,8 @@ signature) is built as written and was checked against Hermes' own receiver
     sender's process through `/proc` (shown in rehearsal). The outbox is `xtelo:xtelo-hermes` mode
     `2770`: the pipeline writes it and the sender reads and empties it through the group.
 15. **The sender signs only an exact event.** Each outbox file is checked against
-    `src/hermes/schema.ts` first: known keys only, and every value an id, a code, a count, a time
-    or one of a fixed set of words. Anything else is moved to the dead directory unsigned, and the
+    `src/hermes/schema.ts` first: known keys only, and every value an id, a code, a bounded count,
+    a time exactly as `toISOString` writes it, the host's own name, or one of a fixed set of words. Anything else is moved to the dead directory unsigned, and the
     body sent is the checked event written out again. So a signed request from this host cannot
     carry a sentence, whatever ends up in the outbox. The cost: a new field, counter, source or
     event type has to be added to that file in the same change, or its events are refused.

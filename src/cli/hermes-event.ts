@@ -53,7 +53,7 @@ async function main(): Promise<void> {
 
   // The sender refuses anything that is not exactly an event; say so here,
   // where the cause is, and do not leave it a file to bury.
-  if (parseHermesEvent(event) === null) {
+  if (parseHermesEvent(event, context.host) === null) {
     throw new Error('the event built does not match src/hermes/schema.ts');
   }
   const directory = process.env.HERMES_OUTBOX_DIR ?? DEFAULT_OUTBOX_DIR;

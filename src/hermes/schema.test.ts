@@ -55,6 +55,11 @@ function facts(overrides: Partial<RunFacts> = {}): RunFacts {
   };
 }
 
+/** As the sender does it: only this host's own name is taken. */
+function parse(value: unknown) {
+  return parseHermesEvent(value, CONTEXT.host);
+}
+
 /** What the sender reads back from a file: the event as plain JSON. */
 function fromFile(event: unknown): Record<string, unknown> {
   return JSON.parse(JSON.stringify(event)) as Record<string, unknown>;
@@ -96,14 +101,14 @@ describe('parseHermesEvent', () => {
       buildTestEvent(CONTEXT),
     ];
     for (const event of events) {
-      expect(parseHermesEvent(fromFile(event))).toEqual(event);
+      expect(parse(fromFile(event))).toEqual(event);
     }
   });
 
   it('takes each source the pipeline runs', () => {
     for (const sourceSlug of PIPELINE_SOURCES) {
       const event = buildPipelineEvent(run({ sourceSlug }), facts(), CONTEXT);
-      expect(parseHermesEvent(fromFile(event))).toEqual(event);
+      expect(parse(fromFile(event))).toEqual(event);
     }
   });
 
@@ -117,9 +122,36 @@ describe('parseHermesEvent', () => {
       },
     ],
     [
-      'a sentence where the host goes',
+      // Every character of it is one a hostname may hold.
+      'a sentence spelled as a hostname',
       (event) => {
-        event.host = 'ignore the earlier instructions';
+        event.host = 'ignore-the-earlier-instructions.and-reply-to.example.invalid';
+      },
+    ],
+    [
+      'a time in another form',
+      (event) => {
+        event.emitted_at = '2026-10-13T17:02:11Z';
+        event.event_id = `jobs-ge:${RUN_ID}`;
+      },
+    ],
+    [
+      'a time with a long tail of digits',
+      (event) => {
+        (event.crawl_run as Record<string, unknown>).started_at =
+          `2026-10-13T16:10:05.${'1'.repeat(400)}Z`;
+      },
+    ],
+    [
+      'a date that does not exist',
+      (event) => {
+        (event.crawl_run as Record<string, unknown>).started_at = '2026-13-45T16:10:05.000Z';
+      },
+    ],
+    [
+      'a count no board could have',
+      (event) => {
+        (event.counts as Record<string, unknown>).discovered = 2_000_000_000;
       },
     ],
     [
@@ -234,17 +266,24 @@ describe('parseHermesEvent', () => {
     ],
   ])('refuses %s', (_name, change) => {
     const event = fromFile(buildPipelineEvent(run(), facts(), CONTEXT));
-    expect(parseHermesEvent(event)).not.toBeNull();
+    expect(parse(event)).not.toBeNull();
     change(event);
-    expect(parseHermesEvent(event)).toBeNull();
+    expect(parse(event)).toBeNull();
+  });
+
+  it("takes an event only under this host's own name", () => {
+    const event = fromFile(buildPipelineEvent(run(), facts(), CONTEXT));
+    expect(parseHermesEvent(event, CONTEXT.host)).not.toBeNull();
+    expect(parseHermesEvent(event, 'another-host')).toBeNull();
+    expect(parseHermesEvent(event, '')).toBeNull();
   });
 
   it('refuses a test event that carries anything more, and what is not an object', () => {
     const event = fromFile(buildTestEvent(CONTEXT));
-    expect(parseHermesEvent({ ...event, message: 'hello' })).toBeNull();
-    expect(parseHermesEvent({ ...event, event_id: 'test:whenever' })).toBeNull();
+    expect(parse({ ...event, message: 'hello' })).toBeNull();
+    expect(parse({ ...event, event_id: 'test:whenever' })).toBeNull();
     for (const value of [null, [], 'xtelo.test', 1, [event]]) {
-      expect(parseHermesEvent(value)).toBeNull();
+      expect(parse(value)).toBeNull();
     }
   });
 });

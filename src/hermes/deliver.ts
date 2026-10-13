@@ -1,4 +1,5 @@
 import { constants, promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { listOutbox } from './outbox.js';
 import { parseHermesEvent } from './schema.js';
@@ -97,6 +98,8 @@ export interface DeliverOptions {
   deadDir: string;
   config: HookConfig | null;
   log: DeliveryLog;
+  /** This machine's name, the only one an event may carry. */
+  host?: string;
   now?: () => Date;
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -129,18 +132,32 @@ const MAX_EVENT_BYTES = 16 * 1024;
  * this host's word, so nothing is signed that is not a real event: the body
  * sent is the checked event written out again, never the file's own bytes.
  */
-async function readPending(directory: string, name: string): Promise<PendingEvent | null> {
+async function readPending(
+  directory: string,
+  name: string,
+  host: string,
+): Promise<PendingEvent | null> {
   let text: string;
   try {
-    // Never through a link: the name was a plain file when it was listed.
+    // Never through a link, and never waiting on a pipe: the name was a plain
+    // file when it was listed, and another user owns the directory.
     const handle = await fs.open(
       path.join(directory, name),
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
     );
     try {
-      const { size } = await handle.stat();
-      if (size > MAX_EVENT_BYTES) return null;
-      text = await handle.readFile('utf8');
+      if (!(await handle.stat()).isFile()) return null;
+      // The limit is the buffer itself, one byte over: a size read first could
+      // be outgrown before the read, and this cannot.
+      const buffer = Buffer.alloc(MAX_EVENT_BYTES + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
+        if (bytesRead === 0) break;
+        length += bytesRead;
+      }
+      if (length > MAX_EVENT_BYTES) return null;
+      text = buffer.toString('utf8', 0, length);
     } finally {
       await handle.close();
     }
@@ -153,7 +170,7 @@ async function readPending(directory: string, name: string): Promise<PendingEven
   } catch {
     return null;
   }
-  const event = parseHermesEvent(value);
+  const event = parseHermesEvent(value, host);
   if (event === null) return null;
   return {
     name,
@@ -184,6 +201,7 @@ async function moveFile(from: string, to: string): Promise<void> {
 
 export async function deliverOutbox(options: DeliverOptions): Promise<DeliverResult> {
   const { outboxDir, deadDir, config, log } = options;
+  const host = options.host ?? os.hostname();
   const now = options.now ?? (() => new Date());
   const send = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -219,7 +237,7 @@ export async function deliverOutbox(options: DeliverOptions): Promise<DeliverRes
     const pending: PendingEvent[] = [];
     for (const name of names) {
       seen.add(name);
-      const event = await readPending(outboxDir, name);
+      const event = await readPending(outboxDir, name, host);
       if (event === null) await bury(name, name, 'not an event');
       else pending.push(event);
     }

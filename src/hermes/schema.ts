@@ -12,8 +12,9 @@ import type { HermesEvent } from './event.js';
  * The outbox is written by the crawl pipeline, which reads pages from the
  * open web, and whatever the sender signs Hermes treats as coming from this
  * host. So the sender signs nothing but an event of exactly this shape: known
- * keys only, and every value an id, a code, a count, a time or one of a fixed
- * set of words. There is no field that could carry a sentence, which is what
+ * keys only, and every value an id, a code, a bounded count, a time in one
+ * fixed form, this host's own name, or one of a fixed set of words. There is
+ * no field that could carry a sentence, which is what
  * keeps a listing's text (or anything a compromised crawl might write into the
  * outbox) from reaching Hermes under this host's signature.
  *
@@ -30,9 +31,14 @@ export const PIPELINE_SOURCES: readonly string[] = [
 
 const EVENT_SOURCES: readonly string[] = [...PIPELINE_SOURCES, ssGeSource.slug];
 
-const time = z.iso.datetime();
+/** A time exactly as `toISOString` writes it: one form, a fixed length. */
+const time = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+  .refine((value) => !Number.isNaN(Date.parse(value)));
 const exitCode = z.number().int().min(0).max(255);
-const count = z.number().int().min(0);
+/** No board has a billion listings; a bound keeps a count a short number. */
+const count = z.number().int().min(0).max(1_000_000_000);
 const base = {
   schema: z.literal(1),
   event_id: z.string(),
@@ -40,7 +46,9 @@ const base = {
     .string()
     .regex(/^[0-9a-f]{40}$/)
     .nullable(),
-  host: z.string().regex(/^[A-Za-z0-9._-]{1,253}$/),
+  // Not a pattern: a hostname's letters, dots and hyphens are enough to spell
+  // a sentence. `parseHermesEvent` takes the one name it may be instead.
+  host: z.string(),
   emitted_at: time,
 };
 
@@ -104,8 +112,13 @@ const test = z
 
 const hermesEvent = z.union([pipelineFinished, test]);
 
-/** The value as an event, or `null` when it is not exactly one. */
-export function parseHermesEvent(value: unknown): HermesEvent | null {
+/**
+ * The value as an event, or `null` when it is not exactly one. `host` is this
+ * machine's own name: the pipeline that writes an event and the sender that
+ * checks it run on the same host, so an event naming any other is not ours.
+ */
+export function parseHermesEvent(value: unknown, host: string): HermesEvent | null {
   const parsed = hermesEvent.safeParse(value);
-  return parsed.success ? (parsed.data as HermesEvent) : null;
+  if (!parsed.success || parsed.data.host !== host) return null;
+  return parsed.data as HermesEvent;
 }
