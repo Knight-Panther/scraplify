@@ -78,7 +78,7 @@ The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase 
     - [x] No tender posts left in the vacancy catalogue: on QA a dedupe pass retyped all 7 board tender posts there to `tender` and folded hr.ge 492864 into etenders.ge 69470's opportunity.
     - [x] Every new guard is load-bearing: each DB test in `tender-typing.test.ts` fails with its fix removed. Full suite on `scraplify_qa`: 1,594 passed, 7 skipped.
 
-- **Live release:** `0cfbf86` (10B landing crawler, PR #47), deployed 2026-10-12 at 11:57 UTC as a plain deploy. Earlier releases (`754a636`, `9cf5065`, `a9c5c2c`) stay on the host for rollback.
+- **Live release:** `6a186b4` (Hermes hook, dormant, PR #51; it also carries Phase 11A's code, which reads no real-estate table at runtime, so migration 0039 is still not on the host), deployed 2026-10-13 at 17:25 UTC with no migration and no grants. Earlier releases (`0cfbf86`, `754a636`, `9cf5065`, `a9c5c2c`) stay on the host for rollback.
 - **Parser incidents:** none open. The only one ever, an hr.ge `field_missing` warning on vacancy 491909 in the 2026-09-28 run, was a one-off (the listing parsed on later runs and expired normally; the page is now 410) and was marked resolved on the host by the owner's go, 2026-10-12. Every crawl run from 2026-10-06 to 10-11 completed, with 0 active listings left unlinked.
 - **Dependency patches (2026-10-07):** Dependabot alerts 1 and 3 (high) fixed by lockfile updates: `sharp` 0.35.5 (librsvg in libvips 1.3.4) and `source-map-js` 1.2.2; live since the 9A–9C release. Alert 2 (`sprintf-js`, moderate, no fixed release) was dismissed as not used: it arrives through `mammoth` → `argparse@1`, which only mammoth's command-line tool loads, never the library our CV parsing imports.
 - **Live bundle:** `16ad15a8` (8,669 opportunities), built by the 2026-10-07 12:41 UTC etenders.ge run.
@@ -116,8 +116,9 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
     - [x] Units pass `systemd-analyze verify` (systemd 255, Ubuntu 24.04 container).
     - [x] Rehearsed under real systemd in a throwaway container, with the real build, stand-in crawl steps and a mock Hermes that checks the signature and the five-minute window: 19 situations, among them a forged file in the outbox (never signed), the pipeline's user failing to read the sender's secrets from its process (and succeeding when both ran as one user), a dormant deploy without the directories, Hermes off then back, a 503, a 401, a 302, a failed, partial and run-less crawl, `systemctl stop` and a unit timeout mid-crawl, a missing outbox, the timer, and a test event by hand.
     - [x] Full suite on a throwaway Postgres: 1,738 passed, 2 skipped. Typecheck and lint clean; the new files pass the format check.
-    - [ ] Tests green in CI.
-    - [ ] Deployed dormant (units installed, timer enabled, `HERMES_HOOK_ENABLED` unset). The owner switches it on once Hermes' side is live (RUNBOOK §3 step 7).
+    - [x] Tests green in CI (PR #51, 2026-10-13).
+    - [x] Deployed dormant: `6a186b4` at 17:25 UTC 2026-10-13, no migration, no grants. The `xtelo-hermes` user, the two directories, the three units and the retry timer are on the host; `HERMES_HOOK_ENABLED` is unset and there is no `hermes-hook.env`. Checked on the host: the event command writes nothing, the sender is skipped on the empty outbox, no failed unit, `health-check` exit 0 on all three sources. `probe: ok`; landing, Browse, a detail page and Listings opened at 390 and 1280 px with no console message and no sideways scroll.
+    - [ ] Switched on, by the owner, once Hermes' side is live (RUNBOOK §3 step 7): `set-hermes-hook.sh` ends with "Delivered.", then `HERMES_HOOK_ENABLED=1` in `worker.env`.
 
 ## Owner decisions in force
 

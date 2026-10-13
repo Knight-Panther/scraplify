@@ -222,7 +222,10 @@ should not record the id until the delivery has succeeded.
 
 ### Report
 
-1. PR and release: filled in when merged and deployed.
+1. PR and release: <https://github.com/Knight-Panther/scraplify/pull/51>, merged as `6a186b4` and
+   live on the host since 17:25 UTC on 2026-10-13, dormant: the units and the retry timer are
+   installed, `HERMES_HOOK_ENABLED` is unset and `/etc/xtelo/hermes-hook.env` does not exist. The
+   host's name, which every event carries as `host`, is whatever `hostname` prints there.
 2. An event as built, from a rehearsal run under systemd (stand-in crawl, real event and sender code,
    a mock receiver that checks the signature and the five-minute window):
 
