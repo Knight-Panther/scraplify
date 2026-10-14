@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildPipelineEvent,
@@ -110,6 +112,19 @@ describe('parseHermesEvent', () => {
       const event = buildPipelineEvent(run({ sourceSlug }), facts(), CONTEXT);
       expect(parse(fromFile(event))).toEqual(event);
     }
+  });
+
+  // A source added to the pipeline script and not here crawls as before and
+  // sends Hermes nothing: the event command refuses the name. This holds the
+  // two lists together.
+  it('lists exactly the sources deploy/run-pipeline.sh runs', () => {
+    const script = readFileSync(
+      path.resolve(import.meta.dirname, '../../deploy/run-pipeline.sh'),
+      'utf8',
+    );
+    const accepted = /^ *([a-z0-9-]+(?: \| [a-z0-9-]+)*)\) ;;$/m.exec(script);
+    expect(accepted).not.toBeNull();
+    expect(accepted?.[1]?.split(' | ').sort()).toEqual([...PIPELINE_SOURCES].sort());
   });
 
   // What a compromised crawl could try to have signed. Each is one change to

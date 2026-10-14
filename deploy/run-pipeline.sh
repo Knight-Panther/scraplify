@@ -10,6 +10,9 @@
 # failed or skipped run is never silent (concept §19.1).
 set -uo pipefail
 
+# A source added here also goes into PIPELINE_SOURCES in src/hermes/schema.ts,
+# in the same change, or its runs send Hermes no event (a test holds the two
+# lists together).
 source="${1:-}"
 case "$source" in
   jobs-ge | hr-ge | etenders-ge) ;;
