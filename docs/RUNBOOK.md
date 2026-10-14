@@ -10,6 +10,7 @@ How to deploy, check, roll back and recover the hosted edition (Phase 8E; `docs/
 | Admin site | `xtelo-web@admin` | `xtelo-admin` | `127.0.0.1:3001` | `scraplify_admin` | `/etc/xtelo/admin.env` |
 | Crawl pipeline | `xtelo-pipeline@jobs-ge`, `@hr-ge`, `@etenders-ge` (daily timers, 16:10 UTC plus up to 10 min random delay) | `xtelo` | — | `scraplify_worker` | `/etc/xtelo/worker.env` |
 | Backup | `xtelo-backup` (nightly timer, 09:00 UTC) | `xtelo` | — | `scraplify_backup` (reads all, writes nothing) | `/etc/xtelo/backup.env` |
+| Hermes hook | `xtelo-hermes-notify` (started when a pipeline run ends; `xtelo-hermes-notify.timer` retries every 15 min) | `xtelo-hermes` | — | none | `/etc/xtelo/hermes-hook.env` |
 | Migrations | none (by hand, per release) | `xtelo` | — | `scraplify_migration` | `/etc/xtelo/migration.env` |
 | TLS and routing | Caddy | `caddy` | `:443` (`PUBLIC_HOST`, `ADMIN_HOST`) | — | `deploy/Caddyfile` |
 
@@ -20,6 +21,7 @@ Directories:
 - `/var/lib/xtelo/bundles` is written by the pipeline and read by the public site.
 - `/var/lib/xtelo/models` holds the pinned title-vector model, outside the releases so it survives deploys (`XTELO_MATCHING_MODEL_DIR`).
 - `/var/backups/xtelo` (`0700 xtelo`) holds the local backups; each is also copied off the host.
+- `/var/lib/xtelo/hermes/outbox` (`2770 xtelo:xtelo-hermes`) holds the events waiting to be sent to Hermes, one JSON file per finished pipeline run: the pipeline writes it and the sender, a different user, reads and empties it through the group. `/var/lib/xtelo/hermes/dead` (`0700 xtelo-hermes`) holds the ones Hermes refused or the sender would not sign (`docs/hermes-hook.md`).
 
 The templates in `deploy/env/` list every variable. They hold placeholders only, and real values never go in the repository.
 
@@ -49,12 +51,16 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
      useradd --system --create-home --home-dir /var/lib/xtelo --shell /usr/sbin/nologin xtelo
      useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-public
      useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-admin
+     useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-hermes
      # 0755, not useradd's 0750: the public site reads the bundles below it.
      install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles /var/lib/xtelo/models
      install -d -o xtelo -g xtelo -m 0700 /var/backups/xtelo
+     install -d -o xtelo-hermes -g xtelo-hermes -m 0755 /var/lib/xtelo/hermes
+     install -d -o xtelo -g xtelo-hermes -m 2770 /var/lib/xtelo/hermes/outbox
+     install -d -o xtelo-hermes -g xtelo-hermes -m 0700 /var/lib/xtelo/hermes/dead
      install -d -o root -g root -m 0700 /etc/xtelo
      ```
-     systemd refuses to start a unit whose `ReadWritePaths` directory is missing, so these must exist before step 7.
+     systemd refuses to start a unit whose `ReadWritePaths` directory is missing, so these must exist before step 7. The Hermes directories are the exception: the units name them as optional, so a host without them still crawls and only the hook does nothing.
 1. **Config.** Copy each `deploy/env/*.template` (`public`, `admin`, `worker`, `backup`, `migration`) to `/etc/xtelo/<name>.env`, fill it in, then `chmod 0600 /etc/xtelo/*.env` (owner root). `deploy/make-env.sh` does this and generates every password and `AUTH_SECRET` on the host without printing them: `sudo PUBLIC_HOST=jobster.fun ADMIN_HOST=admin.jobster.fun AUTH_GITHUB_ID=<client id> ADMIN_GITHUB_IDS=<ids> CRAWLER_CONTACT_URL=https://jobster.fun deploy/make-env.sh`. It never overwrites an existing file. The owner then sets the two remaining secrets from hidden input, so they never pass through a chat or a command line:
    - `ssh -t <host> sudo /opt/xtelo/current/deploy/set-github-secret.sh`
    - `ssh -t <host> sudo /opt/xtelo/current/deploy/set-r2-credentials.sh <account id> <bucket> <host IPv4>`. It also runs one backup to prove the upload.
@@ -63,6 +69,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
    - Every role password: `openssl rand -hex 32`. `apply-db-roles.sh` accepts letters and digits only, so nothing needs escaping.
    - The admin OAuth app is a **production GitHub OAuth app** ("Xtelo Admin", registered 2026-09-27): homepage `https://admin.jobster.fun`, callback `https://admin.jobster.fun/api/auth/callback/github`, and `AUTH_URL=https://admin.jobster.fun`. Generate its client secret on deploy day, straight into `admin.env`. `ADMIN_GITHUB_IDS` holds numeric ids.
    - `backup.env`: the off-host remote (R2 example in the template). `BACKUP_REMOTE=none` only until that storage exists; each run then warns.
+   - `hermes-hook.env` is not made by `make-env.sh` and is not needed to run the site: see "Hermes hook" in §3.
 2. **Code.** As `xtelo`, clone the release into `/opt/xtelo/releases/<sha>` (the full commit sha) and build it:
    ```sh
    SHA=<full sha>
@@ -90,7 +97,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
    - Scanners find a new hostname within seconds of its certificate appearing in the public certificate logs, so start `admin` before or together with Caddy. The admin surface serves only `/admin*`, auth and health: `https://admin.jobster.fun/` is a 404 by design, and `/admin` redirects to GitHub sign-in.
 10. **Check.** `npm run probe -- https://jobster.fun` (from the release directory, or anywhere with the repo) must print `probe: ok` (see §4). Sign in on `https://admin.jobster.fun` once.
 11. **Backup.** `systemctl start xtelo-backup && journalctl -u xtelo-backup -n 20`: it must say `Copied off the host`.
-12. **Schedules.** `systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-pipeline@etenders-ge.timer xtelo-backup.timer`. (etenders.ge joined in Phase 9C; on a host set up before it, enable just `xtelo-pipeline@etenders-ge.timer` once the 9C release is deployed.)
+12. **Schedules.** `systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-pipeline@etenders-ge.timer xtelo-backup.timer xtelo-hermes-notify.timer`. (etenders.ge joined in Phase 9C; on a host set up before it, enable just `xtelo-pipeline@etenders-ge.timer` once the 9C release is deployed.) **A source added later:** besides its timer, its name has to be in `PIPELINE_SOURCES` in `src/hermes/schema.ts` in the release that adds it, or its runs send Hermes no event (a test fails when that list and `deploy/run-pipeline.sh` differ). After its first run, check the sender's journal for its event: `journalctl -u xtelo-hermes-notify -n 5 -o cat`.
 13. **Observe** the probe and `deploy/with-env.sh worker node dist/cli/health-check.js` for a few days before announcing anything (change.md §15 step 7). Public launch is also gated on `docs/RIGHTS.md`.
 
 ## 3. Deploying a new version
@@ -110,6 +117,23 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
    ```
    After step 3, build one bundle by hand instead of waiting for the timer: `/opt/xtelo/current/deploy/with-env.sh worker npm run matching:build`. It must print `activated bundle … (… opportunities, with title vectors)`. Browsers on the old page keep working either way, since the client reads schema 1 and 2. A failed embed keeps the previous bundle active and records `model_unavailable` on `/admin/matching`.
 
+7. **Hermes hook (first deploy after merge, then only to switch it on).** The hook tells Hermes, the owner's agent on his PC, when a pipeline run has ended and how (`docs/hermes-hook.md`). The release ships it switched off, and a deploy that skips this step still crawls as before.
+   - **With the release, before step 3 repoints `current`:** the sender's user, the directories and the units. A plain deploy does not copy units, so this is by hand:
+     ```sh
+     id xtelo-hermes >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-hermes
+     sudo install -d -o xtelo-hermes -g xtelo-hermes -m 0755 /var/lib/xtelo/hermes
+     sudo install -d -o xtelo -g xtelo-hermes -m 2770 /var/lib/xtelo/hermes/outbox
+     sudo install -d -o xtelo-hermes -g xtelo-hermes -m 0700 /var/lib/xtelo/hermes/dead
+     sudo install -m 0644 /opt/xtelo/releases/<new-sha>/deploy/systemd/xtelo-hermes-notify.service /opt/xtelo/releases/<new-sha>/deploy/systemd/xtelo-hermes-notify.timer /opt/xtelo/releases/<new-sha>/deploy/systemd/xtelo-pipeline@.service /etc/systemd/system/
+     sudo systemctl daemon-reload && sudo systemctl enable --now xtelo-hermes-notify.timer
+     ```
+     Check with `systemctl list-timers 'xtelo-*'`: the three pipeline timers keep their next run, and the new timer is listed. With nothing in the outbox the sender is skipped each time; that is one journal line and no process.
+   - **To switch it on, once Hermes' side exists** (the tunnel, the Access service token, the webhook route and its secret):
+     1. `ssh -t <host> sudo /opt/xtelo/current/deploy/set-hermes-hook.sh https://hooks.jobster.fun/webhooks/xtelo-pipeline`. It reads the HMAC secret and the two Access values from hidden input, writes `/etc/xtelo/hermes-hook.env` and sends one test event. It must end with `Delivered.`
+     2. `echo 'HERMES_HOOK_ENABLED=1' | sudo tee -a /etc/xtelo/worker.env`. No restart: the next pipeline run reads it.
+   - **A test event by hand, any time:** `sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/hermes-event.js --test && sudo systemctl start xtelo-hermes-notify && journalctl -u xtelo-hermes-notify -n 5 -o cat`. The last line names the event and the HTTP status.
+   - **To switch it off:** remove the `HERMES_HOOK_ENABLED` line from `worker.env`. Nothing else needs to change.
+
 ## 4. Health signals
 
 | Check | What it means | Where |
@@ -119,7 +143,7 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
 | `npm run probe -- <origin>` | A visitor's path: readiness, landing (with nonce CSP), Browse, a detail page, the manifest, and the bundle download with checksum check. It exits 1 on any failure; a stale bundle is only a warning. | Run from anywhere; schedule it on an uptime service once one is chosen |
 | `npm run health:check` | Crawl freshness per source and matching-bundle age. It exits 1 on anything critical. | On the host: `sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/health-check.js` |
 
-**No alerting** (owner decision, 2026-09-27; concept §30.6): nothing pushes a notification. Check the signals above yourself: the probe, `health:check`, `/admin` and the board update line on `/`, which shows a late or failed run.
+**No alerting** (owner decision, 2026-09-27; concept §30.6): nothing pushes a notification to a person. Check the signals above yourself: the probe, `health:check`, `/admin` and the board update line on `/`, which shows a late or failed run. The one thing the host sends out on its own is the Hermes hook (owner request, 2026-10-13; §3 step 7): one event per finished pipeline run to the owner's agent, with exit codes and counters and nothing from a listing. A hard kill or a power loss sends nothing, so silence there is not a success either.
 
 ## 5. Rollback
 
@@ -163,6 +187,9 @@ In change.md §15's order. Each step is independent; stop at the first one that 
 | Visitors get 429 | One address exceeded a limit (`web/lib/rate-limit.ts`). Several people behind one NAT share an address. | If it is real traffic, raise that class's numbers in code and deploy. Probes are never limited. |
 | `public` will not start: "can change N relation(s)" | Its `DATABASE_URL` is not `scraplify_public`. | Fix the env file. Never set `XTELO_E2E_ALLOW_WRITABLE_PUBLIC_ROLE` on a host. |
 | Admin sign-in loops or 404s | The GitHub account is not in `ADMIN_GITHUB_IDS`, or the OAuth app callback URL is wrong. | Check the numeric id and the app's callback. |
+| Events pile up in `/var/lib/xtelo/hermes/outbox` | Hermes is unreachable: the owner's PC or the tunnel is off. This is normal. | Nothing. The sender retries every 15 minutes, oldest first, and gives up on an event after 72 hours; Hermes then catches up from the database. |
+| `xtelo-hermes-notify` is failed | Hermes or Cloudflare Access refused an event for good (a 401, 403, 404 or a redirect to a sign-in page), and it was moved to `/var/lib/xtelo/hermes/dead`. Or `hermes-hook.env` is half-filled. Or a file in the outbox was not exactly an event (`reason: not an event`): the sender signs nothing else, so look at what wrote it. | `journalctl -u xtelo-hermes-notify -n 20 -o cat` names the event and the status. A 401 is the HMAC secret, a 403 or a redirect the Access service token, a 404 the route. Fix it with `deploy/set-hermes-hook.sh`, then delete the dead files. The pipelines are not affected. |
+| A pipeline run's journal says `hermes event not written` | The outbox directory is missing or not writable. | Create it (§3 step 7). The run itself is unaffected and keeps its own exit code. |
 
 ## 8. Secrets
 
@@ -170,3 +197,4 @@ In change.md §15's order. Each step is independent; stop at the first one that 
 - **Role password:** `sudo -u postgres psql -c "ALTER ROLE … PASSWORD '…'"`, update that env file, then restart that unit. `apply-db-roles.sh` sets a password only when it creates a role, so it never changes an existing one.
 - **`AUTH_SECRET`:** regenerate it with `openssl rand -base64 32` and restart admin. Every admin session ends, which is the point.
 - **GitHub OAuth secret:** rotate it in the GitHub app settings, update `admin.env`, then restart admin.
+- **Hermes hook** (`hermes-hook.env`: the route's HMAC secret and the Cloudflare Access service token): rotate them on Hermes' side and in Cloudflare, then run `deploy/set-hermes-hook.sh` again with the new values. It rewrites the file and sends a test event; no restart, since the sender reads the file on every run. Only the sender unit reads this file, and it runs as its own user (`xtelo-hermes`): the pipeline never holds these values and cannot read them from the sender's process, and the sender holds no database password.

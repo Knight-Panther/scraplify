@@ -10,6 +10,9 @@
 # failed or skipped run is never silent (concept §19.1).
 set -uo pipefail
 
+# A source added here also goes into PIPELINE_SOURCES in src/hermes/schema.ts,
+# in the same change, or its runs send Hermes no event (a test holds the two
+# lists together).
 source="${1:-}"
 case "$source" in
   jobs-ge | hr-ge | etenders-ge) ;;
@@ -29,6 +32,35 @@ step() {
   return "$code"
 }
 
+# The Hermes hook (docs/hermes-hook.md), host only: when the run ends, one
+# event file goes into the outbox for xtelo-hermes-notify to send. Off unless
+# HERMES_HOOK_ENABLED=1 in worker.env. It never changes this script's exit
+# code: a failure to write the event is one journal line.
+# A step that has not run reports "-".
+started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+crawl=- dedupe=- taxonomy=- bundle=- retention=-
+
+hermes_event() { # hermes_event <exit code> [--interrupted]
+  [ "${HERMES_HOOK_ENABLED:-}" = "1" ] || return 0
+  node dist/cli/hermes-event.js --source="$source" --started-at="$started_at" \
+    --crawl="$crawl" --dedupe="$dedupe" --taxonomy="$taxonomy" \
+    --bundle="$bundle" --retention="$retention" --exit-code="$1" ${2:+"$2"} ||
+    echo "----- hermes event not written (exit code $?) -----"
+  return 0
+}
+
+# Stopped or timed out by systemd (which signals the running step as well), or
+# by hand: report the run as interrupted and go no further. bash runs this
+# once the step it was waiting on has ended.
+interrupted() { # interrupted <signal> <exit code>
+  trap - TERM INT
+  echo "----- $(date -Is) interrupted by SIG$1 -----"
+  hermes_event "$2" --interrupted
+  exit "$2"
+}
+trap 'interrupted TERM 143' TERM
+trap 'interrupted INT 130' INT
+
 step "$source crawl" "dist/cli/run-$source-crawl.js"
 crawl=$?
 
@@ -42,10 +74,11 @@ taxonomy=$?
 # The bundle only once dedupe and taxonomy have settled (change.md §10). The
 # builder has its own health gate and never replaces the active bundle on
 # failure.
-bundle=0
+bundle_code=0
 if [ "$dedupe" -eq 0 ] && [ "$taxonomy" -eq 0 ]; then
   step "matching bundle" dist/cli/build-matching-bundle.js
   bundle=$?
+  bundle_code=$bundle
 else
   echo "----- matching bundle skipped: dedupe or taxonomy failed -----"
 fi
@@ -55,17 +88,20 @@ fi
 # not depend on. It takes its own lock and every source's crawl-process lock
 # internally (src/retention/retention-lock.ts), so running it here rather
 # than on a separate schedule costs nothing extra to coordinate.
-retention=0
+retention_code=0
 if [ "$crawl" -eq 0 ] && [ "$dedupe" -eq 0 ]; then
   step retention dist/cli/run-retention.js --apply
   retention=$?
+  retention_code=$retention
 else
   echo "----- retention skipped: crawl or dedupe failed -----"
 fi
 
 # The crawl's own failure wins; otherwise the first failed step's code.
 code=$crawl
-for step_code in "$dedupe" "$taxonomy" "$bundle" "$retention"; do
+for step_code in "$dedupe" "$taxonomy" "$bundle_code" "$retention_code"; do
   if [ "$code" -eq 0 ] && [ "$step_code" -ne 0 ]; then code=$step_code; fi
 done
+trap - TERM INT
+hermes_event "$code"
 exit "$code"

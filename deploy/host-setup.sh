@@ -88,9 +88,18 @@ echo "== users and directories (systemd refuses a unit whose ReadWritePaths is m
 id xtelo >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/xtelo --shell /usr/sbin/nologin xtelo
 id xtelo-public >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-public
 id xtelo-admin >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-admin
+# The Hermes hook's sender: its own user, so the crawl pipeline cannot read
+# the hook's secrets out of its process (docs/hermes-hook.md).
+id xtelo-hermes >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin xtelo-hermes
 # 0755, not useradd's 0750: the public site reads the bundles below it.
 install -d -o xtelo -g xtelo -m 0755 /var/lib/xtelo /opt/xtelo /opt/xtelo/releases /var/lib/xtelo/bundles /var/lib/xtelo/models
 install -d -o xtelo -g xtelo -m 0700 /var/backups/xtelo
+# The Hermes hook's queue: the pipeline (xtelo) writes it, the sender reads
+# and empties it through the directory's group. Its dead events are the
+# sender's alone.
+install -d -o xtelo-hermes -g xtelo-hermes -m 0755 /var/lib/xtelo/hermes
+install -d -o xtelo -g xtelo-hermes -m 2770 /var/lib/xtelo/hermes/outbox
+install -d -o xtelo-hermes -g xtelo-hermes -m 0700 /var/lib/xtelo/hermes/dead
 install -d -o root -g root -m 0700 /etc/xtelo
 
 echo "== summary"

@@ -1,0 +1,17 @@
+# Retries whatever is still in the Hermes outbox, every 15 minutes. A finished
+# pipeline run starts the sender itself; this is only for events Hermes could
+# not take at the time. With an empty outbox the service's own condition skips
+# the run.
+#
+#   sudo systemctl enable --now xtelo-hermes-notify.timer
+
+[Unit]
+Description=Retry Xtelo events to Hermes
+
+[Timer]
+OnCalendar=*:0/15
+# Runs once at boot if the machine was off at a scheduled time.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
