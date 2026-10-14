@@ -33,6 +33,7 @@ Kinds: `bina` (flat), `kerdzo-saxli` (house), `agaraki` (summer cottage). Deals:
 7. **Without `order=1` a list is promoted-first**, and a walk that stops at the first old row stops in the wrong place. `isSsGeUrlAllowed` refuses a results address without it.
 8. **A page with no rows is a fault, not an empty list.** Every list holds hundreds of listings at least.
 9. **Posters paste control characters into text.** One description held U+0000 between two words (listing 36827800), Postgres refused the row, and the first pass ended at page 1,472 with 23,531 listings stored. The list parser now drops control characters other than whitespace from every text field. A run ended this way resumes five pages back.
+10. **Posters type phone numbers into the address.** The street number is free text and shown on the public site. The first pass held 60 street numbers with seven digits or more in one run: bare and spaced mobile numbers, a number after a building's name, long digit strings, and once a whole pasted advert with its contact line. No street name held one. A street name or number with a phone-shaped run (seven digits or more, at most three spaces, dots, dashes, slashes, brackets or plus signs between each pair; a comma breaks the run) is dropped whole.
 
 ## How the lists are ordered (measured 2026-10-12, 84 requests)
 

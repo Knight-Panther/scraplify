@@ -200,6 +200,57 @@ describe('parseResultsPage', () => {
     expect(codes.filter((code) => code < 32 || code === 127)).toEqual([]);
   });
 
+  describe('a phone number typed into the address', () => {
+    // The first pass found posters' numbers in 33 street numbers (2026-10-14):
+    // bare, spaced, after a building name, and inside a whole pasted advert.
+    function streetOf(streetTitle: string, streetNumber: string) {
+      const row = {
+        applicationId: 1,
+        type: 5,
+        dealType: 4,
+        title: 'x',
+        orderDate: '2026-10-14T10:00:00.000Z',
+        address: { cityId: 1, cityTitle: 'თბილისი', streetTitle, streetNumber },
+      };
+      const data = {
+        props: { pageProps: { initialPage: 1, applicationList: { realStateItemModel: [row] } } },
+      };
+      const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
+      const card = parseResultsPage(html, { ...FLATS_FOR_SALE, page: 1 }).cards[0];
+      return { streetName: card?.streetName, streetNumber: card?.streetNumber };
+    }
+
+    it.each([
+      '599000000',
+      '+995 599 00-00-00',
+      '599.00.00.00',
+      '(599) 00 00 00',
+      'მედინა.599000000',
+      'ზღვის ხედი 📞 დასაკავშირებლად: 599 00 00 00 დამიკავშირდით',
+      '123456789012345678901234567890123456',
+    ])('drops the street number %j', (streetNumber) => {
+      expect(streetOf('ვაჟა-ფშაველას გამზ.', streetNumber)).toEqual({
+        streetName: 'ვაჟა-ფშაველას გამზ.',
+        streetNumber: null,
+      });
+    });
+
+    it('drops a street name holding one', () => {
+      expect(streetOf('ზარდიაშვილის 599 00 00 00', '7').streetName).toBeNull();
+    });
+
+    it.each([
+      '75',
+      '12ა',
+      '12, 14, 16, 18, 20-22 24',
+      'გრიგოლ ელიავა 12ა 6010 ბათუმი',
+      'თამარ მეფის 1234',
+      '9 შესახვევი #15',
+    ])('keeps the street number %j', (streetNumber) => {
+      expect(streetOf('ვაჟა-ფშაველას გამზ.', streetNumber).streetNumber).toBe(streetNumber);
+    });
+  });
+
   it('refuses a page with no listing data instead of reading it as an empty list', () => {
     expect(() =>
       parseResultsPage('<html><body>Just a moment...</body></html>', {
