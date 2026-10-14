@@ -202,6 +202,8 @@ signature) is built as written and was checked against Hermes' own receiver
     body sent is the checked event written out again. So a signed request from this host cannot
     carry a sentence, whatever ends up in the outbox. The cost: a new field, counter, source or
     event type has to be added to that file in the same change, or its events are refused.
+    For a new source that is one line, `PIPELINE_SOURCES`; a test fails when that list and the
+    one in `deploy/run-pipeline.sh` differ, and `CLAUDE.md` ("Adding a source") says so too.
 
 ### For Phase 11E (real estate)
 

@@ -27,6 +27,10 @@ That guard covers the dev server only. Shell commands reach the same databases a
 
 `docs/scraplify-concept.md` §30 (amended 2026-09-23) records the accepted direction for a hosted public catalogue plus privacy-first browser CV matching, alongside the local/operator workflow this file already documents — one repository, one codebase, three runtime surfaces (`local`, `public`, `admin`), no fork and no permanent hosted branch. **Phases 8A–8E are merged, and the hosted edition has been live at `jobster.fun` since 2026-09-28** (`docs/RUNBOOK.md`). `XTELO_SURFACE` selects `local` (the default: everything above still applies unchanged), `public` or `admin`. `web/proxy.ts` and each action's own guard enforce which routes and actions exist on each surface, and least-privilege database roles (`scripts/sql/phase-8b-*.sql`, `deploy/apply-db-roles.sh`) exist for deployments. `docs/STATUS.md`'s current-phase section is the source of truth for what is still owed. `docs/archive/change.md` (moved from the repository root, kept verbatim per its own note at the top) is the full implementation handoff Phase 8A–8E work from.
 
+## Adding a source
+
+A new crawled source that joins `deploy/run-pipeline.sh` also goes into `PIPELINE_SOURCES` in `src/hermes/schema.ts`, in the same change. The host tells the owner's Hermes agent when each pipeline run ends ([`docs/hermes-hook.md`](docs/hermes-hook.md)), and it only signs events for sources on that list: a source missing there crawls as before and Hermes hears nothing about it. A test in `src/hermes/schema.test.ts` fails when the two lists differ. A source whose runs count different things (real estate) also needs its own event shape in that file, and Hermes has to be told the new counter names.
+
 ## Roles
 
 - **Claude (Claude Code): implementer.** Writes and edits all code in this repo.

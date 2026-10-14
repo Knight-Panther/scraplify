@@ -22,7 +22,13 @@ import type { HermesEvent } from './event.js';
  * change, or its events are refused and moved to the dead directory.
  */
 
-/** The sources `deploy/run-pipeline.sh` runs. ss.ge joins with Phase 11E. */
+/**
+ * The sources `deploy/run-pipeline.sh` runs. ss.ge joins with Phase 11E.
+ *
+ * A new source goes here in the change that adds it to that script: without
+ * it the crawl runs as before and Hermes is told nothing about it.
+ * `schema.test.ts` fails when the two lists differ.
+ */
 export const PIPELINE_SOURCES: readonly string[] = [
   jobsGeSource.slug,
   hrGeSource.slug,
