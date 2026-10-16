@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from '../db/client.js';
-import { crawlRuns, sources } from '../db/schema/index.js';
+import { crawlRuns, realEstateCrawlRuns, sources } from '../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import { getCrawlStatus } from './crawl-status.js';
 
@@ -80,5 +80,30 @@ describe('getCrawlStatus', () => {
       });
     }
     expect(statuses[2]?.lastRunStatus).toBe('completed');
+  });
+
+  it('reads a real-estate source’s runs from their own table', async () => {
+    const { id, slug } = await source();
+    const realEstateRun = (
+      startedAt: string,
+      status: 'running' | 'completed' | 'partial',
+      finishedAt: string | null,
+    ) =>
+      db
+        .insert(realEstateCrawlRuns)
+        .values({ sourceId: id, mode: 'nightly', startedAt, finishedAt, status });
+    await realEstateRun('2026-10-15T21:30:00Z', 'completed', '2026-10-15T23:40:00Z');
+    await realEstateRun('2026-10-16T21:30:00Z', 'partial', '2026-10-16T22:10:00Z');
+
+    const [status] = await getCrawlStatus(db, [slug]);
+    expect(status).toEqual({
+      sourceSlug: slug,
+      lastRunStartedAt: '2026-10-16T21:30:00.000Z',
+      lastRunStatus: 'partial',
+      lastCompletedAt: '2026-10-15T23:40:00.000Z',
+    });
+
+    await realEstateRun('2026-10-17T21:30:00Z', 'running', null);
+    expect((await getCrawlStatus(db, [slug]))[0]?.lastRunStatus).toBe('running');
   });
 });

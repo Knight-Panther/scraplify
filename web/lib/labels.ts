@@ -137,8 +137,17 @@ export const sourceLabels: Record<string, string> = {
   'etenders-ge': 'etenders.ge',
 };
 
+/**
+ * Real-estate sources, named the same way but kept out of `sourceLabels`:
+ * the taxonomy screens offer every entry there as a filter, and a
+ * real-estate listing has no category.
+ */
+const realEstateSourceLabels: Record<string, string> = {
+  'ss-ge': 'ss.ge',
+};
+
 export function sourceLabel(slug: string): string {
-  return sourceLabels[slug] ?? slug;
+  return sourceLabels[slug] ?? realEstateSourceLabels[slug] ?? slug;
 }
 
 /**

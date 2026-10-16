@@ -12,6 +12,7 @@ import {
   searchOpportunities,
 } from '../../../src/browse/queries.js';
 import { db } from '../../../src/db/client.js';
+import { countRealEstate } from '../../../src/realestate/queries.js';
 import { CrawlStatus } from '../../components/crawl-status.js';
 import { CvChooser } from '../../components/cv-chooser.js';
 import { HeroTicker } from '../../components/hero-ticker.js';
@@ -170,7 +171,7 @@ export default async function Page() {
             />
 
             <p className="mt-[22px] max-w-[64ch] animate-hero-fade-up min-[1060px]:mt-[2svh] text-base text-[var(--color-browse-text-muted)] leading-[var(--leading-body)] [animation-delay:640ms] [animation-duration:700ms]">
-              {copy.subhead}
+              <Subhead copy={copy} />
             </p>
 
             {/* One row: the two links with "no account needed" under them,
@@ -344,15 +345,24 @@ async function loadHeroData(): Promise<HeroData> {
   try {
     const surface = currentSurface();
     const genuinelyOpenAsOf = new Date().toISOString();
-    const [{ sortedSlugs, trackedCount }, openCount, eligible] = await Promise.all([
-      loadBoardOverview(surface),
-      surface === 'public'
-        ? publicCountOpportunities(db, { genuinelyOpenAsOf })
-        : countOpportunities(db, { genuinelyOpenAsOf }),
-      surface === 'public'
-        ? publicSearchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN })
-        : searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
-    ]);
+    const [{ sortedSlugs, trackedCount }, openCount, eligible, realEstateShown] = await Promise.all(
+      [
+        loadBoardOverview(surface),
+        surface === 'public'
+          ? publicCountOpportunities(db, { genuinelyOpenAsOf })
+          : countOpportunities(db, { genuinelyOpenAsOf }),
+        surface === 'public'
+          ? publicSearchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN })
+          : searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
+        // Whether the Real estate tab has anything on show: counted no
+        // further than one row. Its own catch, so a database without the
+        // real-estate view still shows the job boards.
+        countRealEstate(db, {}, genuinelyOpenAsOf, 0).then(
+          (shown) => shown > 0,
+          () => false,
+        ),
+      ],
+    );
 
     const nowMs = Date.parse(genuinelyOpenAsOf);
     // Per-source "is THIS member genuinely open," not just the opportunity
@@ -382,7 +392,12 @@ async function loadHeroData(): Promise<HeroData> {
 
     return {
       ok: true,
-      boardsLabel: sortedSlugs.map((slug) => sourceLabel(slug)).join(' + '),
+      // ss.ge joins the list of sources, not the count of boards merged: its
+      // listings are a tab of their own, never folded into these records.
+      boardsLabel: [
+        ...sortedSlugs.map((slug) => sourceLabel(slug)),
+        ...(realEstateShown ? [sourceLabel('ss-ge')] : []),
+      ].join(' + '),
       boardsCount: sortedSlugs.length,
       trackedCount,
       openCount,
@@ -448,6 +463,27 @@ function HeadlineLine({
   );
 }
 
+/**
+ * The subhead, its Real estate words a link to that tab. Underlined, not
+ * only coloured: the accent is under 3:1 against the muted text around it.
+ */
+function Subhead({ copy }: { copy: HeroCopy }) {
+  const at = copy.subhead.indexOf(copy.subheadRealEstateLink);
+  if (at < 0) return copy.subhead;
+  return (
+    <>
+      {copy.subhead.slice(0, at)}
+      <a
+        href="/real-estate"
+        className="text-[var(--color-browse-accent)] underline underline-offset-[3px] transition-colors duration-150 hover:text-[var(--color-browse-accent-hover)]"
+      >
+        {copy.subheadRealEstateLink}
+      </a>
+      {copy.subhead.slice(at + copy.subheadRealEstateLink.length)}
+    </>
+  );
+}
+
 function Stat({ value, label, locale }: { value: number; label: string; locale: Locale }) {
   return (
     <div>
@@ -499,10 +535,11 @@ function NewestPanel({
                 panelRow={panelRow}
                 copy={copy}
                 locale={locale}
-                // Three rows on a short desktop screen, so the page still
+                // Fewer rows on a short desktop screen, so the page still
                 // fits one screen (the column is otherwise the taller one in
-                // Georgian, whose update lines wrap). "See all" follows.
-                hideWhenShort={index >= 3}
+                // Georgian, whose update lines wrap, and ss.ge's line made it
+                // taller again): HIDE_WHEN_SHORT. "See all" follows.
+                hideWhenShort={index >= 3 ? 'short' : index >= 2 ? 'shorter' : undefined}
               />
             ))}
             <a
@@ -519,16 +556,27 @@ function NewestPanel({
   );
 }
 
+/**
+ * Whole class names, so Tailwind finds them. Georgian's update lines wrap, so
+ * its column runs out of height sooner (measured 2026-10-16 from 1280x720 to
+ * 1920x950 against the live page: no size scrolls more than it did before
+ * ss.ge's line was added).
+ */
+const HIDE_WHEN_SHORT = {
+  short: { en: 'lg:[@media(max-height:760px)]:hidden', ka: 'lg:[@media(max-height:860px)]:hidden' },
+  shorter: { en: '', ka: 'lg:[@media(max-height:680px)]:hidden' },
+} as const;
+
 function NewestRow({
   panelRow,
   copy,
   locale,
-  hideWhenShort = false,
+  hideWhenShort,
 }: {
   panelRow: PanelRow;
   copy: HeroCopy;
   locale: Locale;
-  hideWhenShort?: boolean;
+  hideWhenShort?: 'short' | 'shorter' | undefined;
 }) {
   const { row, openSourceSlugs } = panelRow;
   const employers = row.employers.join(' · ');
@@ -536,7 +584,7 @@ function NewestRow({
     <div
       data-crawl-stop=""
       className={`flex items-start gap-3.5 border-b border-[var(--color-browse-border)] px-[18px] py-4 last:border-b-0 ${
-        hideWhenShort ? 'lg:[@media(max-height:760px)]:hidden' : ''
+        hideWhenShort === undefined ? '' : HIDE_WHEN_SHORT[hideWhenShort][locale]
       }`}
     >
       <span

@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { recordParserIncident } from '../db/ingest.js';
 import { parserIncidents } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
@@ -102,11 +102,33 @@ export function detectRunAnomalies(input: RunAnomalyInput): RunAnomaly[] {
  * same kind is already open for this source. A daily schedule hitting the same
  * broken selector would otherwise add an identical incident every run; the
  * first one already demands attention, and resolving it re-arms recording.
+ *
+ * A run that passes every guard resolves this source's open critical guard
+ * incidents: the walk they doubted has since come back whole. Until 2026-10-16
+ * only a person could, so one timed-out results page on jobs.ge held the
+ * matching bundle's health gate shut through the complete run that followed
+ * (docs/STATUS.md, "A results page now gets three tries"). A surge warning
+ * and any incident a guard did not raise stay for a person.
  */
 export async function recordRunAnomalies(
   db: DatabaseOrTransaction,
   input: RunAnomalyInput,
 ): Promise<RunAnomaly[]> {
+  if (input.guards.every((guard) => guard.ok)) {
+    await db
+      .update(parserIncidents)
+      .set({ resolved: true, resolvedAt: input.detectedAt })
+      .where(
+        and(
+          eq(parserIncidents.sourceId, input.sourceId),
+          eq(parserIncidents.resolved, false),
+          eq(parserIncidents.severity, 'critical'),
+          inArray(parserIncidents.kind, ['count_collapse', 'other']),
+          sql`${parserIncidents.evidence}->>'origin' = ${RUN_GUARD_ORIGIN}`,
+        ),
+      );
+  }
+
   const recorded: RunAnomaly[] = [];
   for (const anomaly of detectRunAnomalies(input)) {
     const [open] = await db

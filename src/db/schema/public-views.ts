@@ -5,6 +5,7 @@ import {
   opportunitySourceMemberships,
   opportunityTypeEnum,
 } from './opportunities.js';
+import { realEstateCrawlRuns } from './real-estate.js';
 import { crawlRunStatusEnum, crawlRuns } from './runs.js';
 import {
   sourceListingRevisions,
@@ -224,6 +225,12 @@ export const publicSourceListings = pgView('public_source_listings', {
  * `completed` run finished. Deliberately nothing else from `crawl_runs`: no
  * run ids, counts, error state or history. Granted to `scraplify_public`
  * like the views above (`scripts/sql/phase-8b-public-role.sql`).
+ *
+ * A real-estate source's runs are in `realestate.crawl_runs` (Phase 11A), so
+ * both tables are read; a source has runs in only one of them. Its status is
+ * carried over as the job boards' type, whose values include all four of
+ * its own, so the view's columns, and with them its grants, stay as they
+ * were (`create or replace view`, migration 0041).
  */
 export const publicCrawlStatus = pgView('public_crawl_status', {
   sourceSlug: text('source_slug').notNull(),
@@ -238,19 +245,35 @@ export const publicCrawlStatus = pgView('public_crawl_status', {
     completed.finished_at as last_completed_at
   from ${sources}
   left join lateral (
-    select ${crawlRuns.startedAt} as started_at, ${crawlRuns.status} as status
-    from ${crawlRuns}
-    where ${crawlRuns.sourceId} = ${sources.id}
-    order by ${crawlRuns.startedAt} desc
+    select runs.started_at, runs.status
+    from (
+      select ${crawlRuns.startedAt} as started_at, ${crawlRuns.status} as status
+      from ${crawlRuns}
+      where ${crawlRuns.sourceId} = ${sources.id}
+      union all
+      select ${realEstateCrawlRuns.startedAt}, ${realEstateCrawlRuns.status}::text::crawl_run_status
+      from ${realEstateCrawlRuns}
+      where ${realEstateCrawlRuns.sourceId} = ${sources.id}
+    ) runs
+    order by runs.started_at desc
     limit 1
   ) latest on true
   left join lateral (
-    select ${crawlRuns.finishedAt} as finished_at
-    from ${crawlRuns}
-    where ${crawlRuns.sourceId} = ${sources.id}
-      and ${crawlRuns.status} = 'completed'
-      and ${crawlRuns.finishedAt} is not null
-    order by ${crawlRuns.finishedAt} desc
+    select runs.finished_at
+    from (
+      select ${crawlRuns.finishedAt} as finished_at
+      from ${crawlRuns}
+      where ${crawlRuns.sourceId} = ${sources.id}
+        and ${crawlRuns.status} = 'completed'
+        and ${crawlRuns.finishedAt} is not null
+      union all
+      select ${realEstateCrawlRuns.finishedAt}
+      from ${realEstateCrawlRuns}
+      where ${realEstateCrawlRuns.sourceId} = ${sources.id}
+        and ${realEstateCrawlRuns.status} = 'completed'
+        and ${realEstateCrawlRuns.finishedAt} is not null
+    ) runs
+    order by runs.finished_at desc
     limit 1
   ) completed on true
 `);

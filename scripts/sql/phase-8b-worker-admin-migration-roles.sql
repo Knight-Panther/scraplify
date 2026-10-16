@@ -120,6 +120,12 @@ GRANT SELECT, INSERT, UPDATE ON public.crawl_runs TO scraplify_worker;
 GRANT SELECT, INSERT ON public.fetch_attempts TO scraplify_worker;
 GRANT SELECT, INSERT, UPDATE ON public.crawl_cursors TO scraplify_worker;
 GRANT SELECT, INSERT ON public.parser_incidents TO scraplify_worker;
+-- Column-scoped: a crawl that passes every guard resolves its source's open
+-- guard incidents (recordRunAnomalies, src/adapters/run-anomalies.ts). It
+-- never rewrites an incident's kind, severity or evidence. Postgres checks
+-- this privilege even when no row matches, so without it every healthy
+-- crawl would fail.
+GRANT UPDATE (resolved, resolved_at) ON public.parser_incidents TO scraplify_worker;
 
 -- Dedupe.
 GRANT SELECT, INSERT, UPDATE ON public.opportunities TO scraplify_worker;

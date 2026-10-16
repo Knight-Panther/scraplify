@@ -6,18 +6,28 @@
  * ways: a test checks the systemd timer against it, and the site shows a
  * source as late when a slot passes with no run, instead of trusting it.
  *
- * All three run daily at 16:10 UTC, 20:10 in Tbilisi (Georgia has no DST).
+ * The three job boards run daily at 16:10 UTC, 20:10 in Tbilisi (Georgia has
+ * no DST); ss.ge's nightly crawl at 21:30 UTC, 01:30 in Tbilisi
+ * (`deploy/systemd/xtelo-realestate@.timer`).
  */
 
 export interface DailySchedule {
   readonly hourUtc: number;
   readonly minuteUtc: number;
+  /**
+   * How long a run may go on and still read as updating. Defaults to
+   * `MAX_RUNNING_MS` (`src/browse/crawl-status-view.ts`).
+   */
+  readonly maxRunningMs?: number;
 }
 
 export const CRAWL_SCHEDULES: Readonly<Record<string, DailySchedule>> = {
   'jobs-ge': { hourUtc: 16, minuteUtc: 10 },
   'hr-ge': { hourUtc: 16, minuteUtc: 10 },
   'etenders-ge': { hourUtc: 16, minuteUtc: 10 },
+  // Hours, not minutes: ss.ge answers the host in about 19 s a page, and the
+  // unit allows 20 hours (`TimeoutStartSec`).
+  'ss-ge': { hourUtc: 21, minuteUtc: 30, maxRunningMs: 20 * 60 * 60 * 1000 },
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;

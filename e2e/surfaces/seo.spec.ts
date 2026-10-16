@@ -47,11 +47,9 @@ test.describe('public: link previews and search', () => {
   test('a crawler, which sends no cookie, gets the Georgian page and preview', async () => {
     const { text } = await get('public', '/');
     expect(meta(text, 'property', 'og:locale')).toBe('ka_GE');
-    expect(meta(text, 'property', 'og:title')).toBe(
-      'Xtelo: არ გამოტოვო ვაკანსია, მოძებნე მარტივად!',
-    );
+    expect(meta(text, 'property', 'og:title')).toBe('Xtelo: არ გამოტოვო შანსი, მოძებნე მარტივად!');
     expect(text).toMatch(/<main lang="ka"/);
-    expect(text).toContain('<title>Xtelo: არ გამოტოვო ვაკანსია, მოძებნე მარტივად!</title>');
+    expect(text).toContain('<title>Xtelo: არ გამოტოვო შანსი, მოძებნე მარტივად!</title>');
   });
 
   test('a visitor who chose English gets the English preview', async () => {
@@ -86,7 +84,7 @@ test.describe('public: link previews and search', () => {
     const { status, text, headers } = await get('public', '/sitemap.xml');
     expect(status).toBe(200);
     expect(headers['content-type']).toContain('xml');
-    for (const path of ['/', '/opportunities', '/listings', '/cv-ranked']) {
+    for (const path of ['/', '/opportunities', '/listings', '/real-estate', '/cv-ranked']) {
       expect(text).toContain(`<loc>http://127.0.0.1:3101${path}</loc>`);
     }
     expect(text).not.toContain('/admin');

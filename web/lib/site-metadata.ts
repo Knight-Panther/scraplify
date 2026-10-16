@@ -43,7 +43,7 @@ export function siteDescription(locale: Locale): string {
  * checks).
  */
 export const OG_IMAGE_ALT =
-  'Xtelo: არ გამოტოვო ვაკანსია, მოძებნე მარტივად! ვაკანსიები jobs.ge-დან და hr.ge-დან, გაერთიანებული ერთ ჩანაწერად';
+  'Xtelo: არ გამოტოვო შანსი, მოძებნე მარტივად! ვაკანსიები, ტენდერები, ბინები და სახლები — ერთ ადგილას';
 
 const OG_LOCALE: Record<Locale, string> = { ka: 'ka_GE', en: 'en_US' };
 

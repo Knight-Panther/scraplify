@@ -147,7 +147,7 @@ describe('siteOpenGraph', () => {
 
 describe('site title and description', () => {
   it('are Georgian by default and come from the hero copy', () => {
-    expect(siteTitle('ka')).toBe('Xtelo: არ გამოტოვო ვაკანსია, მოძებნე მარტივად!');
+    expect(siteTitle('ka')).toBe('Xtelo: არ გამოტოვო შანსი, მოძებნე მარტივად!');
     expect(siteDescription('ka')).toMatch(/^ვაკანსიები jobs.ge-დან/);
   });
 
