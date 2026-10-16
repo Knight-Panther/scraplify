@@ -628,7 +628,8 @@ describe('runSsGeCrawl, nightly', () => {
 });
 
 describe('runSsGeCrawl, listings past their expected end', () => {
-  const THIRTY_ONE_DAYS = 31 * DAY_MS;
+  // Past the 45 days a listing no business posted lives (none of these rows names one).
+  const PAST_ITS_LIFE = 46 * DAY_MS;
   const first = SS_GE_LISTS[0] as SsGeList;
   const detailRequests = (site: FakeSite) =>
     site.requested.filter((url) => !url.includes('/l/')).map((url) => url.split('/').at(-1));
@@ -638,10 +639,10 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   }
 
   it('asks the page of each, extends the live and marks the others gone', async () => {
-    // Ordered 31 days ago and still listed: thirty days of life have passed,
+    // Ordered 46 days ago and still listed: its 45 days of life have passed,
     // and only the listing's page says what happens next.
     const site = new FakeSite({
-      [first.key]: [...rows(1_000, 3, THIRTY_ONE_DAYS), ...rows(1_100, 1)],
+      [first.key]: [...rows(1_000, 3, PAST_ITS_LIFE), ...rows(1_100, 1)],
     });
     site.details.set('1000', { status: 'Active', endsAt: NOW + 200 * DAY_MS });
     site.details.set('1001', { status: 'Expired' });
@@ -668,7 +669,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('checks no more listings than its budget', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 3, THIRTY_ONE_DAYS) });
+    const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
@@ -682,7 +683,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('still checks them when a trial stops at its page limit', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 2, THIRTY_ONE_DAYS) });
+    const site = new FakeSite({ [first.key]: rows(1_000, 2, PAST_ITS_LIFE) });
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
@@ -694,7 +695,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('checks none when the site refused the walk', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 3, THIRTY_ONE_DAYS) });
+    const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
     const refused = buildResultsUrl(SS_GE_LISTS[1] as SsGeList, 1);
     site.script(refused, status(refused, 403));
 
@@ -736,7 +737,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('stops checking when the site refuses a listing page', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 3, THIRTY_ONE_DAYS) });
+    const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
     for (const id of ['1000', '1001', '1002']) {
       site.script(buildDetailUrl(id), status(buildDetailUrl(id), 429, { 'retry-after': '600' }));
     }
@@ -752,7 +753,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('leaves alone a listing whose page fails, and carries on with the next', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 3, THIRTY_ONE_DAYS) });
+    const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
     site.script(buildDetailUrl('1001'), status(buildDetailUrl('1001'), 500));
     const challenge = ok(buildDetailUrl('1002'), '<html><body>Just a moment...</body></html>');
     site.script(buildDetailUrl('1002'), challenge);
@@ -772,7 +773,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('gives up checking after five listing pages in a row fail', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 8, THIRTY_ONE_DAYS) });
+    const site = new FakeSite({ [first.key]: rows(1_000, 8, PAST_ITS_LIFE) });
     for (let id = 1_000; id < 1_008; id++) {
       site.script(buildDetailUrl(String(id)), status(buildDetailUrl(String(id)), 503));
     }

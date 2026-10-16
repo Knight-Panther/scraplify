@@ -6,12 +6,18 @@ export { SsGePageShapeError };
 /** What a full results page holds; a shorter page is the last one. */
 export const RESULTS_PAGE_SIZE = 16;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
 /**
- * An ordinary listing ends 30 days after its order time unless it is renewed
- * (8 of 8 checked on detail pages, 2026-10-12). Long-running exceptions
+ * How long a listing lives after its order time unless it is renewed. A
+ * business's ends after 30 days (8 of 8 checked on detail pages, 2026-10-12;
+ * in the first pass no agency listing outlived 30). One no business posted
+ * ends after 45: 890 of about 960 such listings checked past their 30 days in
+ * the first pass had exactly that (2026-10-15). Long-running exceptions
  * exist; the nightly detail check corrects those.
  */
-const LISTING_LIFE_MS = 30 * 24 * 60 * 60 * 1000;
+function listingLifeMs(posterType: ListingCard['posterType']): number {
+  return (posterType === 'unknown' ? 45 : 30) * DAY_MS;
+}
 
 /** The site's own codes (guideline §4.3; the cottage code from 288 sampled rows). */
 const PROPERTY_TYPE_CODES: Readonly<Record<number, ListingCard['propertyType']>> = {
@@ -79,6 +85,23 @@ function text(value: unknown): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
+/**
+ * Seven digits or more with at most three spaces, dots, dashes, slashes,
+ * brackets or plus signs between each pair: a phone number however it is
+ * spaced. A comma does not join digits, so "12, 14, 16" stays house numbers.
+ */
+const PHONE_RE = /\d(?:[\s./()+-]{0,3}\d){6,}/;
+
+/**
+ * The street and number are typed by the poster and shown on the public
+ * site; some type their phone number there, or paste a whole advert. Such a
+ * value is dropped whole (33 street numbers in the first pass, 2026-10-14).
+ */
+function addressText(value: unknown): string | null {
+  const plain = text(value);
+  return plain === null || PHONE_RE.test(plain) ? null : plain;
+}
+
 /** One floor only. A list or a range ('7, 10, 11', '2-14') is one listing standing for several flats. */
 function floor(value: unknown): number | null {
   if (typeof value === 'number') return Number.isInteger(value) ? value : null;
@@ -124,8 +147,9 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
 
   const price = isRecord(row.price) ? row.price : {};
   const address = isRecord(row.address) ? row.address : {};
+  const poster = posterType(row.userInfo);
   const rooms = ROOMS_RE.exec(typeof row.title === 'string' ? row.title : '')?.[1];
-  const streetNumber = text(address.streetNumber);
+  const streetNumber = addressText(address.streetNumber);
   const similarity = row.similarityGroup;
 
   return {
@@ -148,16 +172,16 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
     districtName: text(address.districtTitle),
     subdistrictRef: reference(address.subdistrictId),
     subdistrictName: text(address.subdistrictTitle),
-    streetName: text(address.streetTitle),
+    streetName: addressText(address.streetTitle),
     streetNumber: streetNumber === '0' ? null : streetNumber,
-    posterType: posterType(row.userInfo),
+    posterType: poster,
     promoted: typeof row.vipStatus === 'number' && row.vipStatus > 0,
     description: description(row.description),
     similarityGroup:
       typeof similarity === 'number' || typeof similarity === 'string' ? String(similarity) : null,
     sourceUpdatedAt,
     sourceCreatedAt: tbilisiWallClockToIso(row.createDate),
-    expectedEndAt: new Date(Date.parse(sourceUpdatedAt) + LISTING_LIFE_MS).toISOString(),
+    expectedEndAt: new Date(Date.parse(sourceUpdatedAt) + listingLifeMs(poster)).toISOString(),
   };
 }
 

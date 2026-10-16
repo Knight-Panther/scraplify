@@ -59,6 +59,26 @@ describe('parseResultsPage', () => {
     });
   });
 
+  // The first pass checked about 960 listings past their 30 days: of those
+  // posted by no business, 890 had an end exactly 45 days after their order
+  // time (2026-10-15). No agency listing outlived 30 days.
+  it('expects 45 days of life for a listing no business posted, and 30 for a business one', () => {
+    const lifeDays = (card: { sourceUpdatedAt: string; expectedEndAt: string | null }) =>
+      (Date.parse(card.expectedEndAt ?? '') - Date.parse(card.sourceUpdatedAt)) / 86_400_000;
+    const developerPage = parseResultsPage(fixture('results-flats-sale-last-page.html'), {
+      ...FLATS_FOR_SALE,
+      page: 2596,
+    });
+    const cards = [...first.cards, ...developerPage.cards];
+    const byPoster = new Map(cards.map((card) => [card.posterType, lifeDays(card)]));
+    expect(byPoster.get('unknown')).toBe(45);
+    expect(byPoster.get('agent')).toBe(30);
+    expect(byPoster.get('developer')).toBe(30);
+    for (const card of cards) {
+      expect(lifeDays(card)).toBe(card.posterType === 'unknown' ? 45 : 30);
+    }
+  });
+
   it('calls a poster an agent only where the row says so, and never guesses an owner', () => {
     expect(first.cards[0]?.posterType).toBe('agent');
     expect(first.cards[1]?.posterType).toBe('unknown');
@@ -198,6 +218,57 @@ describe('parseResultsPage', () => {
       .join('');
     const codes = [...stored].map((char) => char.charCodeAt(0));
     expect(codes.filter((code) => code < 32 || code === 127)).toEqual([]);
+  });
+
+  describe('a phone number typed into the address', () => {
+    // The first pass found posters' numbers in 33 street numbers (2026-10-14):
+    // bare, spaced, after a building name, and inside a whole pasted advert.
+    function streetOf(streetTitle: string, streetNumber: string) {
+      const row = {
+        applicationId: 1,
+        type: 5,
+        dealType: 4,
+        title: 'x',
+        orderDate: '2026-10-14T10:00:00.000Z',
+        address: { cityId: 1, cityTitle: 'თბილისი', streetTitle, streetNumber },
+      };
+      const data = {
+        props: { pageProps: { initialPage: 1, applicationList: { realStateItemModel: [row] } } },
+      };
+      const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
+      const card = parseResultsPage(html, { ...FLATS_FOR_SALE, page: 1 }).cards[0];
+      return { streetName: card?.streetName, streetNumber: card?.streetNumber };
+    }
+
+    it.each([
+      '599000000',
+      '+995 599 00-00-00',
+      '599.00.00.00',
+      '(599) 00 00 00',
+      'მედინა.599000000',
+      'ზღვის ხედი 📞 დასაკავშირებლად: 599 00 00 00 დამიკავშირდით',
+      '123456789012345678901234567890123456',
+    ])('drops the street number %j', (streetNumber) => {
+      expect(streetOf('ვაჟა-ფშაველას გამზ.', streetNumber)).toEqual({
+        streetName: 'ვაჟა-ფშაველას გამზ.',
+        streetNumber: null,
+      });
+    });
+
+    it('drops a street name holding one', () => {
+      expect(streetOf('ზარდიაშვილის 599 00 00 00', '7').streetName).toBeNull();
+    });
+
+    it.each([
+      '75',
+      '12ა',
+      '12, 14, 16, 18, 20-22 24',
+      'გრიგოლ ელიავა 12ა 6010 ბათუმი',
+      'თამარ მეფის 1234',
+      '9 შესახვევი #15',
+    ])('keeps the street number %j', (streetNumber) => {
+      expect(streetOf('ვაჟა-ფშაველას გამზ.', streetNumber).streetNumber).toBe(streetNumber);
+    });
   });
 
   it('refuses a page with no listing data instead of reading it as an empty list', () => {
