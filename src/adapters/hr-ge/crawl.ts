@@ -69,6 +69,12 @@ const SITEMAP_URL = 'https://api.p.hr.ge/public-portal/tenant/1/api/v3/seo/sitem
  * cap is defense-in-depth only, not the primary stop signal.
  */
 const MAX_DISCOVERY_PAGES = 200;
+/**
+ * Requests for one index page before the walk ends on it. One timeout ended
+ * jobs.ge's walk on the host on 2026-10-16 and left the day's run partial;
+ * hr.ge's walk ended on a failed page the same way.
+ */
+const INDEX_PAGE_ATTEMPTS = 3;
 
 /**
  * Absolute tolerance between listings actually collected and the source's
@@ -355,16 +361,36 @@ async function discoverAllListings(
     page++
   ) {
     const url = buildSearchPostingUrl(page);
-    const attemptedAt = now();
-    const { outcome, fetchResult } = await fetchAndRecord(
+    let { outcome, fetchResult } = await fetchAndRecord(
       db,
       httpFetcher,
       crawlRun.id,
       'INDEX',
       url,
-      attemptedAt,
+      now(),
       control,
     );
+    // A page that failed to load is asked again (INDEX_PAGE_ATTEMPTS); a 404
+    // is the end of the list and a block or rate limit stops the run, so
+    // neither is.
+    for (
+      let attempt = 2;
+      attempt <= INDEX_PAGE_ATTEMPTS &&
+      outcome === 'failure' &&
+      fetchResult?.status !== 404 &&
+      !control.stopped;
+      attempt++
+    ) {
+      ({ outcome, fetchResult } = await fetchAndRecord(
+        db,
+        httpFetcher,
+        crawlRun.id,
+        'INDEX',
+        url,
+        now(),
+        control,
+      ));
+    }
 
     if (page > 1 && outcome === 'failure' && fetchResult?.status === 404 && !control.stopped) {
       complete = true;
