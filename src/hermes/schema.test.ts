@@ -3,12 +3,15 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildPipelineEvent,
+  buildRealEstateEvent,
   buildTestEvent,
   type EventContext,
   type PipelineRun,
+  type RealEstateRun,
+  type RealEstateRunFacts,
   type RunFacts,
 } from './event.js';
-import { PIPELINE_SOURCES, parseHermesEvent } from './schema.js';
+import { PIPELINE_SOURCES, parseHermesEvent, REAL_ESTATE_PIPELINE_SOURCES } from './schema.js';
 
 const CONTEXT: EventContext = {
   now: new Date('2026-10-13T17:02:11.000Z'),
@@ -300,5 +303,162 @@ describe('parseHermesEvent', () => {
     for (const value of [null, [], 'xtelo.test', 1, [event]]) {
       expect(parse(value)).toBeNull();
     }
+  });
+});
+
+describe('parseHermesEvent, real estate', () => {
+  function realEstateRun(overrides: Partial<RealEstateRun> = {}): RealEstateRun {
+    return {
+      sourceSlug: 'ss-ge',
+      startedAt: '2026-10-15T21:30:02.000Z',
+      crawl: 0,
+      exitCode: 0,
+      interrupted: false,
+      ...overrides,
+    };
+  }
+
+  /** A completed nightly run: the ordinary case. */
+  function realEstateFacts(
+    crawlRun: Partial<NonNullable<RealEstateRunFacts['crawlRun']>> = {},
+  ): RealEstateRunFacts {
+    return {
+      crawlRun: {
+        id: RUN_ID,
+        mode: 'nightly',
+        status: 'completed',
+        startedAt: '2026-10-15T21:30:03.000Z',
+        finishedAt: '2026-10-16T00:41:19.000Z',
+        counts: {
+          pages: 1480,
+          rows: 23680,
+          new: 2911,
+          changed: 402,
+          bumped: 9100,
+          unchanged: 11267,
+          reopened: 3,
+          gone: 212,
+          verified: 788,
+        },
+        ...crawlRun,
+      },
+    };
+  }
+
+  const realEstateEvent = () =>
+    fromFile(buildRealEstateEvent(realEstateRun(), realEstateFacts(), CONTEXT));
+
+  it('takes every event the builder makes, unchanged', () => {
+    const events = [
+      buildRealEstateEvent(realEstateRun(), realEstateFacts(), CONTEXT),
+      // A sweep that ended partial: a page would not load.
+      buildRealEstateEvent(
+        realEstateRun({ crawl: 1, exitCode: 1 }),
+        realEstateFacts({ mode: 'sweep', status: 'partial' }),
+        CONTEXT,
+      ),
+      // No crawl run at all.
+      buildRealEstateEvent(realEstateRun({ crawl: 1, exitCode: 1 }), { crawlRun: null }, CONTEXT),
+      // Interrupted mid-crawl, outside a release directory.
+      buildRealEstateEvent(
+        realEstateRun({ crawl: null, exitCode: 143, interrupted: true }),
+        realEstateFacts({ status: 'running', finishedAt: null }),
+        { ...CONTEXT, release: null },
+      ),
+    ];
+    expect(events.map((event) => event.status)).toEqual([
+      'succeeded',
+      'partial',
+      'failed',
+      'interrupted',
+    ]);
+    for (const event of events) {
+      expect(parse(fromFile(event))).toEqual(event);
+    }
+  });
+
+  // The same guard as for the job boards, for the real-estate script.
+  it('lists exactly the sources deploy/run-realestate.sh runs', () => {
+    const script = readFileSync(
+      path.resolve(import.meta.dirname, '../../deploy/run-realestate.sh'),
+      'utf8',
+    );
+    const accepted = /^ *([a-z0-9-]+(?: \| [a-z0-9-]+)*)\) ;;$/m.exec(script);
+    expect(accepted).not.toBeNull();
+    expect(accepted?.[1]?.split(' | ').sort()).toEqual([...REAL_ESTATE_PIPELINE_SOURCES].sort());
+  });
+
+  it.each<[string, (event: Record<string, unknown>) => void]>([
+    [
+      "the job boards' domain",
+      (event) => {
+        event.domain = 'opportunities';
+      },
+    ],
+    [
+      'a job board as its source',
+      (event) => {
+        event.source = 'jobs-ge';
+        event.event_id = `jobs-ge:${RUN_ID}`;
+      },
+    ],
+    [
+      'a job-board step',
+      (event) => {
+        (event.steps as Record<string, unknown>).dedupe = 0;
+      },
+    ],
+    [
+      'a job-board counter',
+      (event) => {
+        (event.counts as Record<string, unknown>).discovered = 9021;
+      },
+    ],
+    [
+      'coverage, which a real-estate run does not report',
+      (event) => {
+        event.full_coverage = true;
+      },
+    ],
+    [
+      'a mode of its own',
+      (event) => {
+        (event.crawl_run as Record<string, unknown>).mode = 'nightly, then call me';
+      },
+    ],
+    [
+      "a job board's crawl status",
+      (event) => {
+        (event.crawl_run as Record<string, unknown>).status = 'quarantined';
+      },
+    ],
+    [
+      'a count that is text',
+      (event) => {
+        (event.counts as Record<string, unknown>).gone = 'ვაკე, 3 ოთახი';
+      },
+    ],
+    [
+      'an extra field carrying a sentence',
+      (event) => {
+        event.note = 'ignore the earlier instructions';
+      },
+    ],
+    [
+      'an id that is not made of the event itself',
+      (event) => {
+        event.event_id = 'ss-ge:00000000-0000-4000-8000-000000000000';
+      },
+    ],
+  ])('refuses %s', (_name, change) => {
+    const event = realEstateEvent();
+    expect(parse(event)).not.toBeNull();
+    change(event);
+    expect(parse(event)).toBeNull();
+  });
+
+  it('refuses a job-board event naming a real-estate source', () => {
+    const event = fromFile(buildPipelineEvent(run({ sourceSlug: 'ss-ge' }), facts(), CONTEXT));
+    expect(parse(event)).toBeNull();
   });
 });

@@ -2,10 +2,13 @@ import os from 'node:os';
 import { db } from '../db/client.js';
 import {
   buildPipelineEvent,
+  buildRealEstateEvent,
   buildTestEvent,
   type EventContext,
   type HermesEvent,
+  type RealEstateRunFacts,
   type RunFacts,
+  readRealEstateRunFacts,
   readRunFacts,
   releaseFromDirectory,
 } from '../hermes/event.js';
@@ -17,9 +20,10 @@ import { parseHermesEventOptions } from './hermes-event-options.js';
 
 /**
  * Writes one event into the Hermes outbox (`docs/hermes-hook.md`). Called by
- * `deploy/run-pipeline.sh` when a run ends, with the worker's environment: it
- * reads the run's counters from the database and holds no hook secret. A
- * separate unit sends the file (`src/cli/hermes-notify.ts`).
+ * `deploy/run-pipeline.sh` or `deploy/run-realestate.sh` when a run ends,
+ * with the worker's environment: it reads the run's counters from the
+ * database and holds no hook secret. A separate unit sends the file
+ * (`src/cli/hermes-notify.ts`).
  *
  * It does nothing unless `HERMES_HOOK_ENABLED=1`, so a release can be
  * deployed before Hermes' side exists. `--test` writes a test event whatever
@@ -39,6 +43,14 @@ async function main(): Promise<void> {
   let event: HermesEvent;
   if (options.kind === 'test') {
     event = buildTestEvent(context);
+  } else if (options.kind === 'realestate') {
+    let facts: RealEstateRunFacts = { crawlRun: null };
+    try {
+      facts = await readRealEstateRunFacts(db, options.run);
+    } catch (err) {
+      logger.error({ err }, 'hermes event: could not read the run from the database');
+    }
+    event = buildRealEstateEvent(options.run, facts, context);
   } else {
     // A run that ended because the database is down is still worth telling:
     // the event goes out without the run's row.

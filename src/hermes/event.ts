@@ -5,10 +5,10 @@ import {
   crawlRuns,
   matchingBundleBuilds,
   matchingBundlePublications,
+  realEstateCrawlRuns,
   sources,
 } from '../db/schema/index.js';
 import type { Database } from '../db/types.js';
-import { REAL_ESTATE_SOURCES } from '../source-traits.js';
 
 /**
  * The event Hermes is told when a pipeline run ends (`docs/hermes-hook.md`).
@@ -78,7 +78,7 @@ export interface PipelineFinishedEvent {
   event_type: 'xtelo.pipeline.finished';
   schema: typeof HERMES_EVENT_SCHEMA;
   event_id: string;
-  domain: 'opportunities' | 'realestate';
+  domain: 'opportunities';
   source: string;
   status: PipelineStatus;
   exit_code: number;
@@ -101,7 +101,67 @@ export interface TestEvent {
   emitted_at: string;
 }
 
-export type HermesEvent = PipelineFinishedEvent | TestEvent;
+/**
+ * One real-estate crawl run (Phase 11E): `deploy/run-realestate.sh` has a
+ * crawl and nothing after it, so the only step is the crawl.
+ */
+export interface RealEstateRun {
+  sourceSlug: string;
+  /** When the script started; only a crawl run started at or after it is this run's (as for `PipelineRun`). */
+  startedAt: string;
+  crawl: number | null;
+  exitCode: number;
+  interrupted: boolean;
+}
+
+/** The counters of `realestate.crawl_runs`, without the `_count` suffix. */
+export interface RealEstateCounts {
+  pages: number;
+  rows: number;
+  new: number;
+  changed: number;
+  bumped: number;
+  unchanged: number;
+  reopened: number;
+  gone: number;
+  verified: number;
+}
+
+export interface RealEstateRunFacts {
+  crawlRun: {
+    id: string;
+    mode: string;
+    status: string;
+    startedAt: string;
+    finishedAt: string | null;
+    counts: RealEstateCounts;
+  } | null;
+}
+
+/** The same event type under `domain: realestate`, with that domain's one step and its counters. */
+export interface RealEstateFinishedEvent {
+  event_type: 'xtelo.pipeline.finished';
+  schema: typeof HERMES_EVENT_SCHEMA;
+  event_id: string;
+  domain: 'realestate';
+  source: string;
+  status: PipelineStatus;
+  exit_code: number;
+  steps: { crawl: number | null };
+  crawl_run: {
+    id: string;
+    mode: string;
+    status: string;
+    started_at: string;
+    finished_at: string | null;
+  } | null;
+  counts: RealEstateCounts | null;
+  release: string | null;
+  host: string;
+  emitted_at: string;
+}
+
+export type HermesEvent = PipelineFinishedEvent | RealEstateFinishedEvent | TestEvent;
 
 /** Postgres's text timestamp ("2026-10-13 12:47:12.809+00") as ISO-8601 UTC. */
 function iso(value: string): string {
@@ -212,7 +272,7 @@ export function buildPipelineEvent(
       crawlRun === null
         ? `${run.sourceSlug}:nocrawl:${emittedAt}`
         : `${run.sourceSlug}:${crawlRun.id}`,
-    domain: REAL_ESTATE_SOURCES.includes(run.sourceSlug) ? 'realestate' : 'opportunities',
+    domain: 'opportunities',
     source: run.sourceSlug,
     status: pipelineStatus(run, facts),
     exit_code: run.exitCode,
@@ -229,6 +289,88 @@ export function buildPipelineEvent(
     counts: crawlRun?.counts ?? null,
     full_coverage: crawlRun?.fullCoverage ?? null,
     ...(facts.bundle === null ? {} : { bundle: facts.bundle }),
+    release: context.release,
+    host: context.host,
+    emitted_at: emittedAt,
+  };
+}
+
+/** What `realestate.crawl_runs` recorded for this run. Reads only. */
+export async function readRealEstateRunFacts(
+  db: Database,
+  run: RealEstateRun,
+): Promise<RealEstateRunFacts> {
+  const [row] = await db
+    .select({
+      id: realEstateCrawlRuns.id,
+      mode: realEstateCrawlRuns.mode,
+      status: realEstateCrawlRuns.status,
+      startedAt: realEstateCrawlRuns.startedAt,
+      finishedAt: realEstateCrawlRuns.finishedAt,
+      pages: realEstateCrawlRuns.pageCount,
+      rows: realEstateCrawlRuns.rowCount,
+      new: realEstateCrawlRuns.newCount,
+      changed: realEstateCrawlRuns.changedCount,
+      bumped: realEstateCrawlRuns.bumpedCount,
+      unchanged: realEstateCrawlRuns.unchangedCount,
+      reopened: realEstateCrawlRuns.reopenedCount,
+      gone: realEstateCrawlRuns.goneCount,
+      verified: realEstateCrawlRuns.verifiedCount,
+    })
+    .from(realEstateCrawlRuns)
+    .innerJoin(sources, eq(sources.id, realEstateCrawlRuns.sourceId))
+    .where(and(eq(sources.slug, run.sourceSlug), gte(realEstateCrawlRuns.startedAt, run.startedAt)))
+    .orderBy(desc(realEstateCrawlRuns.startedAt))
+    .limit(1);
+  if (row === undefined) return { crawlRun: null };
+  const { id, mode, status, startedAt, finishedAt, ...counts } = row;
+  return {
+    crawlRun: {
+      id,
+      mode,
+      status,
+      startedAt: iso(startedAt),
+      finishedAt: finishedAt === null ? null : iso(finishedAt),
+      counts,
+    },
+  };
+}
+
+/** As for a pipeline run: `partial` is the crawl ending partial, which its CLI also exits 1 for. */
+export function buildRealEstateEvent(
+  run: RealEstateRun,
+  facts: RealEstateRunFacts,
+  context: EventContext,
+): RealEstateFinishedEvent {
+  const emittedAt = context.now.toISOString();
+  const crawlRun = facts.crawlRun;
+  let status: PipelineStatus = 'failed';
+  if (run.interrupted) status = 'interrupted';
+  else if (run.exitCode === 0) status = 'succeeded';
+  else if (crawlRun?.status === 'partial') status = 'partial';
+  return {
+    event_type: 'xtelo.pipeline.finished',
+    schema: HERMES_EVENT_SCHEMA,
+    event_id:
+      crawlRun === null
+        ? `${run.sourceSlug}:nocrawl:${emittedAt}`
+        : `${run.sourceSlug}:${crawlRun.id}`,
+    domain: 'realestate',
+    source: run.sourceSlug,
+    status,
+    exit_code: run.exitCode,
+    steps: { crawl: run.crawl },
+    crawl_run:
+      crawlRun === null
+        ? null
+        : {
+            id: crawlRun.id,
+            mode: crawlRun.mode,
+            status: crawlRun.status,
+            started_at: crawlRun.startedAt,
+            finished_at: crawlRun.finishedAt,
+          },
+    counts: crawlRun?.counts ?? null,
     release: context.release,
     host: context.host,
     emitted_at: emittedAt,

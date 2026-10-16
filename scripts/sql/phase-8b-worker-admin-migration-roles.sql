@@ -183,6 +183,20 @@ GRANT SELECT (opportunity_id, source_listing_id, source_listing_revision_id)
 -- row (§15.3 evidence, a human or a domain match) — read-only, same reason.
 GRANT SELECT (source_listing_id) ON public.organization_aliases TO scraplify_worker;
 
+-- Phase 11E: the ss.ge crawl (`deploy/run-realestate.sh`), traced from its
+-- writes, 2026-10-15: src/adapters/ss-ge/crawl.ts inserts the source row
+-- (covered by the `sources` grant above) and writes its run rows;
+-- src/realestate/ingest.ts inserts and updates listings and inserts price
+-- changes; src/realestate/expiry.ts updates listings and deletes those gone
+-- for 14 days. A deleted listing's price changes go with it through the
+-- foreign key's ON DELETE CASCADE, which Postgres runs as the table's owner,
+-- so price_changes needs no DELETE here. The crawl's lock is an advisory
+-- lock, which needs no grant. Requires migrations 0039 and 0040.
+GRANT USAGE ON SCHEMA realestate TO scraplify_worker;
+GRANT SELECT, INSERT, UPDATE, DELETE ON realestate.listings TO scraplify_worker;
+GRANT SELECT, INSERT ON realestate.price_changes TO scraplify_worker;
+GRANT SELECT, INSERT, UPDATE ON realestate.crawl_runs TO scraplify_worker;
+
 
 -- =========================================================================
 -- 2. scraplify_admin — "only implemented review/operations mutations"
@@ -343,10 +357,10 @@ GRANT CREATE, USAGE ON SCHEMA public TO scraplify_migration;
 GRANT CREATE ON DATABASE <TARGET_DATABASE> TO scraplify_migration;
 
 -- Hands scraplify_migration ownership of everything <CURRENT_OWNER_ROLE>
--- owns in THIS database's `public` AND `drizzle` schemas — tables, views,
--- materialized views, sequences (pg_class) and enum types (pg_type,
--- Drizzle's pgEnum) — plus the `drizzle` schema itself if it already
--- exists. Touches nothing outside this one connected database (no other
+-- owns in THIS database's `public`, `drizzle` and `realestate` schemas —
+-- tables, views, materialized views, sequences (pg_class) and enum types
+-- (pg_type, Drizzle's pgEnum) — plus the `drizzle` and `realestate` schemas
+-- themselves if they already exist. Touches nothing outside this one connected database (no other
 -- database, no shared/cluster-level object). Run once per target database,
 -- connected to that database; safe to re-run (no-ops on anything it
 -- already owns or that doesn't exist).
@@ -357,6 +371,11 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'drizzle') THEN
     EXECUTE 'ALTER SCHEMA drizzle OWNER TO scraplify_migration';
   END IF;
+  -- Migration 0039's schema (Phase 11A), when a restore run as the
+  -- superuser left it owned by that role.
+  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'realestate') THEN
+    EXECUTE 'ALTER SCHEMA realestate OWNER TO scraplify_migration';
+  END IF;
 
   FOR obj IN
     SELECT n.nspname, c.relname, c.relkind
@@ -364,7 +383,7 @@ BEGIN
     JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
     WHERE r.rolname = '<CURRENT_OWNER_ROLE>'
-      AND n.nspname IN ('public', 'drizzle')
+      AND n.nspname IN ('public', 'drizzle', 'realestate')
       AND c.relkind IN ('r', 'v', 'm', 'S')
       -- A sequence owned by a table column (serial/identity, e.g.
       -- drizzle.__drizzle_migrations_id_seq) cannot be re-owned directly —
@@ -402,7 +421,7 @@ BEGIN
     JOIN pg_catalog.pg_roles r ON r.oid = t.typowner
     JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
     WHERE r.rolname = '<CURRENT_OWNER_ROLE>'
-      AND n.nspname IN ('public', 'drizzle')
+      AND n.nspname IN ('public', 'drizzle', 'realestate')
       AND t.typtype = 'e'
   LOOP
     EXECUTE format('ALTER TYPE %I.%I OWNER TO scraplify_migration', obj.nspname, obj.typname);

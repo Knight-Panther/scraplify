@@ -8,6 +8,7 @@ import { db } from '../db/client.js';
 import {
   matchingBundleBuilds,
   matchingBundlePublications,
+  realEstateCrawlRuns,
   sourceListingRevisions,
 } from '../db/schema/index.js';
 import {
@@ -19,9 +20,12 @@ import {
 } from '../db/test-support.js';
 import {
   buildPipelineEvent,
+  buildRealEstateEvent,
   buildTestEvent,
   type EventContext,
   type PipelineRun,
+  type RealEstateRun,
+  readRealEstateRunFacts,
   readRunFacts,
   releaseFromDirectory,
   type StepCodes,
@@ -304,6 +308,133 @@ describe('the pipeline event', () => {
         'steps',
       ].sort(),
     );
+  });
+});
+
+describe('the real-estate event', () => {
+  let sourceId: string;
+  let sourceSlug: string;
+  const otherSourceIds: string[] = [];
+
+  beforeEach(async () => {
+    sourceId = await createTestSource();
+    sourceSlug = `test-source-${sourceId}`;
+  });
+
+  afterEach(async () => {
+    await cleanupTestSource(sourceId);
+    for (const id of otherSourceIds.splice(0)) await cleanupTestSource(id);
+  });
+
+  function run(overrides: Partial<RealEstateRun> = {}): RealEstateRun {
+    return {
+      sourceSlug,
+      startedAt: '2026-10-15T21:30:02.000Z',
+      crawl: 0,
+      exitCode: 0,
+      interrupted: false,
+      ...overrides,
+    };
+  }
+
+  async function eventFor(realEstateRun: RealEstateRun) {
+    return buildRealEstateEvent(
+      realEstateRun,
+      await readRealEstateRunFacts(db, realEstateRun),
+      CONTEXT,
+    );
+  }
+
+  async function crawlRun(
+    values: Partial<typeof realEstateCrawlRuns.$inferInsert> & { startedAt: string },
+    forSource = sourceId,
+  ) {
+    const [row] = await db
+      .insert(realEstateCrawlRuns)
+      .values({ sourceId: forSource, mode: 'nightly', ...values })
+      .returning();
+    return row as typeof realEstateCrawlRuns.$inferSelect;
+  }
+
+  it('reports a completed nightly run with its mode and counters', async () => {
+    const row = await crawlRun({
+      startedAt: '2026-10-15T21:30:03Z',
+      finishedAt: '2026-10-16T00:41:19Z',
+      status: 'completed',
+      pageCount: 1480,
+      rowCount: 23680,
+      newCount: 2911,
+      changedCount: 402,
+      bumpedCount: 9100,
+      unchangedCount: 11267,
+      reopenedCount: 3,
+      goneCount: 212,
+      verifiedCount: 788,
+    });
+    const event = await eventFor(run());
+    expect(event).toEqual({
+      event_type: 'xtelo.pipeline.finished',
+      schema: 1,
+      event_id: `${sourceSlug}:${row.id}`,
+      domain: 'realestate',
+      source: sourceSlug,
+      status: 'succeeded',
+      exit_code: 0,
+      steps: { crawl: 0 },
+      crawl_run: {
+        id: row.id,
+        mode: 'nightly',
+        status: 'completed',
+        started_at: '2026-10-15T21:30:03.000Z',
+        finished_at: '2026-10-16T00:41:19.000Z',
+      },
+      counts: {
+        pages: 1480,
+        rows: 23680,
+        new: 2911,
+        changed: 402,
+        bumped: 9100,
+        unchanged: 11267,
+        reopened: 3,
+        gone: 212,
+        verified: 788,
+      },
+      release: CONTEXT.release,
+      host: CONTEXT.host,
+      emitted_at: '2026-10-13T17:02:11.000Z',
+    });
+  });
+
+  it('calls a run partial when its crawl ended partial, and failed otherwise', async () => {
+    await crawlRun({ startedAt: '2026-10-15T21:30:03Z', status: 'partial', mode: 'sweep' });
+    const partial = await eventFor(run({ crawl: 1, exitCode: 1 }));
+    expect(partial.status).toBe('partial');
+    expect(partial.crawl_run?.mode).toBe('sweep');
+
+    await crawlRun({ startedAt: '2026-10-15T21:40:00Z', status: 'failed' });
+    expect((await eventFor(run({ crawl: 1, exitCode: 1 }))).status).toBe('failed');
+  });
+
+  it('reports an interrupted run with the row it left running', async () => {
+    const row = await crawlRun({ startedAt: '2026-10-15T21:30:03Z', pageCount: 212 });
+    const event = await eventFor(run({ crawl: null, exitCode: 143, interrupted: true }));
+    expect(event.status).toBe('interrupted');
+    expect(event.event_id).toBe(`${sourceSlug}:${row.id}`);
+    expect(event.crawl_run).toMatchObject({ status: 'running', finished_at: null });
+    expect(event.counts?.pages).toBe(212);
+  });
+
+  it('does not borrow an earlier run, a job-board run or another source when it created none', async () => {
+    await crawlRun({ startedAt: '2026-10-14T21:30:03Z', status: 'completed' });
+    await createTestCrawlRun(sourceId, { startedAt: '2026-10-15T21:30:04Z' });
+    const otherSourceId = await createTestSource();
+    otherSourceIds.push(otherSourceId);
+    await crawlRun({ startedAt: '2026-10-15T21:30:05Z' }, otherSourceId);
+
+    const event = await eventFor(run({ crawl: 1, exitCode: 1 }));
+    expect(event.event_id).toBe(`${sourceSlug}:nocrawl:2026-10-13T17:02:11.000Z`);
+    expect(event.crawl_run).toBeNull();
+    expect(event.counts).toBeNull();
   });
 });
 

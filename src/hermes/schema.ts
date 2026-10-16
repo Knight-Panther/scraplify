@@ -3,7 +3,6 @@ import { etendersGeSource } from '../policies/etenders-ge.js';
 import { hrGeSource } from '../policies/hr-ge.js';
 import { jobsGeSource } from '../policies/jobs-ge.js';
 import { ssGeSource } from '../policies/ss-ge.js';
-import { REAL_ESTATE_SOURCES } from '../source-traits.js';
 import type { HermesEvent } from './event.js';
 
 /**
@@ -23,7 +22,7 @@ import type { HermesEvent } from './event.js';
  */
 
 /**
- * The sources `deploy/run-pipeline.sh` runs. ss.ge joins with Phase 11E.
+ * The sources `deploy/run-pipeline.sh` runs.
  *
  * A new source goes here in the change that adds it to that script: without
  * it the crawl runs as before and Hermes is told nothing about it.
@@ -35,7 +34,12 @@ export const PIPELINE_SOURCES: readonly string[] = [
   etendersGeSource.slug,
 ];
 
-const EVENT_SOURCES: readonly string[] = [...PIPELINE_SOURCES, ssGeSource.slug];
+/**
+ * The sources `deploy/run-realestate.sh` runs (Phase 11E), under the same
+ * rule: a new one goes here in the change that adds it to that script, and
+ * `schema.test.ts` fails when the two lists differ.
+ */
+export const REAL_ESTATE_PIPELINE_SOURCES: readonly string[] = [ssGeSource.slug];
 
 /** A time exactly as `toISOString` writes it: one form, a fixed length. */
 const time = z
@@ -58,12 +62,27 @@ const base = {
   emitted_at: time,
 };
 
+/** The id a finished run's event must have: its source and its crawl run, or when there was none. */
+function madeOfItself(event: {
+  event_id: string;
+  source: string;
+  emitted_at: string;
+  crawl_run: { id: string } | null;
+}): boolean {
+  return (
+    event.event_id ===
+    (event.crawl_run === null
+      ? `${event.source}:nocrawl:${event.emitted_at}`
+      : `${event.source}:${event.crawl_run.id}`)
+  );
+}
+
 const pipelineFinished = z
   .strictObject({
     event_type: z.literal('xtelo.pipeline.finished'),
     ...base,
-    domain: z.enum(['opportunities', 'realestate']),
-    source: z.string().refine((source) => EVENT_SOURCES.includes(source)),
+    domain: z.literal('opportunities'),
+    source: z.string().refine((source) => PIPELINE_SOURCES.includes(source)),
     status: z.enum(['succeeded', 'failed', 'partial', 'interrupted']),
     exit_code: exitCode,
     steps: z.strictObject({
@@ -98,25 +117,49 @@ const pipelineFinished = z
     full_coverage: z.boolean().nullable(),
     bundle: z.strictObject({ id: z.uuid(), opportunities: count.nullable() }).optional(),
   })
-  .refine(
-    (event) =>
-      event.domain ===
-      (REAL_ESTATE_SOURCES.includes(event.source) ? 'realestate' : 'opportunities'),
-  )
   // The id is made of the event's own fields, so it cannot carry anything else.
-  .refine(
-    (event) =>
-      event.event_id ===
-      (event.crawl_run === null
-        ? `${event.source}:nocrawl:${event.emitted_at}`
-        : `${event.source}:${event.crawl_run.id}`),
-  );
+  .refine(madeOfItself);
+
+/** A real-estate run: its one step, its run's mode, and `realestate.crawl_runs`' counters. */
+const realEstateFinished = z
+  .strictObject({
+    event_type: z.literal('xtelo.pipeline.finished'),
+    ...base,
+    domain: z.literal('realestate'),
+    source: z.string().refine((source) => REAL_ESTATE_PIPELINE_SOURCES.includes(source)),
+    status: z.enum(['succeeded', 'failed', 'partial', 'interrupted']),
+    exit_code: exitCode,
+    steps: z.strictObject({ crawl: exitCode.nullable() }),
+    crawl_run: z
+      .strictObject({
+        id: z.uuid(),
+        mode: z.enum(['sweep', 'nightly']),
+        status: z.enum(['running', 'completed', 'failed', 'partial']),
+        started_at: time,
+        finished_at: time.nullable(),
+      })
+      .nullable(),
+    counts: z
+      .strictObject({
+        pages: count,
+        rows: count,
+        new: count,
+        changed: count,
+        bumped: count,
+        unchanged: count,
+        reopened: count,
+        gone: count,
+        verified: count,
+      })
+      .nullable(),
+  })
+  .refine(madeOfItself);
 
 const test = z
   .strictObject({ event_type: z.literal('xtelo.test'), ...base })
   .refine((event) => event.event_id === `test:${event.emitted_at}`);
 
-const hermesEvent = z.union([pipelineFinished, test]);
+const hermesEvent = z.union([pipelineFinished, realEstateFinished, test]);
 
 /**
  * The value as an event, or `null` when it is not exactly one. `host` is this
