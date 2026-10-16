@@ -38,7 +38,7 @@
 | # | Question | Default taken | Why |
 |---|---|---|---|
 | 1 | Summer cottages (აგარაკი) | Included as a third property kind | 1,280 listings; residential; the same filters apply |
-| 2 | Request budget | One request at a time, 3 s apart; nightly runs sized under 2,000 requests; one first pass of about 7,300 | Nothing has been agreed with ss.ge. These are the project's usual politeness floor. |
+| 2 | Request budget | One request at a time, 3 s apart; nightly runs sized under 2,000 requests; one first pass of about 7,300 | Settled by the owner on 2026-10-12: no budget is negotiated with ss.ge, and these cautious limits stand. They are the project's usual politeness floor. |
 | 3 | How to read ss.ge | Public pages only | Its frontend pages through a JSON gateway with a site-issued token (§4.8). Faster, but using it needs ss.ge to say so. |
 | 4 | Listing descriptions | Stored and searched; not shown on the public site | Same reasoning as the 2026-10-07 decision for the job boards |
 | 5 | Default view | One row per listing first; grouped view when Phase 11D lands | §5 |
@@ -161,7 +161,7 @@ So ss.ge's own collapsing does most of the work, and the tab is usable without g
 | Gate | State |
 |---|---|
 | The production server reaches ss.ge | Passed, 2026-10-12 (§4.9) |
-| Request budget and channel agreed with ss.ge | Open. Defaults in §2.2 rows 2 and 3 are used until then. |
+| Request budget and channel agreed with ss.ge | Closed (owner, 2026-10-12): not negotiated. The cautious limits in §2.2 rows 2 and 3 stand, and only public pages are read. |
 | `docs/RIGHTS.md` has a row for ss.ge | Done with Phase 11A |
 | Concept §31 | Done with Phase 11A |
 | Migration `0039` on the real databases | Needs the owner's approval and the `migration-safety-reviewer` pass first. The owner applies it. |
@@ -258,11 +258,14 @@ Whether an edit always moves a listing's order time is not known. One sweep two 
 Absence from a list proves nothing, because flat lists hide look-alikes.
 
 1. On every sighting, `expected_end_at` is the order time plus 30 days.
-2. A row is shown only while the current time is before `expected_end_at` plus a two-day grace period.
-3. Each night, the detail pages of up to 1,000 rows nearest their expected end are fetched, oldest first (1.25 s each). `Active` with a later `endDate` extends the row. `Expired`, inactive or missing marks it gone.
-4. Long-running listings (an `endDate` far in the future) are re-checked monthly.
+2. A row is shown only while the current time is before the later of `expected_end_at` and `last_seen_at`, plus a two-day grace period. `last_seen_at` counts because a row the site listed this week is live, whatever its order time says.
+3. Each run, the detail pages of up to 1,000 rows past their expected end are fetched (1.25 s each). First the rows the site still listed after that date, then the most recently expired. `Active` extends the row to its `endDate`; `Expired`, inactive or missing marks it gone. A page that fails to load changes nothing.
+4. An `endDate` is never believed more than 30 days ahead, so a long-running listing is re-checked monthly. An `Active` listing whose `endDate` has passed is re-checked in three days.
+5. A row nobody has seen or confirmed for a week past its expected end is marked gone (`lapsed`). A gone row is deleted after 14 days.
 
 A row that is neither re-seen nor checked in time is hidden at its expected end. That errs towards hiding a live listing over showing a dead one.
+
+**Measured while building (2026-10-12, `src/adapters/ss-ge/RECON_NOTES.md`):** the first 90–95% of each list is in strict order of order time, down to about 29 days. Rent lists then end with listings 30–45 days old; sale lists end with a block of business listings in no date order, up to 943 days old. Thirteen listings older than 30 days were checked, and all were live with an end 45 days after their order time. Rule 3's ordering exists for these.
 
 ---
 

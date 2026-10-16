@@ -9,6 +9,7 @@ How to deploy, check, roll back and recover the hosted edition (Phase 8E; `docs/
 | Public site | `xtelo-web@public` | `xtelo-public` | `127.0.0.1:3000` | `scraplify_public` (read-only views) | `/etc/xtelo/public.env` |
 | Admin site | `xtelo-web@admin` | `xtelo-admin` | `127.0.0.1:3001` | `scraplify_admin` | `/etc/xtelo/admin.env` |
 | Crawl pipeline | `xtelo-pipeline@jobs-ge`, `@hr-ge`, `@etenders-ge` (daily timers, 16:10 UTC plus up to 10 min random delay) | `xtelo` | — | `scraplify_worker` | `/etc/xtelo/worker.env` |
+| Real-estate crawl | `xtelo-realestate@ss-ge` (nightly timer, 21:30 UTC plus up to 10 min; runs for hours) | `xtelo` | — | `scraplify_worker` | `/etc/xtelo/worker.env` |
 | Backup | `xtelo-backup` (nightly timer, 09:00 UTC) | `xtelo` | — | `scraplify_backup` (reads all, writes nothing) | `/etc/xtelo/backup.env` |
 | Hermes hook | `xtelo-hermes-notify` (started when a pipeline run ends; `xtelo-hermes-notify.timer` retries every 15 min) | `xtelo-hermes` | — | none | `/etc/xtelo/hermes-hook.env` |
 | Migrations | none (by hand, per release) | `xtelo` | — | `scraplify_migration` | `/etc/xtelo/migration.env` |
@@ -97,7 +98,7 @@ This follows change.md §15's release order. Commands run as root (`sudo -i`) un
    - Scanners find a new hostname within seconds of its certificate appearing in the public certificate logs, so start `admin` before or together with Caddy. The admin surface serves only `/admin*`, auth and health: `https://admin.jobster.fun/` is a 404 by design, and `/admin` redirects to GitHub sign-in.
 10. **Check.** `npm run probe -- https://jobster.fun` (from the release directory, or anywhere with the repo) must print `probe: ok` (see §4). Sign in on `https://admin.jobster.fun` once.
 11. **Backup.** `systemctl start xtelo-backup && journalctl -u xtelo-backup -n 20`: it must say `Copied off the host`.
-12. **Schedules.** `systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-pipeline@etenders-ge.timer xtelo-backup.timer xtelo-hermes-notify.timer`. (etenders.ge joined in Phase 9C; on a host set up before it, enable just `xtelo-pipeline@etenders-ge.timer` once the 9C release is deployed.) **A source added later:** besides its timer, its name has to be in `PIPELINE_SOURCES` in `src/hermes/schema.ts` in the release that adds it, or its runs send Hermes no event (a test fails when that list and `deploy/run-pipeline.sh` differ). After its first run, check the sender's journal for its event: `journalctl -u xtelo-hermes-notify -n 5 -o cat`.
+12. **Schedules.** `systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-pipeline@etenders-ge.timer xtelo-backup.timer xtelo-hermes-notify.timer`. (etenders.ge joined in Phase 9C; on a host set up before it, enable just `xtelo-pipeline@etenders-ge.timer` once the 9C release is deployed.) **A source added later:** besides its timer, its name has to be in `PIPELINE_SOURCES` in `src/hermes/schema.ts` in the release that adds it, or its runs send Hermes no event (a test fails when that list and `deploy/run-pipeline.sh` differ). After its first run, check the sender's journal for its event: `journalctl -u xtelo-hermes-notify -n 5 -o cat`. The real-estate crawl has its own timer and list: `xtelo-realestate@ss-ge.timer`, enabled as in §3 step 8, and `REAL_ESTATE_PIPELINE_SOURCES` for a source added to `deploy/run-realestate.sh`.
 13. **Observe** the probe and `deploy/with-env.sh worker node dist/cli/health-check.js` for a few days before announcing anything (change.md §15 step 7). Public launch is also gated on `docs/RIGHTS.md`.
 
 ## 3. Deploying a new version
@@ -133,6 +134,22 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
      2. `echo 'HERMES_HOOK_ENABLED=1' | sudo tee -a /etc/xtelo/worker.env`. No restart: the next pipeline run reads it.
    - **A test event by hand, any time:** `sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/hermes-event.js --test && sudo systemctl start xtelo-hermes-notify && journalctl -u xtelo-hermes-notify -n 5 -o cat`. The last line names the event and the HTTP status.
    - **To switch it off:** remove the `HERMES_HOOK_ENABLED` line from `worker.env`. Nothing else needs to change.
+
+8. **Real estate (Phase 11E, first deploy after merge only).** Migrations `0039` and `0040` add the `realestate` schema, its three tables and the public view; step 2 applies them and its `grants` run gives the worker its three tables and the public role the view. `/real-estate` is public as soon as step 3 repoints `current`, so the listings go in first, between steps 2 and 3:
+   1. Seed the source row and its policy from the new release. This makes no request to ss.ge; with no completed run it stops there and exits 1, saying "no completed run to measure from":
+      ```sh
+      sudo /opt/xtelo/releases/<new-sha>/deploy/with-env.sh worker node dist/cli/run-ss-ge-crawl.js
+      ```
+   2. Load the operator machine's first pass (listings, price changes and run history, data only), copied to the host as `realestate-seed.dump`. It goes in as the worker, which may write exactly those tables, and the run history gives the first nightly run its starting point:
+      ```sh
+      sudo /opt/xtelo/releases/<new-sha>/deploy/with-env.sh worker sh -c 'pg_restore --data-only --dbname="$DATABASE_URL"' < realestate-seed.dump
+      ```
+      The dump is made on the operator machine with `pg_dump --data-only --format=custom --table='realestate.*'` from the first-pass database, after its phone-shaped street numbers are cleared, and only once its loop has ended with a completed run: the first nightly run measures from the last completed one and refuses to start without it (found in the rehearsal, where a copy taken mid-sweep was refused). A row still marked running in the copy is settled as failed by the first run, which is harmless. Without a seed, the first pass runs on the host instead: `sudo /opt/xtelo/releases/<new-sha>/deploy/with-env.sh worker deploy/run-realestate.sh ss-ge --mode=sweep --max-detail-checks=2000`, which at about 19 s a page takes days and resumes where it stopped.
+   3. The units, before step 3: `sudo install -m 0644 /opt/xtelo/releases/<new-sha>/deploy/systemd/xtelo-realestate@.service /opt/xtelo/releases/<new-sha>/deploy/systemd/xtelo-realestate@.timer /etc/systemd/system/ && sudo systemctl daemon-reload`.
+   4. After step 4's probe, open `/real-estate` on the public site at phone and desktop width. Then `sudo systemctl enable --now xtelo-realestate@ss-ge.timer`; `systemctl list-timers 'xtelo-*'` lists it for 21:30 UTC.
+   5. After the first night: `journalctl -u xtelo-realestate@ss-ge -o cat | tail -n 3` ends with the crawl's exit code 0, and with the hook on `journalctl -u xtelo-hermes-notify -n 5 -o cat` names an `ss-ge:` event.
+   - **Deploys from then on:** the nightly run starts at 21:30 UTC and can take most of the night. Its code is loaded when it starts, so a repoint during it changes only the release its closing Hermes event is written from; still, prefer to deploy outside it (`systemctl is-active xtelo-realestate@ss-ge`). A run stopped by hand or by its 20-hour limit is reported as interrupted, and the next one carries on from its saved progress.
+   - **To pause it:** `sudo systemctl disable --now xtelo-realestate@ss-ge.timer`. The tab keeps showing the listings, each until two days past its expected end.
 
 ## 4. Health signals
 

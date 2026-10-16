@@ -71,7 +71,7 @@ for (const [georgianStem, entry] of Object.entries(dictionary.entries)) {
  * reading; it builds the one spelling whose stem decides how much of the
  * word to keep (see `transliteration`).
  */
-const LATIN_TO_GEORGIAN: readonly (readonly [string, string])[] = [
+export const LATIN_TO_GEORGIAN: readonly (readonly [string, string])[] = [
   ['dz', 'ძ'],
   ['ts', 'ცწ'],
   ['ch', 'ჩჭ'],

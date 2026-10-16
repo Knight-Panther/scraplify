@@ -69,7 +69,7 @@ describe('parseHermesEventOptions', () => {
         run: { sourceSlug: source },
       });
     }
-    expect(() => parseHermesEventOptions(args({ source: 'ss-ge' }))).toThrow(/--source/);
+    expect(() => parseHermesEventOptions(args({ source: 'myhome-ge' }))).toThrow(/--source/);
     expect(() => parseHermesEventOptions(args({ source: null }))).toThrow(/--source/);
   });
 
@@ -83,6 +83,49 @@ describe('parseHermesEventOptions', () => {
     expect(() => parseHermesEventOptions(args({ crawl: 'ok' }))).toThrow(/--crawl/);
     expect(() => parseHermesEventOptions(args({ dedupe: '256' }))).toThrow(/--dedupe/);
     expect(() => parseHermesEventOptions([...args(), '--verbose'])).toThrow();
+  });
+
+  describe('a real-estate run, which has the crawl only', () => {
+    /** The arguments `deploy/run-realestate.sh` passes. */
+    const realEstate = (overrides: Record<string, string | null> = {}) =>
+      args({
+        source: 'ss-ge',
+        dedupe: null,
+        taxonomy: null,
+        bundle: null,
+        retention: null,
+        ...overrides,
+      });
+
+    it('reads it as a real-estate run', () => {
+      expect(parseHermesEventOptions(realEstate({ crawl: '1', 'exit-code': '1' }))).toEqual({
+        kind: 'realestate',
+        run: {
+          sourceSlug: 'ss-ge',
+          startedAt: '2026-10-13T16:10:04.000Z',
+          crawl: 1,
+          exitCode: 1,
+          interrupted: false,
+        },
+      });
+    });
+
+    it('reads an interrupted one, its crawl unfinished', () => {
+      expect(
+        parseHermesEventOptions([
+          ...realEstate({ crawl: '-', 'exit-code': '143' }),
+          '--interrupted',
+        ]),
+      ).toMatchObject({
+        kind: 'realestate',
+        run: { crawl: null, exitCode: 143, interrupted: true },
+      });
+    });
+
+    it('refuses a job-board step on it', () => {
+      expect(() => parseHermesEventOptions(realEstate({ dedupe: '0' }))).toThrow(/crawl step only/);
+      expect(() => parseHermesEventOptions(args({ source: 'ss-ge' }))).toThrow(/crawl step only/);
+    });
   });
 
   it('needs nothing else for a test event', () => {

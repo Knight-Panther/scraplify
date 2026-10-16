@@ -214,6 +214,25 @@ keys: `realestate.crawl_runs` has `page_count`, `row_count`, `new_count`, `chang
 `"domain": "realestate"`, and no `full_coverage`. Until 11E adds that shape to
 `src/hermes/schema.ts`, the sender refuses a real-estate event.
 
+**As built in 11E** (`deploy/run-realestate.sh`, nightly at 21:30 UTC): the same
+`xtelo.pipeline.finished` event, `"domain": "realestate"`, `"source": "ss-ge"`, the same
+`status`, `exit_code`, `event_id`, `release`, `host` and `emitted_at` rules, and:
+
+```json
+{
+  "steps": { "crawl": 0 },
+  "crawl_run": { "id": "uuid", "mode": "nightly", "status": "completed",
+                 "started_at": "…", "finished_at": "…" },
+  "counts": { "pages": 1480, "rows": 23680, "new": 2911, "changed": 402, "bumped": 9100,
+              "unchanged": 11267, "reopened": 3, "gone": 212, "verified": 788 }
+}
+```
+
+`mode` is `sweep` or `nightly`; a run's `status` is `running`, `completed`, `failed` or `partial`.
+There is no `full_coverage` and no `bundle`. A run often takes several hours, so its event
+arrives in the Tbilisi morning. `partial` usually means ss.ge answered a page with errors three
+times (it did for hours on 2026-10-13); the next night carries on.
+
 ### One thing on Hermes' side
 
 The receiver records an `X-Request-ID` as seen before it runs the delivery. When a deliver-only

@@ -1,0 +1,35 @@
+# One scheduled real-estate crawl run for a source (Phase 11E): a nightly
+# run of ss.ge, which reads each list back to the last completed run and then
+# checks the listings past their expected end. See deploy/run-realestate.sh.
+# Triggered by xtelo-realestate@<source>.timer.
+
+[Unit]
+Description=Xtelo real-estate crawl (%i)
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+# The Hermes hook, as for the job boards (xtelo-pipeline@.service).
+OnSuccess=xtelo-hermes-notify.service
+OnFailure=xtelo-hermes-notify.service
+
+[Service]
+Type=oneshot
+User=xtelo
+Group=xtelo
+WorkingDirectory=/opt/xtelo/current
+EnvironmentFile=/etc/xtelo/worker.env
+ExecStart=/opt/xtelo/current/deploy/run-realestate.sh %i
+# ss.ge answers the host in about 19 s a page (2026-10-15), so a night of
+# about 1,500 pages and 1,000 listing checks can take most of a day. The
+# crawl saves progress after every page; a run stopped here is reported as
+# interrupted and the next one carries on.
+TimeoutStartSec=20h
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectProc=invisible
+InaccessiblePaths=-/etc/xtelo -/var/backups/xtelo
+# Nothing but the database is written; the Hermes outbox is optional ("-"),
+# as in xtelo-pipeline@.service.
+ReadWritePaths=-/var/lib/xtelo/hermes/outbox

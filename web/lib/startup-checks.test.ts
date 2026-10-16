@@ -42,6 +42,28 @@ describe('WRITABLE_RELATIONS_SQL against the real database', () => {
     expect(result.rows.map((row) => row.name)).toContain('crawl_runs');
   });
 
+  // The 11C review's P2: a role able to write the Real estate tables passed
+  // a check that looked at `public` only.
+  it('finds a writable table outside public, by its schema-qualified name', async (context) => {
+    const client = await db.$client.connect();
+    try {
+      const may = await client.query<{ may: boolean }>(
+        'select rolsuper or rolcreaterole as may from pg_roles where rolname = current_user',
+      );
+      if (!may.rows[0]?.may) context.skip('this database user cannot create a role');
+      await client.query('begin');
+      await client.query('create role xtelo_startup_check_probe nologin');
+      await client.query('grant usage on schema realestate to xtelo_startup_check_probe');
+      await client.query('grant update on realestate.listings to xtelo_startup_check_probe');
+      await client.query('set local role xtelo_startup_check_probe');
+      const result = await client.query<{ name: string }>(WRITABLE_RELATIONS_SQL);
+      expect(result.rows.map((row) => row.name)).toEqual(['realestate.listings']);
+    } finally {
+      await client.query('rollback');
+      client.release();
+    }
+  });
+
   it('finds scraplify_public able to write nothing', async (context) => {
     const client = await db.$client.connect();
     try {
