@@ -64,6 +64,8 @@ The trial run checked the 13 cottage-for-rent listings older than 30 days. All 1
 
 Until the first full pass says more, the parser keeps 30 days for every listing: a listing that outlives it costs one check and is extended, where a wrong 45 would show a dead listing for two weeks. If the first pass confirms 45 days for listings with no `userInfo`, setting that in `list.ts` saves about a thousand checks a night.
 
+**Confirmed by the first pass (2026-10-15, 1,036 listing pages checked):** of about 960 listings no business posted, checked once past their 30 days, 890 had an end exactly 45 days after their order time and most of the rest 38 to 44; five had ended. No agency listing came due past 30 days, which fits the rent lists' tails holding no business listings. Developers' listings ran longer (63 to 65 days here), and a check extends a listing at most 30 days ahead, so they are looked at monthly whatever the parser expects. `list.ts` now expects 45 days for a listing with no `userInfo` and 30 for an agency's or a developer's.
+
 ## Trial run (2026-10-12, from the development machine)
 
 `--mode=sweep --max-pages=25 --max-detail-checks=15` into a throwaway database:

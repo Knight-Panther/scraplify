@@ -6,12 +6,18 @@ export { SsGePageShapeError };
 /** What a full results page holds; a shorter page is the last one. */
 export const RESULTS_PAGE_SIZE = 16;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
 /**
- * An ordinary listing ends 30 days after its order time unless it is renewed
- * (8 of 8 checked on detail pages, 2026-10-12). Long-running exceptions
+ * How long a listing lives after its order time unless it is renewed. A
+ * business's ends after 30 days (8 of 8 checked on detail pages, 2026-10-12;
+ * in the first pass no agency listing outlived 30). One no business posted
+ * ends after 45: 890 of about 960 such listings checked past their 30 days in
+ * the first pass had exactly that (2026-10-15). Long-running exceptions
  * exist; the nightly detail check corrects those.
  */
-const LISTING_LIFE_MS = 30 * 24 * 60 * 60 * 1000;
+function listingLifeMs(posterType: ListingCard['posterType']): number {
+  return (posterType === 'unknown' ? 45 : 30) * DAY_MS;
+}
 
 /** The site's own codes (guideline §4.3; the cottage code from 288 sampled rows). */
 const PROPERTY_TYPE_CODES: Readonly<Record<number, ListingCard['propertyType']>> = {
@@ -141,6 +147,7 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
 
   const price = isRecord(row.price) ? row.price : {};
   const address = isRecord(row.address) ? row.address : {};
+  const poster = posterType(row.userInfo);
   const rooms = ROOMS_RE.exec(typeof row.title === 'string' ? row.title : '')?.[1];
   const streetNumber = addressText(address.streetNumber);
   const similarity = row.similarityGroup;
@@ -167,14 +174,14 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
     subdistrictName: text(address.subdistrictTitle),
     streetName: addressText(address.streetTitle),
     streetNumber: streetNumber === '0' ? null : streetNumber,
-    posterType: posterType(row.userInfo),
+    posterType: poster,
     promoted: typeof row.vipStatus === 'number' && row.vipStatus > 0,
     description: description(row.description),
     similarityGroup:
       typeof similarity === 'number' || typeof similarity === 'string' ? String(similarity) : null,
     sourceUpdatedAt,
     sourceCreatedAt: tbilisiWallClockToIso(row.createDate),
-    expectedEndAt: new Date(Date.parse(sourceUpdatedAt) + LISTING_LIFE_MS).toISOString(),
+    expectedEndAt: new Date(Date.parse(sourceUpdatedAt) + listingLifeMs(poster)).toISOString(),
   };
 }
 

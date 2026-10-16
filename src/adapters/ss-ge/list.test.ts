@@ -59,6 +59,26 @@ describe('parseResultsPage', () => {
     });
   });
 
+  // The first pass checked about 960 listings past their 30 days: of those
+  // posted by no business, 890 had an end exactly 45 days after their order
+  // time (2026-10-15). No agency listing outlived 30 days.
+  it('expects 45 days of life for a listing no business posted, and 30 for a business one', () => {
+    const lifeDays = (card: { sourceUpdatedAt: string; expectedEndAt: string | null }) =>
+      (Date.parse(card.expectedEndAt ?? '') - Date.parse(card.sourceUpdatedAt)) / 86_400_000;
+    const developerPage = parseResultsPage(fixture('results-flats-sale-last-page.html'), {
+      ...FLATS_FOR_SALE,
+      page: 2596,
+    });
+    const cards = [...first.cards, ...developerPage.cards];
+    const byPoster = new Map(cards.map((card) => [card.posterType, lifeDays(card)]));
+    expect(byPoster.get('unknown')).toBe(45);
+    expect(byPoster.get('agent')).toBe(30);
+    expect(byPoster.get('developer')).toBe(30);
+    for (const card of cards) {
+      expect(lifeDays(card)).toBe(card.posterType === 'unknown' ? 45 : 30);
+    }
+  });
+
   it('calls a poster an agent only where the row says so, and never guesses an owner', () => {
     expect(first.cards[0]?.posterType).toBe('agent');
     expect(first.cards[1]?.posterType).toBe('unknown');
