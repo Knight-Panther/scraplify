@@ -24,15 +24,19 @@ export function publicConfigProblems(env: Readonly<Record<string, string | undef
 }
 
 /**
- * Every table or view in `public` that the connected role can change. For
- * the `scraplify_public` role this is empty (`scripts/sql/phase-8b-public-role.sql`);
- * for the owner credential local development uses, it is every table.
+ * Every table or view the connected role can change, in any schema but the
+ * system ones: `public`, and `realestate` since Phase 11 (a table there is
+ * named with its schema). For the `scraplify_public` role this is empty
+ * (`scripts/sql/phase-8b-public-role.sql`); for the owner credential local
+ * development uses, it is every table.
  */
 export const WRITABLE_RELATIONS_SQL = `
-  select c.relname as name
+  select case when n.nspname = 'public' then c.relname
+              else n.nspname || '.' || c.relname end as name
     from pg_class c
     join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public'
+   where n.nspname not in ('pg_catalog', 'information_schema')
+     and n.nspname not like 'pg\\_%'
      and c.relkind in ('r', 'p', 'v', 'm')
      and has_table_privilege(current_user, c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE')
    order by c.relname`;

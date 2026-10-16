@@ -1,0 +1,16 @@
+# Nightly real-estate crawl per source (guideline §12.2): 21:30 UTC, 01:30
+# in Tbilisi, away from the job boards' 16:10 UTC pipeline.
+#
+#   sudo systemctl enable --now xtelo-realestate@ss-ge.timer
+
+[Unit]
+Description=Nightly Xtelo real-estate crawl (%i)
+
+[Timer]
+OnCalendar=*-*-* 21:30:00 UTC
+RandomizedDelaySec=10min
+# Runs once at boot if the machine was off at the scheduled time.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
