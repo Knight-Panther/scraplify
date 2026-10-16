@@ -80,9 +80,20 @@ Until the first full pass says more, the parser keeps 30 days for every listing:
 
 Coverage of the 329 cottages for rent: rooms on 306, both prices on 308, a city on all, a sub-district on 63 (cottages are mostly outside Tbilisi), a description on 226, a business poster on 183.
 
+## First pass (2026-10-12 to 2026-10-16, from the development machine)
+
+| Measure | Value |
+|---|---|
+| Sweep | 7,320 pages over 16 runs (two shutdowns, a power cut, hours of HTTP 500 on flats pages), 110,698 listings, 1,023 listing pages checked |
+| Catch-up | One nightly run of 2,016 pages back to the sweep's start (a first attempt ended on an HTTP 500 at flats for rent page 472 and was retried), 130,000+ listings in all |
+| Sweep alone against §4.4 | Flats for sale −8.9%, flats for rent −5.7%, houses and cottages within 3% |
+| After the catch-up | Every list 9% to 15% above §4.4's count of 2026-10-12: four days of new and renewed listings, none expired yet |
+| Size | `realestate.listings` 208 MB of table, 65 MB of indexes |
+
+**A slow sweep misses what moves above it.** A list newest first, walked over 10 to 25 hours, gets new and renewed listings at its top the whole time: they land above the walk, and the rows they push down are read twice (flats for sale: about 41,800 rows read, 37,821 distinct). The nightly run's read back to the walk's start is what picks them up, so a first pass is a sweep and then one nightly run.
+
 ## Not yet measured
 
-- The first full pass: rows per list against the guideline's §4.4, and the size of the tables.
 - How many listings a night reach their expected end without being seen again, and what share of those is still live. That decides whether 1,000 checks a night is enough.
 - Whether an edit always moves a listing's `orderDate`.
 - Other end states than `Active` and `Expired`.
