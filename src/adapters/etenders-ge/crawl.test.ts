@@ -340,6 +340,57 @@ describe('runEtendersGeCrawl', () => {
     expect((await listing('70001'))?.id).toBe(vanished.id);
   });
 
+  describe('a search page that fails to load', () => {
+    /** Throws a timeout for the first `times` requests to one URL, then passes through. */
+    class TimesOutFirst implements HttpFetcher {
+      readonly asked: string[] = [];
+      constructor(
+        private inner: HttpFetcher,
+        private url: string,
+        private times: number,
+      ) {}
+      async fetch(url: string): Promise<HttpFetchResult> {
+        this.asked.push(url);
+        if (url === this.url && this.times > 0) {
+          this.times--;
+          throw Object.assign(new Error('The operation was aborted due to timeout'), {
+            name: 'TimeoutError',
+          });
+        }
+        return this.inner.fetch(url);
+      }
+      async close(): Promise<void> {}
+    }
+
+    it('is asked again after a timeout, and the run completes', async () => {
+      const fetcher = new TimesOutFirst(
+        new FakeFetcher(siteResponses({ live: LIVE, window: WINDOW })),
+        liveUrl(),
+        2,
+      );
+      const { crawlRun } = await runEtendersGeCrawl(
+        { db, httpFetcher: fetcher, now: clock(NOW) },
+        { windowDays: WINDOW_DAYS },
+      );
+      expect(fetcher.asked.filter((url) => url === liveUrl())).toHaveLength(3);
+      expect(crawlRun.status).toBe('completed');
+    });
+
+    it('gets three tries, then the run is partial', async () => {
+      const fetcher = new TimesOutFirst(
+        new FakeFetcher(siteResponses({ live: LIVE, window: WINDOW })),
+        liveUrl(),
+        99,
+      );
+      const { crawlRun } = await runEtendersGeCrawl(
+        { db, httpFetcher: fetcher, now: clock(NOW) },
+        { windowDays: WINDOW_DAYS },
+      );
+      expect(fetcher.asked.filter((url) => url === liveUrl())).toHaveLength(3);
+      expect(crawlRun.status).toBe('partial');
+    });
+  });
+
   it('runs partial and checks no exits when the live set comes back empty', async () => {
     await ensureEtendersGeSourceSeeded(db);
     await createTestSourceListing(etendersGeSource.id, {

@@ -399,6 +399,15 @@ function setsEqual(a: Set<string>, b: Set<string>): boolean {
 export const CLAMP_CONFIRMATION_PROBE_OFFSET = 20;
 
 /**
+ * Requests for one discovery page before the walk ends on it. One timeout on
+ * page 15 ended the host's walk at 4,200 of about 5,700 listings on
+ * 2026-10-16 and left the day's run partial. A block or a "slow down" answer
+ * sets `control.stopped`, which ends the retries at once: those are never
+ * asked again.
+ */
+const INDEX_PAGE_ATTEMPTS = 3;
+
+/**
  * Fetches `page` and returns its parsed listing ID set, or null if the
  * fetch itself failed — used both by the main walk and by the clamp
  * confirmation probe below, which needs the exact same fetch-and-parse
@@ -471,7 +480,11 @@ async function discoverAllListings(
   const lastPage = incrementalPages ?? MAX_DISCOVERY_PAGES;
 
   for (let page = 1; page <= lastPage && !control.stopped; page++) {
-    const fetched = await fetchPageIds(db, httpFetcher, crawlRun, now, page, control);
+    let fetched = null;
+    for (let attempt = 1; attempt <= INDEX_PAGE_ATTEMPTS && !control.stopped; attempt++) {
+      fetched = await fetchPageIds(db, httpFetcher, crawlRun, now, page, control);
+      if (fetched !== null) break;
+    }
     if (fetched === null) break;
     const { ids: pageIds, listings: pageListings } = fetched;
 

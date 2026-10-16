@@ -1164,6 +1164,75 @@ describe('runHrGeCrawl', () => {
     expect(await getCursor()).toBe('2001'); // unchanged, not reset to null
   });
 
+  describe('a discovery page that fails', () => {
+    /** Throws the given errors for the first requests to one URL, then passes through. */
+    class FailFirst implements HttpFetcher {
+      constructor(
+        private inner: HttpFetcher,
+        private url: string,
+        private failures: Error[],
+      ) {}
+      async fetch(url: string): Promise<HttpFetchResult> {
+        const failure = url === this.url ? this.failures.shift() : undefined;
+        if (failure !== undefined) throw failure;
+        return this.inner.fetch(url);
+      }
+      async close(): Promise<void> {}
+    }
+    const timeout = () =>
+      Object.assign(new Error('The operation was aborted due to timeout'), {
+        name: 'TimeoutError',
+      });
+    const site = (page2: HttpFetchResult | Error) =>
+      new Map<string, HttpFetchResult | Error>([
+        [
+          searchPostingUrl(1),
+          htmlResponse(searchPostingUrl(1), buildSearchPostingHtml([{ id: '3001' }], 1)),
+        ],
+        [searchPostingUrl(2), page2],
+        [detailUrl('3001'), htmlResponse(detailUrl('3001'), buildDetailHtml({ id: '3001' }))],
+      ]);
+    const page2Calls = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls.filter(([url]) => url === searchPostingUrl(2)).length;
+
+    it('is asked again after a timeout, and the walk still reaches its end', async () => {
+      const httpFetcher = new FailFirst(
+        new FakeHttpFetcher(site(notFoundResponse(searchPostingUrl(2)))),
+        searchPostingUrl(2),
+        [timeout(), timeout()],
+      );
+      const spy = vi.spyOn(httpFetcher, 'fetch');
+      const result = await runHrGeCrawl(
+        { db, httpFetcher, now: makeClock(Date.UTC(2026, 9, 16, 16, 18, 0)) },
+        BASE_OPTIONS,
+      );
+      expect(page2Calls(spy)).toBe(3);
+      expect(result.crawlRun.discoveredCount).toBe(1);
+      expect(result.crawlRun.status).toBe('completed');
+    });
+
+    it('gets three tries, then the walk ends incomplete', async () => {
+      const httpFetcher = new FakeHttpFetcher(site(timeout()));
+      const spy = vi.spyOn(httpFetcher, 'fetch');
+      const result = await runHrGeCrawl(
+        { db, httpFetcher, now: makeClock(Date.UTC(2026, 9, 16, 16, 18, 0)) },
+        BASE_OPTIONS,
+      );
+      expect(page2Calls(spy)).toBe(3);
+      expect(result.crawlRun.status).toBe('partial');
+    });
+
+    it('is not asked again when it answers 404, the end of the list', async () => {
+      const httpFetcher = new FakeHttpFetcher(site(notFoundResponse(searchPostingUrl(2))));
+      const spy = vi.spyOn(httpFetcher, 'fetch');
+      await runHrGeCrawl(
+        { db, httpFetcher, now: makeClock(Date.UTC(2026, 9, 16, 16, 18, 0)) },
+        BASE_OPTIONS,
+      );
+      expect(page2Calls(spy)).toBe(1);
+    });
+  });
+
   it('settles the run (marks it failed, not permanently unsettled) when reading the cursor itself throws (regression, adversarial review round 7, 2026-09-05)', async () => {
     const clock = makeClock(Date.UTC(2026, 8, 5, 12, 0, 0));
     vi.mocked(getCrawlCursor).mockRejectedValueOnce(

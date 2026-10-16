@@ -77,6 +77,29 @@ class FakeHttpFetcher implements HttpFetcher {
   async close(): Promise<void> {}
 }
 
+/** Throws the given errors for the first requests to one URL, then passes every request through. */
+class FailFirst implements HttpFetcher {
+  constructor(
+    private inner: HttpFetcher,
+    private url: string,
+    private failures: Error[],
+  ) {}
+
+  async fetch(url: string): Promise<HttpFetchResult> {
+    const failure = url === this.url ? this.failures.shift() : undefined;
+    if (failure !== undefined) throw failure;
+    return this.inner.fetch(url);
+  }
+
+  async close(): Promise<void> {}
+}
+
+function timeoutError(): Error {
+  return Object.assign(new Error('The operation was aborted due to timeout'), {
+    name: 'TimeoutError',
+  });
+}
+
 function htmlResponse(url: string, body: string): HttpFetchResult {
   return {
     status: 200,
@@ -761,6 +784,49 @@ describe('runJobsGeCrawl', () => {
       .where(eq(sourceListings.id, preexisting.id));
     expect(untouched?.status).toBe('active');
     expect(untouched?.missingStreak).toBe(0);
+  });
+
+  // 2026-10-16 on the host: one timeout on page 15 ended the walk at 4,200 of
+  // about 5,700 listings, and the day's run was left partial.
+  it('asks a discovery page again when it times out, and completes once it loads', async () => {
+    const ids = ['1001', '1002'];
+    const responses = new Map<string, HttpFetchResult | Error>([
+      ...discoveryPages([], ids),
+      ...ids.map(
+        (id) => [detailUrl(id), htmlResponse(detailUrl(id), mailtoDetailHtml(id))] as const,
+      ),
+    ]);
+    const httpFetcher = new FailFirst(new FakeHttpFetcher(responses), adsPageUrl(2), [
+      timeoutError(),
+      timeoutError(),
+    ]);
+    const spy = vi.spyOn(httpFetcher, 'fetch');
+
+    const result = await runJobsGeCrawl(
+      { db, httpFetcher, now: makeClock(Date.UTC(2026, 9, 16, 16, 18, 0)) },
+      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 2 },
+    );
+
+    expect(result.crawlRun.status).toBe('completed');
+    expect(result.crawlRun.discoveredCount).toBe(2);
+    expect(spy.mock.calls.filter(([url]) => url === adsPageUrl(2))).toHaveLength(3);
+  });
+
+  it('gives a discovery page three tries, then ends the walk partial', async () => {
+    const responses = new Map<string, HttpFetchResult | Error>([
+      [adsPageUrl(1), htmlResponse(adsPageUrl(1), buildAdsPageHtml([], ['1001', '1002']))],
+      [adsPageUrl(2), timeoutError()],
+    ]);
+    const httpFetcher = new FakeHttpFetcher(responses);
+    const spy = vi.spyOn(httpFetcher, 'fetch');
+
+    const result = await runJobsGeCrawl(
+      { db, httpFetcher, now: makeClock(Date.UTC(2026, 9, 16, 16, 18, 0)) },
+      { missingStreakThreshold: 3, minExpectedDiscoveredListings: 1 },
+    );
+
+    expect(result.crawlRun.status).toBe('partial');
+    expect(spy.mock.calls.filter(([url]) => url === adsPageUrl(2))).toHaveLength(3);
   });
 
   it('marks the run partial when a mid-corpus page is empty, even though earlier pages already passed the expected-listings floor', async () => {

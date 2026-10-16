@@ -54,6 +54,12 @@ const ALL_STATUSES = '__';
 export const SEARCH_PAGE_SIZE = 20;
 /** Safety cap per walk; the live set is ~2 pages and a 60-day window ~15. */
 const MAX_SEARCH_PAGES = 40;
+/**
+ * Requests for one search page before the walk ends on it. One timeout ended
+ * jobs.ge's walk on the host on 2026-10-16 and left its run partial; a search
+ * page here failed the same way.
+ */
+const INDEX_PAGE_ATTEMPTS = 3;
 /** Default backfill on a source's first run: the 60-day closed-listing retention window. */
 export const DEFAULT_FIRST_RUN_WINDOW_DAYS = 60;
 /** Overlap added before the last completed run, so nothing announced around it is missed. */
@@ -278,15 +284,16 @@ async function walkSearch(
   for (let page = 1; page <= Math.min(lastPage, MAX_SEARCH_PAGES); page++) {
     if (control.stopped) return { cards, complete: false, pageSizesOk };
     const url = buildSearchUrl({ statuses, from, page });
-    const fetched = await fetchAndRecord(
-      db,
-      httpFetcher,
-      crawlRun.id,
-      'INDEX',
-      url,
-      now(),
-      control,
-    );
+    let fetched = await fetchAndRecord(db, httpFetcher, crawlRun.id, 'INDEX', url, now(), control);
+    // A page that failed to load is asked again; a block or rate limit has
+    // stopped the run, and a redirect is an answer, so neither is.
+    for (
+      let attempt = 2;
+      attempt <= INDEX_PAGE_ATTEMPTS && fetched.outcome === 'failure' && !control.stopped;
+      attempt++
+    ) {
+      fetched = await fetchAndRecord(db, httpFetcher, crawlRun.id, 'INDEX', url, now(), control);
+    }
     // A redirect here is the site's "out of range, back to page 1" answer:
     // never a page of this walk.
     if (fetched.outcome !== 'success' || fetched.result?.status !== 200) {
