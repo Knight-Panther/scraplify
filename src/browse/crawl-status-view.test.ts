@@ -67,6 +67,21 @@ describe('describeCrawlStatus', () => {
     expect(view?.state).toEqual({ kind: 'late', expectedAt: '2026-09-28T16:10:00.000Z' });
   });
 
+  it('a schedule that allows a long run keeps reading as updating through it', () => {
+    const nightly = { hourUtc: 21, minuteUtc: 30, maxRunningMs: 20 * 60 * 60 * 1000 };
+    const running = snapshot({
+      lastRunStartedAt: '2026-10-16T21:34:00Z',
+      lastRunStatus: 'running',
+    });
+    expect(describeCrawlStatus(running, at('2026-10-17T03:00:00Z'), nightly)?.state).toEqual({
+      kind: 'updating',
+      since: '2026-10-16T21:34:00.000Z',
+    });
+    expect(describeCrawlStatus(running, at('2026-10-17T18:00:00Z'), nightly)?.state).toEqual({
+      kind: 'scheduled',
+    });
+  });
+
   it('a newest run that ended partial or failed is flagged, the last full update kept', () => {
     for (const status of ['partial', 'failed', 'quarantined'] as const) {
       const view = describeCrawlStatus(

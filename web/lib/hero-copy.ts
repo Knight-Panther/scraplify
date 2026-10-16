@@ -18,6 +18,8 @@ export type HeadlineRun = { text: string; accent: boolean };
 export interface HeroCopy {
   headline: ReadonlyArray<ReadonlyArray<HeadlineRun>>;
   subhead: string;
+  /** The words in `subhead` that link to the Real estate tab; they occur in it once. */
+  subheadRealEstateLink: string;
   browseOpenings: string;
   closingSoon: string;
   noAccountNeeded: string;
@@ -56,7 +58,8 @@ const EN: HeroCopy = {
     [{ text: 'POSTED!', accent: true }],
   ],
   subhead:
-    'Job vacancies from jobs.ge and hr.ge and tenders from etenders.ge, one record each — browse, filter and shortlist without checking three sites.',
+    'Job vacancies from jobs.ge and hr.ge and tenders from etenders.ge, one record each, and flats and houses from ss.ge under Real estate.',
+  subheadRealEstateLink: 'Real estate',
   browseOpenings: 'Browse openings',
   closingSoon: 'Closing soon',
   noAccountNeeded: 'no account needed',
@@ -80,7 +83,8 @@ const EN: HeroCopy = {
 
 // Headline text supplied directly by the project owner — not a Claude
 // translation. Same words as given ("არ გამოტოვო ვაკანსია, მოძებნე
-// მარტივად!"), reflowed into three lines at the project owner's request:
+// მარტივად!", with "ვაკანსია" changed to "შანსი" by the owner on 2026-10-16
+// to match the English "chance"), reflowed into three lines at the project owner's request:
 // the comma doesn't end a line (its word stays joined with what follows
 // rather than the next word starting fresh after it), and the bottom line
 // is a single word. An earlier four-line cut (one clause per line) had
@@ -94,20 +98,21 @@ const EN: HeroCopy = {
 // Accent follows the English original's own split exactly: its first
 // clause ("DO NOT MISS YOUR CHANCE,") is plain and its second ("KEEP
 // YOURSELF POSTED!") is accent. Georgian's clause boundary is the comma
-// after "ვაკანსია," — mid-line-2 once reflowed above — so "მოძებნე" is an
+// after "შანსი," — mid-line-2 once reflowed above — so "მოძებნე" is an
 // accent run on an otherwise-plain line, not a whole accent line; this is
 // why headline lines are coloured per run rather than per line.
 const KA: HeroCopy = {
   headline: [
     [{ text: 'არ გამოტოვო', accent: false }],
     [
-      { text: 'ვაკანსია, ', accent: false },
+      { text: 'შანსი, ', accent: false },
       { text: 'მოძებნე', accent: true },
     ],
     [{ text: 'მარტივად!', accent: true }],
   ],
   subhead:
-    'ვაკანსიები jobs.ge-დან და hr.ge-დან, ტენდერები etenders.ge-დან, ერთ ჩანაწერად — დაათვალიერე, გაფილტრე და შეინახე, სამი საიტის ცალ-ცალკე შემოწმების გარეშე.',
+    'ვაკანსიები jobs.ge-დან და hr.ge-დან, ტენდერები etenders.ge-დან, ერთ ჩანაწერად, ბინები და სახლები კი ss.ge-დან „უძრავ ქონებაში“.',
+  subheadRealEstateLink: 'უძრავ ქონებაში',
   browseOpenings: 'განცხადებების დათვალიერება',
   closingSoon: 'მალე იხურება',
   noAccountNeeded: 'რეგისტრაციის გარეშე',

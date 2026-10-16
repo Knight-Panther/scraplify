@@ -29,7 +29,7 @@ That guard covers the dev server only. Shell commands reach the same databases a
 
 ## Adding a source
 
-A new crawled source that joins `deploy/run-pipeline.sh` also goes into `PIPELINE_SOURCES` in `src/hermes/schema.ts`, in the same change. The host tells the owner's Hermes agent when each pipeline run ends ([`docs/hermes-hook.md`](docs/hermes-hook.md)), and it only signs events for sources on that list: a source missing there crawls as before and Hermes hears nothing about it. A test in `src/hermes/schema.test.ts` fails when the two lists differ. A real-estate source runs from `deploy/run-realestate.sh` instead and goes into `REAL_ESTATE_PIPELINE_SOURCES` in the same file, under its own test. A source whose runs count different things again needs its own event shape there, and Hermes has to be told the new counter names.
+A new crawled source that joins `deploy/run-pipeline.sh` also goes into `PIPELINE_SOURCES` in `src/hermes/schema.ts`, in the same change. The host tells the owner's Hermes agent when each pipeline run ends ([`docs/hermes-hook.md`](docs/hermes-hook.md)), and it only signs events for sources on that list: a source missing there crawls as before and Hermes hears nothing about it. A test in `src/hermes/schema.test.ts` fails when the two lists differ. A real-estate source runs from `deploy/run-realestate.sh` instead and goes into `REAL_ESTATE_PIPELINE_SOURCES` in the same file, under its own test. Every scheduled source also needs its slot in `CRAWL_SCHEDULES` (`src/crawl-schedule.ts`), which the landing page's board updates read and a test holds to the systemd timers. A source whose runs count different things again needs its own event shape there, and Hermes has to be told the new counter names.
 
 ## Roles
 

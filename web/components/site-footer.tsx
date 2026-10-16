@@ -21,7 +21,7 @@ export function SiteFooter() {
       <p className="numeric text-xs text-faint">
         Xtelo — jobs.ge <span className="text-[var(--color-browse-accent)]">+</span> hr.ge{' '}
         <span className="text-[var(--color-browse-accent)]">+</span> etenders.ge, deduplicated into
-        one row per vacancy or tender.
+        one row per vacancy or tender. Flats and houses from ss.ge.
       </p>
       <div className="flex items-center gap-4">
         {/* The owner's own wording (2026-09-28). */}

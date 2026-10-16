@@ -22,7 +22,8 @@ export const LATE_AFTER_MS = 30 * 60 * 1000;
 /**
  * A run still marked running after this long is not treated as updating:
  * crawls take minutes, so it is a process that died without settling (the
- * next run settles it, src/db/crawl-process-lock.ts).
+ * next run settles it, src/db/crawl-process-lock.ts). A schedule can allow
+ * longer (`maxRunningMs`): ss.ge's nightly crawl takes hours.
  */
 export const MAX_RUNNING_MS = 3 * 60 * 60 * 1000;
 /** A run started up to this long before a slot counts for that slot. */
@@ -57,7 +58,7 @@ export function describeCrawlStatus(
   if (
     snapshot.lastRunStatus === 'running' &&
     startedMs !== null &&
-    nowMs - startedMs < MAX_RUNNING_MS
+    nowMs - startedMs < (schedule.maxRunningMs ?? MAX_RUNNING_MS)
   ) {
     state = { kind: 'updating', since: new Date(startedMs).toISOString() };
   } else if (

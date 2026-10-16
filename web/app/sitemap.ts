@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * The public pages a search engine should know about: the landing page, the
- * two lists, CV Ranked, and every open vacancy's own page, straight from the
+ * two lists, Real estate, CV Ranked, and every open vacancy's own page, straight from the
  * public views (`publicSitemapOpportunities`, the Browse eligibility rule).
  * Empty on `admin` and `local`, which are not meant to be indexed, and
  * without an origin, since a sitemap URL must be absolute.
@@ -24,6 +24,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: at('/'), changeFrequency: 'daily', priority: 1 },
     { url: at('/opportunities'), changeFrequency: 'daily', priority: 0.9 },
     { url: at('/listings'), changeFrequency: 'daily', priority: 0.6 },
+    { url: at('/real-estate'), changeFrequency: 'daily', priority: 0.6 },
     { url: at('/cv-ranked'), changeFrequency: 'weekly', priority: 0.5 },
     ...opportunities.map((row) => ({
       url: at(`/opportunities/${row.opportunityId}`),

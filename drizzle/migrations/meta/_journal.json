@@ -288,6 +288,13 @@
       "when": 1791825196076,
       "tag": "0040_tricky_dragon_man",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792177553331,
+      "tag": "0041_gigantic_mother_askani",
+      "breakpoints": true
     }
   ]
 }

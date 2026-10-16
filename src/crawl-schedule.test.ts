@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CRAWL_SCHEDULES, nextSlot, previousSlot } from './crawl-schedule.js';
+import { REAL_ESTATE_PIPELINE_SOURCES } from './hermes/schema.js';
 
 const at = (iso: string): number => Date.parse(iso);
 const DAILY = { hourUtc: 16, minuteUtc: 10 };
@@ -26,18 +27,40 @@ describe('crawl schedule slots', () => {
 
 describe('CRAWL_SCHEDULES', () => {
   it('declares every scheduled source', () => {
-    expect(Object.keys(CRAWL_SCHEDULES).sort()).toEqual(['etenders-ge', 'hr-ge', 'jobs-ge']);
+    expect(Object.keys(CRAWL_SCHEDULES).sort()).toEqual([
+      'etenders-ge',
+      'hr-ge',
+      'jobs-ge',
+      ...REAL_ESTATE_PIPELINE_SOURCES,
+    ]);
   });
 
-  it('matches the hosted systemd timer, so "next update" states what actually runs', () => {
-    const timer = readFileSync(
-      new URL('../deploy/systemd/xtelo-pipeline@.timer', import.meta.url),
-      'utf8',
-    );
+  function timerSlot(file: string): { hourUtc: number; minuteUtc: number } {
+    const timer = readFileSync(new URL(`../deploy/systemd/${file}`, import.meta.url), 'utf8');
     const match = /^OnCalendar=\*-\*-\* (\d{2}):(\d{2}):00 UTC$/m.exec(timer);
     expect(match).not.toBeNull();
-    for (const schedule of Object.values(CRAWL_SCHEDULES)) {
-      expect(schedule).toEqual({ hourUtc: Number(match?.[1]), minuteUtc: Number(match?.[2]) });
+    return { hourUtc: Number(match?.[1]), minuteUtc: Number(match?.[2]) };
+  }
+
+  it('matches the hosted systemd timers, so "next update" states what actually runs', () => {
+    const jobBoards = timerSlot('xtelo-pipeline@.timer');
+    const realEstate = timerSlot('xtelo-realestate@.timer');
+    for (const [slug, schedule] of Object.entries(CRAWL_SCHEDULES)) {
+      const { hourUtc, minuteUtc } = schedule;
+      expect({ hourUtc, minuteUtc }).toEqual(
+        REAL_ESTATE_PIPELINE_SOURCES.includes(slug) ? realEstate : jobBoards,
+      );
+    }
+  });
+
+  it('lets a real-estate run go on as long as its unit allows', () => {
+    const unit = readFileSync(
+      new URL('../deploy/systemd/xtelo-realestate@.service', import.meta.url),
+      'utf8',
+    );
+    const hours = Number(/^TimeoutStartSec=(\d+)h$/m.exec(unit)?.[1]);
+    for (const slug of REAL_ESTATE_PIPELINE_SOURCES) {
+      expect(CRAWL_SCHEDULES[slug]?.maxRunningMs).toBe(hours * 60 * 60 * 1000);
     }
   });
 });
