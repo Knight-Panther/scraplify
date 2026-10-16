@@ -127,8 +127,10 @@ test('the homepage kicker actually renders with letter-spacing applied', async (
   // `tracking-*` silently does nothing on a bare <p>/<h1>-<h4>. Every
   // tracked element on this page carries it on an inner <span> instead —
   // this proves that pattern actually works, not just that it looks right.
+  // At the default desktop viewport; below 640 px the kicker is set with no
+  // spacing so four source names fit on a phone (its `sm:` class).
   await page.goto('/');
-  const kicker = page.locator('p.numeric span.tracking-\\[0\\.22em\\]').first();
+  const kicker = page.locator('p.numeric span.sm\\:tracking-\\[0\\.22em\\]').first();
   test.skip(
     ((await kicker.textContent()) ?? '').trim() === '',
     'the kicker is empty on an empty corpus',
