@@ -15,6 +15,7 @@ describe('isPublicRoute', () => {
     '/opportunities/abc-123',
     '/listings',
     '/listings/held',
+    '/real-estate',
     '/cv-ranked',
     '/api/matching/manifest',
     '/api/matching/bundles/abc/opportunities.json',
@@ -37,6 +38,7 @@ describe('isPublicRoute', () => {
     // `/opportunities` — `pathIs` requires an exact match or a `/` boundary.
     expect(isPublicRoute('/opportunitiesarchive')).toBe(false);
     expect(isPublicRoute('/listingsx')).toBe(false);
+    expect(isPublicRoute('/real-estates')).toBe(false);
     expect(isPublicRoute('/cv-rankedx')).toBe(false);
     expect(isPublicRoute('/api/matchingx')).toBe(false);
     expect(isPublicRoute('/api')).toBe(false);
