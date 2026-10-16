@@ -116,12 +116,17 @@ export default async function Page() {
         <div className="relative mx-auto grid w-full max-w-[1440px] grid-cols-1 items-end gap-11 px-8 pt-14 min-[1060px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] min-[1060px]:gap-14 min-[1060px]:pt-[3svh]">
           <div>
             {hero.ok && (
-              <p className="numeric flex animate-hero-fade-up items-center gap-[9px] text-[11px] text-[var(--color-browse-accent)] uppercase [animation-duration:600ms]">
+              <p className="numeric flex animate-hero-fade-up items-start gap-[9px] text-[11px] text-[var(--color-browse-accent)] uppercase [animation-duration:600ms]">
+                {/* On the first line's middle (its line is 17.6 px), so it
+                    stays there if the names wrap. */}
                 <span
                   aria-hidden="true"
-                  className="h-1.5 w-1.5 flex-none animate-hero-pulse rounded-full bg-[var(--color-browse-accent)]"
+                  className="mt-[5.8px] h-1.5 w-1.5 flex-none animate-hero-pulse rounded-full bg-[var(--color-browse-accent)]"
                 />
-                <span className="tracking-[0.22em]">{hero.boardsLabel}</span>
+                {/* Tighter on a phone: with ss.ge the four names at 0.22em
+                    took two lines at 390 px; without spacing they fit on one from
+                    360 px with 17 px to spare (measured). */}
+                <span className="tracking-normal sm:tracking-[0.22em]">{hero.boardsLabel}</span>
               </p>
             )}
 
