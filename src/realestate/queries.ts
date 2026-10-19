@@ -170,36 +170,37 @@ const isGrouped = (filters: RealEstateFilters) =>
   filters.grouped === true && filters.groupKey === undefined;
 
 /**
- * The grouped listings matching the filters, ranked within each group by the
- * page's own order, with how many matching listings each group has. Only
- * grouped listings are ranked (about a fifth of them): a listing in no group
- * stands for itself, and ranking every row cost half a second on the full
- * corpus where this costs a tenth.
+ * The ids of the grouped listings that lead their groups: within each group,
+ * the first matching listing in the page's own order. Only grouped listings
+ * are ranked (about a fifth of them): a listing in no group stands for itself.
+ *
+ * It is used as `id IN (...)`, which Postgres builds once as a hash. Joined
+ * instead, the planner paired every row of a page with every ranked row
+ * (3.4 million comparisons, 0.7 s on the host, measured 2026-10-19).
  */
-function groupLeaders(db: DatabaseOrTransaction, filters: RealEstateFilters, now: string) {
+function groupLeaderIds(db: DatabaseOrTransaction, filters: RealEstateFilters, now: string) {
   const order = sql.join(ordering(filters), sql`, `);
-  return db
+  const ranked = db
     .select({
       id: listings.id,
       rank: sql<number>`row_number() over (partition by ${listings.groupKey} order by ${order})`.as(
         'rank',
       ),
-      alike: sql<number>`(count(*) over (partition by ${listings.groupKey}))::int`.as('alike'),
     })
     .from(listings)
     .where(and(conditions(filters, now), isNotNull(listings.groupKey)))
-    .as('leaders');
+    .as('ranked');
+  return db.select({ id: ranked.id }).from(ranked).where(eq(ranked.rank, 1));
 }
 
 /** The rows a page shows: every match, or, grouped, each group's leader and every ungrouped match. */
-function shownRows(
-  filters: RealEstateFilters,
-  now: string,
-  leaders: ReturnType<typeof groupLeaders> | null,
-) {
-  return leaders === null
-    ? conditions(filters, now)
-    : and(conditions(filters, now), or(isNull(listings.groupKey), eq(leaders.rank, 1)));
+function shownRows(db: DatabaseOrTransaction, filters: RealEstateFilters, now: string) {
+  return isGrouped(filters)
+    ? and(
+        conditions(filters, now),
+        or(isNull(listings.groupKey), inArray(listings.id, groupLeaderIds(db, filters, now))),
+      )
+    : conditions(filters, now);
 }
 
 /** Listings on show at `now`, filtered and ordered. Never more than 500 at a time. */
@@ -208,8 +209,7 @@ export async function searchRealEstate(
   filters: RealEstateFilters,
   now: string,
 ): Promise<RealEstateRow[]> {
-  const leaders = isGrouped(filters) ? groupLeaders(db, filters, now) : null;
-  const base = db
+  const rows = await db
     .select({
       id: listings.id,
       canonicalUrl: listings.canonicalUrl,
@@ -234,14 +234,29 @@ export async function searchRealEstate(
       sourceUpdatedAt: listings.sourceUpdatedAt,
       firstSeenAt: listings.firstSeenAt,
       groupKey: listings.groupKey,
-      alikeCount: leaders === null ? sql<number>`1` : sql<number>`coalesce(${leaders.alike}, 1)`,
     })
-    .from(listings);
-  const rows = await (leaders === null ? base : base.leftJoin(leaders, eq(leaders.id, listings.id)))
-    .where(shownRows(filters, now, leaders))
+    .from(listings)
+    .where(shownRows(db, filters, now))
     .orderBy(...ordering(filters))
     .limit(Math.min(Math.max(filters.limit ?? 100, 1), MAX_LIMIT))
     .offset(Math.max(filters.offset ?? 0, 0));
+
+  // How many matching listings each folded row stands for: only the groups
+  // on this page, through the group key's index.
+  const alike = new Map<string, number>();
+  const keys = isGrouped(filters)
+    ? [...new Set(rows.map((row) => row.groupKey).filter((key) => key !== null))]
+    : [];
+  if (keys.length > 0) {
+    const counts = await db
+      .select({ groupKey: listings.groupKey, total: sql<number>`count(*)::int` })
+      .from(listings)
+      .where(and(conditions(filters, now), inArray(listings.groupKey, keys)))
+      .groupBy(listings.groupKey);
+    for (const { groupKey, total } of counts) {
+      if (groupKey !== null) alike.set(groupKey, Number(total));
+    }
+  }
 
   return rows.map((row) => ({
     ...row,
@@ -249,7 +264,7 @@ export async function searchRealEstate(
     priceGel: amount(row.priceGel),
     priceUsd: amount(row.priceUsd),
     pricePerM2Usd: amount(row.pricePerM2Usd),
-    alikeCount: Number(row.alikeCount),
+    alikeCount: row.groupKey === null ? 1 : (alike.get(row.groupKey) ?? 1),
   }));
 }
 
@@ -265,12 +280,10 @@ export async function countRealEstate(
   ceiling: number = COUNT_CEILING,
 ): Promise<number> {
   // Grouped, it counts the rows the page would show: one per group.
-  const leaders = isGrouped(filters) ? groupLeaders(db, filters, now) : null;
-  const matched = db.select({ id: listings.id }).from(listings);
-  const capped = (
-    leaders === null ? matched : matched.leftJoin(leaders, eq(leaders.id, listings.id))
-  )
-    .where(shownRows(filters, now, leaders))
+  const capped = db
+    .select({ id: listings.id })
+    .from(listings)
+    .where(shownRows(db, filters, now))
     .limit(ceiling + 1)
     .as('capped');
   const [row] = await db.select({ total: sql<number>`count(*)::int` }).from(capped);
