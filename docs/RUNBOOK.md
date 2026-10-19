@@ -150,6 +150,7 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
    5. After the first night: `journalctl -u xtelo-realestate@ss-ge -o cat | tail -n 3` ends with the crawl's exit code 0, and with the hook on `journalctl -u xtelo-hermes-notify -n 5 -o cat` names an `ss-ge:` event.
    - **Deploys from then on:** the nightly run starts at 21:30 UTC and can take most of the night. Its code is loaded when it starts, so a repoint during it changes only the release its closing Hermes event is written from; still, prefer to deploy outside it (`systemctl is-active xtelo-realestate@ss-ge`). A run stopped by hand or by its 20-hour limit is reported as interrupted, and the next one carries on from its saved progress.
    - **To pause it:** `sudo systemctl disable --now xtelo-realestate@ss-ge.timer`. The tab keeps showing the listings, each until two days past its expected end.
+   - **Look-alike groups (Phase 11D, first deploy after merge only).** Migration `0042` adds `realestate.listing_groups`, an index and the view's `group_key` column (`create or replace`, so the public grant stays); step 2's `grants` run gives the worker the new table. Every nightly crawl regroups at its end; to fill the groups before the first one, after step 2 and outside a crawl: `sudo /opt/xtelo/releases/<new-sha>/deploy/with-env.sh worker node dist/cli/group-ss-ge.js` (about 3 s; it makes no request). Until then the tab shows every listing on its own, folded or not.
 
 ## 4. Health signals
 

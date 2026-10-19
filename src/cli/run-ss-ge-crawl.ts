@@ -7,6 +7,7 @@ import { createHttpFetcher } from '../net/http-fetcher.js';
 import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { isSsGeUrlAllowed, ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
+import { regroupListings } from '../realestate/grouping.js';
 import { parseSsGeOptions } from './ss-ge-options.js';
 
 /**
@@ -83,6 +84,7 @@ async function main(): Promise<void> {
       'ss.ge crawl finished',
     );
     if (crawlRun.status !== 'completed') process.exitCode = 1;
+    await regroup();
   } catch (err) {
     if (err instanceof SsGeNoBaselineError) {
       logger.error({ sourceId: ssGeSource.id }, err.message);
@@ -93,6 +95,29 @@ async function main(): Promise<void> {
   } finally {
     await httpFetcher.close();
     await lock.release();
+  }
+}
+
+/**
+ * Look-alike groups over every active listing (Phase 11D), after any run that
+ * got as far as a crawl row, partial ones included: what changed is in the
+ * table either way. A failure here is logged and leaves the exit code to the
+ * crawl, so Hermes is not told a good crawl failed; the tab shows last
+ * night's groups until the next run.
+ */
+async function regroup(): Promise<void> {
+  const startedAtMs = Date.now();
+  try {
+    const result = await regroupListings(db, {
+      sourceId: ssGeSource.id,
+      now: new Date().toISOString(),
+    });
+    logger.info(
+      { ...result, durationMs: Date.now() - startedAtMs },
+      'ss.ge look-alike groups updated',
+    );
+  } catch (err) {
+    logger.error({ err }, 'ss.ge look-alike grouping failed; the previous groups stay');
   }
 }
 

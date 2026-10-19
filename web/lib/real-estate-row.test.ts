@@ -35,6 +35,8 @@ function row(overrides: Partial<RealEstateRow> = {}): RealEstateRow {
     promoted: false,
     sourceUpdatedAt: '2026-10-12T12:00:00.000Z',
     firstSeenAt: '2026-10-12T12:00:00.000Z',
+    groupKey: null,
+    alikeCount: 1,
     ...overrides,
   };
 }

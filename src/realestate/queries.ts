@@ -1,4 +1,19 @@
-import { and, asc, desc, eq, gt, gte, inArray, lt, lte, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import { realEstatePublicListings as listings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
 import { listingSearchQuery } from './search.js';
@@ -44,6 +59,14 @@ export interface RealEstateFilters {
   updatedSince?: string;
   text?: string;
   sort?: RealEstateSort;
+  /**
+   * One row per look-alike group (Phase 11D), the group's first listing in
+   * this order, after every filter: a filter matching any member shows the
+   * group. A listing in no group is its own row.
+   */
+  grouped?: boolean;
+  /** One look-alike group's listings only. */
+  groupKey?: string;
   limit?: number;
   offset?: number;
 }
@@ -71,6 +94,10 @@ export interface RealEstateRow {
   promoted: boolean;
   sourceUpdatedAt: string;
   firstSeenAt: string;
+  /** Its look-alike group, or null. */
+  groupKey: string | null;
+  /** Grouped: how many listings matching the filters the row stands for. Otherwise 1. */
+  alikeCount: number;
 }
 
 function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
@@ -83,6 +110,7 @@ function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
     // The view holds active listings; this is the part that depends on the time of asking.
     sql`greatest(coalesce(${listings.expectedEndAt}, ${listings.lastSeenAt}), ${listings.lastSeenAt}) > ${shownAfter}`,
     filters.sourceId === undefined ? undefined : eq(listings.sourceId, filters.sourceId),
+    filters.groupKey === undefined ? undefined : eq(listings.groupKey, filters.groupKey),
     filters.dealType === undefined ? undefined : eq(listings.dealType, filters.dealType),
     filters.propertyType === undefined
       ? undefined
@@ -138,13 +166,50 @@ function ordering(filters: RealEstateFilters): SQL[] {
 
 const amount = (value: string | null): number | null => (value === null ? null : Number(value));
 
+const isGrouped = (filters: RealEstateFilters) =>
+  filters.grouped === true && filters.groupKey === undefined;
+
+/**
+ * The grouped listings matching the filters, ranked within each group by the
+ * page's own order, with how many matching listings each group has. Only
+ * grouped listings are ranked (about a fifth of them): a listing in no group
+ * stands for itself, and ranking every row cost half a second on the full
+ * corpus where this costs a tenth.
+ */
+function groupLeaders(db: DatabaseOrTransaction, filters: RealEstateFilters, now: string) {
+  const order = sql.join(ordering(filters), sql`, `);
+  return db
+    .select({
+      id: listings.id,
+      rank: sql<number>`row_number() over (partition by ${listings.groupKey} order by ${order})`.as(
+        'rank',
+      ),
+      alike: sql<number>`(count(*) over (partition by ${listings.groupKey}))::int`.as('alike'),
+    })
+    .from(listings)
+    .where(and(conditions(filters, now), isNotNull(listings.groupKey)))
+    .as('leaders');
+}
+
+/** The rows a page shows: every match, or, grouped, each group's leader and every ungrouped match. */
+function shownRows(
+  filters: RealEstateFilters,
+  now: string,
+  leaders: ReturnType<typeof groupLeaders> | null,
+) {
+  return leaders === null
+    ? conditions(filters, now)
+    : and(conditions(filters, now), or(isNull(listings.groupKey), eq(leaders.rank, 1)));
+}
+
 /** Listings on show at `now`, filtered and ordered. Never more than 500 at a time. */
 export async function searchRealEstate(
   db: DatabaseOrTransaction,
   filters: RealEstateFilters,
   now: string,
 ): Promise<RealEstateRow[]> {
-  const rows = await db
+  const leaders = isGrouped(filters) ? groupLeaders(db, filters, now) : null;
+  const base = db
     .select({
       id: listings.id,
       canonicalUrl: listings.canonicalUrl,
@@ -168,9 +233,12 @@ export async function searchRealEstate(
       promoted: listings.promoted,
       sourceUpdatedAt: listings.sourceUpdatedAt,
       firstSeenAt: listings.firstSeenAt,
+      groupKey: listings.groupKey,
+      alikeCount: leaders === null ? sql<number>`1` : sql<number>`coalesce(${leaders.alike}, 1)`,
     })
-    .from(listings)
-    .where(conditions(filters, now))
+    .from(listings);
+  const rows = await (leaders === null ? base : base.leftJoin(leaders, eq(leaders.id, listings.id)))
+    .where(shownRows(filters, now, leaders))
     .orderBy(...ordering(filters))
     .limit(Math.min(Math.max(filters.limit ?? 100, 1), MAX_LIMIT))
     .offset(Math.max(filters.offset ?? 0, 0));
@@ -181,6 +249,7 @@ export async function searchRealEstate(
     priceGel: amount(row.priceGel),
     priceUsd: amount(row.priceUsd),
     pricePerM2Usd: amount(row.pricePerM2Usd),
+    alikeCount: Number(row.alikeCount),
   }));
 }
 
@@ -195,10 +264,13 @@ export async function countRealEstate(
   now: string,
   ceiling: number = COUNT_CEILING,
 ): Promise<number> {
-  const capped = db
-    .select({ id: listings.id })
-    .from(listings)
-    .where(conditions(filters, now))
+  // Grouped, it counts the rows the page would show: one per group.
+  const leaders = isGrouped(filters) ? groupLeaders(db, filters, now) : null;
+  const matched = db.select({ id: listings.id }).from(listings);
+  const capped = (
+    leaders === null ? matched : matched.leftJoin(leaders, eq(leaders.id, listings.id))
+  )
+    .where(shownRows(filters, now, leaders))
     .limit(ceiling + 1)
     .as('capped');
   const [row] = await db.select({ total: sql<number>`count(*)::int` }).from(capped);

@@ -202,6 +202,11 @@ GRANT USAGE ON SCHEMA realestate TO scraplify_worker;
 GRANT SELECT, INSERT, UPDATE, DELETE ON realestate.listings TO scraplify_worker;
 GRANT SELECT, INSERT ON realestate.price_changes TO scraplify_worker;
 GRANT SELECT, INSERT, UPDATE ON realestate.crawl_runs TO scraplify_worker;
+-- Phase 11D: src/realestate/grouping.ts, run at the end of each ss.ge crawl
+-- and by `npm run group:ss-ge`, sets listings.group_key (the listings grant
+-- above) and inserts, updates (ON CONFLICT DO UPDATE) and deletes rows of
+-- listing_groups. Requires migration 0042.
+GRANT SELECT, INSERT, UPDATE, DELETE ON realestate.listing_groups TO scraplify_worker;
 
 
 -- =========================================================================
