@@ -246,9 +246,9 @@ describe('delivering the outbox to Hermes', () => {
     expect(hermes.received).toHaveLength(1);
   });
 
-  it('gives up on an event older than 72 hours without sending it', async () => {
-    const stale = await queue(72 * 60 + 1);
-    const fresh = await queue(72 * 60 - 1);
+  it('gives up on an event older than 14 days without sending it', async () => {
+    const stale = await queue(14 * 24 * 60 + 1);
+    const fresh = await queue(14 * 24 * 60 - 1);
 
     const result = await deliver();
 

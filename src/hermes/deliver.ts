@@ -19,8 +19,14 @@ import { signHermesRequest } from './signature.js';
  */
 
 export const REQUEST_TIMEOUT_MS = 20_000;
-/** Past this, Hermes has caught up from the database on its own. */
-export const MAX_EVENT_AGE_MS = 72 * 60 * 60 * 1000;
+/**
+ * Past this, an event is moved aside unsent. Fourteen days, not the 72 hours
+ * first built: Hermes' PC was unreachable for 68 hours in October 2026, and
+ * Hermes had no catch-up from the database then. An event is a few hundred
+ * bytes, and it is signed when sent, not when written, so age alone does not
+ * make it unsendable.
+ */
+export const MAX_EVENT_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
 export interface HookConfig {
   url: string;
@@ -246,7 +252,7 @@ export async function deliverOutbox(options: DeliverOptions): Promise<DeliverRes
     for (const [index, event] of pending.entries()) {
       const ageMinutes = Math.round((now().getTime() - event.emittedAtMs) / 60_000);
       if (now().getTime() - event.emittedAtMs > MAX_EVENT_AGE_MS) {
-        await bury(event.name, event.eventId, 'older than 72 hours');
+        await bury(event.name, event.eventId, 'older than 14 days');
         continue;
       }
       if (config === null) {
