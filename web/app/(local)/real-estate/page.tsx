@@ -70,27 +70,95 @@ export default async function RealEstatePage({
         <p className="mt-2 max-w-[var(--measure)] text-sm text-muted">
           Flats, houses and summer cottages for sale and for rent, as{' '}
           <span translate="no">ss.ge</span> lists them. Each row opens the listing there, where its
-          photos, description and contact are.
+          photos, description and contact are. The same home posted more than once, by its owner and
+          by agents, is one row; “Every listing” shows each copy.
         </p>
       </header>
 
       <Filters query={query} places={places} />
 
-      <p className="mt-4 text-sm text-faint" aria-live="polite">
-        <span className="numeric">
-          {total > COUNT_CEILING ? `${count(COUNT_CEILING)}+` : count(total)}
-        </span>
-        {total === 1 ? ' listing' : ' listings'}
-      </p>
+      {query.form.group === '' ? (
+        <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-sm">
+          <p className="text-faint" aria-live="polite">
+            <span className="numeric">
+              {total > COUNT_CEILING ? `${count(COUNT_CEILING)}+` : count(total)}
+            </span>
+            {query.form.view === 'all'
+              ? total === 1
+                ? ' listing'
+                : ' listings'
+              : total === 1
+                ? ' home'
+                : ' homes'}
+          </p>
+          <ViewSwitch query={query} />
+        </div>
+      ) : (
+        <GroupHeading query={query} total={total} />
+      )}
 
       {rows.length === 0 ? (
         <EmptyState filtered={isFiltered(query)} />
       ) : (
-        <ResultsTable rows={rows} currency={currency} />
+        <ResultsTable rows={rows} currency={currency} query={query} />
       )}
 
       <ShowMore query={query} shown={rows.length} total={total} />
     </main>
+  );
+}
+
+/**
+ * Folded or every listing: two links, since the state is in the address. The
+ * current one is marked for assistive technology as well as by its look.
+ */
+function ViewSwitch({ query }: { query: RealEstateQuery }) {
+  const options = [
+    { view: '' as const, label: 'Look-alikes folded' },
+    { view: 'all' as const, label: 'Every listing' },
+  ];
+  return (
+    <nav
+      aria-label="Look-alike listings"
+      className="flex rounded-[var(--radius)] border border-border"
+    >
+      {options.map(({ view, label }) => {
+        const current = query.form.view === view;
+        return (
+          <a
+            key={label}
+            href={buildRealEstateHref(query, { view })}
+            aria-current={current ? 'page' : undefined}
+            className={`px-3 py-1 first:rounded-l-[var(--radius)] last:rounded-r-[var(--radius)] ${
+              current
+                ? 'bg-surface-active text-foreground'
+                : 'text-muted hover:bg-surface hover:text-foreground'
+            }`}
+          >
+            {label}
+          </a>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** One look-alike group's own list: what it is, and the way back. */
+function GroupHeading({ query, total }: { query: RealEstateQuery; total: number }) {
+  return (
+    <div className="mt-4 max-w-[var(--measure)] text-sm">
+      <p className="text-muted" aria-live="polite">
+        These <span className="numeric">{count(total)}</span> listings look like the same home: the
+        same street, rooms, floor and building, an area within 0.6 m² and a price within 3%. Each
+        opens its own page on <span translate="no">ss.ge</span>.
+      </p>
+      <a
+        className="mt-2 inline-block text-accent underline underline-offset-2"
+        href={buildRealEstateHref(query, { group: '' })}
+      >
+        Back to all homes
+      </a>
+    </div>
   );
 }
 
@@ -169,6 +237,9 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
       action="/real-estate"
       className="mt-6 grid grid-cols-2 items-end gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-8"
     >
+      {/* How the list is shown, and which group, outlast a change of filters. */}
+      {form.view === '' ? null : <input type="hidden" name="view" value={form.view} />}
+      {form.group === '' ? null : <input type="hidden" name="group" value={form.group} />}
       <label className={`${FIELD} col-span-2`}>
         Search
         <input
@@ -390,7 +461,15 @@ function Range({
   );
 }
 
-function ResultsTable({ rows, currency }: { rows: RealEstateRow[]; currency: Currency }) {
+function ResultsTable({
+  rows,
+  currency,
+  query,
+}: {
+  rows: RealEstateRow[];
+  currency: Currency;
+  query: RealEstateQuery;
+}) {
   return (
     <div className="mt-3 overflow-x-auto">
       <table className="w-full table-fixed border-collapse text-sm leading-[var(--leading-body)]">
@@ -410,7 +489,17 @@ function ResultsTable({ rows, currency }: { rows: RealEstateRow[]; currency: Cur
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <Row key={row.id} row={row} position={index + 1} currency={currency} />
+            <Row
+              key={row.id}
+              row={row}
+              position={index + 1}
+              currency={currency}
+              groupHref={
+                row.groupKey === null || row.alikeCount < 2
+                  ? null
+                  : buildRealEstateHref(query, { group: row.groupKey })
+              }
+            />
           ))}
         </tbody>
       </table>
@@ -430,10 +519,13 @@ function Row({
   row,
   position,
   currency,
+  groupHref,
 }: {
   row: RealEstateRow;
   position: number;
   currency: Currency;
+  /** Folded: the list of the group it stands for. */
+  groupHref: string | null;
 }) {
   const label = listingLabel(row);
   const price = priceOf(row, currency);
@@ -449,15 +541,28 @@ function Row({
         {/* The listing on ss.ge is the only place a row leads: this screen
             keeps no page of its own for one, and the description, photos and
             contact are the source's to show. */}
-        <a
-          href={row.canonicalUrl}
-          target="_blank"
-          rel="noreferrer"
-          aria-label={`${label}${place === null ? '' : `, ${place}`}, on ss.ge (opens in a new tab)`}
-          className="block truncate text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-accent"
-        >
-          {label}
-        </a>
+        {/* On the title's line, so a folded row is no taller than any other. */}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <a
+            href={row.canonicalUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`${label}${place === null ? '' : `, ${place}`}, on ss.ge (opens in a new tab)`}
+            className="truncate text-foreground underline decoration-border-strong underline-offset-2 hover:decoration-accent"
+          >
+            {label}
+          </a>
+          {groupHref === null ? null : (
+            <a
+              href={groupHref}
+              className="shrink-0 text-xs text-accent underline underline-offset-2"
+              aria-label={`${row.alikeCount - 1} more ${row.alikeCount === 2 ? 'listing' : 'listings'} like this one`}
+              title="The same home, posted again"
+            >
+              +<span className="numeric">{count(row.alikeCount - 1)}</span> alike
+            </a>
+          )}
+        </span>
         <NarrowMeta row={row} floor={floor} place={place} street={street} />
       </td>
 

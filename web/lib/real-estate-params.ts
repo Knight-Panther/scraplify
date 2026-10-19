@@ -28,6 +28,11 @@ export const ROOM_OPTIONS = ['1', '2', '3', '4', '5+'] as const;
 export const FLOOR_OPTIONS = ['not-first', 'not-last', 'middle'] as const;
 export const POSTER_OPTIONS = ['business', 'other'] as const;
 export const UPDATED_OPTIONS = ['1', '3', '7', '30'] as const;
+/** `all` lists every listing; the default folds look-alikes into one row (Phase 11D). */
+export const VIEW_OPTIONS = ['all'] as const;
+/** A group key as `src/realestate/grouping.ts` makes them. */
+const GROUP_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export const SORT_OPTIONS = [
   'newest',
   'price-asc',
@@ -53,6 +58,10 @@ export interface RealEstateForm {
   since: string;
   q: string;
   sort: string;
+  /** `''` (grouped) or `all`. */
+  view: string;
+  /** One look-alike group's key, which lists its members. */
+  group: string;
 }
 
 export interface RealEstateQuery {
@@ -86,6 +95,9 @@ export function parseRealEstateQuery(
   const by = choice(one(raw.by), POSTER_OPTIONS);
   const since = choice(one(raw.since), UPDATED_OPTIONS);
   const sort = choice(one(raw.sort), SORT_OPTIONS) || 'newest';
+  const view = choice(one(raw.view), VIEW_OPTIONS);
+  const rawGroup = one(raw.group).toLowerCase();
+  const group = GROUP_KEY.test(rawGroup) ? rawGroup : '';
   const q = capGraphemes(one(raw.q), MAX_TEXT);
 
   const cityRef = bound(one(raw.city));
@@ -138,6 +150,8 @@ export function parseRealEstateQuery(
         ? {}
         : { updatedSince: new Date(now - Number(since) * 24 * 60 * 60 * 1000).toISOString() }),
       ...(q === '' ? {} : { text: q }),
+      // A group's own page lists all its members; otherwise grouped unless asked not to be.
+      ...(group === '' ? { grouped: view !== 'all' } : { groupKey: group }),
     },
     show,
     form: {
@@ -156,30 +170,39 @@ export function parseRealEstateQuery(
       since,
       q,
       sort,
+      view,
+      group,
     },
   };
 }
 
 /** Whether anything narrows the list: decides what an empty result says. */
 export function isFiltered(query: RealEstateQuery): boolean {
-  const { cur: _cur, sort: _sort, ...narrowing } = query.form;
+  const { cur: _cur, sort: _sort, view: _view, ...narrowing } = query.form;
   return Object.values(narrowing).some((value) => value !== '');
 }
 
-/** A link to the same view, with the depth changed when asked. */
+/** A link to the same view, with the depth, the grouping or the group changed when asked. */
 export function buildRealEstateHref(
   query: RealEstateQuery,
-  changes: Partial<{ show: number }> = {},
+  changes: Partial<{ show: number; view: '' | 'all'; group: string }> = {},
 ): string {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query.form)) {
+  const form = {
+    ...query.form,
+    ...(changes.view === undefined ? {} : { view: changes.view }),
+    ...(changes.group === undefined ? {} : { group: changes.group }),
+  };
+  for (const [key, value] of Object.entries(form)) {
     if (value === '') continue;
     // The defaults stay out of the address, so the bare page has a bare address.
     if (key === 'cur' && value === 'usd') continue;
     if (key === 'sort' && value === 'newest') continue;
     params.set(key, value);
   }
-  const show = changes.show ?? query.show;
+  // A change of grouping or group starts the list from its top.
+  const show =
+    changes.show ?? (changes.view !== undefined || changes.group !== undefined ? 0 : query.show);
   if (show > REAL_ESTATE_CHUNK) params.set('show', String(show));
 
   const search = params.toString();

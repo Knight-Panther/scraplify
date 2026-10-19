@@ -376,4 +376,102 @@ describe('real-estate queries', () => {
       ]);
     });
   });
+
+  describe('look-alike groups (Phase 11D)', () => {
+    /** Three copies of one flat (an agent's, an owner's, another agent's) and a flat on its own. */
+    async function oneFlatThreeTimes(sourceId: string) {
+      const agentNewest = await listing(sourceId, {
+        groupKey: 'g1',
+        posterType: 'agent',
+        priceUsd: '151000.00',
+        sourceUpdatedAt: at(-0.2),
+      });
+      const owner = await listing(sourceId, {
+        groupKey: 'g1',
+        posterType: 'owner',
+        priceUsd: '149000.00',
+        sourceUpdatedAt: at(-2),
+      });
+      const agentOld = await listing(sourceId, {
+        groupKey: 'g1',
+        posterType: 'agent',
+        priceUsd: '150000.00',
+        sourceUpdatedAt: at(-4),
+      });
+      const alone = await listing(sourceId, { rooms: 3, sourceUpdatedAt: at(-1) });
+      return { agentNewest, owner, agentOld, alone };
+    }
+
+    it('folds a group into its first row in the page’s order, with how many it stands for', async () => {
+      const sourceId = await newSource();
+      const flat = await oneFlatThreeTimes(sourceId);
+
+      const newest = await searchRealEstate(db, { sourceId, grouped: true }, NOW_ISO);
+      expect(newest.map((row) => [row.id, row.alikeCount])).toEqual([
+        [flat.agentNewest, 3],
+        [flat.alone, 1],
+      ]);
+      expect(newest[0]?.groupKey).toBe('g1');
+
+      // Cheapest first, the group is shown by its cheapest copy.
+      const cheapest = await searchRealEstate(
+        db,
+        { sourceId, grouped: true, sort: 'price-asc' },
+        NOW_ISO,
+      );
+      expect(cheapest.map((row) => row.id)).toEqual([flat.alone, flat.owner]);
+      expect(await countRealEstate(db, { sourceId, grouped: true }, NOW_ISO)).toBe(2);
+    });
+
+    it('filters every listing before folding, so a group led by an agent still answers “not an agency”', async () => {
+      const sourceId = await newSource();
+      const flat = await oneFlatThreeTimes(sourceId);
+
+      const rows = await searchRealEstate(
+        db,
+        { sourceId, grouped: true, poster: 'other' },
+        NOW_ISO,
+      );
+      expect(rows.map((row) => [row.id, row.alikeCount])).toEqual([
+        [flat.alone, 1],
+        [flat.owner, 1],
+      ]);
+    });
+
+    it('lists every member of one group, and every listing when not grouping', async () => {
+      const sourceId = await newSource();
+      const flat = await oneFlatThreeTimes(sourceId);
+
+      expect(await find(sourceId, { groupKey: 'g1' })).toEqual([
+        flat.agentNewest,
+        flat.owner,
+        flat.agentOld,
+      ]);
+      expect(await countRealEstate(db, { sourceId, groupKey: 'g1' }, NOW_ISO)).toBe(3);
+      expect(await countRealEstate(db, { sourceId }, NOW_ISO)).toBe(4);
+      const all = await searchRealEstate(db, { sourceId }, NOW_ISO);
+      expect(all.map((row) => row.alikeCount)).toEqual([1, 1, 1, 1]);
+    });
+
+    it('pages through groups without repeating or dropping one', async () => {
+      const sourceId = await newSource();
+      for (let n = 0; n < 6; n++) {
+        await listing(sourceId, {
+          groupKey: `p${n}`,
+          sourceUpdatedAt: at(-n),
+          priceUsd: '100000.00',
+        });
+        await listing(sourceId, {
+          groupKey: `p${n}`,
+          sourceUpdatedAt: at(-n - 0.5),
+          priceUsd: '100500.00',
+        });
+      }
+      const pages = [0, 2, 4].map((offset) =>
+        searchRealEstate(db, { sourceId, grouped: true, limit: 2, offset }, NOW_ISO),
+      );
+      const keys = (await Promise.all(pages)).flat().map((row) => row.groupKey);
+      expect(keys).toEqual(['p0', 'p1', 'p2', 'p3', 'p4', 'p5']);
+    });
+  });
 });

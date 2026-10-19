@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RealEstateLocations } from '../../src/realestate/queries.js';
 import {
   buildRealEstateHref,
+  isFiltered,
   parseRealEstateQuery,
   REAL_ESTATE_CHUNK,
   REAL_ESTATE_MAX_SHOWN,
@@ -48,7 +49,7 @@ describe('parseRealEstateQuery', () => {
   it('asks for everything, newest first, in dollars, when the address says nothing', () => {
     const query = parse({});
 
-    expect(query.filters).toEqual({ currency: 'usd', sort: 'newest' });
+    expect(query.filters).toEqual({ currency: 'usd', sort: 'newest', grouped: true });
     expect(query.show).toBe(REAL_ESTATE_CHUNK);
     expect(buildRealEstateHref(query)).toBe('/real-estate');
   });
@@ -88,6 +89,7 @@ describe('parseRealEstateQuery', () => {
       updatedSince: new Date(NOW - 7 * 24 * 60 * 60 * 1000).toISOString(),
       text: 'ავეჯით',
       sort: 'price-asc',
+      grouped: true,
     });
   });
 
@@ -118,9 +120,11 @@ describe('parseRealEstateQuery', () => {
       by: 'me',
       since: '2',
       sort: 'random',
+      view: 'some',
+      group: 'not-a-key',
     });
 
-    expect(query.filters).toEqual({ currency: 'usd', sort: 'newest' });
+    expect(query.filters).toEqual({ currency: 'usd', sort: 'newest', grouped: true });
     expect(query.form).toMatchObject({
       deal: '',
       kind: '',
@@ -128,6 +132,8 @@ describe('parseRealEstateQuery', () => {
       area: '',
       pmin: '',
       rooms: '',
+      view: '',
+      group: '',
     });
   });
 
@@ -148,6 +154,17 @@ describe('parseRealEstateQuery', () => {
     const query = parse({ q: 'ა'.repeat(500) });
 
     expect([...(query.filters.text ?? '')]).toHaveLength(120);
+  });
+
+  it('folds look-alikes unless asked for every listing, and lists one group by its key', () => {
+    expect(parse({ view: 'all' }).filters).toMatchObject({ grouped: false });
+    const key = '6a546aed-492a-4cf2-9627-072e6fc768bf';
+    const query = parse({ group: key.toUpperCase() });
+    expect(query.filters.groupKey).toBe(key);
+    expect(query.filters.grouped).toBeUndefined();
+    expect(isFiltered(query)).toBe(true);
+    // Grouped or not is how the list is shown, not a narrowing of it.
+    expect(isFiltered(parse({ view: 'all' }))).toBe(false);
   });
 
   it('rounds the depth up to whole chunks and stops at the most a page will show', () => {
@@ -175,6 +192,7 @@ describe('buildRealEstateHref', () => {
       since: '3',
       q: 'ავეჯით',
       sort: 'area-desc',
+      view: 'all',
       show: '300',
     };
     const href = buildRealEstateHref(parse(raw));
@@ -189,5 +207,13 @@ describe('buildRealEstateHref', () => {
     expect(buildRealEstateHref(query, { show: 400 })).toBe(
       `/real-estate?${new URLSearchParams({ deal: 'rent', q: 'ვაკე', show: '400' })}`,
     );
+  });
+
+  it('switches the grouping or opens a group from the top of the list, keeping the filters', () => {
+    const query = parse({ deal: 'rent', show: '300' });
+    expect(buildRealEstateHref(query, { view: 'all' })).toBe('/real-estate?deal=rent&view=all');
+    expect(buildRealEstateHref(parse({ view: 'all' }), { view: '' })).toBe('/real-estate');
+    const key = '6a546aed-492a-4cf2-9627-072e6fc768bf';
+    expect(buildRealEstateHref(query, { group: key })).toBe(`/real-estate?deal=rent&group=${key}`);
   });
 });

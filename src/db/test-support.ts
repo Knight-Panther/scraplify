@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { db } from './client.js';
 import {
   auditEvents,
@@ -21,6 +21,7 @@ import {
   parserIncidents,
   rankings,
   realEstateCrawlRuns,
+  realEstateListingGroups,
   realEstateListings,
   resources,
   type SourceListingRow,
@@ -467,8 +468,28 @@ export async function cleanupTestSource(
     await tx.delete(sourceTaxonomyMappings).where(eq(sourceTaxonomyMappings.sourceId, sourceId));
     // The `realestate` schema's rows for this source (migration 0039); both
     // tables FK into sources.id. Price changes go with their listing.
+    // Its look-alike groups (migration 0042) are keyed, not linked: those
+    // only this source's listings held go with them.
+    const groupKeys = (
+      await tx
+        .selectDistinct({ key: realEstateListings.groupKey })
+        .from(realEstateListings)
+        .where(
+          and(eq(realEstateListings.sourceId, sourceId), isNotNull(realEstateListings.groupKey)),
+        )
+    ).map((row) => row.key as string);
     await tx.delete(realEstateListings).where(eq(realEstateListings.sourceId, sourceId));
     await tx.delete(realEstateCrawlRuns).where(eq(realEstateCrawlRuns.sourceId, sourceId));
+    if (groupKeys.length > 0) {
+      await tx
+        .delete(realEstateListingGroups)
+        .where(
+          and(
+            inArray(realEstateListingGroups.groupKey, groupKeys),
+            sql`not exists (select 1 from ${realEstateListings} where ${realEstateListings.groupKey} = ${realEstateListingGroups.groupKey})`,
+          ),
+        );
+    }
 
     // Only ever deletes a term the CALLER named — see this function's own
     // doc comment for why inferring ownership from "nothing currently

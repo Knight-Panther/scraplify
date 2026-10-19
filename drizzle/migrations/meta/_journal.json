@@ -295,6 +295,13 @@
       "when": 1792177553331,
       "tag": "0041_gigantic_mother_askani",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792422617607,
+      "tag": "0042_sudden_mad_thinker",
+      "breakpoints": true
     }
   ]
 }

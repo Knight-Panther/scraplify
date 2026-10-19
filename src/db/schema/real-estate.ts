@@ -122,7 +122,10 @@ export const realEstateListings = realEstate.table(
     description: text('description'),
     /** ss.ge's own id for a set of look-alike listings, when it gives one. */
     similarityGroup: text('similarity_group'),
-    /** Set by the grouping phase; null until then. */
+    /**
+     * The look-alike group it belongs to (`listing_groups`, Phase 11D), or
+     * null when it matches no other listing or lacks a field the rule needs.
+     */
     groupKey: text('group_key'),
     sourceUpdatedAt: timestamp('source_updated_at', {
       mode: 'string',
@@ -156,8 +159,23 @@ export const realEstateListings = realEstate.table(
     index('listings_area_idx').on(table.areaM2),
     index('listings_expected_end_idx').on(table.status, table.expectedEndAt),
     index('listings_search_idx').using('gin', table.search),
+    index('listings_group_key_idx').on(table.groupKey),
   ],
 );
+
+/**
+ * Look-alike listings, grouped after every crawl by `src/realestate/grouping.ts`
+ * (guideline §5, Phase 11D): the same flat or house posted more than once,
+ * by its owner and by agents. A row exists while a group has two or more
+ * active members. Its key outlives a change of members, so a link to a group
+ * keeps working from one night to the next.
+ */
+export const realEstateListingGroups = realEstate.table('listing_groups', {
+  groupKey: text('group_key').primaryKey(),
+  memberCount: integer('member_count').notNull(),
+  formedAt: timestamp('formed_at', { mode: 'string', withTimezone: true }).notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'string', withTimezone: true }).notNull(),
+});
 
 /**
  * What the Real estate tab reads, on every surface, and all the public
@@ -203,6 +221,7 @@ export const realEstatePublicListings = realEstate
     firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     search: tsvector('search'),
+    groupKey: text('group_key'),
   })
   .as(sql`
     select
@@ -234,7 +253,8 @@ export const realEstatePublicListings = realEstate
       ${realEstateListings.expectedEndAt} as expected_end_at,
       ${realEstateListings.firstSeenAt} as first_seen_at,
       ${realEstateListings.lastSeenAt} as last_seen_at,
-      ${realEstateListings.search} as search
+      ${realEstateListings.search} as search,
+      ${realEstateListings.groupKey} as group_key
     from ${realEstateListings}
     where ${realEstateListings.status} = 'active'
   `);
