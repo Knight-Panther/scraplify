@@ -49,7 +49,7 @@ xtelo-hermes-notify.service ──POST, signed──▶ https://<hook host>/webh
    - 408, 429, 5xx, timeout, DNS/TLS/connection error → keep it and try again next time. The owner's PC
      may be off for hours; that is normal, not an error.
    - Any other 4xx → move it to `hermes-outbox/dead/` and log loudly (bad signature or config).
-   - Older than 72 h → move to `dead/` (Hermes catches up from the database on its own).
+   - Older than 72 h → move to `dead/` (Hermes catches up from the database on its own). *As built: 14 days since 2026-10-19; see "As built", item 16.*
    - Re-sign on every attempt: the signature binds a timestamp and Hermes refuses one older than 5 min.
 3. **Least privilege.** The sender holds the hook secrets and **no database credential**; the pipeline
    holds the database credential and **no hook secret**. Sender env file: `/etc/xtelo/hermes-hook.env`
@@ -204,6 +204,10 @@ signature) is built as written and was checked against Hermes' own receiver
     event type has to be added to that file in the same change, or its events are refused.
     For a new source that is one line, `PIPELINE_SOURCES`; a test fails when that list and the
     one in `deploy/run-pipeline.sh` differ, and `CLAUDE.md` ("Adding a source") says so too.
+16. **An event is kept for 14 days, not 72 hours** (2026-10-19). The `hermes-pc` tunnel was down from
+    2026-10-16 18:51 to 2026-10-19 14:48 UTC (every delivery answered 530), and Hermes had no
+    catch-up from the database yet; the oldest event was eight hours from being moved aside unsent.
+    Once the tunnel was back, one sender run delivered all nine.
 
 ### For Phase 11E (real estate)
 
