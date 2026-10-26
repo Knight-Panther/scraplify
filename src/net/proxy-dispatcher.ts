@@ -1,4 +1,13 @@
-import { ProxyAgent } from 'undici';
+import { type Dispatcher, Pool, ProxyAgent, request } from 'undici';
+
+/**
+ * How long the proxy has to answer a CONNECT. A request's own timeout does
+ * not reach that step (undici sends the CONNECT without the request's abort
+ * signal), so without this a proxy that takes the connection and then says
+ * nothing, such as a reverse tunnel whose far end has gone, holds every
+ * request for undici's 300 s default (measured 307 s on 8.12.3).
+ */
+const TUNNEL_TIMEOUT_MS = 30_000;
 
 export interface ProxyDispatcher {
   readonly dispatcher: ProxyAgent;
@@ -21,6 +30,7 @@ export interface ProxyDispatcher {
 export function proxyDispatcherFromEnv(
   name: string,
   env: NodeJS.ProcessEnv = process.env,
+  tunnelTimeoutMs = TUNNEL_TIMEOUT_MS,
 ): ProxyDispatcher | null {
   const raw = env[name]?.trim();
   if (!raw) return null;
@@ -37,5 +47,35 @@ export function proxyDispatcherFromEnv(
     throw new Error(`${name} must name the proxy's port`);
   }
   const label = `${url.protocol}//${url.hostname}:${url.port}`;
-  return { dispatcher: new ProxyAgent(raw), label };
+  const dispatcher = new ProxyAgent({
+    uri: raw,
+    clientFactory: (origin, options) =>
+      new Pool(origin, { ...options, headersTimeout: tunnelTimeoutMs }),
+  });
+  return { dispatcher, label };
+}
+
+/**
+ * Whether `url` (an https:// address, such as the source's robots.txt) gets
+ * any HTTP answer through the proxy, whatever its status: a refused
+ * connection, a failed CONNECT or a timeout means the way out is down, while
+ * a 403 is the source's own answer.
+ */
+export async function answersThroughProxy(
+  dispatcher: Dispatcher,
+  url: string,
+  userAgent: string,
+  timeoutMs = 30_000,
+): Promise<boolean> {
+  try {
+    const response = await request(url, {
+      dispatcher,
+      headers: { 'user-agent': userAgent },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    await response.body.dump();
+    return true;
+  } catch {
+    return false;
+  }
 }

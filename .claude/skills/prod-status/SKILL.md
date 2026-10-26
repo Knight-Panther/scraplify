@@ -41,6 +41,8 @@ missing key fails fast instead of hanging on a prompt.
    printf 'copied off host in last 36h: '; sudo -n journalctl -u xtelo-backup --since -36h --no-pager -o cat | grep -c 'Copied off the host'
    echo "== health-check";    sudo -n /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/health-check.js 2>&1 | tail -15; echo "exit=${PIPESTATUS[0]}"
    echo "== disk/mem";        df -h / | tail -1; free -m | sed -n 2p
+   echo "== ss.ge tunnel (listeners held by the laptop)"; ss -ltn | grep -oE '127\.0\.0\.1:(18888|2222) ' | paste -sd' '
+   echo "== ss.ge run unit";  systemctl show xtelo-realestate@ss-ge -p ActiveState -p Result -p ExecMainStatus -p ExecMainExitTimestamp | paste -sd' '
    q() { sudo -n -u postgres psql -X -qAt -F ' | ' -d scraplify -v ON_ERROR_STOP=1 -c 'set default_transaction_read_only = on' -c 'set role scraplify_backup' -c "$1"; }
    echo "== last crawl run per source (slug | status | started | finished | full coverage | unreconciled)"
    q "select distinct on (s.slug) s.slug, r.status, r.started_at, r.finished_at, r.full_coverage, r.reconciled_at is null from crawl_runs r join sources s on s.id = r.source_id order by s.slug, r.started_at desc"
@@ -48,6 +50,8 @@ missing key fails fast instead of hanging on a prompt.
    q "select s.slug, count(*) filter (where sl.status = 'active'), count(*) filter (where sl.status = 'active' and not exists (select 1 from opportunity_source_memberships m where m.source_listing_id = sl.id and m.superseded_at is null)) from source_listings sl join sources s on s.id = sl.source_id group by s.slug order by s.slug"
    echo "== open parser incidents (slug | kind | severity | count | latest)"
    q "select s.slug, i.kind, i.severity, count(*), max(i.detected_at) from parser_incidents i join sources s on s.id = i.source_id where not i.resolved group by 1, 2, 3 order by 1, 2, 3"
+   echo "== last ss.ge runs (started | mode | status | requests | pages | notes)"
+   q "select started_at, mode, status, request_count, page_count, left(coalesce(notes, ''), 120) from realestate.crawl_runs order by started_at desc limit 3"
    EOF
    ```
 
@@ -63,8 +67,8 @@ missing key fails fast instead of hanging on a prompt.
    each. Rows: release (short sha), services, failed units, running jobs,
    next pipeline run, each source's last pipeline result and last crawl run,
    backup, health-check exit, unlinked listings, open parser incidents, disk
-   and memory, probe. Then one verdict line, and a short "needs attention"
-   list if anything is ⚠️ or ❌.
+   and memory, ss.ge tunnel and last ss.ge run, probe. Then one verdict line,
+   and a short "needs attention" list if anything is ⚠️ or ❌.
 
    How to read the signals:
    - `active_unlinked` above 0 after a finished pipeline run is the
@@ -77,6 +81,12 @@ missing key fails fast instead of hanging on a prompt.
      backup did not land: ❌.
    - A pipeline or backup `Result` other than `success` is ❌. If its timestamp
      is older than the latest successful run, it is history, not current state.
+   - ss.ge leaves through the owner's laptop in Tbilisi (RUNBOOK §3 step 9).
+     Both listeners present and `ss.ge proxy: ok` in the health check is ✅.
+     A missing listener or `proxy_unreachable` is ⚠️, not ❌: the laptop may
+     simply be off, and the nightly run waits up to 10 hours for it. A
+     `partial` ss.ge run whose notes say the proxy `stayed unreachable` is ⚠️
+     too; the next run carries on from the last completed one.
 
 ## What this skill will not do
 

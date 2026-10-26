@@ -5,6 +5,7 @@ import { getSourceBackoffUntil } from '../../db/ingest.js';
 import { realEstateCrawlRuns, realEstateListings } from '../../db/schema/index.js';
 import { cleanupTestSource } from '../../db/test-support.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
+import { ProxyUnreachableError, withProxyRecovery } from '../../net/proxy-recovery.js';
 import { isSsGeUrlAllowed, ssGeSource } from '../../policies/ss-ge.js';
 import {
   buildDetailUrl,
@@ -539,6 +540,64 @@ describe('runSsGeCrawl, sweep', () => {
     expect(crawlRun.notes).toMatch(/403/);
   });
 
+  it('waits out a proxy that drops mid-run, and carries on from the same page', async () => {
+    // The laptop reboots while page 2 is asked for: every request fails until
+    // it is back, and the run neither gives up on the page nor ends.
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
+    const second = buildResultsUrl(list('flat-sale'), 2);
+    let down = false;
+    let probes = 0;
+    const proxied: HttpFetcher = {
+      fetch: async (url) => {
+        if (url === second && probes === 0) down = true;
+        if (down) throw new TypeError('fetch failed');
+        return site.fetch(url);
+      },
+      close: async () => {},
+    };
+    const httpFetcher = withProxyRecovery(proxied, {
+      label: 'http://127.0.0.1:18888',
+      probe: async () => {
+        if (++probes >= 4) down = false;
+        return !down;
+      },
+      maxWaitMs: 10 * HOUR_MS,
+      pollMs: 60_000,
+      sleep: async () => {},
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+
+    expect(crawlRun).toMatchObject({ status: 'completed', failedRequestCount: 0 });
+    expect(site.resultsRequests(list('flat-sale'))).toEqual([1, 2, 3]);
+    expect(await storedListings()).toHaveLength(40 + 5);
+  });
+
+  it('stops at once when the proxy stayed away past its wait, and says so', async () => {
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
+    const second = buildResultsUrl(list('flat-sale'), 2);
+    site.script(second, new ProxyUnreachableError('http://127.0.0.1:18888', 10 * HOUR_MS));
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+
+    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 1 });
+    // Not asked three times: the wait for the proxy is already spent.
+    expect(site.resultsRequests(list('flat-sale'))).toEqual([1, 2]);
+    expect(crawlRun.notes).toBe(
+      'flat-sale page 2: the proxy http://127.0.0.1:18888 stayed unreachable (waited 600 min in this run)',
+    );
+    expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({ lastPage: 1, finished: null });
+    // Nothing remembered: the next run asks as usual.
+    expect(await getSourceBackoffUntil(db, ssGeSource.id)).toBeNull();
+  });
+
   it('records a seen listing again as unchanged, and a new price as a change', async () => {
     const site = new FakeSite({ 'flat-sale': rows(1_000, 3) });
     await runSsGeCrawl(
@@ -733,6 +792,34 @@ describe('runSsGeCrawl, listings past their expected end', () => {
 
     // The run never had the chance to see it again.
     expect(crawlRun).toMatchObject({ status: 'partial', goneCount: 0 });
+    expect(await stored(7001)).toMatchObject({ status: 'active' });
+  });
+
+  it('gives up on no listing in a run whose proxy stayed away', async () => {
+    const site = new FakeSite();
+    await ensureSsGeSourceSeeded(db);
+    await db.insert(realEstateListings).values({
+      sourceId: ssGeSource.id,
+      sourceListingKey: '7001',
+      canonicalUrl: buildDetailUrl('7001'),
+      dealType: 'sale',
+      propertyType: 'flat',
+      sourceUpdatedAt: new Date(NOW - 40 * DAY_MS).toISOString(),
+      expectedEndAt: new Date(NOW - 8 * DAY_MS).toISOString(),
+      firstSeenAt: new Date(NOW - 40 * DAY_MS).toISOString(),
+      lastSeenAt: new Date(NOW - 20 * DAY_MS).toISOString(),
+      contentHash: 'h',
+    });
+    const firstPage = buildResultsUrl(first, 1);
+    site.script(firstPage, new ProxyUnreachableError('http://127.0.0.1:18888', 10 * HOUR_MS));
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep' },
+    );
+
+    expect(crawlRun).toMatchObject({ status: 'partial', goneCount: 0, verifiedCount: 0 });
+    expect(detailRequests(site)).toEqual([]);
     expect(await stored(7001)).toMatchObject({ status: 'active' });
   });
 

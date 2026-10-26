@@ -4,7 +4,8 @@ import { db, pool } from '../db/client.js';
 import { acquireCrawlProcessLock } from '../db/crawl-process-lock.js';
 import { logger } from '../logger.js';
 import { createHttpFetcher } from '../net/http-fetcher.js';
-import { proxyDispatcherFromEnv } from '../net/proxy-dispatcher.js';
+import { answersThroughProxy, proxyDispatcherFromEnv } from '../net/proxy-dispatcher.js';
+import { withProxyRecovery } from '../net/proxy-recovery.js';
 import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { isSsGeUrlAllowed, ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
@@ -17,6 +18,16 @@ import { parseSsGeOptions } from './ss-ge-options.js';
  * those without hanging a run on a dead socket.
  */
 const REQUEST_TIMEOUT_MS = 60_000;
+
+/**
+ * How long one run may wait, over all outages together, for the Georgian
+ * proxy to come back (RUNBOOK §3 step 9): the laptop may be off when the
+ * 21:30 UTC run starts, or reboot or lose its internet during it. Ten hours
+ * keeps the run inside its unit's 20-hour limit and clear of the next night.
+ */
+const PROXY_MAX_WAIT_MS = 10 * 60 * 60 * 1000;
+/** Between checks while waiting: a check of a tunnel that is down sends nothing to ss.ge. */
+const PROXY_POLL_MS = 60_000;
 
 /**
  * One-shot entry point for a single ss.ge run, the same shape as
@@ -55,13 +66,23 @@ async function main(): Promise<void> {
   const proxy = proxyDispatcherFromEnv('SS_GE_PROXY_URL');
   if (proxy !== null) logger.info({ proxy: proxy.label }, 'ss.ge crawl: fetching through a proxy');
   const rateLimiter = createRateLimiter(ssGePolicy.rateLimit);
-  const httpFetcher = createHttpFetcher({
+  const userAgent = resolveUserAgent();
+  const directFetcher = createHttpFetcher({
     isUrlAllowed: isSsGeUrlAllowed,
     rateLimiter,
-    userAgent: resolveUserAgent(),
+    userAgent,
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
     ...(proxy === null ? {} : { dispatcher: proxy.dispatcher }),
   });
+  const httpFetcher =
+    proxy === null
+      ? directFetcher
+      : withProxyRecovery(directFetcher, {
+          label: proxy.label,
+          probe: () => answersThroughProxy(proxy.dispatcher, ssGePolicy.robotsUrl, userAgent),
+          maxWaitMs: PROXY_MAX_WAIT_MS,
+          pollMs: PROXY_POLL_MS,
+        });
 
   const startedAtMs = Date.now();
   try {

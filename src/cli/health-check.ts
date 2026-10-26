@@ -3,6 +3,9 @@ import { assessSourceHealth, hasCriticalAlert } from '../browse/source-health.js
 import { db } from '../db/client.js';
 import { PUBLIC_MATCHING_CHANNEL } from '../matching/bundle/contract.js';
 import { assessMatchingHealth, getMatchingBundleStatus } from '../matching/bundle/status.js';
+import { answersThroughProxy, proxyDispatcherFromEnv } from '../net/proxy-dispatcher.js';
+import { resolveUserAgent } from '../net/user-agent.js';
+import { ssGePolicy } from '../policies/ss-ge.js';
 
 /**
  * `npm run health:check` — prints every source's alerts and exits 1 if any is
@@ -16,6 +19,11 @@ import { assessMatchingHealth, getMatchingBundleStatus } from '../matching/bundl
  * Phase 8C adds the public matching bundle as one more line: a stale active
  * bundle is critical (CV matching is refused past its age limit), anything
  * else is a warning.
+ *
+ * With SS_GE_PROXY_URL set, the Georgian exit ss.ge's requests leave through
+ * is one more line (RUNBOOK §3 step 9). Unreachable is a warning: the
+ * nightly run waits hours for it, and the laptop being off for a while is
+ * expected.
  */
 async function main(): Promise<void> {
   const now = new Date().toISOString();
@@ -42,8 +50,32 @@ async function main(): Promise<void> {
     console.log(`  ${alert.level.padEnd(8)} ${alert.code}  ${alert.message}`);
   }
 
+  await reportSsGeProxy();
+
   if (hasCriticalAlert(alerts) || matchingAlerts.some((alert) => alert.level === 'critical')) {
     process.exitCode = 1;
+  }
+}
+
+async function reportSsGeProxy(): Promise<void> {
+  const proxy = proxyDispatcherFromEnv('SS_GE_PROXY_URL');
+  if (proxy === null) return;
+  try {
+    const answers = await answersThroughProxy(
+      proxy.dispatcher,
+      ssGePolicy.robotsUrl,
+      resolveUserAgent(),
+    );
+    if (answers) {
+      console.log('ss.ge proxy: ok');
+    } else {
+      console.log('ss.ge proxy');
+      console.log(
+        `  ${'warning'.padEnd(8)} proxy_unreachable  ss.ge got no answer through ${proxy.label}: the laptop, its internet or the tunnel is down. The nightly run waits for it.`,
+      );
+    }
+  } finally {
+    await proxy.dispatcher.close();
   }
 }
 
