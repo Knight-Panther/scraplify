@@ -75,6 +75,15 @@ jobs:
       - name: E2E surface routing checks
         run: npm run test:e2e:surfaces
 
+      # The Phase 8D privacy gate: a canary CV through CV Ranked on a real
+      # `public` server. Its global setup seeds one vacancy and a schema 1
+      # bundle into this job's empty database (e2e/privacy/seed-bundle.ts).
+      - name: E2E CV privacy check
+        run: npm run test:e2e:privacy
+        env:
+          XTELO_E2E_SEED_BUNDLE: '1'
+          XTELO_MATCHING_ARTIFACT_DIR: ${{ runner.temp }}/matching-artifacts
+
       - name: Build
         run: npm run build
 

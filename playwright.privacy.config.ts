@@ -9,6 +9,8 @@ import { PRIVACY_PORT, PRIVACY_SERVER_LOG } from './e2e/privacy/server.js';
  */
 export default defineConfig({
   testDir: './e2e/privacy',
+  // Seeds one vacancy and a bundle, only when XTELO_E2E_SEED_BUNDLE=1 (CI).
+  globalSetup: './e2e/privacy/seed-bundle.ts',
   retries: 0,
   use: { channel: 'chrome' },
   webServer: {
