@@ -40,11 +40,12 @@ mv "$home/.ssh/authorized_keys.new" "$home/.ssh/authorized_keys"
 # A laptop that vanishes without closing its connection (a power cut, its
 # internet gone) would leave sshd holding both listeners until TCP keepalive
 # gives up, about two hours, and its reconnection could not take them back.
-# Checks every 30 s free them within 90 s. "Match all" ends the block, so
+# Checks every 10 s free them about 30 s after traffic pauses (sshd checks
+# only when the connection is quiet). "Match all" ends the block, so
 # nothing after this file is scoped to this user.
 cat > /etc/ssh/sshd_config.d/70-xtelo-tunnel.conf <<EOF
 Match User $user
-  ClientAliveInterval 30
+  ClientAliveInterval 10
   ClientAliveCountMax 3
 Match all
 EOF
