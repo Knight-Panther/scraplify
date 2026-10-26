@@ -288,6 +288,9 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
 
 **Operations and crawling**
 
+- **Fixed on branch `fix-bundle-lock-order`, not yet deployed (2026-10-26):** the hosted jobs.ge and hr.ge pipelines failed on 2026-10-24 and 25 in a lock deadlock. One pipeline's retention held the dedupe lock and waited for the bundle lock while another's matching bundle build held the bundle lock and waited for dedupe; both gave up after 30 minutes. Crawls, dedupe and the earlier bundle that day had completed, so the site stayed current. The build now takes dedupe before the bundle lock, the order retention uses (`build-lock-order.test.ts`).
+- **Done (2026-10-26):** the host disk was 90% full from 17 release builds of about 1.6 GB each. `deploy/prune-releases.sh` now keeps the live release and the two before it (owner rule: always two behind the current one) and is the last deploy step (RUNBOOK §3, step 4); its first run took the disk to 32%.
+- **Open, owner decision (2026-10-26):** since 2026-10-22 home.ss.ge answers the host with a Cloudflare challenge (HTTP 403) on every page, robots.txt included and whatever the User-Agent, while the owner's PC in Georgia gets 200. The nightly ss.ge runs end after one request as `partial`; the last full run finished 2026-10-22 00:00 UTC.
 - Open (Phase 1C items 1, 2, 4): a correct live closure of vanished listings has not been confirmed; full walks complete, but closure on live data is unverified. Detail: Archive, "Open operational issues".
 - Small (no severity recorded): an unparseable detail page for a listing whose stored deadline has passed should expire it rather than quarantine it; only long runs crossing midnight hit this. Archive, "Phase 7C".
 

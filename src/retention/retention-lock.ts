@@ -32,9 +32,10 @@ export type WithRetentionLocksResult<T> =
  *     These are WAITED for, same as any other caller.
  *
  * Nobody ever waits on a crawl lock — every wait in step 3 is for a lock a
- * crawl process itself never takes — so this ordering cannot deadlock
- * against the scheduled pipeline (crawl -> dedupe -> taxonomy -> bundle ->
- * retention).
+ * crawl process itself never takes. Every holder of more than one of the
+ * step 3 locks takes them in this same order (the matching bundle build:
+ * dedupe, then bundle), so none can deadlock against another pipeline's
+ * retention pass.
  */
 export async function withRetentionLocks<T>(
   pool: Pool,
