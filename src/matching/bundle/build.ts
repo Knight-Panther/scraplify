@@ -105,11 +105,13 @@ export async function buildMatchingBundle(
   store: MatchingArtifactStore,
   options: BuildOptions,
 ): Promise<BuildResult> {
-  return withAdvisoryLock(pool, ADVISORY_LOCKS.matchingBundle, () =>
-    options.holdDedupeLock === false
-      ? buildLocked(db, store, options)
-      : withAdvisoryLock(pool, ADVISORY_LOCKS.dedupe, () => buildLocked(db, store, options)),
-  );
+  // Dedupe before the bundle lock: retention takes them in that order too, and
+  // the opposite order deadlocked against it on the host (2026-10-24 and 25).
+  const locked = () =>
+    withAdvisoryLock(pool, ADVISORY_LOCKS.matchingBundle, () => buildLocked(db, store, options));
+  return options.holdDedupeLock === false
+    ? locked()
+    : withAdvisoryLock(pool, ADVISORY_LOCKS.dedupe, locked);
 }
 
 async function buildLocked(
