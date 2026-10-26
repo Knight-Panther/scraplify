@@ -288,6 +288,7 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
 
 **Operations and crawling**
 
+- **Done (2026-10-26):** CI now runs `test:e2e:privacy` (the Phase 8D canary-CV gate). Its global setup (`e2e/privacy/seed-bundle.ts`, only with `XTELO_E2E_SEED_BUNDLE=1`) seeds one vacancy and a schema 1 bundle into the job's empty database; without the seed the same run fails at "the canary CV should reach ranked results". The hand-run reminder in `scripts/review-nudge.sh` is gone.
 - **Fixed and deployed as `52ef581` (PR #61, 2026-10-26):** the hosted jobs.ge and hr.ge pipelines failed on 2026-10-24 and 25 in a lock deadlock. One pipeline's retention held the dedupe lock and waited for the bundle lock while another's matching bundle build held the bundle lock and waited for dedupe; both gave up after 30 minutes. Crawls, dedupe and the earlier bundle that day had completed, so the site stayed current. The build now takes dedupe before the bundle lock, the order retention uses (`build-lock-order.test.ts`). The first scheduled runs on it are 2026-10-26 from 16:10 UTC.
 - **Done (2026-10-26):** the host disk was 90% full from 17 release builds of about 1.6 GB each. `deploy/prune-releases.sh` now keeps the live release and the two before it (owner rule: always two behind the current one) and is the last deploy step (RUNBOOK §3, step 4); its first run took the disk to 32%.
 - **Open, owner decision (2026-10-26):** since 2026-10-22 home.ss.ge answers the host with a Cloudflare challenge (HTTP 403) on every page, robots.txt included and whatever the User-Agent, while the owner's PC in Georgia gets 200. The nightly ss.ge runs end after one request as `partial`; the last full run finished 2026-10-22 00:00 UTC. It is a country rule, not a datacenter one (Globalping, 2026-10-26): Georgian probes got 200 from both home (Magticom) and datacenter networks (TradeZone, Cloud 9), and every probe outside Georgia got 403, home networks included (Deutsche Telekom, Orange, Verizon, Turk Telekom, Telecom Armenia), as did 33 check-host.net datacenter nodes in about 30 countries. Any crawler on the French host, self-hosted Firecrawl included, meets the same rule; the fix is a Georgian egress for ss.ge requests only. Pending: the owner will not ask ss.ge to allowlist the host.
@@ -323,14 +324,12 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
 
 **Public repository (owner)** — Archive, "Former current-phase section":
 
-- Optional: `src/matching/eval/fixtures/golden-vectors.node.json` holds 40 real vacancy texts, with one named recruiter's email and 8 phone numbers; redacting them means regenerating the vectors (`npm run matching:embed-eval-corpus`).
+- Done (2026-10-26): `src/matching/eval/fixtures/golden-vectors.node.json` held 40 real vacancy texts, nine of them with an email address or a phone number. Those nine entries were removed rather than re-embedded (the other 31 vectors are unchanged and still valid for the parity check).
 - Owner, on GitHub: turn on email privacy in the account's email settings (36 web merge commits carry the owner's address). Dependabot alerts: **on** since 2026-10-05, 0 open.
 
 ## Upcoming, most valuable first
 
-1. **Public-repository follow-up** (Open items): optionally redact the eval fixture's contact details. The unused-code removal is done.
-2. **Privacy e2e outside CI.** CI runs `test:e2e` and `test:e2e:surfaces` but not `test:e2e:privacy`, so the canary-CV test went stale when PR #36 moved role entry to "Your roles", and nobody noticed until PR #38's local QA. Run it by hand before any CV Ranked change, or add it to CI if its database and bundle needs allow. Until then, `scripts/review-nudge.sh` reminds a Claude session to run it on the first edit to the CV Ranked path.
-3. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
-4. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
-5. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (Archive, "Phase 8E", end of the CV matching notes). The model question is closed (A′: precomputed `bge-small-en` title vectors, Phase 8D; EmbeddingGemma 2 tested 2026-10-07 and lost, see 10A).
-6. **Search, after 10A:** Listings could match locations too if its public view carried them (a view migration); phrase translations ("delivery driver") are not used yet.
+1. **Phase 7B — supervised repair:** resolving parser incidents in code (today the owner resolves them by hand), parser-repair proposals and canaries, and `pg-boss` only if heterogeneous durable work appears. Stuck-run self-healing is already built (Phase 7C).
+2. **Phase 1C remainder:** closure against live data, coverage and overlap reports.
+3. **Matching quality, post-MVP only:** description-derived skill terms in the bundle (Archive, "Phase 8E", end of the CV matching notes). The model question is closed (A′: precomputed `bge-small-en` title vectors, Phase 8D; EmbeddingGemma 2 tested 2026-10-07 and lost, see 10A).
+4. **Search, after 10A:** Listings could match locations too if its public view carried them (a view migration); phrase translations ("delivery driver") are not used yet.
