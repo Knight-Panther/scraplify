@@ -75,7 +75,7 @@ After=network-online.target tinyproxy.service
 User=$user
 Environment=AUTOSSH_GATETIME=0
 ExecStart=/usr/bin/autossh -M 0 -N \\
-  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \\
+  -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \\
   -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o BatchMode=yes \\
   -i $home/.ssh/tunnel \\
   -R 127.0.0.1:2222:127.0.0.1:22 -R 127.0.0.1:18888:127.0.0.1:8888 \\
