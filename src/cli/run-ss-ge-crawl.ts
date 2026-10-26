@@ -4,6 +4,7 @@ import { db, pool } from '../db/client.js';
 import { acquireCrawlProcessLock } from '../db/crawl-process-lock.js';
 import { logger } from '../logger.js';
 import { createHttpFetcher } from '../net/http-fetcher.js';
+import { proxyDispatcherFromEnv } from '../net/proxy-dispatcher.js';
 import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { isSsGeUrlAllowed, ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
@@ -49,12 +50,17 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ss.ge answers only Georgian addresses (2026-10-22), so on the French host
+  // its requests leave through a Georgian proxy when SS_GE_PROXY_URL is set.
+  const proxy = proxyDispatcherFromEnv('SS_GE_PROXY_URL');
+  if (proxy !== null) logger.info({ proxy: proxy.label }, 'ss.ge crawl: fetching through a proxy');
   const rateLimiter = createRateLimiter(ssGePolicy.rateLimit);
   const httpFetcher = createHttpFetcher({
     isUrlAllowed: isSsGeUrlAllowed,
     rateLimiter,
     userAgent: resolveUserAgent(),
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
+    ...(proxy === null ? {} : { dispatcher: proxy.dispatcher }),
   });
 
   const startedAtMs = Date.now();
@@ -94,6 +100,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     await httpFetcher.close();
+    await proxy?.dispatcher.close();
     await lock.release();
   }
 }
