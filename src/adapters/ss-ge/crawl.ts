@@ -5,6 +5,7 @@ import { type SyncSourcePolicyResult, syncSourcePolicy } from '../../db/source-p
 import type { Database } from '../../db/types.js';
 import { responseBackoffUntil } from '../../net/fetch-control.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
+import { ProxyUnreachableError } from '../../net/proxy-recovery.js';
 import { ssGePolicy, ssGeSource } from '../../policies/ss-ge.js';
 import {
   deleteLongGoneListings,
@@ -228,8 +229,10 @@ function describeRefusal(result: HttpFetchResult): string {
 
 /**
  * One request. A refusal (403, 429, any "slow down" header) ends the run and
- * is remembered for the next one; anything else that is not a page is a
- * failure the caller may try again.
+ * is remembered for the next one. A proxy that stayed away past the run's
+ * wait for it (src/net/proxy-recovery.ts) ends the run too, and is not
+ * remembered. Anything else that is not a page is a failure the caller may
+ * try again.
  */
 async function request(run: RunState, url: string): Promise<Fetched> {
   const fetchedAt = run.now();
@@ -240,6 +243,7 @@ async function request(run: RunState, url: string): Promise<Fetched> {
   } catch (err) {
     if (err instanceof PolicyRevisionSupersededError) throw err;
     run.counters.failedRequestCount++;
+    if (err instanceof ProxyUnreachableError) return { kind: 'refused', reason: err.message };
     return { kind: 'failed', reason: err instanceof Error ? err.name : 'unknown error' };
   }
 

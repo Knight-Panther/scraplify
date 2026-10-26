@@ -6,7 +6,8 @@
 #   - a reverse SSH tunnel kept up by autossh as the host's xtelo-tunnel user
 #     (deploy/set-proxy-tunnel.sh): the host's 127.0.0.1:18888 reaches the
 #     proxy, and its 127.0.0.1:2222 this machine's SSH, for managing it from
-#     behind the home router.
+#     behind the home router;
+#   - restarts for a crashed tinyproxy, and security-update reboots at 13:00.
 #
 # Run as root on the laptop, with the host's address (kept out of this public
 # repository) and the user whose ~/.ssh/tunnel key the host trusts:
@@ -47,7 +48,22 @@ FilterDefaultDeny Yes
 Filter "/etc/tinyproxy/filter"
 EOF
 printf '%s\n' '(^|\.)ss\.ge$' > /etc/tinyproxy/filter
+# Ubuntu's unit leaves a crashed tinyproxy down.
+install -d /etc/systemd/system/tinyproxy.service.d
+printf '[Service]\nRestart=on-failure\nRestartSec=5\n' \
+  > /etc/systemd/system/tinyproxy.service.d/restart.conf
+systemctl daemon-reload
 systemctl restart tinyproxy
+
+# Security updates install daily; a kernel or library update only takes
+# effect after a reboot, so allow one at 13:00 Tbilisi (09:00 UTC), far from
+# the 21:30 UTC crawl and the hours it may spend waiting for this machine.
+timedatectl set-timezone Asia/Tbilisi
+cat > /etc/apt/apt.conf.d/52xtelo-reboot <<'EOF'
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "13:00";
+EOF
 
 cat > /etc/systemd/system/xtelo-proxy-tunnel.service <<EOF
 [Unit]

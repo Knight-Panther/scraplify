@@ -36,4 +36,18 @@ printf 'restrict,port-forwarding,permitlisten="%s",permitlisten="%s",permitopen=
 chown "$user:$user" "$home/.ssh/authorized_keys.new"
 chmod 0600 "$home/.ssh/authorized_keys.new"
 mv "$home/.ssh/authorized_keys.new" "$home/.ssh/authorized_keys"
+
+# A laptop that vanishes without closing its connection (a power cut, its
+# internet gone) would leave sshd holding both listeners until TCP keepalive
+# gives up, about two hours, and its reconnection could not take them back.
+# Checks every 30 s free them within 90 s. "Match all" ends the block, so
+# nothing after this file is scoped to this user.
+cat > /etc/ssh/sshd_config.d/70-xtelo-tunnel.conf <<EOF
+Match User $user
+  ClientAliveInterval 30
+  ClientAliveCountMax 3
+Match all
+EOF
+sshd -t
+systemctl reload ssh
 echo "$user may hold tunnels to $listen and $manage; nothing else."

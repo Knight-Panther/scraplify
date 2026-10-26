@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import net from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHttpFetcher } from './http-fetcher.js';
-import { proxyDispatcherFromEnv } from './proxy-dispatcher.js';
+import { answersThroughProxy, proxyDispatcherFromEnv } from './proxy-dispatcher.js';
 import { createRateLimiter } from './rate-limiter.js';
 
 const closers: (() => Promise<void>)[] = [];
@@ -100,5 +100,72 @@ describe('proxyDispatcherFromEnv', () => {
     expect(seen).toEqual(['GET http://home.ss.ge.invalid/ka/list']);
     expect(result.status).toBe(200);
     expect(result.body).toBe('origin saw home.ss.ge.invalid/ka/list as scraplify-test/1.0');
+  });
+});
+
+describe('answersThroughProxy', () => {
+  async function proxyTo(port: number, tunnelTimeoutMs?: number) {
+    const proxy = proxyDispatcherFromEnv(
+      'SS_GE_PROXY_URL',
+      { SS_GE_PROXY_URL: `http://127.0.0.1:${port}` },
+      tunnelTimeoutMs,
+    );
+    if (proxy === null) throw new Error('expected a proxy');
+    closers.push(() => proxy.dispatcher.close());
+    return proxy.dispatcher;
+  }
+
+  it('is true for any answer the proxy relays, a refusal included', async () => {
+    const proxyServer = http.createServer((_req, res) => {
+      res.writeHead(403);
+      res.end('blocked by the site');
+    });
+    const dispatcher = await proxyTo(await listen(proxyServer));
+    await expect(
+      answersThroughProxy(dispatcher, 'http://home.ss.ge.invalid/robots.txt', 'test'),
+    ).resolves.toBe(true);
+  });
+
+  it('is false when nothing listens where the proxy should be', async () => {
+    // A port that was just free: the tunnel is down.
+    const probe = http.createServer();
+    const port = await listen(probe);
+    await new Promise<void>((done) => probe.close(() => done()));
+    const dispatcher = await proxyTo(port);
+    await expect(
+      answersThroughProxy(dispatcher, 'https://home.ss.ge.invalid/robots.txt', 'test'),
+    ).resolves.toBe(false);
+  });
+
+  it('is false when the proxy cannot reach the site', async () => {
+    // tinyproxy's answer when the laptop's own internet is down.
+    const proxyServer = http.createServer();
+    proxyServer.on('connect', (_req, socket: net.Socket) => {
+      socket.end('HTTP/1.1 500 Unable to connect\r\n\r\n');
+    });
+    const dispatcher = await proxyTo(await listen(proxyServer));
+    await expect(
+      answersThroughProxy(dispatcher, 'https://home.ss.ge.invalid/robots.txt', 'test'),
+    ).resolves.toBe(false);
+  });
+
+  it('is false, within the tunnel timeout, when the proxy never answers', async () => {
+    // A half-dead tunnel: the connection is taken and then nothing comes back.
+    // The probe's own timeout does not reach the CONNECT; the tunnel's does.
+    const held: net.Socket[] = [];
+    const proxyServer = http.createServer();
+    proxyServer.on('connect', (_req, socket: net.Socket) => {
+      held.push(socket);
+    });
+    const dispatcher = await proxyTo(await listen(proxyServer), 300);
+    // Closers run last first: let go of the held socket before the dispatcher closes.
+    closers.push(async () => {
+      for (const socket of held) socket.destroy();
+    });
+    const startedAt = Date.now();
+    await expect(
+      answersThroughProxy(dispatcher, 'https://home.ss.ge.invalid/robots.txt', 'test', 60_000),
+    ).resolves.toBe(false);
+    expect(Date.now() - startedAt).toBeLessThan(3_000);
   });
 });
