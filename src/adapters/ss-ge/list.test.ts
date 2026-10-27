@@ -220,6 +220,44 @@ describe('parseResultsPage', () => {
     expect(codes.filter((code) => code < 32 || code === 127)).toEqual([]);
   });
 
+  it('reads a number too large for its column as unknown, and keeps the rest of the row', () => {
+    // A house in Senaki gave its area as 100,000,000 m² (listing 37114086,
+    // 2026-10-26); area_m2 holds at most 99,999,999.99, and the insert error
+    // ended the whole run.
+    const row = {
+      applicationId: 37114086,
+      type: 4,
+      dealType: 4,
+      title: 'x',
+      orderDate: '2026-10-23T18:17:48.648Z',
+      totalArea: 100_000_000,
+      price: {
+        priceGeo: 1_000_000_000_000,
+        priceUsd: 50_000,
+        unitPriceUsd: 10_000_000_000,
+        currencyType: 2,
+      },
+      address: { cityId: 3_000_000_000, cityTitle: 'სენაკი', subdistrictId: 7 },
+    };
+    const data = {
+      props: { pageProps: { initialPage: 1, applicationList: { realStateItemModel: [row] } } },
+    };
+    const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
+    const page = parseResultsPage(html, { propertyType: 'house', dealType: 'sale', page: 1 });
+
+    expect(page.cards).toHaveLength(1);
+    expect(page.cards[0]).toMatchObject({
+      sourceListingKey: '37114086',
+      areaM2: null,
+      priceGel: null,
+      priceUsd: 50_000,
+      pricePerM2Usd: null,
+      cityRef: null,
+      cityName: 'სენაკი',
+      subdistrictRef: 7,
+    });
+  });
+
   describe('a phone number typed into the address', () => {
     // The first pass found posters' numbers in 33 street numbers (2026-10-14):
     // bare, spaced, after a building name, and inside a whole pasted advert.
