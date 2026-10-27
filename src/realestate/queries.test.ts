@@ -305,6 +305,113 @@ describe('real-estate queries', () => {
       expect(await find(sourceId, { sort: 'area-desc' })).toEqual([b, a, unpriced]);
     });
 
+    it('puts a typo price or area after every other listing in the price and area sorts', async () => {
+      const sourceId = await newSource();
+      const fair = await listing(sourceId, {
+        sourceUpdatedAt: at(-3),
+        priceUsd: '90000.00',
+        priceGel: '243000.00',
+        pricePerM2Usd: '1500.00',
+        areaM2: '60.00',
+      });
+      // Each is real (2026-10-27): its rent posted as the sale price, no area
+      // given, the price typed as the area.
+      const rentAsSale = await listing(sourceId, {
+        sourceUpdatedAt: at(-1),
+        priceUsd: '462.00',
+        priceGel: '1200.00',
+        pricePerM2Usd: '10.00',
+        areaM2: '46.00',
+      });
+      const oneMetre = await listing(sourceId, {
+        sourceUpdatedAt: at(-2),
+        priceUsd: '72000.00',
+        priceGel: '194000.00',
+        pricePerM2Usd: '72000.00',
+        areaM2: '1.00',
+      });
+      const priceAsArea = await listing(sourceId, {
+        sourceUpdatedAt: at(-4),
+        priceUsd: '42000.00',
+        priceGel: '109000.00',
+        pricePerM2Usd: '1.00',
+        areaM2: '42000.00',
+      });
+      // Big but plausible: a 1,100 m² flat at $1.6 million.
+      const big = await listing(sourceId, {
+        sourceUpdatedAt: at(-5),
+        priceUsd: '1600000.00',
+        priceGel: '4158000.00',
+        pricePerM2Usd: '1454.00',
+        areaM2: '1100.00',
+      });
+      // No price and no area is not a typo either.
+      const bare = await listing(sourceId, {
+        sourceUpdatedAt: at(-6),
+        priceUsd: null,
+        priceGel: null,
+        pricePerM2Usd: null,
+        areaM2: null,
+      });
+
+      expect(await find(sourceId, { sort: 'price-asc' })).toEqual([
+        fair,
+        big,
+        bare,
+        rentAsSale,
+        priceAsArea,
+        oneMetre,
+      ]);
+      expect(await find(sourceId, { sort: 'price-asc', currency: 'gel' })).toEqual([
+        fair,
+        big,
+        bare,
+        rentAsSale,
+        priceAsArea,
+        oneMetre,
+      ]);
+      expect(await find(sourceId, { sort: 'price-desc' })).toEqual([
+        big,
+        fair,
+        bare,
+        oneMetre,
+        priceAsArea,
+        rentAsSale,
+      ]);
+      expect(await find(sourceId, { sort: 'ppm2-asc' })).toEqual([
+        big,
+        fair,
+        bare,
+        priceAsArea,
+        rentAsSale,
+        oneMetre,
+      ]);
+      expect(await find(sourceId, { sort: 'area-desc' })).toEqual([
+        big,
+        fair,
+        bare,
+        priceAsArea,
+        rentAsSale,
+        oneMetre,
+      ]);
+      // Newest first is not about value: the typos keep their place there.
+      expect((await find(sourceId))[0]).toBe(rentAsSale);
+    });
+
+    it('takes a rent of $87,500 a month for a typo, and $3,500 for a rent', async () => {
+      const sourceId = await newSource();
+      const rent = { dealType: 'rent' as const, pricePerM2Usd: '58.00', areaM2: '60.00' };
+      const saleAsRent = await listing(sourceId, {
+        ...rent,
+        priceUsd: '87500.00',
+        priceGel: '227000.00',
+      });
+      const dear = await listing(sourceId, { ...rent, priceUsd: '3500.00', priceGel: '9450.00' });
+      const cheap = await listing(sourceId, { ...rent, priceUsd: '400.00', priceGel: '1080.00' });
+
+      expect(await find(sourceId, { sort: 'price-desc' })).toEqual([dear, cheap, saleAsRent]);
+    });
+
     it('pages without repeating or dropping a row when times tie', async () => {
       const sourceId = await newSource();
       const ids: string[] = [];
