@@ -13,6 +13,7 @@ How to deploy, check, roll back and recover the hosted edition (Phase 8E; `docs/
 | Backup | `xtelo-backup` (nightly timer, 09:00 UTC) | `xtelo` | — | `scraplify_backup` (reads all, writes nothing) | `/etc/xtelo/backup.env` |
 | Hermes hook | `xtelo-hermes-notify` (started when a pipeline run ends; `xtelo-hermes-notify.timer` retries every 15 min) | `xtelo-hermes` | — | none | `/etc/xtelo/hermes-hook.env` |
 | ss.ge proxy watch | `xtelo-proxy-watch` (timer every 5 min; tells Hermes when the laptop proxy goes down or comes back) | `xtelo` | — | none (reads only `SS_GE_PROXY_URL`) | `/etc/xtelo/worker.env` |
+| Hermes' database tunnel | none (Hermes opens an SSH tunnel per query) | `hermes-db` (no shell) | — | `scraplify_public`, from Hermes | `/var/lib/hermes-db/.ssh/authorized_keys` |
 | Migrations | none (by hand, per release) | `xtelo` | — | `scraplify_migration` | `/etc/xtelo/migration.env` |
 | TLS and routing | Caddy | `caddy` | `:443` (`PUBLIC_HOST`, `ADMIN_HOST`) | — | `deploy/Caddyfile` |
 
@@ -35,6 +36,8 @@ Each process refuses to start when misconfigured:
 - Any process refuses a mistyped `XTELO_SURFACE` or `XTELO_CV_RANKED`.
 
 A refused process answers every request with a 500 and logs the reason to its journal: `journalctl -u xtelo-web@public`.
+
+`hermes-db` (since 2026-10-27) exists so the owner's Hermes agent never holds the admin key. Hermes reads untrusted text all day, so a prompt injection must not reach production. Each key in its `authorized_keys` (one for the laptop Hermes runs on, one for the PC) carries `restrict,port-forwarding,permitopen="127.0.0.1:5432",command="/bin/false"`: it can forward to Postgres and do nothing else. Hermes then logs into the database as `scraplify_public`.
 
 ## 2. First deployment
 
@@ -240,4 +243,5 @@ In change.md §15's order. Each step is independent; stop at the first one that 
 - **Role password:** `sudo -u postgres psql -c "ALTER ROLE … PASSWORD '…'"`, update that env file, then restart that unit. `apply-db-roles.sh` sets a password only when it creates a role, so it never changes an existing one.
 - **`AUTH_SECRET`:** regenerate it with `openssl rand -base64 32` and restart admin. Every admin session ends, which is the point.
 - **GitHub OAuth secret:** rotate it in the GitHub app settings, update `admin.env`, then restart admin.
+- **Hermes' database key:** to revoke a machine (a lost laptop, say), delete its line from `/var/lib/hermes-db/.ssh/authorized_keys`; to add one, append its public key with the same options (§1). Nothing restarts.
 - **Hermes hook** (`hermes-hook.env`: the route's HMAC secret and the Cloudflare Access service token): rotate them on Hermes' side and in Cloudflare, then run `deploy/set-hermes-hook.sh` again with the new values. It rewrites the file and sends a test event; no restart, since the sender reads the file on every run. Only the sender unit reads this file, and it runs as its own user (`xtelo-hermes`): the pipeline never holds these values and cannot read them from the sender's process, and the sender holds no database password.
