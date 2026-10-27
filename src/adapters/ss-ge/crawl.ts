@@ -3,6 +3,7 @@ import { extendSourceBackoff, getSourceBackoffUntil } from '../../db/ingest.js';
 import { type RealEstateCrawlRunRow, realEstateCrawlRuns, sources } from '../../db/schema/index.js';
 import { type SyncSourcePolicyResult, syncSourcePolicy } from '../../db/source-policies.js';
 import type { Database } from '../../db/types.js';
+import { logger } from '../../logger.js';
 import { responseBackoffUntil } from '../../net/fetch-control.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
 import { ProxyUnreachableError } from '../../net/proxy-recovery.js';
@@ -321,6 +322,18 @@ async function readResultsPage(
   return null;
 }
 
+/**
+ * Postgres refused a value in the row itself (SQLSTATE class 22: a number out
+ * of range, a string too long, a character it cannot store). Drizzle wraps the
+ * driver's error, so the code is on its cause.
+ */
+function isRefusedRowValue(err: unknown): boolean {
+  const cause = err instanceof Error && err.cause !== undefined ? err.cause : err;
+  const code =
+    typeof cause === 'object' && cause !== null ? (cause as { code?: unknown }).code : null;
+  return typeof code === 'string' && code.startsWith('22');
+}
+
 /** Walks one list from where its progress says, storing every row, until it ends or the run stops. */
 async function walkList(run: RunState, list: SsGeList, olderThanMs: number | null): Promise<void> {
   let state = run.progress.lists[list.key];
@@ -358,11 +371,28 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
     pastEndSeen = false;
 
     for (const card of read.parsed.cards) {
-      const outcome = await upsertListing(run.db, {
-        sourceId: ssGeSource.id,
-        card,
-        seenAt: read.fetchedAt,
-      });
+      let outcome: UpsertOutcome;
+      try {
+        outcome = await upsertListing(run.db, {
+          sourceId: ssGeSource.id,
+          card,
+          seenAt: read.fetchedAt,
+        });
+      } catch (err) {
+        // One listing's bad value must not end the night: a hidden control
+        // character (2026-10-12) and an area of 100,000,000 m² (2026-10-26)
+        // each did. Each row has its own transaction, so nothing of it is
+        // kept, and the parser is where such a value gets fixed.
+        if (!isRefusedRowValue(err)) throw err;
+        logger.warn(
+          {
+            listing: card.sourceListingKey,
+            reason: err instanceof Error ? (err.cause ?? err).toString().slice(0, 200) : null,
+          },
+          'ss.ge crawl: the database refused a listing; skipped it',
+        );
+        continue;
+      }
       run.counters[OUTCOME_COUNTER[outcome]]++;
     }
     run.counters.pageCount++;

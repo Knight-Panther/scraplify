@@ -21,6 +21,22 @@ import {
 // Every write goes to a disposable source (see the same isolation in
 // src/adapters/etenders-ge/crawl.test.ts): only the ids and slug change, so
 // URLs and the allow-list behave exactly as in production.
+// A listing key whose row reaches the database with a value no column can
+// hold, as a poster's typo once did; every other row is stored as usual.
+const refusedRow = vi.hoisted(() => ({ key: null as string | null }));
+
+vi.mock('../../realestate/ingest.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../realestate/ingest.js')>();
+  return {
+    ...actual,
+    upsertListing: (...args: Parameters<typeof actual.upsertListing>) => {
+      const [database, input] = args;
+      if (input.card.sourceListingKey !== refusedRow.key) return actual.upsertListing(...args);
+      return actual.upsertListing(database, { ...input, card: { ...input.card, areaM2: 1e9 } });
+    },
+  };
+});
+
 const testIds = vi.hoisted(() => ({
   sourceId: crypto.randomUUID(),
   policyId: crypto.randomUUID(),
@@ -596,6 +612,27 @@ describe('runSsGeCrawl, sweep', () => {
     expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({ lastPage: 1, finished: null });
     // Nothing remembered: the next run asks as usual.
     expect(await getSourceBackoffUntil(db, ssGeSource.id)).toBeNull();
+  });
+
+  it('skips a listing the database refuses, and carries on with the rest', async () => {
+    // Postgres itself refuses the row (numeric field overflow): one listing's
+    // typo ended the 2026-10-26 run after 106 pages.
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
+    refusedRow.key = '1020';
+    try {
+      const { crawlRun } = await runSsGeCrawl(
+        { db, httpFetcher: site, now: clock() },
+        { mode: 'sweep', maxDetailChecks: 0 },
+      );
+
+      expect(crawlRun.status).toBe('completed');
+      const stored = await storedListings();
+      expect(stored.map((row) => row.sourceListingKey)).not.toContain('1020');
+      expect(stored).toHaveLength(40 - 1 + 5);
+      expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({ finished: 'end' });
+    } finally {
+      refusedRow.key = null;
+    }
   });
 
   it('records a seen listing again as unchanged, and a new price as a change', async () => {
