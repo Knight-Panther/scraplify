@@ -283,3 +283,27 @@ should not record the id until the delivery has succeeded.
    `skipped_count`. The units are not re-copied by a plain deploy, so "plain deploy" needs the three
    commands in RUNBOOK §3 step 7. RUNBOOK §4 and concept §30.6 said nothing pushes a notification;
    both now name this hook as the one exception.
+
+### Run reason and laptop alerts (2026-10-27, owner request)
+
+Two additions, schema still 1. Hermes' side was changed first (Hermes repo `b7ab64a`), so it reads both before the host sends either.
+
+1. **A real-estate event says why the run stopped.** Two keys, always present: `reason`, one of
+   `proxy_unreachable`, `site_refused`, `pages_failed`, `listings_failed`, `process_ended`, `error`,
+   `other`, or `null` when the run completed, was interrupted or has no row; and `http_status`, the
+   status behind `site_refused` or `pages_failed` when the run's notes name one (403, 500), else `null`.
+   The word is read from the run's notes (`realEstateStopReason` in `src/hermes/event.ts`); the notes
+   themselves are a sentence and never leave the host. A run stopped for several reasons is named by
+   the first. Hermes shows it as a "Why:" line in the alert.
+2. **`xtelo.proxy.changed`**, from `xtelo-proxy-watch` every 5 minutes (RUNBOOK §3 step 9):
+
+   ```json
+   {"event_type":"xtelo.proxy.changed","schema":1,"event_id":"ss-ge:proxy:up:2026-10-27T07:56:35.856Z","source":"ss-ge","state":"up","since":"2026-10-27T07:56:35.856Z","tunnel":true,"down_minutes":11,"release":"…","host":"…","emitted_at":"2026-10-27T07:56:35.856Z"}
+   ```
+
+   `state` is `down` once the checks have failed for 10 minutes (`since` is the first failed check,
+   `down_minutes` null) and `up` at the first answer after a `down` (`since` is now, `down_minutes`
+   from the first failed check, null when unknown). `tunnel` says whether the proxy's port took a
+   connection: false means the laptop is off or offline, true that it is connected but ss.ge does
+   not answer through it. The id is `<source>:proxy:<state>:<since>`, made of the event itself.
+   Not started by a pipeline, so the sender's 15-minute retry timer delivers it.

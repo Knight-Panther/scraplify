@@ -233,7 +233,11 @@ interface RunState {
   siteTrouble: boolean;
 }
 
-/** Records why the run stops short. `siteTrouble` also ends its requests. */
+/**
+ * Records why the run stops short. `siteTrouble` also ends its requests.
+ * The reasons' wording is read back as fixed words for Hermes
+ * (`realEstateStopReason` in src/hermes/event.ts): change one there too.
+ */
 function stop(run: RunState, reason: string, siteTrouble: boolean): void {
   run.stopReason = run.stopReason === null ? reason : `${run.stopReason}; ${reason}`;
   if (siteTrouble) run.siteTrouble = true;
