@@ -40,6 +40,12 @@ export interface ListingCard {
   expectedEndAt: string | null;
 }
 
+/** A listing's price as a source states it, in both currencies and the one it was posted in. */
+export type ListingPrice = Pick<
+  ListingCard,
+  'priceGel' | 'priceUsd' | 'pricePerM2Usd' | 'currencyPosted'
+>;
+
 /**
  * - `new`: first sighting.
  * - `changed`: a field that matters differs (a price change is also recorded).
@@ -65,13 +71,36 @@ function sameAmount(stored: string | null, incoming: number | null): boolean {
   return Number(stored) === Number(incoming.toFixed(2));
 }
 
+/** The fields `listingContentHash` reads, which a stored row also has. */
+type MeaningfulFields = Omit<
+  ListingCard,
+  | 'sourceListingKey'
+  | 'canonicalUrl'
+  | 'promoted'
+  | 'sourceUpdatedAt'
+  | 'sourceCreatedAt'
+  | 'expectedEndAt'
+>;
+
+/**
+ * The price as the poster set it. The source converts it to the other
+ * currency at each day's exchange rate, so the converted price, and a price
+ * per m² worked out from it, move without anyone touching the listing: in
+ * October 2026 that was 73% of the price changes recorded.
+ */
+function postedPrice(card: Pick<ListingCard, 'currencyPosted' | 'priceGel' | 'priceUsd'>) {
+  if (card.currencyPosted === 'usd') return [card.currencyPosted, money(card.priceUsd)];
+  if (card.currencyPosted === 'gel') return [card.currencyPosted, money(card.priceGel)];
+  return [null, money(card.priceGel), money(card.priceUsd)];
+}
+
 /**
  * What "the listing changed" means. Promotion and the source's own
  * timestamps are left out on purpose: promoted listings are re-ordered many
  * times a day, and counting that as a change would rewrite the same rows on
- * every run.
+ * every run. So is the converted price (`postedPrice`).
  */
-export function listingContentHash(card: ListingCard): string {
+export function listingContentHash(card: MeaningfulFields): string {
   const meaningful = [
     card.dealType,
     card.propertyType,
@@ -80,10 +109,7 @@ export function listingContentHash(card: ListingCard): string {
     money(card.areaM2),
     card.floor,
     card.totalFloors,
-    money(card.priceGel),
-    money(card.priceUsd),
-    money(card.pricePerM2Usd),
-    card.currencyPosted,
+    postedPrice(card),
     card.cityRef,
     card.cityName,
     card.districtRef,
@@ -129,6 +155,11 @@ function columnsOf(card: ListingCard, contentHash: string) {
   };
 }
 
+/** Numeric columns come back as text. */
+function amountOf(value: string | null): number | null {
+  return value === null ? null : Number(value);
+}
+
 /**
  * Writes one sighting of a listing. An identical listing costs one small
  * update ("last seen"); only a real difference rewrites the row.
@@ -148,11 +179,30 @@ export async function upsertListing(
       .select({
         id: realEstateListings.id,
         status: realEstateListings.status,
-        contentHash: realEstateListings.contentHash,
-        priceGel: realEstateListings.priceGel,
-        priceUsd: realEstateListings.priceUsd,
         sourceUpdatedAt: realEstateListings.sourceUpdatedAt,
         expectedEndAt: realEstateListings.expectedEndAt,
+        dealType: realEstateListings.dealType,
+        propertyType: realEstateListings.propertyType,
+        rooms: realEstateListings.rooms,
+        bedrooms: realEstateListings.bedrooms,
+        areaM2: realEstateListings.areaM2,
+        floor: realEstateListings.floor,
+        totalFloors: realEstateListings.totalFloors,
+        priceGel: realEstateListings.priceGel,
+        priceUsd: realEstateListings.priceUsd,
+        pricePerM2Usd: realEstateListings.pricePerM2Usd,
+        currencyPosted: realEstateListings.currencyPosted,
+        cityRef: realEstateListings.cityRef,
+        cityName: realEstateListings.cityName,
+        districtRef: realEstateListings.districtRef,
+        districtName: realEstateListings.districtName,
+        subdistrictRef: realEstateListings.subdistrictRef,
+        subdistrictName: realEstateListings.subdistrictName,
+        streetName: realEstateListings.streetName,
+        streetNumber: realEstateListings.streetNumber,
+        posterType: realEstateListings.posterType,
+        description: realEstateListings.description,
+        similarityGroup: realEstateListings.similarityGroup,
       })
       .from(realEstateListings)
       .where(
@@ -177,24 +227,44 @@ export async function upsertListing(
       return 'new';
     }
 
+    const stored: MeaningfulFields = {
+      ...existing,
+      areaM2: amountOf(existing.areaM2),
+      priceGel: amountOf(existing.priceGel),
+      priceUsd: amountOf(existing.priceUsd),
+      pricePerM2Usd: amountOf(existing.pricePerM2Usd),
+    };
     const reopened = existing.status === 'gone';
-    const contentChanged = existing.contentHash !== contentHash;
+    // From the stored fields rather than the stored fingerprint, so rows
+    // written under an older definition of it are judged the same way.
+    const contentChanged = listingContentHash(stored) !== contentHash;
     const bumped = Date.parse(card.sourceUpdatedAt) > Date.parse(existing.sourceUpdatedAt);
 
     if (!reopened && !contentChanged && !bumped) {
+      const converted =
+        sameAmount(existing.priceGel, card.priceGel) &&
+        sameAmount(existing.priceUsd, card.priceUsd) &&
+        sameAmount(existing.pricePerM2Usd, card.pricePerM2Usd)
+          ? {}
+          : {
+              priceGel: money(card.priceGel),
+              priceUsd: money(card.priceUsd),
+              pricePerM2Usd: money(card.pricePerM2Usd),
+            };
       await tx
         .update(realEstateListings)
-        .set({ lastSeenAt: seenAt, promoted: card.promoted })
+        .set({
+          lastSeenAt: seenAt,
+          missedAt: null,
+          promoted: card.promoted,
+          contentHash,
+          ...converted,
+        })
         .where(eq(realEstateListings.id, existing.id));
       return 'unchanged';
     }
 
-    if (
-      contentChanged &&
-      !(
-        sameAmount(existing.priceGel, card.priceGel) && sameAmount(existing.priceUsd, card.priceUsd)
-      )
-    ) {
+    if (JSON.stringify(postedPrice(stored)) !== JSON.stringify(postedPrice(card))) {
       await tx.insert(realEstatePriceChanges).values({
         listingId: existing.id,
         observedAt: seenAt,
@@ -214,6 +284,7 @@ export async function upsertListing(
         expectedEndAt: bumped ? card.expectedEndAt : existing.expectedEndAt,
         ...(card.sourceCreatedAt === null ? {} : { sourceCreatedAt: card.sourceCreatedAt }),
         lastSeenAt: seenAt,
+        missedAt: null,
         status: 'active',
         goneAt: null,
         goneReason: null,
@@ -222,5 +293,68 @@ export async function upsertListing(
 
     if (reopened) return 'reopened';
     return contentChanged ? 'changed' : 'bumped';
+  });
+}
+
+/**
+ * A price read from a listing's own page (src/realestate/expiry.ts), by the
+ * same rule as `upsertListing`: a new price in the posted currency is
+ * recorded as a price change, a converted price that moved is only kept
+ * current. A page that states no price in its posted currency leaves the
+ * stored one alone.
+ */
+export async function recordPriceSighting(
+  db: DatabaseOrTransaction,
+  input: { listingId: string; price: ListingPrice; seenAt: string },
+): Promise<'changed' | 'unchanged'> {
+  const { listingId, price, seenAt } = input;
+  const posted = postedPrice(price);
+  if (posted[0] === null || posted[1] === null) return 'unchanged';
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        priceGel: realEstateListings.priceGel,
+        priceUsd: realEstateListings.priceUsd,
+        pricePerM2Usd: realEstateListings.pricePerM2Usd,
+        currencyPosted: realEstateListings.currencyPosted,
+      })
+      .from(realEstateListings)
+      .where(eq(realEstateListings.id, listingId))
+      .for('update');
+    if (existing === undefined) return 'unchanged';
+
+    const stored = {
+      currencyPosted: existing.currencyPosted,
+      priceGel: amountOf(existing.priceGel),
+      priceUsd: amountOf(existing.priceUsd),
+    };
+    const changed = JSON.stringify(postedPrice(stored)) !== JSON.stringify(posted);
+    const moved =
+      !sameAmount(existing.priceGel, price.priceGel) ||
+      !sameAmount(existing.priceUsd, price.priceUsd) ||
+      !sameAmount(existing.pricePerM2Usd, price.pricePerM2Usd);
+    if (!changed && !moved) return 'unchanged';
+
+    if (changed) {
+      await tx.insert(realEstatePriceChanges).values({
+        listingId,
+        observedAt: seenAt,
+        oldPriceGel: existing.priceGel,
+        newPriceGel: money(price.priceGel),
+        oldPriceUsd: existing.priceUsd,
+        newPriceUsd: money(price.priceUsd),
+      });
+    }
+    await tx
+      .update(realEstateListings)
+      .set({
+        priceGel: money(price.priceGel),
+        priceUsd: money(price.priceUsd),
+        pricePerM2Usd: money(price.pricePerM2Usd),
+        currencyPosted: price.currencyPosted,
+      })
+      .where(eq(realEstateListings.id, listingId));
+    return changed ? 'changed' : 'unchanged';
   });
 }

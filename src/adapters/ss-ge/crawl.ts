@@ -12,6 +12,7 @@ import {
   deleteLongGoneListings,
   loadListingsDueForCheck,
   markLapsedListingsGone,
+  markMissedListings,
   recordListingCheck,
 } from '../../realestate/expiry.js';
 import { type ListingCard, type UpsertOutcome, upsertListing } from '../../realestate/ingest.js';
@@ -79,9 +80,14 @@ export const SS_GE_LISTS: readonly SsGeList[] = [
   },
 ];
 
-/** A resumed sweep restarts this many pages before the last one it stored. */
+/** A resumed walk restarts this many pages before the last one it stored. */
 export const RESUME_OVERLAP_PAGES = 5;
-/** An interrupted sweep older than this is not resumed: the lists have moved on too far. */
+/** How far a resumed walk steps back, doubling each time, when the list has moved up past it. */
+const RESUME_STEP_PAGES = 20;
+const MAX_RESUME_STEPS = 6;
+/** Runs looked through for each list's last full read, which decides tonight's full read. */
+const FULL_READ_HISTORY_RUNS = 60;
+/** An interrupted walk older than this is not resumed: the lists have moved on too far. */
 const MAX_RESUME_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** Requests for one page before the run gives up on it. */
 const MAX_PAGE_ATTEMPTS = 3;
@@ -91,8 +97,12 @@ const MAX_PAGE_ATTEMPTS = 3;
  * where it began.
  */
 const NIGHTLY_OVERLAP_MS = 6 * 60 * 60 * 1000;
-/** Listing pages a run checks at most: about 70 minutes at the policy's spacing (guideline §9.3). */
-export const DEFAULT_MAX_DETAIL_CHECKS = 1_000;
+/**
+ * Listing pages a run checks at most (guideline §9.3): about two hours at the
+ * policy's spacing through the Georgian exit. Raised from 1,000 when full
+ * reads began marking missed listings for checks.
+ */
+export const DEFAULT_MAX_DETAIL_CHECKS = 1_500;
 /** Listing pages failing one after another before the run stops asking. */
 const MAX_DETAIL_FAILURES_IN_A_ROW = 5;
 
@@ -111,6 +121,8 @@ export interface SsGeListProgress {
   lastPage: number;
   /** How the walk of this list ended: it ran out, or (nightly) reached rows already seen. Null while it has not. */
   finished: 'end' | 'caught-up' | null;
+  /** The oldest order time on the last page stored, which a resumed walk must not skip past. */
+  oldestSeenAt?: string;
 }
 
 export interface SsGeRunProgress {
@@ -122,6 +134,14 @@ export interface SsGeRunProgress {
    */
   walkStartedAt: string;
   lists: Partial<Record<SsGeList['key'], SsGeListProgress>>;
+  /**
+   * The list a nightly run reads to its end instead of stopping at rows the
+   * last run saw: each night the one whose last full read is oldest, so each
+   * of the six is read whole about once a week. A full read refreshes every
+   * listing in it, catches price edits made without a renewal, and marks for
+   * checking the listings it no longer finds (`markMissedListings`).
+   */
+  deep?: SsGeList['key'];
 }
 
 export interface RunSsGeCrawlDeps {
@@ -137,7 +157,7 @@ export interface RunSsGeCrawlOptions {
   maxPages?: number;
   /** Upper bound on detail-page checks. */
   maxDetailChecks?: number;
-  /** Start a sweep at page 1 even when an interrupted one could be resumed. */
+  /** Start at page 1 even when an interrupted walk could be resumed. */
   fresh?: boolean;
 }
 
@@ -334,6 +354,40 @@ function isRefusedRowValue(err: unknown): boolean {
   return typeof code === 'string' && code.startsWith('22');
 }
 
+/**
+ * Where a resumed walk starts. New and renewed listings push the rows below
+ * them deeper, which only means some are read twice. But a listing renewed,
+ * deleted or expired above where the walk stopped moves every row below it up
+ * one, and after a long pause enough of that can carry unread rows past "a
+ * few pages back". So the page is checked against the oldest order time the
+ * walk had stored: if every row on it is older, the walk steps back (20
+ * pages, then 40, and so on) until it overlaps what it read. In the unordered
+ * tail of a sale list the check passes at once, which is safe. Returns the
+ * page to start from, with its read when that page was the one accepted, or
+ * null when the run stopped.
+ */
+async function resumePoint(
+  run: RunState,
+  list: SsGeList,
+  page: number,
+  oldestSeenMs: number,
+): Promise<{ page: number; read: PageRead | null } | null> {
+  let at = page;
+  let step = RESUME_STEP_PAGES;
+  for (let attempt = 0; attempt < MAX_RESUME_STEPS; attempt++) {
+    const read = await readResultsPage(run, list, at);
+    if (read === null) return null;
+    const newestMs = Math.max(
+      Number.NEGATIVE_INFINITY,
+      ...read.parsed.cards.map((card) => Date.parse(card.sourceUpdatedAt)),
+    );
+    if (newestMs >= oldestSeenMs || at === 1) return { page: at, read };
+    at = Math.max(1, at - step);
+    step *= 2;
+  }
+  return { page: at, read: null };
+}
+
 /** Walks one list from where its progress says, storing every row, until it ends or the run stops. */
 async function walkList(run: RunState, list: SsGeList, olderThanMs: number | null): Promise<void> {
   let state = run.progress.lists[list.key];
@@ -343,17 +397,24 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
   }
   if (state.finished !== null) return;
 
-  // Renewed listings jump to the front and push the rest deeper, so a
-  // resumed walk restarts a little before where it stopped. A fresh walk has
-  // stored no page, and this is page 1.
+  // A resumed walk restarts a little before where it stopped (`resumePoint`).
+  // A fresh walk has stored no page, and this is page 1.
   let page = Math.max(1, state.lastPage - RESUME_OVERLAP_PAGES + 1);
+  let pending: PageRead | null = null;
+  if (state.lastPage > 0 && state.oldestSeenAt !== undefined) {
+    const resumed = await resumePoint(run, list, page, Date.parse(state.oldestSeenAt));
+    if (resumed === null) return;
+    page = resumed.page;
+    pending = resumed.read;
+  }
   let pastEndSeen = false;
   while (run.stopReason === null) {
     if (run.pagesLeft <= 0) {
       stop(run, 'page limit reached', false);
       return;
     }
-    const read = await readResultsPage(run, list, page);
+    const read = pending ?? (await readResultsPage(run, list, page));
+    pending = null;
     if (read === null) return;
 
     if (read.parsed.pastEnd) {
@@ -399,6 +460,11 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
     run.counters.rowCount += read.parsed.cards.length;
     run.pagesLeft--;
     state.lastPage = page;
+    const oldestMs = Math.min(
+      Number.POSITIVE_INFINITY,
+      ...read.parsed.cards.map((card) => Date.parse(card.sourceUpdatedAt)),
+    );
+    if (Number.isFinite(oldestMs)) state.oldestSeenAt = new Date(oldestMs).toISOString();
 
     if (read.parsed.rowCount < RESULTS_PAGE_SIZE) {
       state.finished = 'end';
@@ -517,19 +583,32 @@ function readProgress(value: unknown): SsGeRunProgress | null {
     if (entry === undefined || !Number.isInteger(entry.lastPage) || entry.lastPage < 0) continue;
     const finished =
       entry.finished === 'end' || entry.finished === 'caught-up' ? entry.finished : null;
-    lists[list.key] = { lastPage: entry.lastPage, finished };
+    const state: SsGeListProgress = { lastPage: entry.lastPage, finished };
+    if (typeof entry.oldestSeenAt === 'string' && !Number.isNaN(Date.parse(entry.oldestSeenAt))) {
+      state.oldestSeenAt = entry.oldestSeenAt;
+    }
+    lists[list.key] = state;
   }
-  return { walkStartedAt: candidate.walkStartedAt, lists };
+  const deep = SS_GE_LISTS.find((list) => list.key === candidate.deep)?.key;
+  return { walkStartedAt: candidate.walkStartedAt, lists, ...(deep === undefined ? {} : { deep }) };
 }
 
-/** The progress of the latest sweep, when it stopped short recently enough to carry on from. */
-async function interruptedSweep(db: Database, nowMs: number): Promise<SsGeRunProgress | null> {
+/**
+ * The progress of the latest run of this mode, when it stopped short recently
+ * enough to carry on from. A nightly run resumes too: each one reads back to
+ * the last completed run, so without this a run that kept failing part-way
+ * redid the same pages every night, and after a long enough outage its
+ * catch-up could outgrow the unit's 20-hour limit and never complete.
+ */
+async function interruptedWalk(
+  db: Database,
+  mode: RunSsGeCrawlOptions['mode'],
+  nowMs: number,
+): Promise<SsGeRunProgress | null> {
   const [latest] = await db
     .select({ status: realEstateCrawlRuns.status, progress: realEstateCrawlRuns.progress })
     .from(realEstateCrawlRuns)
-    .where(
-      and(eq(realEstateCrawlRuns.sourceId, ssGeSource.id), eq(realEstateCrawlRuns.mode, 'sweep')),
-    )
+    .where(and(eq(realEstateCrawlRuns.sourceId, ssGeSource.id), eq(realEstateCrawlRuns.mode, mode)))
     .orderBy(desc(realEstateCrawlRuns.startedAt))
     .limit(1);
   if (latest === undefined || latest.status === 'completed') return null;
@@ -537,6 +616,36 @@ async function interruptedSweep(db: Database, nowMs: number): Promise<SsGeRunPro
   if (progress === null || nowMs - Date.parse(progress.walkStartedAt) > MAX_RESUME_AGE_MS)
     return null;
   return progress;
+}
+
+/**
+ * The list whose last full read is oldest: one a sweep or any run read to its
+ * end. Never read whole comes first, then the order of SS_GE_LISTS.
+ */
+async function listDueForFullRead(db: Database): Promise<SsGeList['key']> {
+  const recent = await db
+    .select({ progress: realEstateCrawlRuns.progress })
+    .from(realEstateCrawlRuns)
+    .where(eq(realEstateCrawlRuns.sourceId, ssGeSource.id))
+    .orderBy(desc(realEstateCrawlRuns.startedAt))
+    .limit(FULL_READ_HISTORY_RUNS);
+  const lastFullRead = new Map<SsGeList['key'], number>();
+  for (const row of recent) {
+    const progress = readProgress(row.progress);
+    if (progress === null) continue;
+    const walkMs = Date.parse(progress.walkStartedAt);
+    for (const list of SS_GE_LISTS) {
+      if (progress.lists[list.key]?.finished !== 'end') continue;
+      lastFullRead.set(list.key, Math.max(lastFullRead.get(list.key) ?? walkMs, walkMs));
+    }
+  }
+  let due = SS_GE_LISTS[0] as SsGeList;
+  for (const list of SS_GE_LISTS) {
+    const readMs = lastFullRead.get(list.key) ?? Number.NEGATIVE_INFINITY;
+    const dueMs = lastFullRead.get(due.key) ?? Number.NEGATIVE_INFINITY;
+    if (readMs < dueMs) due = list;
+  }
+  return due.key;
 }
 
 /**
@@ -569,10 +678,14 @@ export async function runSsGeCrawl(
   await settleOrphanRuns(db, startedAt);
   const olderThanMs = options.mode === 'nightly' ? await nightlyCutoffMs(db) : null;
   const resumed =
-    options.mode === 'sweep' && options.fresh !== true
-      ? await interruptedSweep(db, Date.parse(startedAt))
-      : null;
+    options.fresh === true ? null : await interruptedWalk(db, options.mode, Date.parse(startedAt));
   const progress: SsGeRunProgress = resumed ?? { walkStartedAt: startedAt, lists: {} };
+  if (options.mode === 'nightly' && progress.deep === undefined) {
+    progress.deep = await listDueForFullRead(db);
+  }
+  const unfinishedAtStart = SS_GE_LISTS.filter(
+    (list) => (progress.lists[list.key]?.finished ?? null) === null,
+  );
 
   const [inserted] = await db
     .insert(realEstateCrawlRuns)
@@ -617,7 +730,21 @@ export async function runSsGeCrawl(
 
     for (const list of SS_GE_LISTS) {
       if (run.stopReason !== null) break;
-      await walkList(run, list, olderThanMs);
+      await walkList(run, list, list.key === progress.deep ? null : olderThanMs);
+    }
+
+    // A list read to its end in this run, from page 1 since the walk began:
+    // whatever of it was not seen since then is missing from it.
+    for (const list of unfinishedAtStart) {
+      if (progress.lists[list.key]?.finished !== 'end') continue;
+      const missed = await markMissedListings(db, {
+        sourceId: ssGeSource.id,
+        dealType: list.dealType,
+        propertyType: list.propertyType,
+        readStartedAt: progress.walkStartedAt,
+        at: now(),
+      });
+      logger.info({ list: list.key, missed }, 'ss.ge crawl: a full read of a list ended');
     }
 
     // A trial that stopped at its page limit still checks; a run the site

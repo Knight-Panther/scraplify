@@ -5,7 +5,8 @@ import { PUBLIC_MATCHING_CHANNEL } from '../matching/bundle/contract.js';
 import { assessMatchingHealth, getMatchingBundleStatus } from '../matching/bundle/status.js';
 import { answersThroughProxy, proxyDispatcherFromEnv } from '../net/proxy-dispatcher.js';
 import { resolveUserAgent } from '../net/user-agent.js';
-import { ssGePolicy } from '../policies/ss-ge.js';
+import { ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
+import { assessRealEstateRuns, getRealEstateRunHealth } from '../realestate/run-health.js';
 
 /**
  * `npm run health:check` — prints every source's alerts and exits 1 if any is
@@ -19,6 +20,9 @@ import { ssGePolicy } from '../policies/ss-ge.js';
  * Phase 8C adds the public matching bundle as one more line: a stale active
  * bundle is critical (CV matching is refused past its age limit), anything
  * else is a warning.
+ *
+ * ss.ge is one more line (src/realestate/run-health.ts): a warning after 36
+ * hours without a completed run, critical after four days.
  *
  * With SS_GE_PROXY_URL set, the Georgian exit ss.ge's requests leave through
  * is one more line (RUNBOOK §3 step 9). Unreachable is a warning: the
@@ -50,9 +54,22 @@ async function main(): Promise<void> {
     console.log(`  ${alert.level.padEnd(8)} ${alert.code}  ${alert.message}`);
   }
 
+  const realEstateAlerts = assessRealEstateRuns(
+    await getRealEstateRunHealth(db, ssGeSource.id),
+    now,
+  );
+  console.log(realEstateAlerts.length === 0 ? `${ssGeSource.slug}: ok` : ssGeSource.slug);
+  for (const alert of realEstateAlerts) {
+    console.log(`  ${alert.level.padEnd(8)} ${alert.code}  ${alert.message}`);
+  }
+
   await reportSsGeProxy();
 
-  if (hasCriticalAlert(alerts) || matchingAlerts.some((alert) => alert.level === 'critical')) {
+  if (
+    hasCriticalAlert(alerts) ||
+    matchingAlerts.some((alert) => alert.level === 'critical') ||
+    realEstateAlerts.some((alert) => alert.level === 'critical')
+  ) {
     process.exitCode = 1;
   }
 }

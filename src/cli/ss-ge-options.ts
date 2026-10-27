@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import type { RunSsGeCrawlOptions } from '../adapters/ss-ge/crawl.js';
 
-/** A night's checks are 1,000; a one-off catch-up after a first sweep may want more, but not without limit. */
+/** A night's checks are 1,500; a one-off catch-up after a first sweep may want more, but not without limit. */
 const MAX_DETAIL_CHECKS = 20_000;
 
 function wholeNumber(name: string, value: string, min: number, max: number): number {
@@ -14,11 +14,12 @@ function wholeNumber(name: string, value: string, min: number, max: number): num
 
 /**
  * `--mode=nightly` (the default) reads each list back to the last completed
- * run; `--mode=sweep` reads every list to its end, which takes most of a day
- * and resumes where an interrupted sweep stopped unless `--fresh` is given.
- * `--max-pages=N` stops after N results pages, for a trial or a sweep in
- * instalments. `--max-detail-checks=N` sets how many listing pages are
- * checked (default 1,000; 0 for none).
+ * run, and one list, in turn, to its end; `--mode=sweep` reads every list to
+ * its end, which takes most of a day. Either resumes where an interrupted run
+ * of its mode stopped unless `--fresh` is given. `--max-pages=N` stops after
+ * N results pages, for a trial or a sweep in instalments.
+ * `--max-detail-checks=N` sets how many listing pages are checked (default
+ * 1,500; 0 for none).
  */
 export function parseSsGeOptions(args: string[]): RunSsGeCrawlOptions {
   const { values } = parseArgs({
@@ -48,7 +49,6 @@ export function parseSsGeOptions(args: string[]): RunSsGeCrawlOptions {
     );
   }
   if (values.fresh === true) {
-    if (values.mode !== 'sweep') throw new Error('fresh applies to a sweep only');
     options.fresh = true;
   }
   return options;

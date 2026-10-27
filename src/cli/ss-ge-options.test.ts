@@ -22,7 +22,7 @@ describe('parseSsGeOptions', () => {
     expect(() => parseSsGeOptions(['--refetch=all'])).toThrow();
   });
 
-  it('rejects a fresh start for a nightly run, which never resumes anything', () => {
-    expect(() => parseSsGeOptions(['--fresh'])).toThrow();
+  it('accepts a fresh start for a nightly run, which resumes an interrupted one otherwise', () => {
+    expect(parseSsGeOptions(['--fresh'])).toEqual({ mode: 'nightly', fresh: true });
   });
 });

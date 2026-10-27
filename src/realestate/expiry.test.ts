@@ -11,6 +11,7 @@ import {
   deleteLongGoneListings,
   loadListingsDueForCheck,
   markLapsedListingsGone,
+  markMissedListings,
   recordListingCheck,
 } from './expiry.js';
 
@@ -103,6 +104,32 @@ describe('listing expiry', () => {
       expect(found.map((row) => row.id)).toEqual([longRunning, lapsedYesterday]);
     });
 
+    it('asks about missed listings after the long-running ones, the longest-lived first', async () => {
+      const sourceId = await newSource();
+      const lapsedYesterday = await listing(sourceId, {
+        expectedEndAt: at(-1),
+        lastSeenAt: at(-3),
+      });
+      const longRunning = await listing(sourceId, {
+        sourceUpdatedAt: at(-700),
+        expectedEndAt: at(-670),
+        lastSeenAt: at(-0.5),
+      });
+      // Not due by its date, but a full read of its list did not find it.
+      const missedEndingSoon = await listing(sourceId, { expectedEndAt: at(5), missedAt: at(-1) });
+      const missedEndingLate = await listing(sourceId, { expectedEndAt: at(30), missedAt: at(-1) });
+      await listing(sourceId, { expectedEndAt: at(20) });
+
+      const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
+
+      expect(found.map((row) => row.id)).toEqual([
+        longRunning,
+        missedEndingLate,
+        missedEndingSoon,
+        lapsedYesterday,
+      ]);
+    });
+
     it('then takes the most recently expired first, up to the limit', async () => {
       const sourceId = await newSource();
       const fourDays = await listing(sourceId, { expectedEndAt: at(-4), lastSeenAt: at(-9) });
@@ -118,7 +145,73 @@ describe('listing expiry', () => {
     });
   });
 
+  describe('markMissedListings', () => {
+    const readStartedAt = at(-0.5);
+
+    it('marks the listings of the list that a full read did not see, nor any look-alike of them', async () => {
+      const sourceId = await newSource();
+      const missed = await listing(sourceId, { lastSeenAt: at(-10) });
+      const seen = await listing(sourceId, {
+        lastSeenAt: at(-0.2),
+        groupKey: 'g1',
+        similarityGroup: 's1',
+      });
+      // Not in the list, but a look-alike of it was: the list folds it under that one.
+      const foldedByOurGroup = await listing(sourceId, { lastSeenAt: at(-10), groupKey: 'g1' });
+      const foldedBySourceGroup = await listing(sourceId, {
+        lastSeenAt: at(-10),
+        similarityGroup: 's1',
+      });
+      const otherList = await listing(sourceId, { lastSeenAt: at(-10), propertyType: 'house' });
+      const pastItsEnd = await listing(sourceId, { lastSeenAt: at(-10), expectedEndAt: at(-1) });
+      const gone = await listing(sourceId, { lastSeenAt: at(-10), status: 'gone', goneAt: at(-2) });
+
+      const count = await markMissedListings(db, {
+        sourceId,
+        dealType: 'sale',
+        propertyType: 'flat',
+        readStartedAt,
+        at: NOW_ISO,
+      });
+
+      expect(count).toBe(1);
+      expect(instant((await read(missed))?.missedAt)).toBe(NOW);
+      for (const id of [seen, foldedByOurGroup, foldedBySourceGroup, otherList, pastItsEnd, gone]) {
+        expect((await read(id))?.missedAt).toBeNull();
+      }
+    });
+
+    it('keeps the first time a listing was missed', async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, { lastSeenAt: at(-10), missedAt: at(-7) });
+
+      const count = await markMissedListings(db, {
+        sourceId,
+        dealType: 'sale',
+        propertyType: 'flat',
+        readStartedAt,
+        at: NOW_ISO,
+      });
+
+      expect(count).toBe(0);
+      expect(instant((await read(id))?.missedAt)).toBe(instant(at(-7)));
+    });
+  });
+
   describe('recordListingCheck', () => {
+    it('clears the missed mark of a listing its page shows as live', async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, { missedAt: at(-1) });
+
+      await recordListingCheck(db, {
+        listingId: id,
+        check: { status: 'active', endAt: at(12) },
+        checkedAt: NOW_ISO,
+      });
+
+      expect((await read(id))?.missedAt).toBeNull();
+    });
+
     it('extends a listing its page shows as live until a later date', async () => {
       const sourceId = await newSource();
       const id = await listing(sourceId, { expectedEndAt: at(-1) });
@@ -176,6 +269,83 @@ describe('listing expiry', () => {
       const row = await read(id);
       expect(row?.status).toBe('active');
       expect(instant(row?.expectedEndAt)).toBe(instant(at(3)));
+    });
+
+    describe('the price its page states', () => {
+      const stored = { priceGel: 270000, priceUsd: 100000, pricePerM2Usd: 1250 } as const;
+      const asText = { priceGel: '270000', priceUsd: '100000', pricePerM2Usd: '1250' };
+
+      async function priceChangesOf(id: string) {
+        return db
+          .select()
+          .from(realEstatePriceChanges)
+          .where(eq(realEstatePriceChanges.listingId, id));
+      }
+
+      it('records a new price in the posted currency as a price change', async () => {
+        // A listing nobody renewed, so no nightly run reads it again: its own
+        // page is where an edited price shows (1 of 47 sampled, 2026-10-27).
+        const sourceId = await newSource();
+        const id = await listing(sourceId, { ...asText, currencyPosted: 'usd' });
+
+        await recordListingCheck(db, {
+          listingId: id,
+          check: {
+            status: 'active',
+            endAt: at(12),
+            price: {
+              priceUsd: 92000,
+              priceGel: 239000,
+              pricePerM2Usd: 1150,
+              currencyPosted: 'usd',
+            },
+          },
+          checkedAt: NOW_ISO,
+        });
+
+        expect(Number((await read(id))?.priceUsd)).toBe(92000);
+        const changes = await priceChangesOf(id);
+        expect(changes).toHaveLength(1);
+        expect(Number(changes[0]?.oldPriceUsd)).toBe(100000);
+        expect(Number(changes[0]?.newPriceUsd)).toBe(92000);
+        expect(instant(changes[0]?.observedAt)).toBe(NOW);
+      });
+
+      it('keeps a converted price current without recording a change', async () => {
+        const sourceId = await newSource();
+        const id = await listing(sourceId, { ...asText, currencyPosted: 'usd' });
+
+        await recordListingCheck(db, {
+          listingId: id,
+          check: {
+            status: 'active',
+            endAt: at(12),
+            price: { ...stored, priceGel: 259700, currencyPosted: 'usd' },
+          },
+          checkedAt: NOW_ISO,
+        });
+
+        expect(Number((await read(id))?.priceGel)).toBe(259700);
+        expect(await priceChangesOf(id)).toHaveLength(0);
+      });
+
+      it('leaves the stored price alone when the page states none', async () => {
+        const sourceId = await newSource();
+        const id = await listing(sourceId, { ...asText, currencyPosted: 'usd' });
+
+        await recordListingCheck(db, {
+          listingId: id,
+          check: {
+            status: 'active',
+            endAt: at(12),
+            price: { priceGel: null, priceUsd: null, pricePerM2Usd: null, currencyPosted: null },
+          },
+          checkedAt: NOW_ISO,
+        });
+
+        expect(Number((await read(id))?.priceUsd)).toBe(100000);
+        expect(await priceChangesOf(id)).toHaveLength(0);
+      });
     });
 
     it('marks gone a listing its page shows as over, with the reason', async () => {

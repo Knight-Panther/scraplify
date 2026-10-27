@@ -689,8 +689,14 @@ describe('runSsGeCrawl, nightly', () => {
     // Page 2 still holds four new rows; page 3 is the first with none.
     expect(site.resultsRequests(list('flat-sale'))).toEqual([1, 2, 3]);
     expect(site.resultsRequests(list('flat-rent'))).toEqual([1]);
-    expect(progressOf(crawlRun).lists['flat-sale']).toEqual({ lastPage: 3, finished: 'caught-up' });
-    expect(progressOf(crawlRun).lists['flat-rent']).toEqual({ lastPage: 1, finished: 'caught-up' });
+    expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({
+      lastPage: 3,
+      finished: 'caught-up',
+    });
+    expect(progressOf(crawlRun).lists['flat-rent']).toMatchObject({
+      lastPage: 1,
+      finished: 'caught-up',
+    });
   });
 
   it('measures from the start of the whole walk when the last sweep ran in instalments', async () => {
@@ -720,6 +726,149 @@ describe('runSsGeCrawl, nightly', () => {
 
     expect(site.resultsRequests(list('flat-sale'))).toEqual([1, 2, 3]);
     expect(crawlRun.newCount).toBe(48);
+  });
+});
+
+describe('runSsGeCrawl, resuming and full reads', () => {
+  // Every list holds forty listings older than the baseline's cutoff, so a
+  // nightly run stops each at page 1 unless it reads that list whole.
+  const OLD = 3 * DAY_MS;
+  function oldLists(): Partial<Record<ListKey, SiteRow[]>> {
+    return Object.fromEntries(
+      SS_GE_LISTS.map((candidate, index) => [candidate.key, rows(10_000 * (index + 1), 40, OLD)]),
+    );
+  }
+  async function baseline(site: FakeSite, atMs: number) {
+    await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(atMs) },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+    site.requested.length = 0;
+  }
+
+  it('reads one list a night to its end, the one read whole longest ago', async () => {
+    const site = new FakeSite(oldLists());
+    await baseline(site, NOW - 2 * DAY_MS);
+
+    const first = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { mode: 'nightly', maxDetailChecks: 0 },
+    );
+    expect(progressOf(first.crawlRun).deep).toBe('cottage-rent');
+    // Read past the rows the last run saw, to its short last page.
+    expect(site.resultsRequests(list('cottage-rent'))).toEqual([1, 2, 3]);
+    expect(site.resultsRequests(list('cottage-sale'))).toEqual([1]);
+    expect(progressOf(first.crawlRun).lists['cottage-rent']?.finished).toBe('end');
+
+    site.requested.length = 0;
+    const second = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW) },
+      { mode: 'nightly', maxDetailChecks: 0 },
+    );
+    expect(progressOf(second.crawlRun).deep).toBe('cottage-sale');
+    expect(site.resultsRequests(list('cottage-sale'))).toEqual([1, 2, 3]);
+    expect(site.resultsRequests(list('cottage-rent'))).toEqual([1]);
+  });
+
+  it('asks the page of a listing a full read no longer finds, in the same run', async () => {
+    const site = new FakeSite(oldLists());
+    await baseline(site, NOW - 2 * DAY_MS);
+    // Sold and taken down early: gone from its list long before its end.
+    const removed = site.lists['cottage-rent'].splice(7, 1)[0];
+    const removedKey = String(removed?.id);
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { mode: 'nightly', maxDetailChecks: 10 },
+    );
+
+    expect(site.requested.filter((url) => !url.includes('/l/'))).toEqual([
+      buildDetailUrl(removedKey),
+    ]);
+    expect(crawlRun).toMatchObject({ status: 'completed', goneCount: 1 });
+    const stored = (await storedListings()).find((row) => row.sourceListingKey === removedKey);
+    expect(stored).toMatchObject({ status: 'gone', goneReason: 'missing', missedAt: null });
+    // Every other listing of the list was seen, so none is marked.
+    expect((await storedListings()).filter((row) => row.missedAt !== null)).toEqual([]);
+  });
+
+  it('carries on from an interrupted nightly run, keeping its start and the lists it finished', async () => {
+    const site = new FakeSite(oldLists());
+    await baseline(site, NOW - 2 * DAY_MS);
+    const houses = buildResultsUrl(list('house-sale'), 1);
+    site.script(houses, status(houses, 500), status(houses, 500), status(houses, 500));
+    const interrupted = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW - 3 * HOUR_MS) },
+      { mode: 'nightly', maxDetailChecks: 0 },
+    );
+    expect(interrupted.crawlRun.status).toBe('partial');
+    site.requested.length = 0;
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW) },
+      { mode: 'nightly', maxDetailChecks: 0 },
+    );
+
+    expect(crawlRun.status).toBe('completed');
+    expect(progressOf(crawlRun).walkStartedAt).toBe(progressOf(interrupted.crawlRun).walkStartedAt);
+    expect(site.resultsRequests(list('cottage-rent'))).toEqual([]);
+    expect(site.resultsRequests(list('cottage-sale'))).toEqual([]);
+    expect(site.resultsRequests(list('house-sale'))).toEqual([1]);
+  });
+
+  it('steps back when the list moved up past where an interrupted walk stopped', async () => {
+    // The walk had read 160 rows (ten pages) when it stopped. Since then a
+    // hundred listings above that point were renewed away or deleted, so
+    // what it read is now the first 60 rows, and five pages back from page
+    // ten is already past twenty rows it never read.
+    const flats = rows(1_000, 200);
+    const site = new FakeSite({ 'flat-sale': flats });
+    await ensureSsGeSourceSeeded(db);
+    const iso = (ms: number) => new Date(ms).toISOString();
+    await db.insert(realEstateCrawlRuns).values([
+      {
+        sourceId: ssGeSource.id,
+        mode: 'nightly',
+        status: 'completed',
+        startedAt: iso(NOW - DAY_MS),
+        finishedAt: iso(NOW - DAY_MS + HOUR_MS),
+        progress: { walkStartedAt: iso(NOW - DAY_MS), lists: {} },
+      },
+      {
+        sourceId: ssGeSource.id,
+        mode: 'nightly',
+        status: 'partial',
+        startedAt: iso(NOW - 2 * HOUR_MS),
+        finishedAt: iso(NOW - HOUR_MS),
+        progress: {
+          walkStartedAt: iso(NOW - 2 * HOUR_MS),
+          deep: 'cottage-rent',
+          lists: {
+            'cottage-rent': { lastPage: 1, finished: 'end' },
+            'cottage-sale': { lastPage: 1, finished: 'end' },
+            'house-sale': { lastPage: 1, finished: 'end' },
+            'house-rent': { lastPage: 1, finished: 'end' },
+            'flat-sale': {
+              lastPage: 10,
+              finished: null,
+              oldestSeenAt: iso(flats[59]?.orderedAt ?? 0),
+            },
+          },
+        },
+      },
+    ]);
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'nightly', maxDetailChecks: 0 },
+    );
+
+    expect(crawlRun.status).toBe('completed');
+    // Page 6 was all older than what the walk had read; page 1 overlaps it.
+    const asked = site.resultsRequests(list('flat-sale'));
+    expect(asked.slice(0, 3)).toEqual([6, 1, 2]);
+    const keys = new Set((await storedListings()).map((row) => row.sourceListingKey));
+    for (let id = 1_060; id < 1_080; id++) expect(keys.has(String(id)), String(id)).toBe(true);
   });
 });
 
