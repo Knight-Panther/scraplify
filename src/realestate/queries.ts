@@ -147,18 +147,44 @@ function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
   );
 }
 
+/**
+ * A price or area no real listing has: a poster's typo. Measured on the host
+ * on 2026-10-27, 248 of 185,839 live listings, and each of 25 sampled was one:
+ * a flat "for sale" at $462 (its rent), 1 m² (no area given), a flat "for
+ * rent" at $87,500 a month (its sale price), 42,000 m² at $42,000 (the price
+ * typed as the area). The bounds are wide on purpose; a 1,100 m² flat at
+ * $1.6 million is not caught. Such a listing is kept and shown as posted, but
+ * comes after every other one in the price and area sorts, the top of which
+ * it would otherwise take. Never null: a missing value is not a typo.
+ */
+const implausibleValues = sql`coalesce(
+  ${listings.areaM2} < 10
+  or (${listings.areaM2} > case when ${listings.propertyType} = 'flat' then 1000 else 10000 end
+      and ${listings.pricePerM2Usd} < 100)
+  or (${listings.dealType} = 'sale' and ${listings.priceUsd} < 5000)
+  or (${listings.dealType} = 'rent' and (${listings.priceUsd} > 50000 or ${listings.priceUsd} < 50)),
+  false)`;
+
 /** Every order ends in the id, so paging never repeats or drops a row when keys tie. */
 function ordering(filters: RealEstateFilters): SQL[] {
   const price = filters.currency === 'gel' ? listings.priceGel : listings.priceUsd;
   switch (filters.sort) {
     case 'price-asc':
-      return [sql`${price} asc nulls last`, asc(listings.id)];
+      return [sql`${implausibleValues} asc`, sql`${price} asc nulls last`, asc(listings.id)];
     case 'price-desc':
-      return [sql`${price} desc nulls last`, asc(listings.id)];
+      return [sql`${implausibleValues} asc`, sql`${price} desc nulls last`, asc(listings.id)];
     case 'ppm2-asc':
-      return [sql`${listings.pricePerM2Usd} asc nulls last`, asc(listings.id)];
+      return [
+        sql`${implausibleValues} asc`,
+        sql`${listings.pricePerM2Usd} asc nulls last`,
+        asc(listings.id),
+      ];
     case 'area-desc':
-      return [sql`${listings.areaM2} desc nulls last`, asc(listings.id)];
+      return [
+        sql`${implausibleValues} asc`,
+        sql`${listings.areaM2} desc nulls last`,
+        asc(listings.id),
+      ];
     default:
       return [desc(listings.sourceUpdatedAt), asc(listings.id)];
   }
