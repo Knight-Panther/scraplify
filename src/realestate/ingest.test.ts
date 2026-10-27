@@ -135,6 +135,114 @@ describe('upsertListing', () => {
     expect(instant(changes[0]?.observedAt)).toBe(instant(SEEN_AGAIN));
   });
 
+  it('keeps a converted price current without calling it a change', async () => {
+    // ss.ge converts a dollar price to lari at each day's rate: 2.6000 became
+    // about 2.597 in October 2026, and 73% of the price changes recorded by
+    // then were only that.
+    const sourceId = await newSource();
+    await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+
+    const outcome = await upsertListing(db, {
+      sourceId,
+      card: card({ priceGel: 259700 }),
+      seenAt: SEEN_AGAIN,
+    });
+
+    expect(outcome).toBe('unchanged');
+    const [row] = await rowsOf(sourceId);
+    expect(Number(row?.priceGel)).toBe(259700);
+    expect(instant(row?.lastSeenAt)).toBe(instant(SEEN_AGAIN));
+    expect(await priceChangesOf(row?.id ?? '')).toHaveLength(0);
+  });
+
+  it('does the same for a listing posted in lari, whose dollar price moves', async () => {
+    const sourceId = await newSource();
+    const inLari = {
+      currencyPosted: 'gel',
+      priceGel: 2000,
+      priceUsd: 769,
+      pricePerM2Usd: 9.6,
+    } as const;
+    await upsertListing(db, { sourceId, card: card(inLari), seenAt: FIRST_SEEN });
+
+    const outcome = await upsertListing(db, {
+      sourceId,
+      card: card({ ...inLari, priceUsd: 770, pricePerM2Usd: 9.63 }),
+      seenAt: SEEN_AGAIN,
+    });
+
+    expect(outcome).toBe('unchanged');
+    const [row] = await rowsOf(sourceId);
+    expect(Number(row?.priceUsd)).toBe(770);
+    expect(Number(row?.pricePerM2Usd)).toBe(9.63);
+    expect(await priceChangesOf(row?.id ?? '')).toHaveLength(0);
+  });
+
+  it('records a new price in lari for a listing posted in lari', async () => {
+    const sourceId = await newSource();
+    const inLari = {
+      currencyPosted: 'gel',
+      priceGel: 2000,
+      priceUsd: 769,
+      pricePerM2Usd: 9.6,
+    } as const;
+    await upsertListing(db, { sourceId, card: card(inLari), seenAt: FIRST_SEEN });
+
+    const outcome = await upsertListing(db, {
+      sourceId,
+      card: card({ ...inLari, priceGel: 1800, priceUsd: 692 }),
+      seenAt: SEEN_AGAIN,
+    });
+
+    expect(outcome).toBe('changed');
+    const changes = await priceChangesOf((await rowsOf(sourceId))[0]?.id ?? '');
+    expect(changes).toHaveLength(1);
+    expect(Number(changes[0]?.oldPriceGel)).toBe(2000);
+    expect(Number(changes[0]?.newPriceGel)).toBe(1800);
+  });
+
+  it('records a switch of the posted currency as a price change', async () => {
+    const sourceId = await newSource();
+    await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+
+    const outcome = await upsertListing(db, {
+      sourceId,
+      card: card({ currencyPosted: 'gel', priceGel: 270000 }),
+      seenAt: SEEN_AGAIN,
+    });
+
+    expect(outcome).toBe('changed');
+    expect(await priceChangesOf((await rowsOf(sourceId))[0]?.id ?? '')).toHaveLength(1);
+  });
+
+  it('judges a change by the stored fields, whatever fingerprint the row was stored with', async () => {
+    // Rows written before the fingerprint left out converted prices carry the
+    // old one; comparing fingerprints would call every one of them changed.
+    const sourceId = await newSource();
+    await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+    await db
+      .update(realEstateListings)
+      .set({ contentHash: 'written-by-an-older-release' })
+      .where(eq(realEstateListings.sourceId, sourceId));
+
+    const outcome = await upsertListing(db, { sourceId, card: card(), seenAt: SEEN_AGAIN });
+
+    expect(outcome).toBe('unchanged');
+  });
+
+  it('clears the missed mark of a listing seen again', async () => {
+    const sourceId = await newSource();
+    await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+    await db
+      .update(realEstateListings)
+      .set({ missedAt: FIRST_SEEN })
+      .where(eq(realEstateListings.sourceId, sourceId));
+
+    await upsertListing(db, { sourceId, card: card(), seenAt: SEEN_AGAIN });
+
+    expect((await rowsOf(sourceId))[0]?.missedAt).toBeNull();
+  });
+
   it('updates a changed field without inventing a price change', async () => {
     const sourceId = await newSource();
     await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });

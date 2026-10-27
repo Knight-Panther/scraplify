@@ -1,6 +1,7 @@
-import { and, desc, eq, lt, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, lt, lte, or, sql } from 'drizzle-orm';
 import { realEstateListings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import { type ListingPrice, recordPriceSighting } from './ingest.js';
 
 /**
  * How a listing leaves the catalogue (docs/real-estate-implementation-guideline.md
@@ -28,18 +29,21 @@ export interface DueListing {
 
 /** What a listing's own page says, in the terms every source adapter reports it. */
 export type ListingCheck =
-  | { status: 'active'; endAt: string | null }
+  | { status: 'active'; endAt: string | null; price?: ListingPrice }
   | { status: 'gone'; reason: string };
 
 /**
- * Active listings past their expected end, in the order worth checking.
+ * Active listings worth asking their own page about, in that order.
  *
- * First those the source still listed after that date: the thirty-day rule
- * plainly does not hold for them (company listings run for years), and only
- * their own page says when they end. Then the most recently expired: a check
- * on the night a listing lapses keeps it on show without a gap, and when
- * there are more than one night's checks can cover, the oldest are the ones
- * least worth the request.
+ * First those past their expected end that the source still listed after
+ * that date: the thirty-day rule plainly does not hold for them (company
+ * listings run for years), and only their own page says when they end.
+ * Then those a full read of their list missed (`markMissedListings`), the
+ * longest-lived first: a dead one of those stays on the tab longest. Then
+ * the rest past their end, most recently expired first: their checks mostly
+ * confirm the end (about 98% did, 2026-10-19 to 10-21), the tab stops
+ * showing them two days after it anyway, and when there are more than a
+ * night's checks can cover, the oldest are the ones least worth the request.
  */
 export async function loadListingsDueForCheck(
   db: DatabaseOrTransaction,
@@ -52,11 +56,17 @@ export async function loadListingsDueForCheck(
       and(
         eq(realEstateListings.sourceId, input.sourceId),
         eq(realEstateListings.status, 'active'),
-        lte(realEstateListings.expectedEndAt, input.asOf),
+        or(
+          lte(realEstateListings.expectedEndAt, input.asOf),
+          isNotNull(realEstateListings.missedAt),
+        ),
       ),
     )
     .orderBy(
-      desc(sql`${realEstateListings.lastSeenAt} > ${realEstateListings.expectedEndAt}`),
+      desc(
+        sql`${realEstateListings.expectedEndAt} <= ${input.asOf} and ${realEstateListings.lastSeenAt} > ${realEstateListings.expectedEndAt}`,
+      ),
+      desc(sql`${realEstateListings.missedAt} is not null`),
       desc(realEstateListings.expectedEndAt),
     )
     .limit(input.limit);
@@ -71,7 +81,13 @@ export async function recordListingCheck(
   if (check.status === 'gone') {
     await db
       .update(realEstateListings)
-      .set({ status: 'gone', goneAt: checkedAt, goneReason: check.reason, verifiedAt: checkedAt })
+      .set({
+        status: 'gone',
+        goneAt: checkedAt,
+        goneReason: check.reason,
+        verifiedAt: checkedAt,
+        missedAt: null,
+      })
       .where(eq(realEstateListings.id, listingId));
     return 'gone';
   }
@@ -88,9 +104,53 @@ export async function recordListingCheck(
 
   await db
     .update(realEstateListings)
-    .set({ expectedEndAt: new Date(nextMs).toISOString(), verifiedAt: checkedAt })
+    .set({ expectedEndAt: new Date(nextMs).toISOString(), verifiedAt: checkedAt, missedAt: null })
     .where(eq(realEstateListings.id, listingId));
+  if (check.price !== undefined) {
+    await recordPriceSighting(db, { listingId, price: check.price, seenAt: checkedAt });
+  }
   return 'verified';
+}
+
+/**
+ * After a full read of one list (one deal and kind), marks the active
+ * listings of it that the read did not see, nor any look-alike of them, as
+ * missed, so the checks ask their own pages soon. A source's flat lists show
+ * one listing per look-alike group (47,864 active listings were in 15,053
+ * groups on 2026-10-27), so a listing whose group was seen is folded, not
+ * missing. Listings already past their expected end are left to the usual
+ * rules. A missed listing is never dropped for that alone.
+ */
+export async function markMissedListings(
+  db: DatabaseOrTransaction,
+  input: {
+    sourceId: string;
+    dealType: 'sale' | 'rent';
+    propertyType: 'flat' | 'house' | 'cottage';
+    /** When the full read began: anything seen since was in it. */
+    readStartedAt: string;
+    at: string;
+  },
+): Promise<number> {
+  const rows = await db.execute<{ id: string }>(sql`
+    update realestate.listings l
+       set missed_at = ${input.at}
+     where l.source_id = ${input.sourceId}
+       and l.status = 'active'
+       and l.deal_type = ${input.dealType}
+       and l.property_type = ${input.propertyType}
+       and l.missed_at is null
+       and l.last_seen_at < ${input.readStartedAt}
+       and l.expected_end_at > ${input.at}
+       and not exists (
+         select 1 from realestate.listings g
+          where g.source_id = l.source_id
+            and g.status = 'active'
+            and g.last_seen_at >= ${input.readStartedAt}
+            and ((l.group_key is not null and g.group_key = l.group_key)
+              or (l.similarity_group is not null and g.similarity_group = l.similarity_group)))
+    returning l.id`);
+  return rows.rows.length;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { ListingCard } from '../../realestate/ingest.js';
+import type { ListingCard, ListingPrice } from '../../realestate/ingest.js';
 import { isRecord, readPageProps, SsGePageShapeError, tbilisiWallClockToIso } from './page.js';
 
 export { SsGePageShapeError };
@@ -76,6 +76,17 @@ function positive(value: unknown): number | null {
 function bounded(value: unknown, limit: number): number | null {
   const amount = positive(value);
   return amount !== null && amount < limit ? amount : null;
+}
+
+/** The price block of a results row or a listing's own page; any amount it lacks is null. */
+export function readListingPrice(value: unknown): ListingPrice {
+  const price = isRecord(value) ? value : {};
+  return {
+    priceGel: bounded(price.priceGeo, PRICE_LIMIT),
+    priceUsd: bounded(price.priceUsd, PRICE_LIMIT),
+    pricePerM2Usd: bounded(price.unitPriceUsd, PRICE_PER_M2_LIMIT),
+    currencyPosted: CURRENCY_CODES[Number(price.currencyType)] ?? null,
+  };
 }
 
 function smallCount(value: unknown): number | null {
@@ -163,7 +174,6 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
   if (PROPERTY_TYPE_CODES[Number(row.type)] !== expected.propertyType) return null;
   if (DEAL_TYPE_CODES[Number(row.dealType)] !== expected.dealType) return null;
 
-  const price = isRecord(row.price) ? row.price : {};
   const address = isRecord(row.address) ? row.address : {};
   const poster = posterType(row.userInfo);
   const rooms = ROOMS_RE.exec(typeof row.title === 'string' ? row.title : '')?.[1];
@@ -180,10 +190,7 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
     areaM2: bounded(row.totalArea, AREA_LIMIT),
     floor: floor(row.floorNumber),
     totalFloors: smallCount(row.totalAmountOfFloor),
-    priceGel: bounded(price.priceGeo, PRICE_LIMIT),
-    priceUsd: bounded(price.priceUsd, PRICE_LIMIT),
-    pricePerM2Usd: bounded(price.unitPriceUsd, PRICE_PER_M2_LIMIT),
-    currencyPosted: CURRENCY_CODES[Number(price.currencyType)] ?? null,
+    ...readListingPrice(row.price),
     cityRef: reference(address.cityId),
     cityName: text(address.cityTitle),
     districtRef: reference(address.districtId),

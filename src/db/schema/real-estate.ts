@@ -136,12 +136,24 @@ export const realEstateListings = realEstate.table(
     expectedEndAt: timestamp('expected_end_at', { mode: 'string', withTimezone: true }),
     /** When its detail page last confirmed it. */
     verifiedAt: timestamp('verified_at', { mode: 'string', withTimezone: true }),
+    /**
+     * When a full read of its list ended without it or any look-alike of it
+     * in sight: a reason to ask its own page soon. Never a reason to drop it
+     * by itself, since flat lists fold look-alikes. Cleared when it is seen or
+     * confirmed again.
+     */
+    missedAt: timestamp('missed_at', { mode: 'string', withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     status: realEstateListingStatusEnum('status').notNull().default('active'),
     goneAt: timestamp('gone_at', { mode: 'string', withTimezone: true }),
     goneReason: text('gone_reason'),
-    /** Hash of the fields whose change matters, so an unchanged row is never rewritten. */
+    /**
+     * Hash of the fields whose change matters, as of the last results-page
+     * sighting. Changes are judged from the stored fields themselves
+     * (src/realestate/ingest.ts), so a row stored under an older definition
+     * of this hash is not taken for changed.
+     */
     contentHash: text('content_hash').notNull(),
     search: tsvector('search').generatedAlwaysAs(LISTING_SEARCH_SQL),
   },
@@ -160,6 +172,9 @@ export const realEstateListings = realEstate.table(
     index('listings_expected_end_idx').on(table.status, table.expectedEndAt),
     index('listings_search_idx').using('gin', table.search),
     index('listings_group_key_idx').on(table.groupKey),
+    index('listings_missed_idx')
+      .on(table.sourceId, table.missedAt)
+      .where(sql`${table.missedAt} is not null`),
   ],
 );
 

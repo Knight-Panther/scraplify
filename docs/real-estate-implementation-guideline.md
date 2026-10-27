@@ -242,7 +242,7 @@ Walk each of the six lists (kind × deal) newest first, page by page, upserting 
 - **After every page, compare `initialPage` with the page asked for.** If they differ, the walk has passed the end: discard the rows and stop. Ingesting them would file page 1's listings under the wrong position.
 - Also stop at the first page with fewer than 16 rows.
 - Never plan from `initialTotalApplicationCount`.
-- Record the last finished page per list in the run's `progress`, and resume a few pages before it after an interruption.
+- Record the last finished page per list in the run's `progress`, with the oldest order time on it, and resume a few pages before it after an interruption. If every row on that page is older than the recorded time, the list has moved up past it (listings above were renewed away, deleted or expired), and the walk steps back 20 pages, then 40, until it overlaps (2026-10-27). A nightly run resumes an interrupted nightly run the same way.
 - Rows shift while a list is walked, because renewed listings jump to the front. That produces repeats, which the upsert absorbs, and can skip a just-renewed row, which the next nightly run picks up.
 
 Cost: about 7,300 pages. At 6.8 s a page plus the 3 s spacing, about 20 hours.
@@ -251,7 +251,7 @@ Cost: about 7,300 pages. At 6.8 s a page plus the 3 s spacing, about 20 hours.
 
 Walk each list newest first and stop once a page holds only rows older than the previous successful run's start, minus a six-hour overlap. Expect about 650 pages, a little under two hours.
 
-Whether an edit always moves a listing's order time is not known. One sweep two weeks after the first pass will show how many rows the nightly runs missed; that count decides whether sweeps need to be regular.
+**An edit usually moves a listing's order time, but not always** (measured 2026-10-27): of 140 stored listings re-read from deep pages without a new order time, 1 carried an edited price; of 47 checked one by one, 1 more. So since 2026-10-27 each nightly run also reads one list to its end, the one whose last full read is oldest (a sweep, or any run that reached a list's end, counts), so each of the six is read whole about once a week. A full read refreshes every listing in it, picks up such edits and any rows a long walk slipped past (one band of about 200 from the first pass), and marks what it no longer finds (§9.3, rule 6). It costs up to about 2,600 extra pages on a night with a flat list.
 
 ### 9.3 Removal, without an inventory
 
@@ -259,9 +259,10 @@ Absence from a list proves nothing, because flat lists hide look-alikes.
 
 1. On every sighting, `expected_end_at` is the order time plus 30 days.
 2. A row is shown only while the current time is before the later of `expected_end_at` and `last_seen_at`, plus a two-day grace period. `last_seen_at` counts because a row the site listed this week is live, whatever its order time says.
-3. Each run, the detail pages of up to 1,000 rows past their expected end are fetched (1.25 s each). First the rows the site still listed after that date, then the most recently expired. `Active` extends the row to its `endDate`; `Expired`, inactive or missing marks it gone. A page that fails to load changes nothing.
+3. Each run, the detail pages of up to 1,500 rows are fetched (1,000 until 2026-10-27). First the rows past their expected end that the site still listed after that date; then the rows a full read missed (rule 6), the longest-lived first; then the rest past their end, most recently expired first. `Active` extends the row to its `endDate` and records its price (§10); `Expired`, inactive or missing marks it gone. A page that fails to load changes nothing.
 4. An `endDate` is never believed more than 30 days ahead, so a long-running listing is re-checked monthly. An `Active` listing whose `endDate` has passed is re-checked in three days.
 5. A row nobody has seen or confirmed for a week past its expected end is marked gone (`lapsed`). A gone row is deleted after 14 days.
+6. When a full read of a list ends, an active row of it that the read did not see, and none of whose look-alikes (the same `group_key` or `similarity_group`) it saw, gets `missed_at`, which puts it in rule 3's queue. Being seen or confirmed clears it. It is never a reason to mark a row gone by itself: on 2026-10-27, 47,864 active flats were in 15,053 look-alike groups, and the flat lists show one of each. A sample of 50 rows unseen since the first pass found 3 gone early (6%).
 
 A row that is neither re-seen nor checked in time is hidden at its expected end. That errs towards hiding a live listing over showing a dead one.
 
@@ -274,7 +275,7 @@ A row that is neither re-seen nor checked in time is hidden at its expected end.
 - **Kind and deal** come from the list being walked and are checked against the row's `type` and `dealType` codes.
 - **Rooms** come from the title; null when the title has none.
 - **Floor** is parsed from a string; empty or non-numeric becomes null.
-- **Prices** are stored in both currencies as given. `currencyType` 1 is taken as lari and 2 as dollars; a fixture test pins this.
+- **Prices** are stored in both currencies as given. `currencyType` 1 is taken as lari and 2 as dollars; a fixture test pins this. A price change is judged in the currency the listing was posted in: the site converts it to the other at each day's rate, so the converted price moves on its own and is only kept current. Until 2026-10-27 that drift was recorded as change, 3,979 of 5,440 price changes (migration `0043` removed them). 11% of listings are posted in lari, mostly rentals.
 - **Times** are converted from Tbilisi time to UTC. The `Z` on detail-page dates is ignored.
 - **Who posted it:** `userInfo` present means `agent`; absent means `unknown`, never `owner`.
 - **Promoted:** any `vipStatus` above 0.
