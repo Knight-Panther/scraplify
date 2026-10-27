@@ -12,6 +12,7 @@ How to deploy, check, roll back and recover the hosted edition (Phase 8E; `docs/
 | Real-estate crawl | `xtelo-realestate@ss-ge` (nightly timer, 21:30 UTC plus up to 10 min; runs for hours) | `xtelo` | — | `scraplify_worker` | `/etc/xtelo/worker.env` |
 | Backup | `xtelo-backup` (nightly timer, 09:00 UTC) | `xtelo` | — | `scraplify_backup` (reads all, writes nothing) | `/etc/xtelo/backup.env` |
 | Hermes hook | `xtelo-hermes-notify` (started when a pipeline run ends; `xtelo-hermes-notify.timer` retries every 15 min) | `xtelo-hermes` | — | none | `/etc/xtelo/hermes-hook.env` |
+| ss.ge proxy watch | `xtelo-proxy-watch` (timer every 5 min; tells Hermes when the laptop proxy goes down or comes back) | `xtelo` | — | none (reads only `SS_GE_PROXY_URL`) | `/etc/xtelo/worker.env` |
 | Migrations | none (by hand, per release) | `xtelo` | — | `scraplify_migration` | `/etc/xtelo/migration.env` |
 | TLS and routing | Caddy | `caddy` | `:443` (`PUBLIC_HOST`, `ADMIN_HOST`) | — | `deploy/Caddyfile` |
 
@@ -163,6 +164,16 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
    - **The laptop looks after itself:** tinyproxy restarts if it crashes, autossh reconnects 15 s after a drop, and security updates install daily with a reboot allowed at 13:00 Tbilisi (09:00 UTC), far from the crawl.
    - **Wi-Fi fallback:** the laptop is on the home Wi-Fi as well as the cable (`/etc/netplan/60-xtelo-wifi.yaml` on the laptop only, `0600`, since it holds the Wi-Fi password; `wpasupplicant` installed). Both stay up and the cable's route wins (metric 100 against 600). With the cable pulled, the tunnel came back over Wi-Fi in about 50 s (2026-10-26); the public address is the same router's, so ss.ge sees no change. The tunnel then stays on whichever path it reconnected over until that one drops. Neither network is required at boot. To change the network or its password, edit that file and `sudo netplan apply`; `networkctl list` shows both links.
    - **After a long outage** the first run reads further back than usual (to the last completed run), and gives up on listings a week past their expected end that no check reached (1,500 a night since 2026-10-27). The checks that ran before the outage found almost every such listing gone (19 live of about 1,000 on 2026-10-21), and one ss.ge lists again reopens.
+   - **Hermes hears when the laptop goes down or comes back (2026-10-27, first deploy after merge only).** `xtelo-proxy-watch.timer` runs the health check's proxy test every 5 minutes (`src/cli/proxy-watch.ts`) and writes an `xtelo.proxy.changed` event into the Hermes outbox: `down` once the checks have failed for 10 minutes, `up` at the first answer after that, with how long it was down and whether the laptop's tunnel was still connected. The sender's 15-minute retry timer delivers it, so an alert lands 10 to 30 minutes after the laptop goes away and up to 20 minutes after it is back. Hermes sends it to Telegram by code. What Hermes was last told is kept in `/var/lib/xtelo-proxy-watch/state.json` (systemd makes the directory). Without `SS_GE_PROXY_URL` it checks nothing; without `HERMES_HOOK_ENABLED=1` it keeps its state and writes no event. Install with the release, before step 3:
+     ```sh
+     sudo install -m 0644 /opt/xtelo/releases/<new-sha>/deploy/systemd/xtelo-proxy-watch.service /opt/xtelo/releases/<new-sha>/deploy/systemd/xtelo-proxy-watch.timer /etc/systemd/system/
+     sudo systemctl daemon-reload && sudo systemctl enable --now xtelo-proxy-watch.timer
+     ```
+     To prove the path end to end while the laptop is up, pretend a "down" was told a minute ago; the next check then sends a harmless "back, after 1 min down":
+     ```sh
+     echo "{\"reported\":\"down\",\"failingSince\":\"$(date -u -d '-1 min' +%Y-%m-%dT%H:%M:%S.000Z)\"}" | sudo tee /var/lib/xtelo-proxy-watch/state.json
+     sudo systemctl start xtelo-proxy-watch xtelo-hermes-notify && journalctl -u xtelo-proxy-watch -u xtelo-hermes-notify -n 6 -o cat
+     ```
    - **Manage the laptop:** `ssh -J <user>@<host> -p 2222 xtelo@127.0.0.1` (with `HostKeyAlias`, since the address is loopback). Its BIOS is locked, so after a power cut long enough to drain the battery, someone has to press its power button.
 
 ## 4. Health signals

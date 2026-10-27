@@ -1,0 +1,14 @@
+# Checks the ss.ge proxy every 5 minutes (xtelo-proxy-watch.service).
+#
+#   sudo systemctl enable --now xtelo-proxy-watch.timer
+
+[Unit]
+Description=Check the Xtelo ss.ge proxy every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+# Started on its own, without a pipeline: Persistent= would only add one run at boot.
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

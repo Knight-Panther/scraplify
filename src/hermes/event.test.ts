@@ -26,6 +26,7 @@ import {
   type PipelineRun,
   type RealEstateRun,
   readRealEstateRunFacts,
+  realEstateStopReason,
   readRunFacts,
   releaseFromDirectory,
   type StepCodes,
@@ -399,10 +400,26 @@ describe('the real-estate event', () => {
         gone: 212,
         verified: 788,
       },
+      reason: null,
+      http_status: null,
       release: CONTEXT.release,
       host: CONTEXT.host,
       emitted_at: '2026-10-13T17:02:11.000Z',
     });
+  });
+
+  it("carries why the run stopped, read from the run's notes", async () => {
+    await crawlRun({
+      startedAt: '2026-10-15T21:30:03Z',
+      status: 'partial',
+      notes: 'flat-rent page 472 would not load after 3 tries (HTTP 500)',
+    });
+    const event = await eventFor(run({ crawl: 1, exitCode: 1 }));
+    expect([event.status, event.reason, event.http_status]).toEqual([
+      'partial',
+      'pages_failed',
+      500,
+    ]);
   });
 
   it('calls a run partial when its crawl ended partial, and failed otherwise', async () => {
@@ -493,5 +510,48 @@ describe('the outbox', () => {
     const missing = path.join(directory, 'not-there');
     await expect(writeOutboxEvent(missing, buildTestEvent(CONTEXT))).rejects.toThrow();
     expect(await fs.readdir(directory)).toEqual([]);
+  });
+});
+
+describe('realEstateStopReason', () => {
+  // Every note a real-estate run on the host has ended with (2026-10-13 to 10-27),
+  // and the ones the crawl can write that the host has not seen yet.
+  it.each<[string, string | null, string | null, number | null]>([
+    ['partial', 'cottage-rent page 1: the site answered HTTP 403', 'site_refused', 403],
+    ['partial', 'listing 37061937: the site answered HTTP 429', 'site_refused', 429],
+    ['partial', 'flat-rent page 472 would not load after 3 tries (HTTP 500)', 'pages_failed', 500],
+    ['partial', 'flat-sale page 2347 would not load after 3 tries (HTTP 504)', 'pages_failed', 504],
+    [
+      'partial',
+      'flat-sale page 12 would not load after 3 tries (a page with no rows)',
+      'pages_failed',
+      null,
+    ],
+    ['partial', '5 listing pages in a row would not load', 'listings_failed', null],
+    [
+      'partial',
+      'house-sale page 9: the proxy http://127.0.0.1:18888 stayed unreachable (waited 600 min in this run)',
+      'proxy_unreachable',
+      null,
+    ],
+    ['failed', 'the process ended before the run did', 'process_ended', null],
+    [
+      'failed',
+      'Error: Failed query: insert into "realestate"."listings" ("id", "source_id") values ($1, $2)',
+      'error',
+      null,
+    ],
+    ['failed', null, 'error', null],
+    ['partial', 'something the crawl does not say yet', 'other', null],
+    ['completed', null, null, null],
+    // Two reasons: the first stopped the run.
+    [
+      'partial',
+      'flat-sale page 3: the site answered HTTP 403; 5 listing pages in a row would not load',
+      'site_refused',
+      403,
+    ],
+  ])('%s, %j', (status, notes, reason, httpStatus) => {
+    expect(realEstateStopReason(status, notes)).toEqual({ reason, httpStatus });
   });
 });

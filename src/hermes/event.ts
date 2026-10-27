@@ -134,9 +134,35 @@ export interface RealEstateRunFacts {
     status: string;
     startedAt: string;
     finishedAt: string | null;
+    /** Why the run stopped short or failed, in the crawl's own words; null when it did not. */
+    notes: string | null;
     counts: RealEstateCounts;
   } | null;
 }
+
+/**
+ * Why a real-estate run stopped short, as one fixed word. The run's notes are
+ * a sentence (a page number, an error message), and the sender signs no
+ * sentence (`schema.ts`), so the event carries this instead:
+ *
+ * - `proxy_unreachable`: the laptop proxy stayed away past the run's wait for it.
+ * - `site_refused`: the site answered 403, 429 or "slow down"; `http_status` says which.
+ * - `pages_failed`: a results page would not load after its tries.
+ * - `listings_failed`: several listing pages in a row would not load.
+ * - `process_ended`: the process died and a later run settled the row.
+ * - `error`: the run failed on anything else (the journal has the message).
+ * - `other`: it ended partial for a reason this list does not know yet.
+ */
+export const REAL_ESTATE_STOP_REASONS = [
+  'proxy_unreachable',
+  'site_refused',
+  'pages_failed',
+  'listings_failed',
+  'process_ended',
+  'error',
+  'other',
+] as const;
+export type RealEstateStopReason = (typeof REAL_ESTATE_STOP_REASONS)[number];
 
 /** The same event type under `domain: realestate`, with that domain's one step and its counters. */
 export interface RealEstateFinishedEvent {
@@ -156,12 +182,41 @@ export interface RealEstateFinishedEvent {
     finished_at: string | null;
   } | null;
   counts: RealEstateCounts | null;
+  /** Why the run stopped short or failed; null when it did not, or there is no run row. */
+  reason: RealEstateStopReason | null;
+  /** The HTTP status behind `site_refused` or `pages_failed`, when the notes name one. */
+  http_status: number | null;
   release: string | null;
   host: string;
   emitted_at: string;
 }
 
-export type HermesEvent = PipelineFinishedEvent | RealEstateFinishedEvent | TestEvent;
+/**
+ * The way out a proxied source's requests take went down or came back
+ * (`src/hermes/proxy-watch.ts`): for ss.ge, the owner's laptop in Tbilisi.
+ */
+export interface ProxyChangedEvent {
+  event_type: 'xtelo.proxy.changed';
+  schema: typeof HERMES_EVENT_SCHEMA;
+  event_id: string;
+  source: string;
+  state: 'down' | 'up';
+  /** For `down`, the first check that failed; for `up`, the first that passed again. */
+  since: string;
+  /** Whether the proxy's port took a connection: the laptop's tunnel to the host is up. */
+  tunnel: boolean;
+  /** For `up`, how long it was down, counted from the first failed check. */
+  down_minutes: number | null;
+  release: string | null;
+  host: string;
+  emitted_at: string;
+}
+
+export type HermesEvent =
+  | PipelineFinishedEvent
+  | RealEstateFinishedEvent
+  | ProxyChangedEvent
+  | TestEvent;
 
 /** Postgres's text timestamp ("2026-10-13 12:47:12.809+00") as ISO-8601 UTC. */
 function iso(value: string): string {
@@ -307,6 +362,7 @@ export async function readRealEstateRunFacts(
       status: realEstateCrawlRuns.status,
       startedAt: realEstateCrawlRuns.startedAt,
       finishedAt: realEstateCrawlRuns.finishedAt,
+      notes: realEstateCrawlRuns.notes,
       pages: realEstateCrawlRuns.pageCount,
       rows: realEstateCrawlRuns.rowCount,
       new: realEstateCrawlRuns.newCount,
@@ -323,7 +379,7 @@ export async function readRealEstateRunFacts(
     .orderBy(desc(realEstateCrawlRuns.startedAt))
     .limit(1);
   if (row === undefined) return { crawlRun: null };
-  const { id, mode, status, startedAt, finishedAt, ...counts } = row;
+  const { id, mode, status, startedAt, finishedAt, notes, ...counts } = row;
   return {
     crawlRun: {
       id,
@@ -331,9 +387,36 @@ export async function readRealEstateRunFacts(
       status,
       startedAt: iso(startedAt),
       finishedAt: finishedAt === null ? null : iso(finishedAt),
+      notes,
       counts,
     },
   };
+}
+
+/**
+ * The fixed word for a run's notes (`REAL_ESTATE_STOP_REASONS`), read from the
+ * wording `src/adapters/ss-ge/crawl.ts` writes. A run that stopped for several
+ * reasons joins them with "; ", and the first is the one that stopped it.
+ */
+export function realEstateStopReason(
+  status: string,
+  notes: string | null,
+): { reason: RealEstateStopReason | null; httpStatus: number | null } {
+  if (notes === null || notes.trim() === '') {
+    return { reason: status === 'failed' ? 'error' : null, httpStatus: null };
+  }
+  const first = notes.split('; ')[0] ?? notes;
+  const http = /\bHTTP (\d{3})\b/.exec(first);
+  const httpStatus = http === null ? null : Number(http[1]);
+  if (first.includes('stayed unreachable'))
+    return { reason: 'proxy_unreachable', httpStatus: null };
+  if (first.includes('the site answered HTTP')) return { reason: 'site_refused', httpStatus };
+  if (/listing pages in a row would not load/.test(first))
+    return { reason: 'listings_failed', httpStatus: null };
+  if (/page \d+ would not load after/.test(first)) return { reason: 'pages_failed', httpStatus };
+  if (first.startsWith('the process ended before the run did'))
+    return { reason: 'process_ended', httpStatus: null };
+  return { reason: status === 'failed' ? 'error' : 'other', httpStatus: null };
 }
 
 /** As for a pipeline run: `partial` is the crawl ending partial, which its CLI also exits 1 for. */
@@ -348,6 +431,11 @@ export function buildRealEstateEvent(
   if (run.interrupted) status = 'interrupted';
   else if (run.exitCode === 0) status = 'succeeded';
   else if (crawlRun?.status === 'partial') status = 'partial';
+  // A run still marked running was interrupted, which `status` already says.
+  const stopped =
+    crawlRun === null || crawlRun.status === 'running' || crawlRun.status === 'completed'
+      ? { reason: null, httpStatus: null }
+      : realEstateStopReason(crawlRun.status, crawlRun.notes);
   return {
     event_type: 'xtelo.pipeline.finished',
     schema: HERMES_EVENT_SCHEMA,
@@ -371,9 +459,37 @@ export function buildRealEstateEvent(
             finished_at: crawlRun.finishedAt,
           },
     counts: crawlRun?.counts ?? null,
+    reason: stopped.reason,
+    http_status: stopped.httpStatus,
     release: context.release,
     host: context.host,
     emitted_at: emittedAt,
+  };
+}
+
+/** The proxy went down or came back (`src/hermes/proxy-watch.ts`). */
+export function buildProxyEvent(
+  change: {
+    sourceSlug: string;
+    state: 'down' | 'up';
+    since: string;
+    tunnel: boolean;
+    downMinutes: number | null;
+  },
+  context: EventContext,
+): ProxyChangedEvent {
+  return {
+    event_type: 'xtelo.proxy.changed',
+    schema: HERMES_EVENT_SCHEMA,
+    event_id: `${change.sourceSlug}:proxy:${change.state}:${change.since}`,
+    source: change.sourceSlug,
+    state: change.state,
+    since: change.since,
+    tunnel: change.tunnel,
+    down_minutes: change.downMinutes,
+    release: context.release,
+    host: context.host,
+    emitted_at: context.now.toISOString(),
   };
 }
 
