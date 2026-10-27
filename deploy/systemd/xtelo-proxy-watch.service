@@ -1,0 +1,34 @@
+# Checks ss.ge's way out, the owner's laptop in Tbilisi, and tells Hermes when
+# it goes down (after 10 minutes of failed checks) or comes back
+# (src/cli/proxy-watch.ts). Started every 5 minutes by
+# xtelo-proxy-watch.timer. The event waits in the Hermes outbox for
+# xtelo-hermes-notify.timer, which sends it within 15 minutes; starting the
+# sender from here would add a "skipped" line to the journal every 5 minutes.
+#
+# Without SS_GE_PROXY_URL in worker.env it checks nothing and exits.
+
+[Unit]
+Description=Xtelo ss.ge proxy watch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=xtelo
+Group=xtelo
+WorkingDirectory=/opt/xtelo/current
+EnvironmentFile=/etc/xtelo/worker.env
+ExecStart=/usr/bin/node /opt/xtelo/current/dist/cli/proxy-watch.js
+# One request through the proxy waits 30 s at most, the port 5 s.
+TimeoutStartSec=2min
+# /var/lib/xtelo-proxy-watch: what Hermes was last told, made by systemd.
+StateDirectory=xtelo-proxy-watch
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectProc=invisible
+InaccessiblePaths=-/etc/xtelo -/var/backups/xtelo
+# The Hermes outbox, optional ("-") as in xtelo-pipeline@.service.
+ReadWritePaths=-/var/lib/xtelo/hermes/outbox

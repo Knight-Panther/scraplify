@@ -3,7 +3,7 @@ import { etendersGeSource } from '../policies/etenders-ge.js';
 import { hrGeSource } from '../policies/hr-ge.js';
 import { jobsGeSource } from '../policies/jobs-ge.js';
 import { ssGeSource } from '../policies/ss-ge.js';
-import type { HermesEvent } from './event.js';
+import { type HermesEvent, REAL_ESTATE_STOP_REASONS } from './event.js';
 
 /**
  * The exact shape of an event, checked by the sender before it signs anything.
@@ -152,14 +152,35 @@ const realEstateFinished = z
         verified: count,
       })
       .nullable(),
+    reason: z.enum(REAL_ESTATE_STOP_REASONS).nullable(),
+    http_status: z.number().int().min(100).max(599).nullable(),
   })
   .refine(madeOfItself);
+
+/**
+ * The sources whose requests leave through a proxy that `proxy-watch` checks.
+ * ss.ge only, through the owner's laptop (`SS_GE_PROXY_URL`).
+ */
+export const PROXIED_SOURCES: readonly string[] = [ssGeSource.slug];
+
+/** The proxy went down or came back: a state, two times, a flag and a count. */
+const proxyChanged = z
+  .strictObject({
+    event_type: z.literal('xtelo.proxy.changed'),
+    ...base,
+    source: z.string().refine((source) => PROXIED_SOURCES.includes(source)),
+    state: z.enum(['down', 'up']),
+    since: time,
+    tunnel: z.boolean(),
+    down_minutes: count.nullable(),
+  })
+  .refine((event) => event.event_id === `${event.source}:proxy:${event.state}:${event.since}`);
 
 const test = z
   .strictObject({ event_type: z.literal('xtelo.test'), ...base })
   .refine((event) => event.event_id === `test:${event.emitted_at}`);
 
-const hermesEvent = z.union([pipelineFinished, realEstateFinished, test]);
+const hermesEvent = z.union([pipelineFinished, realEstateFinished, proxyChanged, test]);
 
 /**
  * The value as an event, or `null` when it is not exactly one. `host` is this

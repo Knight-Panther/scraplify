@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildPipelineEvent,
+  buildProxyEvent,
   buildRealEstateEvent,
   buildTestEvent,
   type EventContext,
@@ -329,6 +330,7 @@ describe('parseHermesEvent, real estate', () => {
         status: 'completed',
         startedAt: '2026-10-15T21:30:03.000Z',
         finishedAt: '2026-10-16T00:41:19.000Z',
+        notes: null,
         counts: {
           pages: 1480,
           rows: 23680,
@@ -357,6 +359,24 @@ describe('parseHermesEvent, real estate', () => {
         realEstateFacts({ mode: 'sweep', status: 'partial' }),
         CONTEXT,
       ),
+      // Stopped by the site's 403, and by the laptop proxy staying away.
+      buildRealEstateEvent(
+        realEstateRun({ crawl: 1, exitCode: 1 }),
+        realEstateFacts({
+          status: 'partial',
+          notes: 'cottage-rent page 1: the site answered HTTP 403',
+        }),
+        CONTEXT,
+      ),
+      buildRealEstateEvent(
+        realEstateRun({ crawl: 1, exitCode: 1 }),
+        realEstateFacts({
+          status: 'partial',
+          notes:
+            'flat-sale page 3: the proxy http://127.0.0.1:18888 stayed unreachable (waited 600 min in this run)',
+        }),
+        CONTEXT,
+      ),
       // No crawl run at all.
       buildRealEstateEvent(realEstateRun({ crawl: 1, exitCode: 1 }), { crawlRun: null }, CONTEXT),
       // Interrupted mid-crawl, outside a release directory.
@@ -369,8 +389,18 @@ describe('parseHermesEvent, real estate', () => {
     expect(events.map((event) => event.status)).toEqual([
       'succeeded',
       'partial',
+      'partial',
+      'partial',
       'failed',
       'interrupted',
+    ]);
+    expect(events.map((event) => [event.reason, event.http_status])).toEqual([
+      [null, null],
+      [null, null],
+      ['site_refused', 403],
+      ['proxy_unreachable', null],
+      [null, null],
+      [null, null],
     ]);
     for (const event of events) {
       expect(parse(fromFile(event))).toEqual(event);
@@ -450,6 +480,24 @@ describe('parseHermesEvent, real estate', () => {
         event.event_id = 'ss-ge:00000000-0000-4000-8000-000000000000';
       },
     ],
+    [
+      "the run's notes in place of a fixed reason",
+      (event) => {
+        event.reason = 'cottage-rent page 1: the site answered HTTP 403';
+      },
+    ],
+    [
+      'an HTTP status that is no status',
+      (event) => {
+        event.http_status = 4030;
+      },
+    ],
+    [
+      'an event without its reason',
+      (event) => {
+        delete event.reason;
+      },
+    ],
   ])('refuses %s', (_name, change) => {
     const event = realEstateEvent();
     expect(parse(event)).not.toBeNull();
@@ -459,6 +507,78 @@ describe('parseHermesEvent, real estate', () => {
 
   it('refuses a job-board event naming a real-estate source', () => {
     const event = fromFile(buildPipelineEvent(run({ sourceSlug: 'ss-ge' }), facts(), CONTEXT));
+    expect(parse(event)).toBeNull();
+  });
+});
+
+describe('parseHermesEvent, proxy watch', () => {
+  const down = () =>
+    fromFile(
+      buildProxyEvent(
+        {
+          sourceSlug: 'ss-ge',
+          state: 'down',
+          since: '2026-10-27T08:00:00.000Z',
+          tunnel: false,
+          downMinutes: null,
+        },
+        CONTEXT,
+      ),
+    );
+
+  it('takes every event the builder makes, unchanged', () => {
+    const up = buildProxyEvent(
+      {
+        sourceSlug: 'ss-ge',
+        state: 'up',
+        since: '2026-10-27T09:15:00.000Z',
+        tunnel: true,
+        downMinutes: 75,
+      },
+      { ...CONTEXT, release: null },
+    );
+    expect(up.event_id).toBe('ss-ge:proxy:up:2026-10-27T09:15:00.000Z');
+    expect(parse(fromFile(up))).toEqual(up);
+    expect(parse(down())).toEqual(down());
+  });
+
+  it.each<[string, (event: Record<string, unknown>) => void]>([
+    [
+      'a source without a proxy',
+      (event) => {
+        event.source = 'jobs-ge';
+        event.event_id = 'jobs-ge:proxy:down:2026-10-27T08:00:00.000Z';
+      },
+    ],
+    [
+      'a state of its own',
+      (event) => {
+        event.state = 'down, call the owner';
+        event.event_id = `ss-ge:proxy:${String(event.state)}:2026-10-27T08:00:00.000Z`;
+      },
+    ],
+    [
+      'an id that is not made of the event itself',
+      (event) => {
+        event.event_id = 'ss-ge:proxy:down:2026-10-27T07:00:00.000Z';
+      },
+    ],
+    [
+      'a tunnel flag that is text',
+      (event) => {
+        event.tunnel = 'no';
+      },
+    ],
+    [
+      "a pipeline run's fields",
+      (event) => {
+        event.status = 'failed';
+      },
+    ],
+  ])('refuses %s', (_name, change) => {
+    const event = down();
+    expect(parse(event)).not.toBeNull();
+    change(event);
     expect(parse(event)).toBeNull();
   });
 });
