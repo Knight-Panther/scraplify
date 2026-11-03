@@ -22,6 +22,7 @@ export interface ListingCard {
   priceGel: number | null;
   priceUsd: number | null;
   pricePerM2Usd: number | null;
+  pricePerM2Gel: number | null;
   currencyPosted: 'gel' | 'usd' | null;
   cityRef: number | null;
   cityName: string | null;
@@ -33,6 +34,18 @@ export interface ListingCard {
   streetNumber: string | null;
   posterType: 'owner' | 'agent' | 'developer' | 'unknown';
   promoted: boolean;
+  /** ss.ge's code for a commercial space's type (`COMMERCIAL_TYPE_CODES`), or null. */
+  commercialType: number | null;
+  /** ss.ge's code for a plot's land type (`LAND_TYPE_CODES`), or null. */
+  landType: number | null;
+  /** How many photos it has; 0 is a real answer. No photo is ever fetched. */
+  imageCount: number | null;
+  /** Null when the source does not say. */
+  hasFurniture: boolean | null;
+  hasBuiltInKitchen: boolean | null;
+  exclusive: boolean;
+  /** The poster offers a viewing by video call. */
+  videoViewing: boolean;
   description: string | null;
   similarityGroup: string | null;
   /** ISO instants, already converted from the source's local time. */
@@ -44,7 +57,7 @@ export interface ListingCard {
 /** A listing's price as a source states it, in both currencies and the one it was posted in. */
 export type ListingPrice = Pick<
   ListingCard,
-  'priceGel' | 'priceUsd' | 'pricePerM2Usd' | 'currencyPosted'
+  'priceGel' | 'priceUsd' | 'pricePerM2Usd' | 'pricePerM2Gel' | 'currencyPosted'
 >;
 
 /**
@@ -78,6 +91,14 @@ type MeaningfulFields = Omit<
   | 'sourceListingKey'
   | 'canonicalUrl'
   | 'promoted'
+  | 'pricePerM2Gel'
+  | 'commercialType'
+  | 'landType'
+  | 'imageCount'
+  | 'hasFurniture'
+  | 'hasBuiltInKitchen'
+  | 'exclusive'
+  | 'videoViewing'
   | 'sourceUpdatedAt'
   | 'sourceCreatedAt'
   | 'expectedEndAt'
