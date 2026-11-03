@@ -160,6 +160,7 @@ function columnsOf(card: ListingCard, contentHash: string) {
     priceGel: money(card.priceGel),
     priceUsd: money(card.priceUsd),
     pricePerM2Usd: money(card.pricePerM2Usd),
+    pricePerM2Gel: money(card.pricePerM2Gel),
     currencyPosted: card.currencyPosted,
     cityRef: card.cityRef,
     cityName: card.cityName,
@@ -170,10 +171,29 @@ function columnsOf(card: ListingCard, contentHash: string) {
     streetName: card.streetName,
     streetNumber: card.streetNumber,
     posterType: card.posterType,
-    promoted: card.promoted,
+    ...rowExtrasOf(card),
     description: card.description,
     similarityGroup: card.similarityGroup,
     contentHash,
+  };
+}
+
+/**
+ * What a results row says beside the fields that matter for a change: kept
+ * current on every sighting, a change in them never called a change. Leaving
+ * them out of `listingContentHash` also means rows stored before Phase 12A
+ * are not all taken for changed once.
+ */
+function rowExtrasOf(card: ListingCard) {
+  return {
+    promoted: card.promoted,
+    commercialType: card.commercialType,
+    landType: card.landType,
+    imageCount: card.imageCount,
+    hasFurniture: card.hasFurniture,
+    hasBuiltInKitchen: card.hasBuiltInKitchen,
+    exclusive: card.exclusive,
+    videoViewing: card.videoViewing,
   };
 }
 
@@ -278,7 +298,8 @@ export async function upsertListing(
         .set({
           lastSeenAt: seenAt,
           missedAt: null,
-          promoted: card.promoted,
+          ...rowExtrasOf(card),
+          pricePerM2Gel: money(card.pricePerM2Gel),
           contentHash,
           ...converted,
         })
@@ -374,6 +395,7 @@ export async function recordPriceSighting(
         priceGel: money(price.priceGel),
         priceUsd: money(price.priceUsd),
         pricePerM2Usd: money(price.pricePerM2Usd),
+        pricePerM2Gel: money(price.pricePerM2Gel),
         currencyPosted: price.currencyPosted,
       })
       .where(eq(realEstateListings.id, listingId));
