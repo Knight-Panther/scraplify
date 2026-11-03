@@ -3,6 +3,7 @@ import type {
   RealEstateLocations,
   RealEstateSort,
 } from '../../src/realestate/queries.js';
+import { DEAL_TYPES, PROPERTY_TYPES } from '../../src/realestate/kinds.js';
 import { capGraphemes, MAX_TEXT, one, type RawSearchParams } from './search-params.js';
 
 /**
@@ -21,8 +22,8 @@ export const REAL_ESTATE_CHUNK = 100;
 /** The most rows one page will render; past it the answer is a narrower filter. */
 export const REAL_ESTATE_MAX_SHOWN = 2_000;
 
-export const DEAL_OPTIONS = ['sale', 'rent'] as const;
-export const KIND_OPTIONS = ['flat', 'house', 'cottage'] as const;
+export const DEAL_OPTIONS = DEAL_TYPES;
+export const KIND_OPTIONS = PROPERTY_TYPES;
 export const CURRENCY_OPTIONS = ['usd', 'gel'] as const;
 export const ROOM_OPTIONS = ['1', '2', '3', '4', '5+'] as const;
 export const FLOOR_OPTIONS = ['not-first', 'not-last', 'middle'] as const;

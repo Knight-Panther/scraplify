@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, isNotNull, ne, sql } from 'drizzle-orm';
 import { realEstateListingGroups, realEstateListings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import type { DealType, PropertyType } from './kinds.js';
 
 /**
  * Look-alike listings: the same flat or house posted more than once, by its
@@ -64,8 +65,8 @@ export function streetKey(name: string | null | undefined): string | null {
 
 export interface GroupingRow {
   id: string;
-  dealType: 'sale' | 'rent';
-  propertyType: 'flat' | 'house' | 'cottage';
+  dealType: DealType;
+  propertyType: PropertyType;
   cityRef: number | null;
   subdistrictRef: number | null;
   streetName: string | null;

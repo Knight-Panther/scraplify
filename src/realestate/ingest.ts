@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { realEstateListings, realEstatePriceChanges } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import type { DealType, PropertyType } from './kinds.js';
 
 /**
  * One listing as a source's results page shows it, already normalised by the
@@ -11,8 +12,8 @@ import type { DatabaseOrTransaction } from '../db/types.js';
 export interface ListingCard {
   sourceListingKey: string;
   canonicalUrl: string;
-  dealType: 'sale' | 'rent';
-  propertyType: 'flat' | 'house' | 'cottage';
+  dealType: DealType;
+  propertyType: PropertyType;
   rooms: number | null;
   bedrooms: number | null;
   areaM2: number | null;

@@ -16,6 +16,7 @@ import {
 } from 'drizzle-orm';
 import { realEstatePublicListings as listings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import type { DealType, PropertyType } from './kinds.js';
 import { listingSearchQuery } from './search.js';
 
 /**
@@ -37,8 +38,8 @@ export type RealEstateSort = 'newest' | 'price-asc' | 'price-desc' | 'ppm2-asc' 
 export interface RealEstateFilters {
   /** One source's listings only. */
   sourceId?: string;
-  dealType?: 'sale' | 'rent';
-  propertyType?: 'flat' | 'house' | 'cottage';
+  dealType?: DealType;
+  propertyType?: PropertyType;
   cityRef?: number;
   districtRef?: number;
   subdistrictRef?: number;
@@ -74,8 +75,8 @@ export interface RealEstateFilters {
 export interface RealEstateRow {
   id: string;
   canonicalUrl: string;
-  dealType: 'sale' | 'rent';
-  propertyType: 'flat' | 'house' | 'cottage';
+  dealType: DealType;
+  propertyType: PropertyType;
   rooms: number | null;
   bedrooms: number | null;
   areaM2: number | null;

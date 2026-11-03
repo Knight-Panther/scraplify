@@ -59,8 +59,8 @@ const NOW = Date.parse('2026-10-12T18:00:00.000Z');
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const TBILISI_OFFSET_MS = 4 * HOUR_MS;
-const KIND_CODE = { flat: 5, house: 4, cottage: 1 } as const;
-const DEAL_CODE = { sale: 4, rent: 1 } as const;
+const KIND_CODE = { flat: 5, house: 4, cottage: 1, commercial: 6, land: 3, hotel: 2 } as const;
+const DEAL_CODE = { sale: 4, rent: 1, daily: 3, pledge: 2 } as const;
 
 type ListKey = SsGeList['key'];
 

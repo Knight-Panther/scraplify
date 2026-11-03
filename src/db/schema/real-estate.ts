@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { DEAL_TYPES, PROPERTY_TYPES } from '../../realestate/kinds.js';
 import { sources } from './sources.js';
 
 /**
@@ -53,12 +54,9 @@ const LISTING_SEARCH_SQL = sql.raw(
   ].join(''),
 );
 
-export const realEstateDealTypeEnum = realEstate.enum('deal_type', ['sale', 'rent']);
-export const realEstatePropertyTypeEnum = realEstate.enum('property_type', [
-  'flat',
-  'house',
-  'cottage',
-]);
+/** From `src/realestate/kinds.ts`, which keeps new values at the end (Postgres only appends). */
+export const realEstateDealTypeEnum = realEstate.enum('deal_type', DEAL_TYPES);
+export const realEstatePropertyTypeEnum = realEstate.enum('property_type', PROPERTY_TYPES);
 export const realEstateCurrencyEnum = realEstate.enum('currency', ['gel', 'usd']);
 /** `unknown` is a real answer: a source that does not say who posted is not saying "owner". */
 export const realEstatePosterTypeEnum = realEstate.enum('poster_type', [
