@@ -120,7 +120,7 @@ export function one(value: string | string[] | undefined): string {
  * de-duplicated. A single non-array value is treated as one entry, so
  * `?status=a` and `?status=a&status=a` behave the same.
  */
-function many(value: string | string[] | undefined): string[] {
+export function many(value: string | string[] | undefined): string[] {
   if (value === undefined) return [];
   const values = Array.isArray(value) ? value : [value];
   return [...new Set(values.map((v) => v.trim()).filter((v) => v !== ''))];

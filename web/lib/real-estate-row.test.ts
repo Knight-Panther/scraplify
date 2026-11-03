@@ -8,7 +8,9 @@ import {
   placeText,
   posterText,
   priceOf,
+  priceText,
   streetText,
+  subTypeLabel,
 } from './real-estate-row.js';
 
 function row(overrides: Partial<RealEstateRow> = {}): RealEstateRow {
@@ -48,6 +50,31 @@ describe('real-estate row text', () => {
     expect(listingLabel(row())).toBe('Flat for sale');
     expect(listingLabel(row({ propertyType: 'house', dealType: 'rent' }))).toBe('House for rent');
     expect(listingLabel(row({ propertyType: 'cottage' }))).toBe('Summer cottage for sale');
+  });
+
+  it('labels an office for rent and a daily rent a night', () => {
+    const office = row({ propertyType: 'commercial', dealType: 'rent', commercialType: 7 });
+    expect(listingLabel(office)).toBe('Office for rent');
+    expect(listingLabel(row({ propertyType: 'land', landType: 1 }))).toBe(
+      'Agricultural land for sale',
+    );
+    expect(listingLabel(row({ propertyType: 'hotel', dealType: 'pledge' }))).toBe(
+      'Hotel for pledge',
+    );
+    // A code ss.ge adds later, or none: the kind alone.
+    expect(listingLabel(row({ propertyType: 'commercial', commercialType: 99 }))).toBe(
+      'Commercial space for sale',
+    );
+    expect(listingLabel(row({ propertyType: 'land', landType: null }))).toBe('Land for sale');
+    expect(subTypeLabel(row({ propertyType: 'commercial', commercialType: 99 }))).toBe('Other');
+    expect(subTypeLabel(row())).toBeNull();
+
+    const night = row({ dealType: 'daily', priceUsd: 31, priceGel: 84 });
+    expect(listingLabel(night)).toBe('Flat for daily rent');
+    expect(priceText(night, 'usd')).toBe('$31 a night');
+    expect(priceText(night, 'gel')).toBe('84 ₾ a night');
+    expect(priceText(row(), 'usd')).toBe('$100,000');
+    expect(priceText(row({ priceUsd: null }), 'usd')).toBeNull();
   });
 
   it('writes a floor as "6 / 14" and leaves out what is not known', () => {
