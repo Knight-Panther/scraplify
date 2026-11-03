@@ -13,7 +13,7 @@ export const KIND_LABELS: Readonly<Record<RealEstateRow['propertyType'], string>
   flat: 'Flat',
   house: 'House',
   cottage: 'Summer cottage',
-  commercial: 'Commercial space',
+  commercial: 'Commercial',
   land: 'Land',
   hotel: 'Hotel',
 };
@@ -72,12 +72,9 @@ export function listingLabel(row: RealEstateRow): string {
 /** What a price is for, where it is not the whole deal: daily rent is priced by the night. */
 const PRICE_UNIT: Partial<Record<DealType, string>> = { daily: 'a night' };
 
-/** The price as stated, with what it is for where that is not plain: "$31 a night". */
-export function priceText(row: RealEstateRow, currency: Currency): string | null {
-  const price = priceOf(row, currency);
-  if (price === null) return null;
-  const unit = PRICE_UNIT[row.dealType];
-  return unit === undefined ? money(price, currency) : `${money(price, currency)} ${unit}`;
+/** "a night" for daily rent; null where the price is for the whole deal. */
+export function priceUnit(row: RealEstateRow): string | null {
+  return PRICE_UNIT[row.dealType] ?? null;
 }
 
 /** "6 / 14" for a flat; "2 floors" for a house, which has storeys and no floor it is on. */
@@ -100,8 +97,12 @@ export function money(amount: number, currency: Currency): string {
   return currency === 'gel' ? `${WHOLE.format(amount)} ₾` : `$${WHOLE.format(amount)}`;
 }
 
-/** Price per square metre in the currency shown, from that price and the area. */
+/**
+ * Price per square metre in the currency shown, from that price and the
+ * area. None for daily rent: one night's price over the floor area says nothing.
+ */
 export function perMetre(row: RealEstateRow, currency: Currency): number | null {
+  if (row.dealType === 'daily') return null;
   const price = priceOf(row, currency);
   if (price === null || row.areaM2 === null || row.areaM2 <= 0) return null;
   return Math.round(price / row.areaM2);

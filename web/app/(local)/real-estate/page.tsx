@@ -28,7 +28,8 @@ import {
   perMetre,
   placeText,
   posterText,
-  priceText,
+  priceOf,
+  priceUnit,
   streetText,
 } from '../../../lib/real-estate-row.js';
 import type { RawSearchParams } from '../../../lib/search-params.js';
@@ -419,14 +420,16 @@ function SubTypes({
         {Object.entries(labels).map(([code, label]) => (
           <label
             key={code}
-            className="flex cursor-pointer items-center gap-2 rounded-[var(--radius)] border border-border bg-surface px-3 py-1.5 text-sm text-foreground has-[:checked]:border-accent has-[:checked]:bg-surface-active"
+            className="flex cursor-pointer items-center gap-2 rounded-[var(--radius)] border border-border bg-surface px-3 py-1.5 text-sm text-foreground hover:border-border-strong has-[:checked]:border-accent has-[:checked]:bg-surface-active has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-ring)] has-[:focus-visible]:outline-solid"
           >
             <input
               type="checkbox"
               name={name}
               value={code}
               defaultChecked={checked.includes(code)}
-              className="size-4 accent-[var(--color-accent-strong)]"
+              // The ring goes on the whole chip (above), not the box inside it;
+              // important because the global focus rule in globals.css is unlayered.
+              className="size-4 accent-[var(--color-accent-strong)] focus-visible:outline-none!"
             />
             {label}
           </label>
@@ -577,7 +580,8 @@ function Row({
   groupHref: string | null;
 }) {
   const label = listingLabel(row);
-  const price = priceText(row, currency);
+  const price = priceOf(row, currency);
+  const unit = priceUnit(row);
   const metre = perMetre(row, currency);
   const floor = floorText(row);
   const place = placeText(row);
@@ -627,7 +631,13 @@ function Row({
 
       <td className="numeric hidden py-1.5 pr-4 text-right text-muted xl:table-cell">{floor}</td>
 
-      <td className="numeric py-1.5 pr-4 text-right">{price}</td>
+      <td className="numeric py-1.5 pr-4 text-right">
+        {price === null ? null : money(price, currency)}
+        {/* Under the amount at every width, rather than wrapping wherever the column ends. */}
+        {price === null || unit === null ? null : (
+          <span className="block text-xs text-faint">{unit}</span>
+        )}
+      </td>
 
       <td className="numeric hidden py-1.5 pr-4 text-right text-muted md:table-cell">
         {metre === null ? null : money(metre, currency)}

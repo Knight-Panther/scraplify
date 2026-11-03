@@ -8,7 +8,7 @@ import {
   placeText,
   posterText,
   priceOf,
-  priceText,
+  priceUnit,
   streetText,
   subTypeLabel,
 } from './real-estate-row.js';
@@ -63,7 +63,7 @@ describe('real-estate row text', () => {
     );
     // A code ss.ge adds later, or none: the kind alone.
     expect(listingLabel(row({ propertyType: 'commercial', commercialType: 99 }))).toBe(
-      'Commercial space for sale',
+      'Commercial for sale',
     );
     expect(listingLabel(row({ propertyType: 'land', landType: null }))).toBe('Land for sale');
     expect(subTypeLabel(row({ propertyType: 'commercial', commercialType: 99 }))).toBe('Other');
@@ -71,10 +71,9 @@ describe('real-estate row text', () => {
 
     const night = row({ dealType: 'daily', priceUsd: 31, priceGel: 84 });
     expect(listingLabel(night)).toBe('Flat for daily rent');
-    expect(priceText(night, 'usd')).toBe('$31 a night');
-    expect(priceText(night, 'gel')).toBe('84 ₾ a night');
-    expect(priceText(row(), 'usd')).toBe('$100,000');
-    expect(priceText(row({ priceUsd: null }), 'usd')).toBeNull();
+    expect(priceUnit(night)).toBe('a night');
+    expect(priceUnit(row())).toBeNull();
+    expect(priceUnit(row({ dealType: 'pledge' }))).toBeNull();
   });
 
   it('writes a floor as "6 / 14" and leaves out what is not known', () => {
@@ -101,6 +100,8 @@ describe('real-estate row text', () => {
     expect(perMetre(row({ areaM2: null }), 'usd')).toBeNull();
     expect(perMetre(row({ areaM2: 0 }), 'usd')).toBeNull();
     expect(perMetre(row({ priceUsd: null }), 'usd')).toBeNull();
+    // A price for one night, spread over the floor area, says nothing.
+    expect(perMetre(row({ dealType: 'daily', priceUsd: 31 }), 'usd')).toBeNull();
   });
 
   it('names the place from the most local name it has', () => {
