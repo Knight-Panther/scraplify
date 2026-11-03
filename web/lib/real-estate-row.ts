@@ -12,11 +12,16 @@ export const KIND_LABELS: Readonly<Record<RealEstateRow['propertyType'], string>
   flat: 'Flat',
   house: 'House',
   cottage: 'Summer cottage',
+  commercial: 'Commercial',
+  land: 'Land',
+  hotel: 'Hotel',
 };
 
 export const DEAL_LABELS: Readonly<Record<RealEstateRow['dealType'], string>> = {
   sale: 'for sale',
   rent: 'for rent',
+  daily: 'for daily rent',
+  pledge: 'for pledge',
 };
 
 export function listingLabel(row: RealEstateRow): string {
