@@ -33,6 +33,8 @@ function row(overrides: Partial<RealEstateRow> = {}): RealEstateRow {
     streetNumber: '2',
     posterType: 'agent',
     promoted: false,
+    commercialType: null,
+    landType: null,
     sourceUpdatedAt: '2026-10-12T12:00:00.000Z',
     firstSeenAt: '2026-10-12T12:00:00.000Z',
     groupKey: null,

@@ -133,6 +133,30 @@ describe('real-estate queries', () => {
       );
     });
 
+    it('filters commercial listings by space type, several at once', async () => {
+      const sourceId = await newSource();
+      const commercial = {
+        propertyType: 'commercial' as const,
+        dealType: 'rent' as const,
+        rooms: null,
+      };
+      const office = await listing(sourceId, { ...commercial, commercialType: 7 });
+      const shop = await listing(sourceId, { ...commercial, commercialType: 22 });
+      await listing(sourceId, { ...commercial, commercialType: 14 });
+      await listing(sourceId, { ...commercial, commercialType: null });
+      const farm = await listing(sourceId, { propertyType: 'land', rooms: null, landType: 6 });
+      await listing(sourceId, { propertyType: 'land', rooms: null, landType: 1 });
+
+      expect((await find(sourceId, { commercialTypes: [7, 22] })).sort()).toEqual(
+        [office, shop].sort(),
+      );
+      expect(await find(sourceId, { landTypes: [6] })).toEqual([farm]);
+      // An empty choice narrows nothing.
+      expect(await find(sourceId, { commercialTypes: [] })).toHaveLength(6);
+      const [row] = await searchRealEstate(db, { sourceId, landTypes: [6] }, NOW_ISO);
+      expect(row).toMatchObject({ propertyType: 'land', landType: 6, commercialType: null });
+    });
+
     it('narrows by price in the currency asked for, leaving out listings with no price', async () => {
       const sourceId = await newSource();
       const cheap = await listing(sourceId, { priceUsd: '50000.00', priceGel: '135000.00' });
@@ -410,6 +434,79 @@ describe('real-estate queries', () => {
       const cheap = await listing(sourceId, { ...rent, priceUsd: '400.00', priceGel: '1080.00' });
 
       expect(await find(sourceId, { sort: 'price-desc' })).toEqual([dear, cheap, saleAsRent]);
+    });
+
+    it('does not sort a $31-a-night daily rent last as a typo', async () => {
+      const sourceId = await newSource();
+      const daily = { dealType: 'daily' as const, areaM2: '45.00', pricePerM2Usd: '1.00' };
+      const night = await listing(sourceId, { ...daily, priceUsd: '31.00', priceGel: '84.00' });
+      const villa = await listing(sourceId, { ...daily, priceUsd: '450.00', priceGel: '1215.00' });
+      // A sale price typed into a daily rent, and a price of nothing.
+      const saleAsDaily = await listing(sourceId, {
+        ...daily,
+        priceUsd: '95000.00',
+        priceGel: '256000.00',
+      });
+      const oneDollar = await listing(sourceId, { ...daily, priceUsd: '1.00', priceGel: '3.00' });
+
+      expect(await find(sourceId, { sort: 'price-asc' })).toEqual([
+        night,
+        villa,
+        oneDollar,
+        saleAsDaily,
+      ]);
+    });
+
+    it('takes $1,500 for pledge for real, and $500 for a typo', async () => {
+      const sourceId = await newSource();
+      const pledge = { dealType: 'pledge' as const };
+      const small = await listing(sourceId, {
+        ...pledge,
+        priceUsd: '1500.00',
+        priceGel: '4050.00',
+      });
+      const typo = await listing(sourceId, { ...pledge, priceUsd: '500.00', priceGel: '1350.00' });
+
+      expect(await find(sourceId, { sort: 'price-asc' })).toEqual([small, typo]);
+    });
+
+    it('does not call 50,000 m² of land at $2 a m² a typo', async () => {
+      const sourceId = await newSource();
+      const field = await listing(sourceId, {
+        propertyType: 'land',
+        rooms: null,
+        areaM2: '50000.00',
+        priceUsd: '100000.00',
+        priceGel: '270000.00',
+        pricePerM2Usd: '2.00',
+      });
+      const plot = await listing(sourceId, {
+        propertyType: 'land',
+        rooms: null,
+        areaM2: '600.00',
+        priceUsd: '30000.00',
+        priceGel: '81000.00',
+        pricePerM2Usd: '50.00',
+      });
+      // A warehouse of 20,000 m² at $5 a m² is still a typo.
+      const warehouse = await listing(sourceId, {
+        propertyType: 'commercial',
+        rooms: null,
+        areaM2: '20000.00',
+        priceUsd: '100000.00',
+        priceGel: '270000.00',
+        pricePerM2Usd: '5.00',
+      });
+
+      expect(await find(sourceId, { sort: 'area-desc' })).toEqual([field, plot, warehouse]);
+    });
+
+    it('still sorts a flat for sale at $462 last', async () => {
+      const sourceId = await newSource();
+      const fair = await listing(sourceId, { priceUsd: '90000.00', priceGel: '243000.00' });
+      const rentAsSale = await listing(sourceId, { priceUsd: '462.00', priceGel: '1200.00' });
+
+      expect(await find(sourceId, { sort: 'price-asc' })).toEqual([fair, rentAsSale]);
     });
 
     it('pages without repeating or dropping a row when times tie', async () => {
