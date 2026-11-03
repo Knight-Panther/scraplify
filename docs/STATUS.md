@@ -9,13 +9,15 @@ This file is the **current-state index**: what is done, what is open, and what g
 Owner decision 2026-11-03: the Real estate tab offers every filter ss.ge offers. Three phases, one branch each: **12A** crawls all 24 lists (six kinds × sale, rent, daily rent, pledge) and stores the extra fields results rows carry; **12B** reads each listing's own page once, from now on only (no backlog), for status, condition and amenities; **12C** builds each kind's "more filters" panel. Requests stay one at a time, 3 s apart, with no count cap (owner: "as many as safe"); 12B adds a 16-hour time box and a 20,000-request ceiling. Recon: `src/adapters/ss-ge/RECON_NOTES.md`, "Recon 2026-11-03"; scope: guideline §3.
 
 - **Phase 12A (branch `phase-12a-ss-ge-all-kinds`):** migration `0044` (enum values `commercial`, `land`, `hotel`, `daily`, `pledge`; eight list-row columns, appended to `public_listings` with `create or replace`); the parser reads the new codes, fields and the list total; the walker crawls 24 lists, finishes an empty list, and each night reads whole as many of the least recently read lists as fit 4,000 pages; policy v2; space and land type filters and per-deal typo bounds; the tab offers every kind and deal with space and land types.
-  - **12A exit gate:**
-    - [ ] 24 lists crawled
-    - [ ] empty list handled
-    - [ ] trial passed
-    - [ ] first host run completed
-    - [ ] every list read whole once
-    - [ ] tab shows all kinds
+  - **12A exit gate, before merge:**
+    - [x] 24 lists crawled: the walker, 24 lists smallest first, and the 4,000-page whole-list rotation (`crawl.test.ts`, 44 DB tests).
+    - [x] Empty list handled: page 1 with no rows and a count of 0 finishes the list, believed only of a list never sized or last known to fit on one page (tests for both, and for the list that empties).
+    - [x] Trial passed (2026-11-03, `scraplify_qa_p12a`): 63 requests, none failed; 60 pages, 877 listings; the eight smallest lists and land for rent read to their end; space and land types filled on most rows.
+    - [x] Tab shows all kinds: every kind and deal, space and land types, daily prices "a night"; browser QA at 390 and 1280 on the trial rows, no horizontal scroll.
+    - [x] Full local check: lint and typecheck clean, 2,048 tests passed (9 skipped) on a throwaway Postgres; one whole-branch review (Opus), its one Important finding fixed test-first.
+  - **12A exit gate, after deploy:**
+    - [ ] First host run completed.
+    - [ ] Every list read whole once (expected about three nights after the deploy).
 
 ## Phase 11 (complete, 2026-10-19)
 
