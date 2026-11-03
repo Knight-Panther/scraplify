@@ -10,7 +10,7 @@ export const ssGeSource = SourceSchema.parse({
 export const ssGePolicy = SourcePolicySchema.parse({
   id: '44e70770-f5c3-4279-a32d-9cdd203915f5',
   sourceId: ssGeSource.id,
-  policyVersion: 'v1',
+  policyVersion: 'v2',
   // Every page is server-rendered Next.js with its data embedded as JSON
   // (docs/real-estate-implementation-guideline.md §5), so plain HTTP reads
   // everything this adapter needs. The site's own frontend pages through a
@@ -42,7 +42,7 @@ export const ssGePolicy = SourcePolicySchema.parse({
     crawlDelaySeconds: 3,
     maxConcurrency: 1,
     notes:
-      "robots.txt declares no Crawl-delay, and no rate-limit header, challenge or 429 was seen across about 150 requests on 2026-10-12, including from the production server. 3 s and one request at a time match this project's politeness floor (hr.ge, etenders.ge). Results pages are slow: median 6.8 s on broad queries, up to 20 s when a request passes the end of a list, hence the 60 s request timeout the CLI sets. No request budget has been agreed with the site yet (guideline §2.2); the nightly run is sized to stay under 2,000 requests.",
+      "One request at a time, at least 3 s after the previous answer, never lowered: the host's traffic leaves through the owner's own connection. robots.txt declares no Crawl-delay, and no rate-limit header, challenge or 429 was seen across about 150 requests on 2026-10-12 nor in the live recon of 2026-11-03. Owner decision 2026-11-03 (\"as many as safe\"): no request-count cap; safety is the spacing, stopping at once on any refusal or back-off, and a bound on each run's time (the unit's own limit; from Phase 12B also a 16-hour time box and a 20,000-request runaway ceiling). The 60 s request timeout the CLI sets dates from October, when results pages took a median 6.8 s.",
   },
   termsUrl: 'https://ss.ge/ka/home/help?index=13',
   robotsUrl: 'https://home.ss.ge/robots.txt',
@@ -64,24 +64,25 @@ export const ssGePolicy = SourcePolicySchema.parse({
     mayFetchExternalApplicationPages: false,
     retention: 'none',
     notes:
-      'Disabled (§16). Photos are out of scope for version 1 and are neither fetched nor linked.',
+      'Disabled (§16). No photo is fetched, stored, linked or shown (owner, 2026-11-03); only the photo count a results row states is kept.',
   },
-  reviewDate: '2026-10-12T00:00:00Z',
+  reviewDate: '2026-11-03T00:00:00Z',
   evidence: [
     'docs/real-estate-implementation-guideline.md (live read-only study, 2026-10-12: address and filter map, row and detail fields, paging behaviour, traps)',
     'https://home.ss.ge/robots.txt (fetched 2026-10-12: Disallow /ka/user, /en/user, /ru/user; no Crawl-delay)',
     'https://ss.ge/ka/home/help?index=13 (posting rules, read 2026-10-12: no clause on automated access or reuse)',
     'Reachability from the production server, 2026-10-12 13:30 UTC: results and detail pages answered 200 with the project User-Agent',
     "docs/RIGHTS.md (the owner's verbal OK from ss.ge, recorded 2026-10-12)",
+    "Live recon from the owner's PC, 2026-11-03 (src/adapters/ss-ge/RECON_NOTES.md): the 24 lists of six kinds and four deals; results pages answered in 0.3–1.0 s and listing pages in 0.1–0.6 s; no refusal, challenge or 429",
   ],
   notes:
-    'Real-estate classifieds on home.ss.ge. Version 1 scope (owner, 2026-10-12): flats, houses and summer cottages, for sale and long-term rent, all of Georgia. Rows are stored in the realestate schema, not in source_listings, and the source is excluded from job-board health, retention and matching (src/source-traits.ts, REAL_ESTATE_SOURCES).',
+    'Real-estate classifieds on home.ss.ge. Scope (owner, 2026-11-03, widening the flats, houses and summer cottages for sale and rent of 2026-10-12): all six kinds (flats, houses, summer cottages, commercial spaces, land, hotels) for all four deals (sale, rent, daily rent, pledge), all of Georgia. Rows are stored in the realestate schema, not in source_listings, and the source is excluded from job-board health, retention and matching (src/source-traits.ts, REAL_ESTATE_SOURCES).',
   decisionOwner: 'project owner',
 });
 
-/** Kinds and deals in scope; daily rent, land, commercial and hotels are not. */
+/** Every kind and deal (Phase 12A): the kind and the deal are both always named. */
 const RESULTS_PATH_RE =
-  /^\/ka\/udzravi-qoneba\/l\/(bina|kerdzo-saxli|agaraki)\/(iyideba|qiravdeba)$/;
+  /^\/ka\/udzravi-qoneba\/l\/(bina|kerdzo-saxli|agaraki|komerciuli|mitsis-nakveti|sastumro)\/(iyideba|qiravdeba|qiravdeba-dghiurad|giravdeba)$/;
 /** Detail pages are requested by id alone; the site ignores any slug. */
 const DETAIL_PATH_RE = /^\/ka\/udzravi-qoneba\/[1-9][0-9]{0,9}$/;
 
@@ -98,7 +99,7 @@ const ROOMS_RE = /^[1-9]$/;
  * stops at the wrong place.
  *
  * Authorized:
- *   - a results page for a kind and deal in scope, with exactly `order=1` and
+ *   - a results page for one kind and one deal, with exactly `order=1` and
  *     a `page`, plus optionally one `cityIdList` and one `rooms`;
  *   - a detail page at '/ka/udzravi-qoneba/<id>' with no query.
  * Everything else is rejected, including any other host, scheme or port.

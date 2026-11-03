@@ -54,9 +54,40 @@ describe('isSsGeUrlAllowed', () => {
     expect(isSsGeUrlAllowed(`${FLATS_FOR_SALE}#top`)).toBe(false);
   });
 
+  it('allows the results pages of every kind and deal', () => {
+    // Phase 12A (owner, 2026-11-03): all six kinds, all four deals.
+    const kinds = ['bina', 'kerdzo-saxli', 'agaraki', 'komerciuli', 'mitsis-nakveti', 'sastumro'];
+    const deals = ['iyideba', 'qiravdeba', 'qiravdeba-dghiurad', 'giravdeba'];
+    for (const kind of kinds) {
+      for (const deal of deals) {
+        expect(isSsGeUrlAllowed(`${RESULTS}/${kind}/${deal}?order=1&page=1`), kind + deal).toBe(
+          true,
+        );
+      }
+    }
+    expect(
+      isSsGeUrlAllowed(
+        'https://home.ss.ge/ka/udzravi-qoneba/l/mitsis-nakveti/qiravdeba-dghiurad?order=1&page=1',
+      ),
+    ).toBe(true);
+  });
+
+  it('still refuses the kindless daily-rent hub and the advanced-search parameter', () => {
+    expect(isSsGeUrlAllowed(`${RESULTS}/qiravdeba-dghiurad?order=1&page=1`)).toBe(false);
+    expect(isSsGeUrlAllowed(`${RESULTS}/bina/iyideba?order=1&page=1&advancedSearch=%7B%7D`)).toBe(
+      false,
+    );
+  });
+
+  it('records the 2026-11-03 review: version 2, every kind and deal, spacing unchanged', () => {
+    expect(ssGePolicy.policyVersion).toBe('v2');
+    expect(ssGePolicy.reviewDate).toBe('2026-11-03T00:00:00Z');
+    expect(ssGePolicy.rateLimit).toMatchObject({ crawlDelaySeconds: 3, maxConcurrency: 1 });
+  });
+
   it('rejects kinds, deals and filters outside the scope', () => {
-    expect(isSsGeUrlAllowed(`${RESULTS}/komerciuli/iyideba?order=1&page=1`)).toBe(false);
-    expect(isSsGeUrlAllowed(`${RESULTS}/bina/qiravdeba-dghiurad?order=1&page=1`)).toBe(false);
+    expect(isSsGeUrlAllowed(`${RESULTS}/saxli/iyideba?order=1&page=1`)).toBe(false);
+    expect(isSsGeUrlAllowed(`${RESULTS}/bina/qiravdeba-tvlurad?order=1&page=1`)).toBe(false);
     expect(isSsGeUrlAllowed(`${RESULTS}/bina?order=1&page=1`)).toBe(false);
     expect(isSsGeUrlAllowed(`${FLATS_FOR_SALE}&advancedSearch=%7B%7D`)).toBe(false);
     expect(isSsGeUrlAllowed(`${FLATS_FOR_SALE}&cityIdList=95,96`)).toBe(false);
