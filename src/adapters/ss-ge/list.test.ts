@@ -409,6 +409,13 @@ describe('parseResultsPage', () => {
       expect(empty.cards).toEqual([]);
       expect(commercial.listTotal).toBeGreaterThan(16);
     });
+
+    it('sizes a list by the listings it can show, not the counter that overstates flats', () => {
+      // Guideline §4: initialTotalApplicationCount counts look-alikes the
+      // list folds away (4,755 here); initialCardCount is what can be read.
+      expect(daily.listTotal).toBe(3_329);
+      expect(pledge.listTotal).toBe(759);
+    });
   });
 
   it('refuses a page with no listing data instead of reading it as an empty list', () => {

@@ -144,7 +144,7 @@ type DetailState =
   | { status: 'Missing' };
 
 /**
- * ss.ge as the walker sees it: six lists of 16 rows a page, page 1 served
+ * ss.ge as the walker sees it: 24 lists of 16 rows a page, page 1 served
  * for any page past the end, and a detail page for every id.
  */
 class FakeSite implements HttpFetcher {
@@ -548,6 +548,58 @@ describe('runSsGeCrawl, sweep', () => {
     });
     expect(progressOf(crawlRun).lists['hotel-pledge']?.finished).toBe('end');
     expect(await storedListings()).toHaveLength(OTHER_LISTS);
+  });
+
+  it('still treats page 1 with no rows as a fault when the site says the list holds some', async () => {
+    const site = new FakeSite();
+    const first = buildResultsUrl(list('land-daily'), 1);
+    const empty = ok(
+      first,
+      page({
+        initialPage: 1,
+        initialTotalApplicationCount: 5,
+        applicationList: { realStateItemModel: [] },
+      }),
+    );
+    site.script(first, empty, empty, empty);
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+
+    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 3 });
+    expect(progressOf(crawlRun).lists['land-daily']?.finished).toBeNull();
+  });
+
+  it('does not believe "no listings" from a list known to hold more than a page', async () => {
+    // A site answering every list with its empty default would otherwise end
+    // a run as complete and move the nightly baseline past unread renewals.
+    const site = new FakeSite({ 'land-daily': rows(1_000, 40) });
+    await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+    const first = buildResultsUrl(list('land-daily'), 1);
+    const empty = ok(
+      first,
+      page({
+        initialPage: 1,
+        initialTotalApplicationCount: 0,
+        initialCardCount: 0,
+        applicationList: { realStateItemModel: [] },
+      }),
+    );
+    site.script(first, empty, empty, empty);
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+
+    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 3 });
+    expect(progressOf(crawlRun).lists['land-daily']?.finished).toBeNull();
+    expect((await storedListings()).filter((row) => row.missedAt !== null)).toEqual([]);
   });
 
   it('marks for a check the listings of a list that has emptied', async () => {

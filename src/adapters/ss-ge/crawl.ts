@@ -145,7 +145,7 @@ export interface SsGeListProgress {
   finished: 'end' | 'caught-up' | null;
   /** The oldest order time on the last page stored, which a resumed walk must not skip past. */
   oldestSeenAt?: string;
-  /** How many listings the site said the list held, on the last page read. */
+  /** How many listings the site said the list could show, on the last page read. */
   total?: number;
 }
 
@@ -254,6 +254,8 @@ interface RunState {
   progress: SsGeRunProgress;
   /** Results pages this run may still store. */
   pagesLeft: number;
+  /** Each list's size as last known before this run (`knownListings`); absent when never sized. */
+  knownListings: ReadonlyMap<SsGeList['key'], number>;
   /** Why the run stopped short; null while it has not. */
   stopReason: string | null;
   /** The site refused or would not answer: no further request is made in this run. */
@@ -334,7 +336,10 @@ interface PageRead {
  * page is a fault in the answer and must not read as "the list ends here".
  * The one exception is an empty list, which the site states itself: page 1,
  * no rows, and a total of 0 (land for daily rent has had one listing, and
- * none, 2026-11-03).
+ * none, 2026-11-03). It is believed only of a list never sized or last known
+ * to fit on one page: from a larger one it is a fault like any other, since a
+ * site answering every list with its empty default would otherwise end the
+ * run as complete and move the nightly baseline past rows it never read.
  */
 async function readResultsPage(
   run: RunState,
@@ -360,8 +365,15 @@ async function readResultsPage(
         page,
       });
       if (parsed.pastEnd || parsed.rowCount > 0) return { parsed, fetchedAt: fetched.fetchedAt };
-      if (page === 1 && parsed.listTotal === 0) return { parsed, fetchedAt: fetched.fetchedAt };
-      reason = 'a page with no rows';
+      const known = run.knownListings.get(list.key);
+      const mayBeEmpty = known === undefined || known <= RESULTS_PAGE_SIZE;
+      if (page === 1 && parsed.listTotal === 0 && mayBeEmpty) {
+        return { parsed, fetchedAt: fetched.fetchedAt };
+      }
+      reason =
+        page === 1 && parsed.listTotal === 0
+          ? `no listings, from a list that last held ${known}`
+          : 'a page with no rows';
     } catch (err) {
       if (!(err instanceof SsGePageShapeError)) throw err;
       reason = err.message;
@@ -662,28 +674,20 @@ async function interruptedWalk(
   return progress;
 }
 
-/**
- * The lists tonight's run reads whole: never read whole first, then the
- * oldest full read, ties in the order of SS_GE_LISTS, for as long as their
- * pages fit `budget`. The first that does not fit ends the choice, so a large
- * list is never passed over for smaller ones; one list is always chosen.
- *
- * A list's size is the last page of its latest full read. One never read
- * whole counts as its last stated total in pages, or `UNKNOWN_LIST_PAGES`
- * when no run has seen it yet.
- */
-export async function listsDueForFullRead(
-  db: Database,
-  budget: number = DEEP_PAGE_BUDGET,
-): Promise<SsGeList['key'][]> {
+/** What past runs say about each list: its latest full read, and the latest size the site stated. */
+interface ListHistory {
+  lastFullRead: Map<SsGeList['key'], { walkMs: number; pages: number }>;
+  lastTotal: Map<SsGeList['key'], number>;
+}
+
+async function readListHistory(db: Database): Promise<ListHistory> {
   const recent = await db
     .select({ progress: realEstateCrawlRuns.progress })
     .from(realEstateCrawlRuns)
     .where(eq(realEstateCrawlRuns.sourceId, ssGeSource.id))
     .orderBy(desc(realEstateCrawlRuns.startedAt))
     .limit(FULL_READ_HISTORY_RUNS);
-  const lastFullRead = new Map<SsGeList['key'], { walkMs: number; pages: number }>();
-  const lastTotal = new Map<SsGeList['key'], number>();
+  const history: ListHistory = { lastFullRead: new Map(), lastTotal: new Map() };
   for (const row of recent) {
     const progress = readProgress(row.progress);
     if (progress === null) continue;
@@ -691,17 +695,47 @@ export async function listsDueForFullRead(
     for (const list of SS_GE_LISTS) {
       const state = progress.lists[list.key];
       // Newest run first: the first total seen is the latest.
-      if (state?.total !== undefined && !lastTotal.has(list.key)) {
-        lastTotal.set(list.key, state.total);
+      if (state?.total !== undefined && !history.lastTotal.has(list.key)) {
+        history.lastTotal.set(list.key, state.total);
       }
       if (state?.finished !== 'end') continue;
-      const known = lastFullRead.get(list.key);
+      const known = history.lastFullRead.get(list.key);
       if (known === undefined || walkMs > known.walkMs) {
-        lastFullRead.set(list.key, { walkMs, pages: state.lastPage });
+        history.lastFullRead.set(list.key, { walkMs, pages: state.lastPage });
       }
     }
   }
+  return history;
+}
 
+/**
+ * How many listings each list last held: the size the site last stated, or,
+ * for a list read before sizes were kept, the pages of its last full read at
+ * a full page each. Lists never sized are absent.
+ */
+function knownListings(history: ListHistory): Map<SsGeList['key'], number> {
+  const sizes = new Map<SsGeList['key'], number>();
+  for (const list of SS_GE_LISTS) {
+    const total = history.lastTotal.get(list.key);
+    const read = history.lastFullRead.get(list.key);
+    if (total !== undefined) sizes.set(list.key, total);
+    else if (read !== undefined) sizes.set(list.key, read.pages * RESULTS_PAGE_SIZE);
+  }
+  return sizes;
+}
+
+/**
+ * The lists tonight's run reads whole: never read whole first, then the
+ * oldest full read, ties in the order of SS_GE_LISTS, for as long as their
+ * pages fit `budget`. The first that does not fit ends the choice, which
+ * keeps the choice simple and bounded; one list is always chosen.
+ *
+ * A list's size is the last page of its latest full read. One never read
+ * whole counts as its last stated size in pages, or `UNKNOWN_LIST_PAGES`
+ * when no run has seen it yet.
+ */
+function chooseFullReads(history: ListHistory, budget: number): SsGeList['key'][] {
+  const { lastFullRead, lastTotal } = history;
   const sizeOf = (key: SsGeList['key']): number => {
     const read = lastFullRead.get(key);
     if (read !== undefined) return read.pages;
@@ -723,6 +757,14 @@ export async function listsDueForFullRead(
     pages += size;
   }
   return chosen;
+}
+
+/** `chooseFullReads` over this source's recent runs. */
+export async function listsDueForFullRead(
+  db: Database,
+  budget: number = DEEP_PAGE_BUDGET,
+): Promise<SsGeList['key'][]> {
+  return chooseFullReads(await readListHistory(db), budget);
 }
 
 /**
@@ -757,8 +799,9 @@ export async function runSsGeCrawl(
   const resumed =
     options.fresh === true ? null : await interruptedWalk(db, options.mode, Date.parse(startedAt));
   const progress: SsGeRunProgress = resumed ?? { walkStartedAt: startedAt, lists: {} };
+  const history = await readListHistory(db);
   if (options.mode === 'nightly' && progress.deep === undefined) {
-    progress.deep = await listsDueForFullRead(db, options.deepPageBudget);
+    progress.deep = chooseFullReads(history, options.deepPageBudget ?? DEEP_PAGE_BUDGET);
   }
   const deep = progress.deep ?? [];
   const unfinishedAtStart = SS_GE_LISTS.filter(
@@ -791,6 +834,7 @@ export async function runSsGeCrawl(
     },
     progress,
     pagesLeft: options.maxPages ?? Number.POSITIVE_INFINITY,
+    knownListings: knownListings(history),
     stopReason: null,
     siteTrouble: false,
   };

@@ -72,9 +72,12 @@ export interface ResultsPage {
   /** Rows of another kind or deal than the list being walked, or with no usable id or time. */
   skipped: number;
   /**
-   * How many listings the site says the whole list holds, or null when it
-   * does not say. 0 with no rows on page 1 is an empty list, which is normal
-   * for the smallest ones (one listing of land for daily rent, 2026-11-03).
+   * How many listings the site says the whole list can show
+   * (`initialCardCount`), or null when it does not say. Its other counter,
+   * `initialTotalApplicationCount`, also counts look-alikes the list folds
+   * away (4,755 against 3,329 readable flats for daily rent, 2026-11-03;
+   * guideline §4), so it is only the fallback. 0 with no rows on page 1 is an
+   * empty list, which is normal for the smallest ones.
    */
   listTotal: number | null;
 }
@@ -268,7 +271,8 @@ export function parseResultsPage(html: string, expected: ExpectedResultsPage): R
   if (!Array.isArray(list) || typeof servedPage !== 'number') {
     throw new SsGePageShapeError('ss.ge results page has no listing list or page number');
   }
-  const listTotal = countOrNone(pageProps.initialTotalApplicationCount);
+  const listTotal =
+    countOrNone(pageProps.initialCardCount) ?? countOrNone(pageProps.initialTotalApplicationCount);
 
   if (servedPage !== expected.page) {
     return { pastEnd: true, servedPage, cards: [], rowCount: list.length, skipped: 0, listTotal };

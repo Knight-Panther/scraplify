@@ -14,7 +14,8 @@ function wholeNumber(name: string, value: string, min: number, max: number): num
 
 /**
  * `--mode=nightly` (the default) reads each list back to the last completed
- * run, and one list, in turn, to its end; `--mode=sweep` reads every list to
+ * run, and as many lists as fit 4,000 pages, those read whole longest ago, to
+ * their end; `--mode=sweep` reads every list to
  * its end, which takes most of a day. Either resumes where an interrupted run
  * of its mode stopped unless `--fresh` is given. `--max-pages=N` stops after
  * N results pages, for a trial or a sweep in instalments.
