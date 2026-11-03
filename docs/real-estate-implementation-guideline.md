@@ -48,13 +48,15 @@
 
 ---
 
-## 3. Scope of version 1
+## 3. Scope
 
-**In:** flats, houses and summer cottages; sale and long-term rent; all of Georgia; one row per listing with deal, kind, rooms, area, floor, price, location, street, who posted it where the site says, when it was updated, and a link to the source; filters, sorting and text search; a price-change record per listing.
+**Phase 12 (owner, 2026-11-03): filters identical to ss.ge's.** 12A crawls every kind (flats, houses, summer cottages, commercial spaces, land, hotels) for every deal (sale, rent, daily rent, pledge): 24 lists, smallest first, with the commercial space type, land type, photo count, furniture, built-in kitchen, exclusive and video viewing from the results rows. 12B reads each listing's own page once when it is new, changed, renewed or reopened (no backlog) for building status, condition and amenities. 12C builds each kind's "more filters" panel. Plan and recon: `src/adapters/ss-ge/RECON_NOTES.md`, "Recon 2026-11-03".
 
-**Out:** photos; phone numbers and people's names (never stored); daily rent, land, commercial property and hotels; detail pages as a routine source (so no map yet); alerts (dropped project-wide on 2026-09-27); anything involving an account on the site.
+**In (version 1, 2026-10-12, widened by Phase 12):** all of Georgia; one row per listing with deal, kind, rooms, area, floor, price, location, street, who posted it where the site says, when it was updated, and a link to the source; filters, sorting and text search; a price-change record per listing; grouping of look-alike listings (Phase 11D).
 
-**Later:** grouping of look-alike listings; detail-page enrichment (coordinates, condition); the left-out kinds; a second source; a connector.
+**Out:** photos of any kind (only the photo count is kept, for the "with photos" filter); phone numbers and people's names (never stored); maps (coordinates are stored from 12B, not shown); alerts (dropped project-wide on 2026-09-27); anything involving an account on the site; ss.ge's developer-projects section (`/mshenebare`), whose flats are reached through the "under construction" status instead.
+
+**Later:** a municipality filter; a second source; a connector.
 
 ---
 
