@@ -319,6 +319,15 @@ function describeRefusal(result: HttpFetchResult): string {
  * try again. Once the run's time or requests have run out, nothing is asked
  * and the answer says so (`spent`).
  */
+/**
+ * A request that came to nothing but was no refusal: counted, and named in
+ * the log, so a night's failures can be read back by page and reason.
+ */
+function noteFailure(run: RunState, url: string, reason: string): void {
+  run.counters.failedRequestCount++;
+  logger.warn({ url, reason }, 'ss.ge crawl: a request failed');
+}
+
 async function request(run: RunState, url: string): Promise<Fetched> {
   const fetchedAt = run.now();
   if (run.spent === null) {
@@ -332,9 +341,13 @@ async function request(run: RunState, url: string): Promise<Fetched> {
     result = await run.httpFetcher.fetch(url);
   } catch (err) {
     if (err instanceof PolicyRevisionSupersededError) throw err;
-    run.counters.failedRequestCount++;
-    if (err instanceof ProxyUnreachableError) return { kind: 'refused', reason: err.message };
-    return { kind: 'failed', reason: err instanceof Error ? err.name : 'unknown error' };
+    if (err instanceof ProxyUnreachableError) {
+      run.counters.failedRequestCount++;
+      return { kind: 'refused', reason: err.message };
+    }
+    const reason = err instanceof Error ? err.name : 'unknown error';
+    noteFailure(run, url, reason);
+    return { kind: 'failed', reason };
   }
 
   const backoffUntil = responseBackoffUntil(result, fetchedAt);
@@ -345,8 +358,9 @@ async function request(run: RunState, url: string): Promise<Fetched> {
     return { kind: 'refused', reason: describeRefusal(result) };
   }
   if (result.status !== 200) {
-    run.counters.failedRequestCount++;
-    return { kind: 'failed', reason: `HTTP ${result.status}` };
+    const reason = `HTTP ${result.status}`;
+    noteFailure(run, url, reason);
+    return { kind: 'failed', reason };
   }
   return { kind: 'ok', body: result.body, fetchedAt };
 }
@@ -420,7 +434,7 @@ async function readResultsPage(
       if (!(err instanceof SsGePageShapeError)) throw err;
       reason = err.message;
     }
-    run.counters.failedRequestCount++;
+    noteFailure(run, url, reason);
   }
   stop(
     run,
@@ -590,7 +604,8 @@ async function readListingPages(
 ): Promise<void> {
   let failuresInARow = 0;
   for (const [index, listing] of listings.entries()) {
-    const fetched = await request(run, buildDetailUrl(listing.sourceListingKey));
+    const url = buildDetailUrl(listing.sourceListingKey);
+    const fetched = await request(run, url);
     if (fetched.kind === 'spent') break;
     run.listingPagesLeft--;
     run.asked.add(listing.id);
@@ -604,7 +619,7 @@ async function readListingPages(
         check = parseDetailPage(fetched.body, listing.sourceListingKey);
       } catch (err) {
         if (!(err instanceof SsGePageShapeError)) throw err;
-        run.counters.failedRequestCount++;
+        noteFailure(run, url, err.message);
       }
     }
     if (check === null || fetched.kind !== 'ok') {
