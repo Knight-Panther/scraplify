@@ -125,7 +125,17 @@ Owner decision the same day: our filters identical to ss.ge's, so all six kinds 
 - **ss.ge's own status filter cannot label rows:** `realEstateStatuses=1` and `=3` return the same top rows.
 - **Daily rent is priced per night** ($6 to $450 a night on the first page, 2026-11-03), and land runs to tens of thousands of m² at a few dollars a m². The typo rule for the price and area sorts has bounds per deal and leaves large cheap plots alone (`src/realestate/queries.ts`).
 
+## Trial 2026-11-04: listing pages (Phase 12B, from the development machine)
+
+A nightly run into a disposable database with `--max-pages=60 --stop-after-hours=1`, after a 30-page sweep seed:
+- **Pace:** 1,002 requests in 1 h 0 m, 3.6 s each. The time box ended it, as built: no request after the hour, and the run saved its counts on the way out.
+- **Pages read:** 854 listing pages had their details saved, and `details_count` was 854. Another 238 listings stayed wanted for the next run.
+- **"No listing" is common and passes:** 84 of the 942 listing pages asked (9%) answered "no listing" for listings their list had shown minutes before. They were spread over nine kind-and-deal pairs, and in each pair most pages read fine. One of them, read by hand right after, was live. All 84 were left unsettled and still wanted, so they are read again next run. Only 4 requests failed outright.
+- **What the pages carry,** of the 854 read: the poster's type always; amenities 81%; building status 71%; condition 68%; municipality 59%; coordinates 35%.
+
 ## Not yet measured
+
+- How many listing pages a 16-hour night reads, how long the run takes, and the share of active listings with details after a week (B6 step 4).
 
 - How many listings a night reach their expected end without being seen again, and what share of those is still live. That decides whether 1,000 checks a night is enough.
 - Whether an edit always moves a listing's `orderDate`.
