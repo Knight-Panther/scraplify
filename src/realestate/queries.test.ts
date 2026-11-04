@@ -409,6 +409,22 @@ describe('real-estate queries', () => {
       expect(await detailsCoverage(db, filters, NOW_ISO, 1)).toEqual({ read: 2, total: 2 });
     });
 
+    it('returns each row’s building status and condition, or null when not known', async () => {
+      const sourceId = await newSource();
+      const known = await listing(sourceId, {
+        ...read,
+        buildingStatus: 'new',
+        condition: 'white-frame',
+      });
+      const unread = await listing(sourceId);
+
+      const rows = await searchRealEstate(db, { sourceId }, NOW_ISO);
+      const byId = new Map(rows.map((row) => [row.id, row]));
+
+      expect(byId.get(known)).toMatchObject({ buildingStatus: 'new', condition: 'white-frame' });
+      expect(byId.get(unread)).toMatchObject({ buildingStatus: null, condition: null });
+    });
+
     it('says which filters need a listing page', () => {
       expect(hasDetailFilter({ conditions: ['renovated'] })).toBe(true);
       expect(hasDetailFilter({ ownerOnly: true })).toBe(true);

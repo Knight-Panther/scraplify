@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RealEstateRow } from '../../src/realestate/queries.js';
 import {
+  detailText,
   floorText,
   listingLabel,
   money,
@@ -41,6 +42,8 @@ function row(overrides: Partial<RealEstateRow> = {}): RealEstateRow {
     firstSeenAt: '2026-10-12T12:00:00.000Z',
     groupKey: null,
     alikeCount: 1,
+    buildingStatus: null,
+    condition: null,
     ...overrides,
   };
 }
@@ -125,5 +128,14 @@ describe('real-estate row text', () => {
     expect(posterText(row({ posterType: 'owner' }))).toBe('owner');
     // "Unknown" is not something to print on every other row.
     expect(posterText(row({ posterType: 'unknown' }))).toBeNull();
+  });
+
+  it('says the condition and building status the listing page gave, and nothing it did not', () => {
+    expect(detailText(row({ buildingStatus: 'new', condition: 'newly-renovated' }))).toBe(
+      'newly renovated · new building',
+    );
+    expect(detailText(row({ condition: 'white-frame' }))).toBe('white frame');
+    expect(detailText(row({ buildingStatus: 'under-construction' }))).toBe('under construction');
+    expect(detailText(row())).toBeNull();
   });
 });

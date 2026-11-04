@@ -152,6 +152,9 @@ export interface RealEstateRow {
   groupKey: string | null;
   /** Grouped: how many listings matching the filters the row stands for. Otherwise 1. */
   alikeCount: number;
+  /** From the listing's own page (Phase 12B); null until it is read, or when it does not say. */
+  buildingStatus: BuildingStatus | null;
+  condition: Condition | null;
 }
 
 /**
@@ -412,6 +415,8 @@ export async function searchRealEstate(
       sourceUpdatedAt: listings.sourceUpdatedAt,
       firstSeenAt: listings.firstSeenAt,
       groupKey: listings.groupKey,
+      buildingStatus: listings.buildingStatus,
+      condition: listings.condition,
     })
     .from(listings)
     .where(shownRows(db, filters, now))
