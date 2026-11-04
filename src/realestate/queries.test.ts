@@ -4,6 +4,8 @@ import { type NewRealEstateListingRow, realEstateListings } from '../db/schema/i
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import {
   countRealEstate,
+  detailsCoverage,
+  hasDetailFilter,
   type RealEstateFilters,
   realEstateLocations,
   searchRealEstate,
@@ -196,6 +198,227 @@ describe('real-estate queries', () => {
       expect(await find(sourceId, { poster: 'other' })).not.toContain(agency);
       expect(await find(sourceId, { updatedSince: at(-3) })).not.toContain(old);
       expect(await find(sourceId, { updatedSince: at(-30) })).toContain(old);
+    });
+  });
+
+  describe('more filters (Phase 12C)', () => {
+    /** A listing whose own page was read (Phase 12B). */
+    const read = { detailsReadAt: at(-0.5) };
+    const sorted = (ids: string[]) => [...ids].sort();
+
+    it('narrows by building status, condition, project and floor type, any of each', async () => {
+      const sourceId = await newSource();
+      const fresh = await listing(sourceId, {
+        ...read,
+        buildingStatus: 'new',
+        condition: 'newly-renovated',
+        project: 'czech',
+        floorType: 'duplex',
+      });
+      const old = await listing(sourceId, {
+        ...read,
+        buildingStatus: 'old',
+        condition: 'renovated',
+        project: 'khrushchev',
+      });
+      const building = await listing(sourceId, {
+        ...read,
+        buildingStatus: 'under-construction',
+        condition: 'white-frame',
+        floorType: 'attic',
+      });
+      await listing(sourceId, read);
+
+      expect(await find(sourceId, { buildingStatuses: ['new'] })).toEqual([fresh]);
+      expect(sorted(await find(sourceId, { buildingStatuses: ['new', 'old'] }))).toEqual(
+        sorted([fresh, old]),
+      );
+      expect(sorted(await find(sourceId, { conditions: ['renovated', 'white-frame'] }))).toEqual(
+        sorted([old, building]),
+      );
+      expect(await find(sourceId, { projects: ['khrushchev'] })).toEqual([old]);
+      expect(sorted(await find(sourceId, { floorTypes: ['duplex', 'attic'] }))).toEqual(
+        sorted([fresh, building]),
+      );
+      // Two choices from different groups must both hold.
+      expect(
+        await find(sourceId, { buildingStatuses: ['new', 'old'], conditions: ['renovated'] }),
+      ).toEqual([old]);
+      // An empty choice narrows nothing.
+      expect(await find(sourceId, { conditions: [], projects: [] })).toHaveLength(4);
+    });
+
+    it('counts bathrooms, balconies and rooms, the top choice meaning that many or more', async () => {
+      const sourceId = await newSource();
+      const one = await listing(sourceId, { ...read, bathrooms: 1, balconies: 1, rooms: 1 });
+      const five = await listing(sourceId, { ...read, bathrooms: 5, balconies: 5, rooms: 10 });
+      const seven = await listing(sourceId, { ...read, bathrooms: 7, balconies: 6, rooms: 12 });
+      const none = await listing(sourceId, { ...read, bathrooms: 0, balconies: 0, rooms: 3 });
+      // Read, but the page did not say: unknown, never "none".
+      const unsaid = await listing(sourceId, {
+        ...read,
+        bathrooms: null,
+        balconies: null,
+        rooms: 4,
+      });
+
+      expect(sorted(await find(sourceId, { bathrooms: [5] }))).toEqual(sorted([five, seven]));
+      expect(await find(sourceId, { bathrooms: [0] })).toEqual([none]);
+      expect(sorted(await find(sourceId, { bathrooms: [1, 5] }))).toEqual(
+        sorted([one, five, seven]),
+      );
+      expect(sorted(await find(sourceId, { balconies: [5] }))).toEqual(sorted([five, seven]));
+      expect(await find(sourceId, { balconies: [0] })).toEqual([none]);
+      expect(await find(sourceId, { balconies: [0, 1] })).not.toContain(unsaid);
+      expect(sorted(await find(sourceId, { roomsIn: [1, 10] }))).toEqual(
+        sorted([one, five, seven]),
+      );
+      expect(await find(sourceId, { roomsIn: [2, 3] })).toEqual([none]);
+    });
+
+    it('narrows by a floor range, which needs no listing page, and by kitchen, house and yard area', async () => {
+      const sourceId = await newSource();
+      const third = await listing(sourceId);
+      await listing(sourceId, { floor: 1 });
+      await listing(sourceId, { floor: 9 });
+      const house = await listing(sourceId, {
+        ...read,
+        propertyType: 'house',
+        floor: null,
+        houseArea: '180.00',
+        yardArea: '600.00',
+      });
+      const kitchen = await listing(sourceId, { ...read, floor: null, kitchenArea: '14.50' });
+
+      expect(await find(sourceId, { floorMin: 2, floorMax: 5 })).toEqual([third]);
+      expect(await find(sourceId, { kitchenAreaMin: 12 })).toEqual([kitchen]);
+      expect(await find(sourceId, { kitchenAreaMax: 12 })).toEqual([]);
+      expect(await find(sourceId, { houseAreaMin: 150, houseAreaMax: 200 })).toEqual([house]);
+      expect(await find(sourceId, { yardAreaMin: 700 })).toEqual([]);
+      expect(await find(sourceId, { yardAreaMax: 700 })).toEqual([house]);
+    });
+
+    it('matches amenities only when a listing has all of those chosen', async () => {
+      const sourceId = await newSource();
+      const both = await listing(sourceId, {
+        ...read,
+        amenities: ['elevator', 'garage', 'storage'],
+      });
+      const lift = await listing(sourceId, { ...read, amenities: ['elevator'] });
+      await listing(sourceId, { ...read, amenities: [] });
+
+      expect(sorted(await find(sourceId, { amenities: ['elevator'] }))).toEqual(
+        sorted([both, lift]),
+      );
+      expect(await find(sourceId, { amenities: ['elevator', 'garage'] })).toEqual([both]);
+      expect(await find(sourceId, { amenities: [] })).toHaveLength(3);
+    });
+
+    it('narrows to owners, developers, listings with photos and exclusive listings', async () => {
+      const sourceId = await newSource();
+      const owner = await listing(sourceId, { ...read, posterEntity: 'individual' });
+      await listing(sourceId, { ...read, posterEntity: 'agency', posterType: 'agent' });
+      // Developer, photos and exclusive come from the results row: no page needed.
+      const developer = await listing(sourceId, { posterType: 'developer' });
+      const photos = await listing(sourceId, { imageCount: 4 });
+      await listing(sourceId, { imageCount: 0 });
+      const exclusive = await listing(sourceId, { exclusive: true });
+
+      expect(await find(sourceId, { ownerOnly: true })).toEqual([owner]);
+      expect(await find(sourceId, { developerOnly: true })).toEqual([developer]);
+      expect(await find(sourceId, { withPhotos: true })).toEqual([photos]);
+      expect(await find(sourceId, { exclusiveOnly: true })).toEqual([exclusive]);
+      expect(await find(sourceId, { ownerOnly: false, withPhotos: false })).toHaveLength(6);
+    });
+
+    it('applies the price bounds to the price per m² when asked, in the currency asked for', async () => {
+      const sourceId = await newSource();
+      // $100,000 for 60 m² and for 200 m².
+      await listing(sourceId);
+      const roomy = await listing(sourceId, {
+        areaM2: '200.00',
+        pricePerM2Usd: '500.00',
+        pricePerM2Gel: '1350.00',
+      });
+
+      expect(await find(sourceId, { pricePerM2: true, priceMax: 1000, currency: 'usd' })).toEqual([
+        roomy,
+      ]);
+      expect(await find(sourceId, { pricePerM2: true, priceMax: 1000, currency: 'gel' })).toEqual(
+        [],
+      );
+      expect(await find(sourceId, { pricePerM2: true, priceMin: 1000, currency: 'gel' })).toEqual([
+        roomy,
+      ]);
+      expect(await find(sourceId, { priceMax: 1000, currency: 'usd' })).toEqual([]);
+    });
+
+    it('never matches a listing whose page was not read, for any detail filter', async () => {
+      const sourceId = await newSource();
+      const details = {
+        buildingStatus: 'new',
+        condition: 'renovated',
+        project: 'czech',
+        floorType: 'duplex',
+        bathrooms: 2,
+        balconies: 0,
+        kitchenArea: '12.00',
+        houseArea: '150.00',
+        yardArea: '300.00',
+        amenities: ['elevator'],
+        posterEntity: 'individual',
+      };
+      const judged = await listing(sourceId, { ...details, ...read });
+      await listing(sourceId, { ...details, detailsReadAt: null });
+
+      const detailFilters: Partial<RealEstateFilters>[] = [
+        { buildingStatuses: ['new'] },
+        { conditions: ['renovated'] },
+        { projects: ['czech'] },
+        { floorTypes: ['duplex'] },
+        { bathrooms: [2] },
+        { balconies: [0] },
+        { kitchenAreaMin: 10 },
+        { houseAreaMax: 200 },
+        { yardAreaMin: 100 },
+        { amenities: ['elevator'] },
+        { ownerOnly: true },
+      ];
+      for (const filter of detailFilters) {
+        expect(await find(sourceId, filter), JSON.stringify(filter)).toEqual([judged]);
+      }
+    });
+
+    it('counts how many of the matching listings have details', async () => {
+      const sourceId = await newSource();
+      await listing(sourceId, { ...read, condition: 'renovated' });
+      await listing(sourceId, { ...read, condition: 'old-renovation' });
+      await listing(sourceId);
+      await listing(sourceId, { ...read, propertyType: 'house' });
+      const filters = {
+        sourceId,
+        propertyType: 'flat' as const,
+        conditions: ['renovated' as const],
+      };
+
+      // Every flat counts, whatever its condition: the line says how many could be judged.
+      expect(await detailsCoverage(db, filters, NOW_ISO)).toEqual({ read: 2, total: 3 });
+      expect(await detailsCoverage(db, { sourceId, grouped: true }, NOW_ISO)).toEqual({
+        read: 3,
+        total: 4,
+      });
+      // Counted no further than one past the ceiling, as countRealEstate is.
+      expect(await detailsCoverage(db, filters, NOW_ISO, 1)).toEqual({ read: 2, total: 2 });
+    });
+
+    it('says which filters need a listing page', () => {
+      expect(hasDetailFilter({ conditions: ['renovated'] })).toBe(true);
+      expect(hasDetailFilter({ ownerOnly: true })).toBe(true);
+      expect(hasDetailFilter({ yardAreaMax: 500 })).toBe(true);
+      expect(hasDetailFilter({ conditions: [], ownerOnly: false })).toBe(false);
+      expect(
+        hasDetailFilter({ developerOnly: true, withPhotos: true, floorMin: 2, roomsIn: [3] }),
+      ).toBe(false);
     });
   });
 

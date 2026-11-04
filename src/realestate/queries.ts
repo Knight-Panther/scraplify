@@ -1,6 +1,8 @@
 import {
   and,
+  arrayContains,
   asc,
+  type Column,
   desc,
   eq,
   gt,
@@ -16,7 +18,15 @@ import {
 } from 'drizzle-orm';
 import { realEstatePublicListings as listings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
-import type { DealType, PropertyType } from './kinds.js';
+import type {
+  AmenityKey,
+  BuildingStatus,
+  Condition,
+  DealType,
+  FloorType,
+  Project,
+  PropertyType,
+} from './kinds.js';
 import { listingSearchQuery } from './search.js';
 
 /**
@@ -32,6 +42,10 @@ export const SHOWN_GRACE_DAYS = 2;
 const MAX_LIMIT = 500;
 /** Counting stops here; the page says "10,000+" above it. */
 export const COUNT_CEILING = 10_000;
+/** The top choice of each count on ss.ge's panels, meaning that many or more. */
+export const ROOMS_TOP = 10;
+export const BATHROOMS_TOP = 5;
+export const BALCONIES_TOP = 5;
 
 export type RealEstateSort = 'newest' | 'price-asc' | 'price-desc' | 'ppm2-asc' | 'area-desc';
 
@@ -62,6 +76,40 @@ export interface RealEstateFilters {
   poster?: 'business' | 'other';
   /** Updated on the source at or after this instant. */
   updatedSince?: string;
+  /** The price bounds are per m², in `currency`. */
+  pricePerM2?: boolean;
+  /** Any of these room counts; `ROOMS_TOP` means that many or more. Empty narrows nothing. */
+  roomsIn?: number[];
+  floorMin?: number;
+  floorMax?: number;
+  /** Posted by a developer (results row). */
+  developerOnly?: boolean;
+  /** At least one photo (results row; no photo is ever fetched). */
+  withPhotos?: boolean;
+  exclusiveOnly?: boolean;
+  /*
+   * The rest are read from a listing's own page (Phase 12B), so each matches
+   * only listings whose page was read (`DETAIL_FILTER_KEYS`): unknown is not "no".
+   * Every choice list is "any of" and narrows nothing when empty.
+   */
+  buildingStatuses?: BuildingStatus[];
+  conditions?: Condition[];
+  projects?: Project[];
+  floorTypes?: FloorType[];
+  /** `BATHROOMS_TOP` means that many or more; 0 is none. */
+  bathrooms?: number[];
+  /** `BALCONIES_TOP` means that many or more; 0 is none. */
+  balconies?: number[];
+  kitchenAreaMin?: number;
+  kitchenAreaMax?: number;
+  houseAreaMin?: number;
+  houseAreaMax?: number;
+  yardAreaMin?: number;
+  yardAreaMax?: number;
+  /** Every one of these. */
+  amenities?: AmenityKey[];
+  /** Posted by a private person, as the listing's page says. */
+  ownerOnly?: boolean;
   text?: string;
   sort?: RealEstateSort;
   /**
@@ -109,9 +157,76 @@ export interface RealEstateRow {
   alikeCount: number;
 }
 
+/**
+ * The filters read from a listing's own page. Any of them limits the results
+ * to listings whose page was read, and `detailsCoverage` leaves them out to
+ * count how many listings could be judged, so a new filter on a listing-page
+ * field belongs in this list.
+ */
+const DETAIL_FILTER_KEYS = [
+  'buildingStatuses',
+  'conditions',
+  'projects',
+  'floorTypes',
+  'bathrooms',
+  'balconies',
+  'kitchenAreaMin',
+  'kitchenAreaMax',
+  'houseAreaMin',
+  'houseAreaMax',
+  'yardAreaMin',
+  'yardAreaMax',
+  'amenities',
+  'ownerOnly',
+] as const satisfies readonly (keyof RealEstateFilters)[];
+
+/** Whether a filter on a listing-page field is set, so the page should say how many listings it could judge. */
+export function hasDetailFilter(filters: RealEstateFilters): boolean {
+  return DETAIL_FILTER_KEYS.some((key) => {
+    const value = filters[key];
+    return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== false;
+  });
+}
+
+function withoutDetailFilters(filters: RealEstateFilters): RealEstateFilters {
+  const rest: RealEstateFilters = { ...filters };
+  for (const key of DETAIL_FILTER_KEYS) delete rest[key];
+  return rest;
+}
+
+const anyOf = (column: Column, chosen: readonly (string | number)[] | undefined) =>
+  chosen === undefined || chosen.length === 0 ? undefined : inArray(column, [...chosen]);
+
+/** Any of these counts, `top` meaning that many or more. Empty narrows nothing. */
+function countIn(column: Column, chosen: readonly number[] | undefined, top: number) {
+  if (chosen === undefined || chosen.length === 0) return undefined;
+  return or(
+    anyOf(
+      column,
+      chosen.filter((count) => count < top),
+    ),
+    chosen.some((count) => count >= top) ? gte(column, top) : undefined,
+  );
+}
+
+/** Inclusive bounds; a missing value is outside any bound. */
+const between = (column: Column, min: number | undefined, max: number | undefined) =>
+  and(
+    min === undefined ? undefined : gte(column, min),
+    max === undefined ? undefined : lte(column, max),
+  );
+
 function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
   const shownAfter = new Date(Date.parse(now) - SHOWN_GRACE_DAYS * DAY_MS).toISOString();
-  const price = filters.currency === 'gel' ? listings.priceGel : listings.priceUsd;
+  const gel = filters.currency === 'gel';
+  const price =
+    filters.pricePerM2 === true
+      ? gel
+        ? listings.pricePerM2Gel
+        : listings.pricePerM2Usd
+      : gel
+        ? listings.priceGel
+        : listings.priceUsd;
   const query = filters.text === undefined ? null : listingSearchQuery(filters.text);
   const floor = filters.floor;
 
@@ -157,6 +272,26 @@ function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
     filters.updatedSince === undefined
       ? undefined
       : gte(listings.sourceUpdatedAt, filters.updatedSince),
+    countIn(listings.rooms, filters.roomsIn, ROOMS_TOP),
+    between(listings.floor, filters.floorMin, filters.floorMax),
+    filters.developerOnly === true ? eq(listings.posterType, 'developer') : undefined,
+    filters.withPhotos === true ? gt(listings.imageCount, 0) : undefined,
+    filters.exclusiveOnly === true ? eq(listings.exclusive, true) : undefined,
+    // From the listing's own page: a listing whose page was not read is never judged.
+    hasDetailFilter(filters) ? isNotNull(listings.detailsReadAt) : undefined,
+    anyOf(listings.buildingStatus, filters.buildingStatuses),
+    anyOf(listings.condition, filters.conditions),
+    anyOf(listings.project, filters.projects),
+    anyOf(listings.floorType, filters.floorTypes),
+    countIn(listings.bathrooms, filters.bathrooms, BATHROOMS_TOP),
+    countIn(listings.balconies, filters.balconies, BALCONIES_TOP),
+    between(listings.kitchenArea, filters.kitchenAreaMin, filters.kitchenAreaMax),
+    between(listings.houseArea, filters.houseAreaMin, filters.houseAreaMax),
+    between(listings.yardArea, filters.yardAreaMin, filters.yardAreaMax),
+    filters.amenities === undefined || filters.amenities.length === 0
+      ? undefined
+      : arrayContains(listings.amenities, filters.amenities),
+    filters.ownerOnly === true ? eq(listings.posterEntity, 'individual') : undefined,
     // Text that holds no letter or digit asks for nothing, so it narrows nothing.
     query === null ? undefined : sql`${listings.search} @@ to_tsquery('simple', ${query})`,
   );
@@ -339,6 +474,42 @@ export async function countRealEstate(
     .as('capped');
   const [row] = await db.select({ total: sql<number>`count(*)::int` }).from(capped);
   return row?.total ?? 0;
+}
+
+export interface DetailsCoverage {
+  /** Of `total`, the listings whose own page was read. */
+  read: number;
+  /** Listings matching every filter but those on listing-page fields. */
+  total: number;
+}
+
+/**
+ * How many listings a listing-page filter could judge: those matching every
+ * other filter, and how many of them have their page read. Listings, never
+ * look-alike groups; each counted no further than one past `ceiling`, as
+ * `countRealEstate` is.
+ */
+export async function detailsCoverage(
+  db: DatabaseOrTransaction,
+  filters: RealEstateFilters,
+  now: string,
+  ceiling: number = COUNT_CEILING,
+): Promise<DetailsCoverage> {
+  const others = conditions(withoutDetailFilters(filters), now);
+  const capped = async (where: SQL | undefined) => {
+    const rows = db
+      .select({ id: listings.id })
+      .from(listings)
+      .where(where)
+      .limit(ceiling + 1);
+    const [row] = await db.select({ total: sql<number>`count(*)::int` }).from(rows.as('capped'));
+    return row?.total ?? 0;
+  };
+  const [total, read] = await Promise.all([
+    capped(others),
+    capped(and(others, isNotNull(listings.detailsReadAt))),
+  ]);
+  return { read, total };
 }
 
 export interface PlaceCount {
