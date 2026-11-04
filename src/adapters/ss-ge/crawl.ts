@@ -8,7 +8,9 @@ import { responseBackoffUntil } from '../../net/fetch-control.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
 import { ProxyUnreachableError } from '../../net/proxy-recovery.js';
 import { ssGePolicy, ssGeSource } from '../../policies/ss-ge.js';
+import { loadListingsWantingDetails } from '../../realestate/details.js';
 import {
+  type DueListing,
   deleteLongGoneListings,
   loadListingsDueForCheck,
   markLapsedListingsGone,
@@ -120,11 +122,19 @@ const MAX_PAGE_ATTEMPTS = 3;
  */
 const NIGHTLY_OVERLAP_MS = 6 * 60 * 60 * 1000;
 /**
- * Listing pages a run checks at most (guideline §9.3): about two hours at the
- * policy's spacing through the Georgian exit. Raised from 1,000 when full
- * reads began marking missed listings for checks.
+ * A run makes no request after this long (Phase 12B): the lists, the checks
+ * and then the listing pages wanted for their details share it. Started at
+ * 21:30 UTC, a run asks its last page by 13:30 UTC, inside the unit's 20-hour
+ * limit (deploy/systemd/xtelo-realestate@.service). Replaces the 1,500 checks
+ * a night that bounded listing pages before.
  */
-export const DEFAULT_MAX_DETAIL_CHECKS = 1_500;
+export const DEFAULT_STOP_AFTER_MS = 16 * 60 * 60 * 1000;
+/**
+ * Requests a run makes at most. A backstop: at the policy's spacing (3 s
+ * after each answer) the time box ends a run first, near 16,000 requests;
+ * this holds if that spacing ever stops holding.
+ */
+export const MAX_REQUESTS_PER_RUN = 20_000;
 /** Listing pages failing one after another before the run stops asking. */
 const MAX_DETAIL_FAILURES_IN_A_ROW = 5;
 
@@ -180,8 +190,16 @@ export interface RunSsGeCrawlOptions {
   mode: 'sweep' | 'nightly';
   /** Stop after storing this many results pages, leaving the run partial: a trial, or a sweep in instalments. */
   maxPages?: number;
-  /** Upper bound on detail-page checks. */
+  /**
+   * Listing pages this run asks for at most: the checks first, then the pages
+   * wanted for their details. No cap unless given: the time box and the
+   * request ceiling bound them.
+   */
   maxDetailChecks?: number;
+  /** No request after this long from the run's start; `DEFAULT_STOP_AFTER_MS` unless given. */
+  stopAfterMs?: number;
+  /** Requests the run makes at most; `MAX_REQUESTS_PER_RUN` unless a test says otherwise. */
+  maxRequests?: number;
   /** Start at page 1 even when an interrupted walk could be resumed. */
   fresh?: boolean;
   /** Pages a nightly run plans for whole-list reads; `DEEP_PAGE_BUDGET` unless a test says otherwise. */
@@ -234,6 +252,7 @@ type Counters = Pick<
   | 'reopenedCount'
   | 'goneCount'
   | 'verifiedCount'
+  | 'detailsCount'
 >;
 
 const OUTCOME_COUNTER: Readonly<Record<UpsertOutcome, keyof Counters>> = {
@@ -254,6 +273,16 @@ interface RunState {
   progress: SsGeRunProgress;
   /** Results pages this run may still store. */
   pagesLeft: number;
+  /** Listing pages this run may still ask for (`maxDetailChecks`). */
+  listingPagesLeft: number;
+  /** No request is made at or after this instant (`stopAfterMs`). */
+  deadlineMs: number;
+  /** Requests this run may make in all (`maxRequests`). */
+  maxRequests: number;
+  /** The listings whose page this run has asked for: each at most once a run. */
+  asked: Set<string>;
+  /** The run's time or requests ran out: no further request is made, and this says which. */
+  spent: 'time limit reached' | 'request ceiling reached' | null;
   /** Each list's size as last known before this run (`knownListings`); absent when never sized. */
   knownListings: ReadonlyMap<SsGeList['key'], number>;
   /** Why the run stopped short; null while it has not. */
@@ -275,7 +304,8 @@ function stop(run: RunState, reason: string, siteTrouble: boolean): void {
 type Fetched =
   | { kind: 'ok'; body: string; fetchedAt: string }
   | { kind: 'failed'; reason: string }
-  | { kind: 'refused'; reason: string };
+  | { kind: 'refused'; reason: string }
+  | { kind: 'spent'; reason: NonNullable<RunState['spent']> };
 
 function describeRefusal(result: HttpFetchResult): string {
   return `the site answered HTTP ${result.status}`;
@@ -286,10 +316,16 @@ function describeRefusal(result: HttpFetchResult): string {
  * is remembered for the next one. A proxy that stayed away past the run's
  * wait for it (src/net/proxy-recovery.ts) ends the run too, and is not
  * remembered. Anything else that is not a page is a failure the caller may
- * try again.
+ * try again. Once the run's time or requests have run out, nothing is asked
+ * and the answer says so (`spent`).
  */
 async function request(run: RunState, url: string): Promise<Fetched> {
   const fetchedAt = run.now();
+  if (run.spent === null) {
+    if (run.counters.requestCount >= run.maxRequests) run.spent = 'request ceiling reached';
+    else if (Date.parse(fetchedAt) >= run.deadlineMs) run.spent = 'time limit reached';
+  }
+  if (run.spent !== null) return { kind: 'spent', reason: run.spent };
   run.counters.requestCount++;
   let result: HttpFetchResult;
   try {
@@ -350,6 +386,12 @@ async function readResultsPage(
   let reason = '';
   for (let attempt = 1; attempt <= MAX_PAGE_ATTEMPTS; attempt++) {
     const fetched = await request(run, url);
+    if (fetched.kind === 'spent') {
+      // Lists left unread: the run is partial, so the nightly baseline stays
+      // where it was and the next run reads back far enough.
+      stop(run, fetched.reason, false);
+      return null;
+    }
     if (fetched.kind === 'refused') {
       stop(run, `${list.key} page ${page}: ${fetched.reason}`, true);
       return null;
@@ -528,20 +570,30 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
   }
 }
 
+/** Listing pages the run may still ask for: its own limit, within what its request ceiling leaves. */
+function listingPagesAllowed(run: RunState): number {
+  if (run.spent !== null) return 0;
+  return Math.max(0, Math.min(run.listingPagesLeft, run.maxRequests - run.counters.requestCount));
+}
+
 /**
- * Asks the own page of each listing past its expected end (guideline §9.3):
- * live ones are extended, the others marked gone. A page that does not load
- * says nothing about its listing, which waits for the next run.
+ * Asks each listing's own page and writes what it says (`recordListingCheck`):
+ * gone, or live until a date, with its details. A page that does not load
+ * says nothing about its listing, which waits for the next run. Stops at a
+ * refusal, after five failures in a row, and when the run's time or requests
+ * run out, which is no fault: the rest wait for the next run.
  */
-async function checkDueListings(run: RunState, limit: number): Promise<void> {
-  const due = await loadListingsDueForCheck(run.db, {
-    sourceId: ssGeSource.id,
-    asOf: run.now(),
-    limit,
-  });
+async function readListingPages(
+  run: RunState,
+  listings: readonly DueListing[],
+  purpose: 'checks' | 'details',
+): Promise<void> {
   let failuresInARow = 0;
-  for (const [index, listing] of due.entries()) {
+  for (const [index, listing] of listings.entries()) {
     const fetched = await request(run, buildDetailUrl(listing.sourceListingKey));
+    if (fetched.kind === 'spent') break;
+    run.listingPagesLeft--;
+    run.asked.add(listing.id);
     if (fetched.kind === 'refused') {
       stop(run, `listing ${listing.sourceListingKey}: ${fetched.reason}`, true);
       break;
@@ -569,10 +621,58 @@ async function checkDueListings(run: RunState, limit: number): Promise<void> {
       checkedAt: fetched.fetchedAt,
     });
     if (outcome === 'gone') run.counters.goneCount++;
-    else if (outcome === 'verified') run.counters.verifiedCount++;
+    else if (outcome === 'verified') {
+      // `verified` counts checks of listings past their end, as before 12B.
+      if (purpose === 'checks') run.counters.verifiedCount++;
+      if (check.status === 'active') run.counters.detailsCount++;
+    }
     if (index % 25 === 24) await saveRun(run);
   }
   await saveRun(run);
+}
+
+/**
+ * Asks the own page of each listing past its expected end (guideline §9.3):
+ * live ones are extended, the others marked gone. Each page carries the
+ * listing's details, which are kept too.
+ */
+async function checkDueListings(run: RunState): Promise<void> {
+  const limit = listingPagesAllowed(run);
+  if (limit === 0) return;
+  const due = await loadListingsDueForCheck(run.db, {
+    sourceId: ssGeSource.id,
+    asOf: run.now(),
+    limit,
+  });
+  await readListingPages(run, due, 'checks');
+}
+
+/**
+ * Reads the own page of each listing that wants its details read (Phase 12B:
+ * new, changed, renewed or back since then, `upsertListing`), the newest
+ * listing first, until none is left or the run's time or requests run out.
+ * The rest wait for the next run, behind that night's newer listings. A page
+ * the checks asked tonight is not asked again.
+ */
+async function readWantedDetails(run: RunState): Promise<void> {
+  const limit = listingPagesAllowed(run);
+  if (limit === 0) return;
+  const wanted = await loadListingsWantingDetails(run.db, {
+    sourceId: ssGeSource.id,
+    limit: limit + run.asked.size,
+  });
+  const unasked = wanted.filter((listing) => !run.asked.has(listing.id)).slice(0, limit);
+  await readListingPages(run, unasked, 'details');
+}
+
+/**
+ * The run's notes: why it stopped short, and also when its time or requests
+ * ran out only after the lists were read. That run still completes: the
+ * listing pages left over wait for the next one.
+ */
+function runNotes(run: RunState): string | null {
+  if (run.spent === null || (run.stopReason ?? '').includes(run.spent)) return run.stopReason;
+  return run.stopReason === null ? run.spent : `${run.stopReason}; ${run.spent}`;
 }
 
 /**
@@ -769,7 +869,10 @@ export async function listsDueForFullRead(
 
 /**
  * One ss.ge run (docs/real-estate-implementation-guideline.md §9): walks the
- * 24 lists newest first and stores every row through `upsertListing`.
+ * 24 lists newest first and stores every row through `upsertListing`, then
+ * checks the listings past their expected end, then reads the pages listings
+ * want for their details, all within `DEFAULT_STOP_AFTER_MS` and
+ * `MAX_REQUESTS_PER_RUN`.
  *
  * The caller must hold this source's crawl-process lock.
  */
@@ -831,14 +934,19 @@ export async function runSsGeCrawl(
       reopenedCount: 0,
       goneCount: 0,
       verifiedCount: 0,
+      detailsCount: 0,
     },
     progress,
     pagesLeft: options.maxPages ?? Number.POSITIVE_INFINITY,
+    listingPagesLeft: options.maxDetailChecks ?? Number.POSITIVE_INFINITY,
+    deadlineMs: Date.parse(startedAt) + (options.stopAfterMs ?? DEFAULT_STOP_AFTER_MS),
+    maxRequests: options.maxRequests ?? MAX_REQUESTS_PER_RUN,
+    asked: new Set(),
+    spent: null,
     knownListings: knownListings(history),
     stopReason: null,
     siteTrouble: false,
   };
-  const maxDetailChecks = options.maxDetailChecks ?? DEFAULT_MAX_DETAIL_CHECKS;
 
   try {
     const backoffUntil = await getSourceBackoffUntil(db, ssGeSource.id);
@@ -871,7 +979,9 @@ export async function runSsGeCrawl(
 
     // A trial that stopped at its page limit still checks; a run the site
     // refused, or would not answer, asks for nothing more.
-    if (!run.siteTrouble && maxDetailChecks > 0) await checkDueListings(run, maxDetailChecks);
+    if (!run.siteTrouble) await checkDueListings(run);
+    // Then, with the time and requests left, the pages listings want read.
+    if (!run.siteTrouble) await readWantedDetails(run);
 
     // Not after site trouble: listings this run never had the chance to see
     // again must not be given up on its account.
@@ -887,7 +997,7 @@ export async function runSsGeCrawl(
     await saveRun(run, {
       finishedAt: now(),
       status: run.stopReason === null ? 'completed' : 'partial',
-      notes: run.stopReason,
+      notes: runNotes(run),
     });
   } catch (err) {
     await saveRun(run, {

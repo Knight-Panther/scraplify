@@ -11,8 +11,10 @@ import {
   buildDetailUrl,
   buildResultsUrl,
   DEEP_PAGE_BUDGET,
+  DEFAULT_STOP_AFTER_MS,
   ensureSsGeSourceSeeded,
   listsDueForFullRead,
+  MAX_REQUESTS_PER_RUN,
   RESUME_OVERLAP_PAGES,
   runSsGeCrawl,
   SS_GE_LISTS,
@@ -139,7 +141,8 @@ function rows(firstId: number, count: number, newestAgoMs = HOUR_MS): SiteRow[] 
 }
 
 type DetailState =
-  | { status: 'Active'; endsAt: number }
+  /** `fields` are what else its page says (Phase 12B details), in ss.ge's own names. */
+  | { status: 'Active'; endsAt: number; fields?: Record<string, unknown> }
   | { status: 'Expired' }
   | { status: 'Missing' };
 
@@ -211,6 +214,7 @@ class FakeSite implements HttpFetcher {
         status: state.status,
         isInactiveApplication: state.status !== 'Active',
         endDate: state.status === 'Active' ? wallClock(state.endsAt) : wallClock(NOW - DAY_MS),
+        ...(state.status === 'Active' ? state.fields : {}),
       },
     });
   }
@@ -931,7 +935,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
-      { mode: 'nightly', maxDetailChecks: 10, deepPageBudget: 3 },
+      { mode: 'nightly', maxDetailChecks: 1, deepPageBudget: 3 },
     );
 
     expect(site.requested.filter((url) => !url.includes('/l/'))).toEqual([
@@ -1134,9 +1138,10 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     // 1002's page has no listing in it, though this run just saw it in its
     // list: ss.ge does that to live listings now and then (Phase 12B).
 
+    // Three pages: the checks, not the pages its new listings want read.
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
-      { mode: 'sweep' },
+      { mode: 'sweep', maxDetailChecks: 3 },
     );
 
     expect(detailRequests(site).sort()).toEqual(['1000', '1001', '1002']);
@@ -1182,6 +1187,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     );
 
     expect(crawlRun.status).toBe('partial');
+    // Both still want their details read, and are not asked again: one page a run.
     expect(detailRequests(site).sort()).toEqual(['1000', '1001']);
   });
 
@@ -1280,7 +1286,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
-      { mode: 'sweep' },
+      { mode: 'sweep', maxDetailChecks: 3 },
     );
 
     expect(detailRequests(site)).toHaveLength(3);
@@ -1348,5 +1354,140 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     expect(crawlRun).toMatchObject({ status: 'completed', goneCount: 1 });
     expect(await stored(7001)).toMatchObject({ status: 'gone', goneReason: 'lapsed' });
     expect(await stored(7002)).toBeUndefined();
+  });
+});
+
+describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () => {
+  const LIVE = { status: 'Active', endsAt: NOW + 20 * DAY_MS } as const;
+  const detailRequests = (site: FakeSite) =>
+    site.requested.filter((url) => !url.includes('/l/')).map((url) => url.split('/').at(-1));
+
+  /** Every listing on the site live, so each page read saves details. */
+  function allLive(site: FakeSite): void {
+    for (const listRows of Object.values(site.lists)) {
+      for (const row of listRows) site.details.set(String(row.id), LIVE);
+    }
+  }
+
+  async function stored(id: number) {
+    return (await storedListings()).find((row) => row.sourceListingKey === String(id));
+  }
+
+  it('reads the page of each new listing after the lists, newest first, and saves its details', async () => {
+    // Ordered 10 to 29 minutes ago: newer than every other list's one listing (an hour ago).
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 20, 10 * 60_000) });
+    allLive(site);
+    site.details.set('1000', { ...LIVE, fields: { state: 'გარემონტებული', toilet: '2' } });
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep' },
+    );
+
+    const firstListingPage = site.requested.findIndex((url) => !url.includes('/l/'));
+    expect(firstListingPage).toBeGreaterThan(0);
+    expect(site.requested.slice(firstListingPage).every((url) => !url.includes('/l/'))).toBe(true);
+    const asked = detailRequests(site);
+    expect(asked.slice(0, 20)).toEqual(
+      Array.from({ length: 20 }, (_, index) => String(1_000 + index)),
+    );
+    expect(asked).toHaveLength(20 + OTHER_LISTS);
+    expect(new Set(asked).size).toBe(asked.length);
+    for (const url of site.requested) expect(isSsGeUrlAllowed(url), url).toBe(true);
+    expect(crawlRun).toMatchObject({
+      status: 'completed',
+      detailsCount: 20 + OTHER_LISTS,
+      // Not checks: none of these was past its expected end.
+      verifiedCount: 0,
+      failedRequestCount: 0,
+      notes: null,
+    });
+
+    const read = await stored(1000);
+    expect(read).toMatchObject({ condition: 'renovated', bathrooms: 2, detailsWantedAt: null });
+    expect(read?.detailsReadAt).not.toBeNull();
+    expect((await storedListings()).filter((row) => row.detailsReadAt === null)).toEqual([]);
+  });
+
+  it('stops reading listing pages at the time limit and still completes; the next night reads the rest, newest first', async () => {
+    expect(DEFAULT_STOP_AFTER_MS).toBe(16 * HOUR_MS);
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 5, 10 * 60_000) });
+    allLive(site);
+    // Seventeen hours pass while the second listing page loads.
+    let lateMs = 0;
+    const ticks = clock();
+    const now = () => new Date(Date.parse(ticks()) + lateMs).toISOString();
+    const slow: HttpFetcher = {
+      fetch: async (url) => {
+        const answer = await site.fetch(url);
+        if (detailRequests(site).length === 2) lateMs = 17 * HOUR_MS;
+        return answer;
+      },
+      close: async () => {},
+    };
+
+    const { crawlRun } = await runSsGeCrawl({ db, httpFetcher: slow, now }, { mode: 'sweep' });
+
+    expect(detailRequests(site)).toEqual(['1000', '1001']);
+    // Out of time is no fault: every list was read, and the nightly baseline moves on.
+    expect(crawlRun).toMatchObject({
+      status: 'completed',
+      detailsCount: 2,
+      notes: 'time limit reached',
+    });
+    const waiting = (await storedListings()).filter((row) => row.detailsWantedAt !== null);
+    expect(waiting).toHaveLength(3 + OTHER_LISTS);
+
+    site.requested.length = 0;
+    const next = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW + DAY_MS) },
+      { mode: 'nightly' },
+    );
+
+    expect(next.crawlRun).toMatchObject({
+      status: 'completed',
+      detailsCount: 3 + OTHER_LISTS,
+      notes: null,
+    });
+    expect(detailRequests(site).slice(0, 3)).toEqual(['1002', '1003', '1004']);
+    expect((await storedListings()).filter((row) => row.detailsReadAt === null)).toEqual([]);
+  });
+
+  it('stops the run at its request ceiling, 20,000, partial while lists are unread', async () => {
+    expect(MAX_REQUESTS_PER_RUN).toBe(20_000);
+    const site = new FakeSite();
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep', maxRequests: 10 },
+    );
+
+    expect(site.requested).toHaveLength(10);
+    expect(detailRequests(site)).toEqual([]);
+    expect(crawlRun).toMatchObject({
+      status: 'partial',
+      requestCount: 10,
+      notes: 'request ceiling reached',
+    });
+  });
+
+  it('stops at once on a refusal while reading listing pages', async () => {
+    const site = new FakeSite();
+    for (const listRows of Object.values(site.lists)) {
+      for (const row of listRows) {
+        const url = buildDetailUrl(String(row.id));
+        site.script(url, status(url, 429, { 'retry-after': '600' }));
+      }
+    }
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep' },
+    );
+
+    expect(detailRequests(site)).toHaveLength(1);
+    expect(crawlRun).toMatchObject({ status: 'partial', detailsCount: 0 });
+    expect(crawlRun.notes).toMatch(/429/);
+    expect(await getSourceBackoffUntil(db, ssGeSource.id)).not.toBeNull();
   });
 });

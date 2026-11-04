@@ -116,10 +116,11 @@ describe('listing details', () => {
     expect(row).toMatchObject({ condition: null, amenities: [] });
   });
 
-  it('queues the listings that want their page read, newest want first, and no others', async () => {
+  it('queues the listings that want their page read, the newest listing first, and no others', async () => {
     const sourceId = await newSource();
-    const older = await listing(sourceId, { detailsWantedAt: at(-3) });
-    const newer = await listing(sourceId, { detailsWantedAt: at(-1) });
+    // A price changed last night on a listing ordered five days ago: read after a newer one.
+    const older = await listing(sourceId, { sourceUpdatedAt: at(-5), detailsWantedAt: at(-1) });
+    const newer = await listing(sourceId, { sourceUpdatedAt: at(-1), detailsWantedAt: at(-3) });
     await listing(sourceId); // never wanted: stored before 12B
     await listing(sourceId, { detailsWantedAt: at(-2), detailsReadAt: at(-2) });
     await listing(sourceId, { detailsWantedAt: at(-2), status: 'gone', goneAt: at(-1) });

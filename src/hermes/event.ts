@@ -125,6 +125,8 @@ export interface RealEstateCounts {
   reopened: number;
   gone: number;
   verified: number;
+  /** Listing pages whose details were kept (Phase 12B), checks included. */
+  details: number;
 }
 
 export interface RealEstateRunFacts {
@@ -149,6 +151,8 @@ export interface RealEstateRunFacts {
  * - `site_refused`: the site answered 403, 429 or "slow down"; `http_status` says which.
  * - `pages_failed`: a results page would not load after its tries.
  * - `listings_failed`: several listing pages in a row would not load.
+ * - `time_limit`: the run's 16 hours ran out with lists still unread (Phase 12B).
+ * - `request_ceiling`: its 20,000 requests did (Phase 12B).
  * - `process_ended`: the process died and a later run settled the row.
  * - `error`: the run failed on anything else (the journal has the message).
  * - `other`: it ended partial for a reason this list does not know yet.
@@ -158,6 +162,8 @@ export const REAL_ESTATE_STOP_REASONS = [
   'site_refused',
   'pages_failed',
   'listings_failed',
+  'time_limit',
+  'request_ceiling',
   'process_ended',
   'error',
   'other',
@@ -372,6 +378,7 @@ export async function readRealEstateRunFacts(
       reopened: realEstateCrawlRuns.reopenedCount,
       gone: realEstateCrawlRuns.goneCount,
       verified: realEstateCrawlRuns.verifiedCount,
+      details: realEstateCrawlRuns.detailsCount,
     })
     .from(realEstateCrawlRuns)
     .innerJoin(sources, eq(sources.id, realEstateCrawlRuns.sourceId))
@@ -414,6 +421,8 @@ export function realEstateStopReason(
   if (/listing pages in a row would not load/.test(first))
     return { reason: 'listings_failed', httpStatus: null };
   if (/page \d+ would not load after/.test(first)) return { reason: 'pages_failed', httpStatus };
+  if (first === 'time limit reached') return { reason: 'time_limit', httpStatus: null };
+  if (first === 'request ceiling reached') return { reason: 'request_ceiling', httpStatus: null };
   if (first.startsWith('the process ended before the run did'))
     return { reason: 'process_ended', httpStatus: null };
   return { reason: status === 'failed' ? 'error' : 'other', httpStatus: null };

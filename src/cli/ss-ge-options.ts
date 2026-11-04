@@ -1,8 +1,9 @@
 import { parseArgs } from 'node:util';
 import type { RunSsGeCrawlOptions } from '../adapters/ss-ge/crawl.js';
 
-/** A night's checks are 1,500; a one-off catch-up after a first sweep may want more, but not without limit. */
+/** As many as a run's request ceiling allows (`MAX_REQUESTS_PER_RUN`). */
 const MAX_DETAIL_CHECKS = 20_000;
+const HOUR_MS = 60 * 60 * 1000;
 
 function wholeNumber(name: string, value: string, min: number, max: number): number {
   const parsed = Number(value);
@@ -19,8 +20,10 @@ function wholeNumber(name: string, value: string, min: number, max: number): num
  * its end, which takes most of a day. Either resumes where an interrupted run
  * of its mode stopped unless `--fresh` is given. `--max-pages=N` stops after
  * N results pages, for a trial or a sweep in instalments.
- * `--max-detail-checks=N` sets how many listing pages are checked (default
- * 1,500; 0 for none).
+ * `--max-detail-checks=N` sets how many listing pages are asked for, checks
+ * first and then pages wanted for their details (no cap by default; 0 for
+ * none). `--stop-after-hours=N` ends the run's requests after N hours, 1 to
+ * 20 (16 by default): a trial asks for 1.
  */
 export function parseSsGeOptions(args: string[]): RunSsGeCrawlOptions {
   const { values } = parseArgs({
@@ -29,6 +32,7 @@ export function parseSsGeOptions(args: string[]): RunSsGeCrawlOptions {
       mode: { type: 'string', default: 'nightly' },
       'max-pages': { type: 'string' },
       'max-detail-checks': { type: 'string' },
+      'stop-after-hours': { type: 'string' },
       fresh: { type: 'boolean' },
     },
     strict: true,
@@ -48,6 +52,10 @@ export function parseSsGeOptions(args: string[]): RunSsGeCrawlOptions {
       0,
       MAX_DETAIL_CHECKS,
     );
+  }
+  if (values['stop-after-hours'] !== undefined) {
+    options.stopAfterMs =
+      wholeNumber('stop-after-hours', values['stop-after-hours'], 1, 20) * HOUR_MS;
   }
   if (values.fresh === true) {
     options.fresh = true;

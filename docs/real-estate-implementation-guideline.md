@@ -38,7 +38,7 @@
 | # | Question | Default taken | Why |
 |---|---|---|---|
 | 1 | Summer cottages (აგარაკი) | Included as a third property kind | 1,280 listings; residential; the same filters apply |
-| 2 | Request budget | One request at a time, 3 s apart; one first pass of about 7,300. Since 2026-11-03 no request-count cap (about 4,000 whole-list pages a night plus each list's new rows and up to 1,500 listing checks), bounded by the spacing and the run's time | Settled by the owner on 2026-10-12: no budget is negotiated with ss.ge. Widened by the owner on 2026-11-03 ("as many as safe", Phase 12): the spacing is never lowered, any refusal stops the run, and from Phase 12B a run also stops at 16 hours or 20,000 requests. |
+| 2 | Request budget | One request at a time, 3 s apart; one first pass of about 7,300. Since 2026-11-03 no request-count cap (about 4,000 whole-list pages a night plus each list's new rows, the listing checks and, from Phase 12B, the pages of new and changed listings), bounded by the spacing and the run's 16 hours | Settled by the owner on 2026-10-12: no budget is negotiated with ss.ge. Widened by the owner on 2026-11-03 ("as many as safe", Phase 12): the spacing is never lowered, any refusal stops the run, and from Phase 12B a run also stops at 16 hours or 20,000 requests. |
 | 3 | How to read ss.ge | Public pages only | Its frontend pages through a JSON gateway with a site-issued token (§4.8). Faster, but using it needs ss.ge to say so. |
 | 4 | Listing descriptions | Stored and searched; not shown on the public site | Same reasoning as the 2026-10-07 decision for the job boards |
 | 5 | Default view | One row per listing first; grouped view when Phase 11D lands | §5 |
@@ -261,12 +261,22 @@ Absence from a list proves nothing, because flat lists hide look-alikes.
 
 1. On every sighting, `expected_end_at` is the order time plus 30 days.
 2. A row is shown only while the current time is before the later of `expected_end_at` and `last_seen_at`, plus a two-day grace period. `last_seen_at` counts because a row the site listed this week is live, whatever its order time says.
-3. Each run, the detail pages of up to 1,500 rows are fetched (1,000 until 2026-10-27). First the rows past their expected end that the site still listed after that date; then the rows a full read missed (rule 6), the longest-lived first; then the rest past their end, most recently expired first. `Active` extends the row to its `endDate` and records its price (§10); `Expired`, inactive or missing marks it gone. A page that fails to load changes nothing.
+3. Each run, after its lists, fetches the detail pages of the rows due, with no count of their own since Phase 12B (1,500 a run until then, 1,000 until 2026-10-27): the run's 16 hours and 20,000 requests bound them (§9.4). First the rows past their expected end that the site still listed after that date; then the rows a full read missed (rule 6), the longest-lived first; then the rest past their end, most recently expired first. `Active` extends the row to its `endDate`, records its price (§10) and keeps its details (§9.4); `Expired` or inactive marks it gone. A page with no listing in it marks the row gone only when its list last showed it more than two days before, or a full read missed it (rule 6): ss.ge renders a live listing's page that way now and then (two of eight new ones on 2026-11-04, live on the next request), so such a row is looked at again in three days instead. A page that fails to load changes nothing.
 4. An `endDate` is never believed more than 30 days ahead, so a long-running listing is re-checked monthly. An `Active` listing whose `endDate` has passed is re-checked in three days.
 5. A row nobody has seen or confirmed for a week past its expected end is marked gone (`lapsed`). A gone row is deleted after 14 days.
 6. When a full read of a list ends, an active row of it that the read did not see, and none of whose look-alikes (the same `group_key` or `similarity_group`) it saw, gets `missed_at`, which puts it in rule 3's queue. Being seen or confirmed clears it. It is never a reason to mark a row gone by itself: on 2026-10-27, 47,864 active flats were in 15,053 look-alike groups, and the flat lists show one of each. A sample of 50 rows unseen since the first pass found 3 gone early (6%).
 
 A row that is neither re-seen nor checked in time is hidden at its expected end. That errs towards hiding a live listing over showing a dead one.
+
+### 9.4 Listing details (Phase 12B)
+
+A listing's own page says what its results row does not: building status, condition, project, floor type, bathrooms, balconies, kitchen, house and yard areas, who posted it (owner, broker, agency or developer), 33 amenities, coordinates and municipality (`src/realestate/details.ts`, vocabularies in `src/realestate/kinds.ts`). Each listing's page is read once, from 12B on, and never as a backlog:
+
+1. A row stored new, or changed, renewed or reopened while its page was never read, wants it read (`details_wanted_at`). A row only seen unchanged is never wanted, so the rows stored before 12B wait for such a reason.
+2. After its lists and its checks (§9.3), each run reads the wanted pages, the newest listing first, until none is left or the run has spent its 16 hours (`--stop-after-hours`) or 20,000 requests. A run that runs out of time there still completes, with the note `time limit reached`; the rest wait for the next night, behind that night's newer listings. Out of time or requests while lists are unread, the run is partial, so the nightly baseline stays put.
+3. A page is asked at most once a run. Every page that comes back live keeps the listing's details, the checks' pages too (`details_count` counts them), and overwrites every field: what a later page no longer says becomes unknown.
+4. Unknown is never "no": a filter on a detail matches only rows whose page was read (Phase 12C), and wording the vocabularies do not hold is unknown.
+5. Coordinates are kept and not shown; they stay out of the public view.
 
 **Measured while building (2026-10-12, `src/adapters/ss-ge/RECON_NOTES.md`):** the first 90–95% of each list is in strict order of order time, down to about 29 days. Rent lists then end with listings 30–45 days old; sale lists end with a block of business listings in no date order, up to 943 days old. Thirteen listings older than 30 days were checked, and all were live with an end 45 days after their order time. Rule 3's ordering exists for these.
 

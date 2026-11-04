@@ -18,10 +18,12 @@ Group=xtelo
 WorkingDirectory=/opt/xtelo/current
 EnvironmentFile=/etc/xtelo/worker.env
 ExecStart=/opt/xtelo/current/deploy/run-realestate.sh %i
-# ss.ge answers the host in about 19 s a page (2026-10-15), so a night of
-# about 1,500 pages and 1,000 listing checks can take most of a day. The
-# crawl saves progress after every page; a run stopped here is reported as
-# interrupted and the next one carries on.
+# ss.ge answers the host in about 19 s a page (2026-10-15), so a night can
+# take most of a day. Since Phase 12B the crawl makes no request after 16
+# hours (DEFAULT_STOP_AFTER_MS in src/adapters/ss-ge/crawl.ts), which leaves
+# this limit four hours for what a request in flight and the run's last
+# writes need. The crawl saves progress after every page; a run stopped here
+# is reported as interrupted and the next one carries on.
 TimeoutStartSec=20h
 
 NoNewPrivileges=true

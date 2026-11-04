@@ -74,9 +74,11 @@ export async function recordListingDetails(
 }
 
 /**
- * Active listings whose own page the crawl means to read and has not:
- * the most recently wanted first, so a run that runs out of time leaves the
- * oldest wants for the next night (Phase 12B).
+ * Active listings whose own page the crawl means to read and has not, the
+ * newest listing first (its last order time on the site): a run that runs
+ * out of time leaves the oldest for the next night, behind that night's newer
+ * ones (Phase 12B). By want time instead, one night's walk would read its
+ * lists' last pages first, since those are the rows it saw last.
  */
 export async function loadListingsWantingDetails(
   db: DatabaseOrTransaction,
@@ -93,6 +95,6 @@ export async function loadListingsWantingDetails(
         isNotNull(realEstateListings.detailsWantedAt),
       ),
     )
-    .orderBy(desc(realEstateListings.detailsWantedAt), desc(realEstateListings.id))
+    .orderBy(desc(realEstateListings.sourceUpdatedAt), desc(realEstateListings.id))
     .limit(input.limit);
 }
