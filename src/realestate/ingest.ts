@@ -245,6 +245,7 @@ export async function upsertListing(
         posterType: realEstateListings.posterType,
         description: realEstateListings.description,
         similarityGroup: realEstateListings.similarityGroup,
+        detailsReadAt: realEstateListings.detailsReadAt,
       })
       .from(realEstateListings)
       .where(
@@ -265,12 +266,15 @@ export async function upsertListing(
         expectedEndAt: card.expectedEndAt,
         firstSeenAt: seenAt,
         lastSeenAt: seenAt,
+        // Its own page is read once, from Phase 12B on (src/realestate/details.ts).
+        detailsWantedAt: seenAt,
       });
       return 'new';
     }
 
+    const { detailsReadAt, ...comparable } = existing;
     const stored: MeaningfulFields = {
-      ...existing,
+      ...comparable,
       areaM2: amountOf(existing.areaM2),
       priceGel: amountOf(existing.priceGel),
       priceUsd: amountOf(existing.priceUsd),
@@ -331,6 +335,10 @@ export async function upsertListing(
         status: 'active',
         goneAt: null,
         goneReason: null,
+        // Changed, renewed or back: worth reading its page, unless it has been
+        // read already. A listing only seen unchanged is never wanted, so the
+        // rows stored before Phase 12B wait for a reason (no backlog).
+        ...(detailsReadAt === null ? { detailsWantedAt: seenAt } : {}),
       })
       .where(eq(realEstateListings.id, existing.id));
 

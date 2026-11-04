@@ -1123,7 +1123,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     return (await storedListings()).find((row) => row.sourceListingKey === String(id));
   }
 
-  it('asks the page of each, extends the live and marks the others gone', async () => {
+  it('asks the page of each, extends the live, marks the expired gone and rechecks a blank page soon', async () => {
     // Ordered 46 days ago and still listed: its 45 days of life have passed,
     // and only the listing's page says what happens next.
     const site = new FakeSite({
@@ -1131,7 +1131,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     });
     site.details.set('1000', { status: 'Active', endsAt: NOW + 200 * DAY_MS });
     site.details.set('1001', { status: 'Expired' });
-    // 1002 has no page at all: the site answers 200 with no listing in it.
+    // 1002's page has no listing in it, though this run just saw it in its
+    // list: ss.ge does that to live listings now and then (Phase 12B).
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
@@ -1140,7 +1141,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
 
     expect(detailRequests(site).sort()).toEqual(['1000', '1001', '1002']);
     for (const url of site.requested) expect(isSsGeUrlAllowed(url), url).toBe(true);
-    expect(crawlRun).toMatchObject({ status: 'completed', verifiedCount: 1, goneCount: 2 });
+    expect(crawlRun).toMatchObject({ status: 'completed', verifiedCount: 1, goneCount: 1 });
 
     const live = await stored(1000);
     expect(live?.status).toBe('active');
@@ -1149,12 +1150,15 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     expect(instant(live?.expectedEndAt)).toBeGreaterThan(NOW + 29 * DAY_MS);
     expect(instant(live?.expectedEndAt)).toBeLessThan(NOW + 31 * DAY_MS);
     expect(await stored(1001)).toMatchObject({ status: 'gone', goneReason: 'expired' });
-    expect(await stored(1002)).toMatchObject({ status: 'gone', goneReason: 'missing' });
+    const blank = await stored(1002);
+    expect(blank).toMatchObject({ status: 'active', goneAt: null });
+    expect(instant(blank?.expectedEndAt)).toBeLessThan(NOW + 4 * DAY_MS);
     expect(await stored(1100)).toMatchObject({ status: 'active', verifiedAt: null });
   });
 
   it('checks no more listings than its budget', async () => {
     const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
+    for (const id of ['1000', '1001', '1002']) site.details.set(id, { status: 'Expired' });
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
@@ -1269,6 +1273,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
 
   it('leaves alone a listing whose page fails, and carries on with the next', async () => {
     const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
+    site.details.set('1000', { status: 'Expired' });
     site.script(buildDetailUrl('1001'), status(buildDetailUrl('1001'), 500));
     const challenge = ok(buildDetailUrl('1002'), '<html><body>Just a moment...</body></html>');
     site.script(buildDetailUrl('1002'), challenge);
@@ -1282,7 +1287,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     // A page that did not load says nothing: not "gone", and above all not
     // "missing", which is what a page with no listing in it would mean.
     expect(crawlRun).toMatchObject({ status: 'completed', goneCount: 1, failedRequestCount: 2 });
-    expect(await stored(1000)).toMatchObject({ status: 'gone', goneReason: 'missing' });
+    expect(await stored(1000)).toMatchObject({ status: 'gone', goneReason: 'expired' });
     expect(await stored(1001)).toMatchObject({ status: 'active', verifiedAt: null });
     expect(await stored(1002)).toMatchObject({ status: 'active', verifiedAt: null });
   });

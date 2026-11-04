@@ -569,7 +569,7 @@ async function checkDueListings(run: RunState, limit: number): Promise<void> {
       checkedAt: fetched.fetchedAt,
     });
     if (outcome === 'gone') run.counters.goneCount++;
-    else run.counters.verifiedCount++;
+    else if (outcome === 'verified') run.counters.verifiedCount++;
     if (index % 25 === 24) await saveRun(run);
   }
   await saveRun(run);

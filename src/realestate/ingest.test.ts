@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { db } from '../db/client.js';
 import { realEstateListings, realEstatePriceChanges } from '../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
+import { type ListingDetails, recordListingDetails } from './details.js';
 import { type ListingCard, upsertListing } from './ingest.js';
 
 const FIRST_SEEN = '2026-10-12T02:00:00.000Z';
@@ -50,6 +51,24 @@ function card(overrides: Partial<ListingCard> = {}): ListingCard {
     ...overrides,
   };
 }
+
+const NO_DETAILS: ListingDetails = {
+  buildingStatus: null,
+  condition: null,
+  project: null,
+  floorType: null,
+  bathrooms: null,
+  balconies: null,
+  kitchenAreaM2: null,
+  houseAreaM2: null,
+  yardAreaM2: null,
+  posterEntity: null,
+  amenities: [],
+  latitude: null,
+  longitude: null,
+  municipalityRef: null,
+  municipalityName: null,
+};
 
 /** Timestamps come back in Postgres's own text form; compare the instants. */
 function instant(value: string | null | undefined): number {
@@ -197,6 +216,70 @@ describe('upsertListing', () => {
     });
     expect(Number(row?.pricePerM2Gel)).toBe(3400);
     expect(await priceChangesOf(row?.id ?? '')).toHaveLength(0);
+  });
+
+  describe('which listings want their own page read (Phase 12B)', () => {
+    const RENEWED = '2026-10-12T12:00:00.000Z';
+
+    it('wants details for a new listing, and for a renewed one never read', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+      const [fresh] = await rowsOf(sourceId);
+      expect(instant(fresh?.detailsWantedAt)).toBe(instant(FIRST_SEEN));
+
+      // Stored before 12B: never wanted, never read.
+      await db
+        .update(realEstateListings)
+        .set({ detailsWantedAt: null })
+        .where(eq(realEstateListings.sourceId, sourceId));
+      const outcome = await upsertListing(db, {
+        sourceId,
+        card: card({ sourceUpdatedAt: RENEWED }),
+        seenAt: SEEN_AGAIN,
+      });
+
+      expect(outcome).toBe('bumped');
+      const [renewed] = await rowsOf(sourceId);
+      expect(instant(renewed?.detailsWantedAt)).toBe(instant(SEEN_AGAIN));
+    });
+
+    it('does not want them again for a renewed listing already read', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+      const [stored] = await rowsOf(sourceId);
+      await recordListingDetails(db, {
+        listingId: stored?.id ?? '',
+        details: { ...NO_DETAILS, condition: 'renovated' },
+        readAt: FIRST_SEEN,
+      });
+
+      const outcome = await upsertListing(db, {
+        sourceId,
+        card: card({ sourceUpdatedAt: RENEWED, priceUsd: 95000 }),
+        seenAt: SEEN_AGAIN,
+      });
+
+      expect(outcome).toBe('changed');
+      const [row] = await rowsOf(sourceId);
+      expect(row?.detailsWantedAt).toBeNull();
+      expect(row?.condition).toBe('renovated');
+    });
+
+    it('leaves a listing stored before this release unwanted while it is only seen unchanged', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+      await db
+        .update(realEstateListings)
+        .set({ detailsWantedAt: null })
+        .where(eq(realEstateListings.sourceId, sourceId));
+
+      const outcome = await upsertListing(db, { sourceId, card: card(), seenAt: SEEN_AGAIN });
+
+      expect(outcome).toBe('unchanged');
+      const [row] = await rowsOf(sourceId);
+      expect(row?.detailsWantedAt).toBeNull();
+      expect(row?.detailsReadAt).toBeNull();
+    });
   });
 
   it('records a price change with the old and the new price', async () => {

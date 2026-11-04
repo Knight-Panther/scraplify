@@ -1,3 +1,7 @@
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { realEstateListings } from '../db/schema/index.js';
+import type { DatabaseOrTransaction } from '../db/types.js';
+import type { DueListing } from './expiry.js';
 import type {
   AmenityKey,
   BuildingStatus,
@@ -29,4 +33,66 @@ export interface ListingDetails {
   longitude: number | null;
   municipalityRef: number | null;
   municipalityName: string | null;
+}
+
+function decimal(value: number | null, scale: number): string | null {
+  return value === null ? null : value.toFixed(scale);
+}
+
+/**
+ * Writes what a listing's own page said, every field of it: a value a later
+ * page no longer gives becomes unknown. Marks the page read and the listing
+ * no longer wanted.
+ */
+export async function recordListingDetails(
+  db: DatabaseOrTransaction,
+  input: { listingId: string; details: ListingDetails; readAt: string },
+): Promise<void> {
+  const { details } = input;
+  await db
+    .update(realEstateListings)
+    .set({
+      buildingStatus: details.buildingStatus,
+      condition: details.condition,
+      project: details.project,
+      floorType: details.floorType,
+      bathrooms: details.bathrooms,
+      balconies: details.balconies,
+      kitchenArea: decimal(details.kitchenAreaM2, 2),
+      houseArea: decimal(details.houseAreaM2, 2),
+      yardArea: decimal(details.yardAreaM2, 2),
+      posterEntity: details.posterEntity,
+      amenities: details.amenities,
+      latitude: decimal(details.latitude, 6),
+      longitude: decimal(details.longitude, 6),
+      municipalityRef: details.municipalityRef,
+      municipalityName: details.municipalityName,
+      detailsReadAt: input.readAt,
+      detailsWantedAt: null,
+    })
+    .where(eq(realEstateListings.id, input.listingId));
+}
+
+/**
+ * Active listings whose own page the crawl means to read and has not:
+ * the most recently wanted first, so a run that runs out of time leaves the
+ * oldest wants for the next night (Phase 12B).
+ */
+export async function loadListingsWantingDetails(
+  db: DatabaseOrTransaction,
+  input: { sourceId: string; limit: number },
+): Promise<DueListing[]> {
+  return db
+    .select({ id: realEstateListings.id, sourceListingKey: realEstateListings.sourceListingKey })
+    .from(realEstateListings)
+    .where(
+      and(
+        eq(realEstateListings.sourceId, input.sourceId),
+        eq(realEstateListings.status, 'active'),
+        isNull(realEstateListings.detailsReadAt),
+        isNotNull(realEstateListings.detailsWantedAt),
+      ),
+    )
+    .orderBy(desc(realEstateListings.detailsWantedAt), desc(realEstateListings.id))
+    .limit(input.limit);
 }

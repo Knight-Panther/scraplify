@@ -13,6 +13,7 @@ import {
   markLapsedListingsGone,
   markMissedListings,
   recordListingCheck,
+  UNSETTLED_RECHECK_DAYS,
 } from './expiry.js';
 
 const NOW = Date.parse('2026-10-12T22:00:00.000Z');
@@ -358,6 +359,104 @@ describe('listing expiry', () => {
         expect(Number((await read(id))?.priceUsd)).toBe(100000);
         expect(await priceChangesOf(id)).toHaveLength(0);
       });
+    });
+
+    it('does not drop a listing its list showed yesterday because its page once showed no listing', async () => {
+      // ss.ge renders a live listing's page with no record now and then: two
+      // of eight fresh ones on 2026-11-04, both live on the next request.
+      const sourceId = await newSource();
+      const seenYesterday = await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-1) });
+      const seenLongAgo = await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-5) });
+
+      const missing = { status: 'gone', reason: 'missing' } as const;
+      const first = await recordListingCheck(db, {
+        listingId: seenYesterday,
+        check: missing,
+        checkedAt: NOW_ISO,
+      });
+      const second = await recordListingCheck(db, {
+        listingId: seenLongAgo,
+        check: missing,
+        checkedAt: NOW_ISO,
+      });
+
+      expect(first).toBe('unsettled');
+      const kept = await read(seenYesterday);
+      expect(kept).toMatchObject({ status: 'active', goneAt: null });
+      expect(instant(kept?.expectedEndAt)).toBe(NOW + UNSETTLED_RECHECK_DAYS * DAY_MS);
+      // Seen five days ago, its page's "no listing" is believed.
+      expect(second).toBe('gone');
+      expect(await read(seenLongAgo)).toMatchObject({ status: 'gone', goneReason: 'missing' });
+    });
+
+    it('believes "no listing" at once for a listing a full read of its list also missed', async () => {
+      // Two signals agree: the list read to its end did not show it, and its page has no record.
+      const sourceId = await newSource();
+      const id = await listing(sourceId, { lastSeenAt: at(-1), missedAt: at(-0.5) });
+
+      const outcome = await recordListingCheck(db, {
+        listingId: id,
+        check: { status: 'gone', reason: 'missing' },
+        checkedAt: NOW_ISO,
+      });
+
+      expect(outcome).toBe('gone');
+      expect(await read(id)).toMatchObject({ status: 'gone', goneReason: 'missing' });
+    });
+
+    it('believes "expired" whenever the list last showed it', async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-1) });
+
+      const outcome = await recordListingCheck(db, {
+        listingId: id,
+        check: { status: 'gone', reason: 'expired' },
+        checkedAt: NOW_ISO,
+      });
+
+      expect(outcome).toBe('gone');
+    });
+
+    it("keeps the details a live listing's page carries", async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, { expectedEndAt: at(-1), detailsWantedAt: at(-2) });
+
+      await recordListingCheck(db, {
+        listingId: id,
+        check: {
+          status: 'active',
+          endAt: at(12),
+          details: {
+            buildingStatus: 'new',
+            condition: 'white-frame',
+            project: null,
+            floorType: null,
+            bathrooms: 2,
+            balconies: 1,
+            kitchenAreaM2: null,
+            houseAreaM2: null,
+            yardAreaM2: null,
+            posterEntity: 'agency',
+            amenities: ['elevator'],
+            latitude: null,
+            longitude: null,
+            municipalityRef: null,
+            municipalityName: null,
+          },
+        },
+        checkedAt: NOW_ISO,
+      });
+
+      const row = await read(id);
+      expect(row).toMatchObject({
+        buildingStatus: 'new',
+        condition: 'white-frame',
+        bathrooms: 2,
+        posterEntity: 'agency',
+        amenities: ['elevator'],
+        detailsWantedAt: null,
+      });
+      expect(instant(row?.detailsReadAt)).toBe(NOW);
     });
 
     it('marks gone a listing its page shows as over, with the reason', async () => {
