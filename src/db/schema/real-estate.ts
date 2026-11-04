@@ -132,6 +132,35 @@ export const realEstateListings = realEstate.table(
     /** The poster offers a viewing by video call. */
     videoViewing: boolean('video_viewing').notNull().default(false),
     pricePerM2Gel: numeric('price_per_m2_gel', { precision: 12, scale: 2 }),
+    /*
+     * From the listing's own page (Phase 12B), read once when it is new,
+     * changed, renewed or reopened after 12B shipped; listings stored before
+     * then stay unread until that happens (no backlog). Null is unknown, never
+     * "no": a filter on these matches only rows with `details_read_at`. Keys
+     * come from the vocabularies in `src/realestate/kinds.ts`.
+     */
+    buildingStatus: text('building_status'),
+    condition: text('condition'),
+    project: text('project'),
+    floorType: text('floor_type'),
+    bathrooms: smallint('bathrooms'),
+    balconies: smallint('balconies'),
+    kitchenArea: numeric('kitchen_area', { precision: 8, scale: 2 }),
+    houseArea: numeric('house_area', { precision: 10, scale: 2 }),
+    yardArea: numeric('yard_area', { precision: 12, scale: 2 }),
+    /** individual, broker, agency or developer, as the page says. */
+    posterEntity: text('poster_entity'),
+    /** The amenities the page marks true, as keys (`AMENITY_FIELDS`). */
+    amenities: text('amenities').array().notNull().default(sql`'{}'::text[]`),
+    /** Kept, not shown, and not in the public view: on an owner's own listing they point at a home. */
+    latitude: numeric('latitude', { precision: 9, scale: 6 }),
+    longitude: numeric('longitude', { precision: 9, scale: 6 }),
+    municipalityRef: integer('municipality_ref'),
+    municipalityName: text('municipality_name'),
+    /** When the listing's own page was last read for these fields. */
+    detailsReadAt: timestamp('details_read_at', { mode: 'string', withTimezone: true }),
+    /** Since when the crawl means to read its page; cleared once read. */
+    detailsWantedAt: timestamp('details_wanted_at', { mode: 'string', withTimezone: true }),
     /** Searched, never shown on the public surface (the source policy's display rule). */
     description: text('description'),
     /** ss.ge's own id for a set of look-alike listings, when it gives one. */
@@ -189,6 +218,10 @@ export const realEstateListings = realEstate.table(
     index('listings_missed_idx')
       .on(table.sourceId, table.missedAt)
       .where(sql`${table.missedAt} is not null`),
+    index('listings_amenities_idx').using('gin', table.amenities),
+    index('listings_details_wanted_idx')
+      .on(table.sourceId, table.detailsWantedAt)
+      .where(sql`${table.detailsReadAt} is null`),
   ],
 );
 
@@ -260,6 +293,22 @@ export const realEstatePublicListings = realEstate
     exclusive: boolean('exclusive').notNull(),
     videoViewing: boolean('video_viewing').notNull(),
     pricePerM2Gel: numeric('price_per_m2_gel', { precision: 12, scale: 2 }),
+    // Phase 12B: appended, so `create or replace` keeps the grant (migration 0045).
+    // Not the coordinates, nor `details_wanted_at`, which is the crawl's own.
+    buildingStatus: text('building_status'),
+    condition: text('condition'),
+    project: text('project'),
+    floorType: text('floor_type'),
+    bathrooms: smallint('bathrooms'),
+    balconies: smallint('balconies'),
+    kitchenArea: numeric('kitchen_area', { precision: 8, scale: 2 }),
+    houseArea: numeric('house_area', { precision: 10, scale: 2 }),
+    yardArea: numeric('yard_area', { precision: 12, scale: 2 }),
+    posterEntity: text('poster_entity'),
+    amenities: text('amenities').array().notNull(),
+    municipalityRef: integer('municipality_ref'),
+    municipalityName: text('municipality_name'),
+    detailsReadAt: timestamp('details_read_at', { mode: 'string', withTimezone: true }),
   })
   .as(sql`
     select
@@ -300,7 +349,21 @@ export const realEstatePublicListings = realEstate
       ${realEstateListings.hasBuiltInKitchen} as has_built_in_kitchen,
       ${realEstateListings.exclusive} as exclusive,
       ${realEstateListings.videoViewing} as video_viewing,
-      ${realEstateListings.pricePerM2Gel} as price_per_m2_gel
+      ${realEstateListings.pricePerM2Gel} as price_per_m2_gel,
+      ${realEstateListings.buildingStatus} as building_status,
+      ${realEstateListings.condition} as condition,
+      ${realEstateListings.project} as project,
+      ${realEstateListings.floorType} as floor_type,
+      ${realEstateListings.bathrooms} as bathrooms,
+      ${realEstateListings.balconies} as balconies,
+      ${realEstateListings.kitchenArea} as kitchen_area,
+      ${realEstateListings.houseArea} as house_area,
+      ${realEstateListings.yardArea} as yard_area,
+      ${realEstateListings.posterEntity} as poster_entity,
+      ${realEstateListings.amenities} as amenities,
+      ${realEstateListings.municipalityRef} as municipality_ref,
+      ${realEstateListings.municipalityName} as municipality_name,
+      ${realEstateListings.detailsReadAt} as details_read_at
     from ${realEstateListings}
     where ${realEstateListings.status} = 'active'
   `);
@@ -349,6 +412,8 @@ export const realEstateCrawlRuns = realEstate.table(
     reopenedCount: integer('reopened_count').notNull().default(0),
     goneCount: integer('gone_count').notNull().default(0),
     verifiedCount: integer('verified_count').notNull().default(0),
+    /** Listing pages whose details this run saved (Phase 12B). */
+    detailsCount: integer('details_count').notNull().default(0),
     /** Where each list stopped, so an interrupted sweep resumes instead of restarting. */
     progress: jsonb('progress').notNull().default({}),
     notes: text('notes'),
