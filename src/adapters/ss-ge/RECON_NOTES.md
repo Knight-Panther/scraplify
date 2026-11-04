@@ -92,6 +92,39 @@ Coverage of the 329 cottages for rent: rooms on 306, both prices on 308, a city 
 
 **A slow sweep misses what moves above it.** A list newest first, walked over 10 to 25 hours, gets new and renewed listings at its top the whole time: they land above the walk, and the rows they push down are read twice (flats for sale: about 41,800 rows read, 37,821 distinct). The nightly run's read back to the walk's start is what picks them up, so a first pass is a sweep and then one nightly run.
 
+## Recon 2026-11-03: every kind and deal (Phase 12, from the development machine)
+
+Owner decision the same day: our filters identical to ss.ge's, so all six kinds for all four deals. Read live, one request at a time, 3 s apart.
+
+**Addresses:** `/ka/udzravi-qoneba/l/<kind>/<deal>?order=1&page=N`, 16 rows a page. The kind and deal are both always named; the kindless `/l/qiravdeba-dghiurad` hub is not read.
+
+| Kind | Slug | Row `type` | | Deal | Slug | Row `dealType` |
+|---|---|---|---|---|---|---|
+| flat | `bina` | 5 | | sale | `iyideba` | 4 |
+| house | `kerdzo-saxli` | 4 | | rent | `qiravdeba` | 1 |
+| cottage | `agaraki` | 1 | | daily | `qiravdeba-dghiurad` | 3 |
+| commercial | `komerciuli` | 6 | | pledge | `giravdeba` | 2 |
+| land | `mitsis-nakveti` | 3 | | | | |
+| hotel | `sastumro` | 2 | | | | |
+
+**Readable listings per list (`initialCardCount`), smallest first, which is the walk order:** land-daily 1 · hotel-pledge 3 · cottage-pledge 8 · commercial-pledge 14 · commercial-daily 21 · land-pledge 88 · hotel-daily 165 · house-pledge 176 · land-rent 210 · cottage-rent 381 · cottage-daily 739 · flat-pledge 758 · cottage-sale 975 · hotel-sale 2,188 · flat-daily 3,329 · house-daily 3,625 · hotel-rent 3,785 · commercial-sale 8,571 · house-sale 13,319 · land-sale 22,295 · house-rent 22,853 · commercial-rent 32,082 · flat-sale 44,295 · flat-rent 45,923. About 205,800 in all, 78,000 more than the six lists of version 1.
+
+**Speed:** results pages 0.3–1.0 s (6.8 s median in October), listing pages 0.1–0.6 s. At the policy's spacing a page costs about 3.5 s, so reading all 24 lists whole (~12,900 pages) takes about 12.5 hours. A nightly run reads whole as many of the least recently read lists as fit 4,000 pages (`DEEP_PAGE_BUDGET`), so each list is read whole every three or four nights.
+
+**Results rows also carry** (stored since Phase 12A):
+- `commercialRealEstateType`: 6 warehouse/production, 7 office, 13 catering, 14 garage, 21 basement, 22 retail, 31 commercial space, 0 none.
+- `landType`: 1 agricultural, 2 non-agricultural, 3 commercial, 4 special, 5 investment, 6 farm. Null or 0 when none.
+- `imageCount`, `furniture` and `withBuiltInKitchen` (true, false or null), `isExclusive`, `hasRemoteViewing` (video viewing), and `price.unitPriceGeo`.
+- `address.municipalityId/Title`: the key is present but was null in every sampled row.
+
+**Only on a listing's own page** (`pageProps.applicationData`, read from Phase 12B): building status (`realEstateStatusId`, 2 = new build; set on about 86% of flats for sale), condition (`state`), project, floor type, bathrooms, balconies, kitchen, house and yard areas, the poster's type, about 33 amenities, coordinates and municipality. Phones, contact names and user ids are never read.
+
+**Traps:**
+- **An empty list is normal:** HTTP 200, page 1, `initialTotalApplicationCount` 0, no rows (`results-empty.html`). The walker finishes such a list instead of calling it a fault; any other page with no rows is still a fault.
+- **Transient errors:** the commercial daily-rent list answered HTTP 500 once and 200 minutes later; listing 7188875 rendered "no listing" once and was live minutes later.
+- **ss.ge's own status filter cannot label rows:** `realEstateStatuses=1` and `=3` return the same top rows.
+- **Daily rent is priced per night** ($6 to $450 a night on the first page, 2026-11-03), and land runs to tens of thousands of m² at a few dollars a m². The typo rule for the price and area sorts has bounds per deal and leaves large cheap plots alone (`src/realestate/queries.ts`).
+
 ## Not yet measured
 
 - How many listings a night reach their expected end without being seen again, and what share of those is still live. That decides whether 1,000 checks a night is enough.

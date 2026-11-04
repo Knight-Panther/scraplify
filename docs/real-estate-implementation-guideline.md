@@ -38,7 +38,7 @@
 | # | Question | Default taken | Why |
 |---|---|---|---|
 | 1 | Summer cottages (აგარაკი) | Included as a third property kind | 1,280 listings; residential; the same filters apply |
-| 2 | Request budget | One request at a time, 3 s apart; nightly runs sized under 2,000 requests; one first pass of about 7,300 | Settled by the owner on 2026-10-12: no budget is negotiated with ss.ge, and these cautious limits stand. They are the project's usual politeness floor. |
+| 2 | Request budget | One request at a time, 3 s apart; one first pass of about 7,300. Since 2026-11-03 no request-count cap (about 4,000 whole-list pages a night plus each list's new rows and up to 1,500 listing checks), bounded by the spacing and the run's time | Settled by the owner on 2026-10-12: no budget is negotiated with ss.ge. Widened by the owner on 2026-11-03 ("as many as safe", Phase 12): the spacing is never lowered, any refusal stops the run, and from Phase 12B a run also stops at 16 hours or 20,000 requests. |
 | 3 | How to read ss.ge | Public pages only | Its frontend pages through a JSON gateway with a site-issued token (§4.8). Faster, but using it needs ss.ge to say so. |
 | 4 | Listing descriptions | Stored and searched; not shown on the public site | Same reasoning as the 2026-10-07 decision for the job boards |
 | 5 | Default view | One row per listing first; grouped view when Phase 11D lands | §5 |
@@ -48,13 +48,15 @@
 
 ---
 
-## 3. Scope of version 1
+## 3. Scope
 
-**In:** flats, houses and summer cottages; sale and long-term rent; all of Georgia; one row per listing with deal, kind, rooms, area, floor, price, location, street, who posted it where the site says, when it was updated, and a link to the source; filters, sorting and text search; a price-change record per listing.
+**Phase 12 (owner, 2026-11-03): filters identical to ss.ge's.** 12A crawls every kind (flats, houses, summer cottages, commercial spaces, land, hotels) for every deal (sale, rent, daily rent, pledge): 24 lists, smallest first, with the commercial space type, land type, photo count, furniture, built-in kitchen, exclusive and video viewing from the results rows. 12B reads each listing's own page once when it is new, changed, renewed or reopened (no backlog) for building status, condition and amenities. 12C builds each kind's "more filters" panel. Plan and recon: `src/adapters/ss-ge/RECON_NOTES.md`, "Recon 2026-11-03".
 
-**Out:** photos; phone numbers and people's names (never stored); daily rent, land, commercial property and hotels; detail pages as a routine source (so no map yet); alerts (dropped project-wide on 2026-09-27); anything involving an account on the site.
+**In (version 1, 2026-10-12, widened by Phase 12):** all of Georgia; one row per listing with deal, kind, rooms, area, floor, price, location, street, who posted it where the site says, when it was updated, and a link to the source; filters, sorting and text search; a price-change record per listing; grouping of look-alike listings (Phase 11D).
 
-**Later:** grouping of look-alike listings; detail-page enrichment (coordinates, condition); the left-out kinds; a second source; a connector.
+**Out:** photos of any kind (only the photo count is kept, for the "with photos" filter); phone numbers and people's names (never stored); maps (coordinates are stored from 12B, not shown); alerts (dropped project-wide on 2026-09-27); anything involving an account on the site; ss.ge's developer-projects section (`/mshenebare`), whose flats are reached through the "under construction" status instead.
+
+**Later:** a municipality filter; a second source; a connector.
 
 ---
 
@@ -237,21 +239,21 @@ Not built yet, added when their phase needs them: a search column (11C), English
 
 ### 9.1 The sweep (also the first pass)
 
-Walk each of the six lists (kind × deal) newest first, page by page, upserting every row.
+Walk each list (kind × deal: six until Phase 12A, 24 since) newest first, smallest first, page by page, upserting every row.
 
 - **After every page, compare `initialPage` with the page asked for.** If they differ, the walk has passed the end: discard the rows and stop. Ingesting them would file page 1's listings under the wrong position.
 - Also stop at the first page with fewer than 16 rows.
-- Never plan from `initialTotalApplicationCount`.
+- Never plan from `initialTotalApplicationCount`. Since Phase 12A a list is sized from `initialCardCount`, which counts what the list can show, and a page 1 with no rows and a count of 0 is an empty list only for a list never sized or last known to fit on one page.
 - Record the last finished page per list in the run's `progress`, with the oldest order time on it, and resume a few pages before it after an interruption. If every row on that page is older than the recorded time, the list has moved up past it (listings above were renewed away, deleted or expired), and the walk steps back 20 pages, then 40, until it overlaps (2026-10-27). A nightly run resumes an interrupted nightly run the same way.
 - Rows shift while a list is walked, because renewed listings jump to the front. That produces repeats, which the upsert absorbs, and can skip a just-renewed row, which the next nightly run picks up.
 
-Cost: about 7,300 pages. At 6.8 s a page plus the 3 s spacing, about 20 hours.
+Cost: about 7,300 pages for the six lists of version 1. At 6.8 s a page plus the 3 s spacing, about 20 hours. All 24 lists come to about 12,900 pages, about 12.5 hours at the speeds of 2026-11-03.
 
 ### 9.2 The nightly run
 
-Walk each list newest first and stop once a page holds only rows older than the previous successful run's start, minus a six-hour overlap. Expect about 650 pages, a little under two hours.
+Walk each list newest first and stop once a page holds only rows older than the previous successful run's start, minus a six-hour overlap. Expect about 650 pages for the six lists of version 1, a little under two hours; more for 24.
 
-**An edit usually moves a listing's order time, but not always** (measured 2026-10-27): of 140 stored listings re-read from deep pages without a new order time, 1 carried an edited price; of 47 checked one by one, 1 more. So since 2026-10-27 each nightly run also reads one list to its end, the one whose last full read is oldest (a sweep, or any run that reached a list's end, counts), so each of the six is read whole about once a week. A full read refreshes every listing in it, picks up such edits and any rows a long walk slipped past (one band of about 200 from the first pass), and marks what it no longer finds (§9.3, rule 6). It costs up to about 2,600 extra pages on a night with a flat list.
+**An edit usually moves a listing's order time, but not always** (measured 2026-10-27): of 140 stored listings re-read from deep pages without a new order time, 1 carried an edited price; of 47 checked one by one, 1 more. So since 2026-10-27 each nightly run also reads lists to their end, those whose last full read is oldest (a sweep, or any run that reached a list's end, counts): one a night until Phase 12A, and since then as many as fit 4,000 pages, so each of the 24 is read whole every three or four nights. A full read refreshes every listing in it, picks up such edits and any rows a long walk slipped past (one band of about 200 from the first pass), and marks what it no longer finds (§9.3, rule 6). It costs up to 4,000 extra pages a night (one list, up to about 2,600 pages, before Phase 12A).
 
 ### 9.3 Removal, without an inventory
 

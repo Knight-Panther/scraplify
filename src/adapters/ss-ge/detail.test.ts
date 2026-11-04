@@ -13,7 +13,13 @@ describe('parseDetailPage', () => {
       status: 'active',
       endAt: '2026-11-11T12:46:44.954Z',
       // Its price too: a listing nobody renews may still have had it edited.
-      price: { priceGel: 455000, priceUsd: 175000, pricePerM2Usd: 1880, currencyPosted: 'usd' },
+      price: {
+        priceGel: 455000,
+        priceUsd: 175000,
+        pricePerM2Usd: 1880,
+        pricePerM2Gel: 4892,
+        currencyPosted: 'usd',
+      },
     });
   });
 
@@ -21,7 +27,13 @@ describe('parseDetailPage', () => {
     expect(parseDetailPage(fixture('detail-long-running.html'), '6113387')).toEqual({
       status: 'active',
       endAt: '2039-12-31T20:00:00.000Z',
-      price: { priceGel: 1500, priceUsd: 578, pricePerM2Usd: 9.6, currencyPosted: 'gel' },
+      price: {
+        priceGel: 1500,
+        priceUsd: 578,
+        pricePerM2Usd: 9.6,
+        pricePerM2Gel: 25,
+        currencyPosted: 'gel',
+      },
     });
   });
 

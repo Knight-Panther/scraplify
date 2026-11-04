@@ -1,9 +1,15 @@
+import {
+  COMMERCIAL_TYPE_CODES,
+  DEAL_TYPES,
+  LAND_TYPE_CODES,
+  PROPERTY_TYPES,
+} from '../../src/realestate/kinds.js';
 import type {
   RealEstateFilters,
   RealEstateLocations,
   RealEstateSort,
 } from '../../src/realestate/queries.js';
-import { capGraphemes, MAX_TEXT, one, type RawSearchParams } from './search-params.js';
+import { capGraphemes, MAX_TEXT, many, one, type RawSearchParams } from './search-params.js';
 
 /**
  * The Real estate screen's state, held entirely in the address: the same
@@ -21,8 +27,8 @@ export const REAL_ESTATE_CHUNK = 100;
 /** The most rows one page will render; past it the answer is a narrower filter. */
 export const REAL_ESTATE_MAX_SHOWN = 2_000;
 
-export const DEAL_OPTIONS = ['sale', 'rent'] as const;
-export const KIND_OPTIONS = ['flat', 'house', 'cottage'] as const;
+export const DEAL_OPTIONS = DEAL_TYPES;
+export const KIND_OPTIONS = PROPERTY_TYPES;
 export const CURRENCY_OPTIONS = ['usd', 'gel'] as const;
 export const ROOM_OPTIONS = ['1', '2', '3', '4', '5+'] as const;
 export const FLOOR_OPTIONS = ['not-first', 'not-last', 'middle'] as const;
@@ -44,6 +50,10 @@ export const SORT_OPTIONS = [
 export interface RealEstateForm {
   deal: string;
   kind: string;
+  /** Commercial space types (ss.ge codes), only with the kind `commercial`. Repeated in the address. */
+  ct: string[];
+  /** Land types (ss.ge codes), only with the kind `land`. Repeated in the address. */
+  lt: string[];
   city: string;
   /** `d<ref>` for a whole district, `s<ref>` for one sub-district. */
   area: string;
@@ -77,6 +87,11 @@ function choice<T extends string>(value: string, options: readonly T[]): T | '' 
   return (options as readonly string[]).includes(value) ? (value as T) : '';
 }
 
+/** The codes asked for that the list knows, in the list's own order, so one choice has one address. */
+function codes(values: string[], known: Readonly<Record<number, string>>): string[] {
+  return Object.keys(known).filter((code) => values.includes(code));
+}
+
 /** A whole number from 1 to 999,999,999, as typed; anything else is no bound. */
 function bound(value: string): number | null {
   return /^[1-9][0-9]{0,8}$/.test(value) ? Number(value) : null;
@@ -89,6 +104,9 @@ export function parseRealEstateQuery(
 ): RealEstateQuery {
   const deal = choice(one(raw.deal), DEAL_OPTIONS);
   const kind = choice(one(raw.kind), KIND_OPTIONS);
+  // A sub-type only means something under its own kind, the way ss.ge swaps its panel.
+  const ct = kind === 'commercial' ? codes(many(raw.ct), COMMERCIAL_TYPE_CODES) : [];
+  const lt = kind === 'land' ? codes(many(raw.lt), LAND_TYPE_CODES) : [];
   const cur = choice(one(raw.cur), CURRENCY_OPTIONS) || 'usd';
   const rooms = choice(one(raw.rooms), ROOM_OPTIONS);
   const floor = choice(one(raw.floor), FLOOR_OPTIONS);
@@ -135,6 +153,8 @@ export function parseRealEstateQuery(
       sort,
       ...(deal === '' ? {} : { dealType: deal }),
       ...(kind === '' ? {} : { propertyType: kind }),
+      ...(ct.length === 0 ? {} : { commercialTypes: ct.map(Number) }),
+      ...(lt.length === 0 ? {} : { landTypes: lt.map(Number) }),
       ...(city === null ? {} : { cityRef: city }),
       ...(area.startsWith('s') ? { subdistrictRef: Number(area.slice(1)) } : {}),
       ...(area.startsWith('d') ? { districtRef: Number(area.slice(1)) } : {}),
@@ -157,6 +177,8 @@ export function parseRealEstateQuery(
     form: {
       deal,
       kind,
+      ct,
+      lt,
       city: city === null ? '' : String(city),
       area,
       cur,
@@ -179,7 +201,7 @@ export function parseRealEstateQuery(
 /** Whether anything narrows the list: decides what an empty result says. */
 export function isFiltered(query: RealEstateQuery): boolean {
   const { cur: _cur, sort: _sort, view: _view, ...narrowing } = query.form;
-  return Object.values(narrowing).some((value) => value !== '');
+  return Object.values(narrowing).some((value) => value.length > 0);
 }
 
 /** A link to the same view, with the depth, the grouping or the group changed when asked. */
@@ -194,6 +216,10 @@ export function buildRealEstateHref(
     ...(changes.group === undefined ? {} : { group: changes.group }),
   };
   for (const [key, value] of Object.entries(form)) {
+    if (Array.isArray(value)) {
+      for (const item of value) params.append(key, item);
+      continue;
+    }
     if (value === '') continue;
     // The defaults stay out of the address, so the bare page has a bare address.
     if (key === 'cur' && value === 'usd') continue;

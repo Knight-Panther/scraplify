@@ -2,6 +2,7 @@ import { and, desc, eq, isNotNull, lt, lte, or, sql } from 'drizzle-orm';
 import { realEstateListings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
 import { type ListingPrice, recordPriceSighting } from './ingest.js';
+import type { DealType, PropertyType } from './kinds.js';
 
 /**
  * How a listing leaves the catalogue (docs/real-estate-implementation-guideline.md
@@ -125,8 +126,8 @@ export async function markMissedListings(
   db: DatabaseOrTransaction,
   input: {
     sourceId: string;
-    dealType: 'sale' | 'rent';
-    propertyType: 'flat' | 'house' | 'cottage';
+    dealType: DealType;
+    propertyType: PropertyType;
     /** When the full read began: anything seen since was in it. */
     readStartedAt: string;
     at: string;

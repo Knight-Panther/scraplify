@@ -46,6 +46,50 @@ const PLACES: RealEstateLocations = {
 const parse = (raw: Record<string, string | string[]>) => parseRealEstateQuery(raw, PLACES, NOW);
 
 describe('parseRealEstateQuery', () => {
+  describe('sub-types (Phase 12A)', () => {
+    it('accepts several commercial types and drops unknown codes', () => {
+      const query = parse({ kind: 'commercial', ct: ['22', '7', '99', 'x', '7', ''] });
+
+      // In the order of the code list, so one choice has one address.
+      expect(query.form.ct).toEqual(['7', '22']);
+      expect(query.filters.commercialTypes).toEqual([7, 22]);
+      expect(query.filters.propertyType).toBe('commercial');
+    });
+
+    it('accepts land types the same way', () => {
+      const query = parse({ kind: 'land', lt: '6' });
+
+      expect(query.form.lt).toEqual(['6']);
+      expect(query.filters.landTypes).toEqual([6]);
+    });
+
+    it('ignores commercial types when the kind is not commercial', () => {
+      const flat = parse({ kind: 'flat', ct: '7', lt: '1' });
+      expect(flat.form).toMatchObject({ ct: [], lt: [] });
+      expect(flat.filters).not.toHaveProperty('commercialTypes');
+      expect(flat.filters).not.toHaveProperty('landTypes');
+      // No kind at all is not commercial either.
+      expect(parse({ ct: '7' }).filters).not.toHaveProperty('commercialTypes');
+      expect(isFiltered(parse({ ct: '7' }))).toBe(false);
+    });
+
+    it('writes repeated parameters back into the address', () => {
+      const query = parse({ kind: 'commercial', ct: ['22', '7'], deal: 'daily' });
+
+      expect(buildRealEstateHref(query)).toBe('/real-estate?deal=daily&kind=commercial&ct=7&ct=22');
+      expect(isFiltered(query)).toBe(true);
+    });
+
+    it('accepts every kind and deal', () => {
+      for (const kind of ['flat', 'house', 'cottage', 'commercial', 'land', 'hotel']) {
+        expect(parse({ kind }).filters.propertyType).toBe(kind);
+      }
+      for (const deal of ['sale', 'rent', 'daily', 'pledge']) {
+        expect(parse({ deal }).filters.dealType).toBe(deal);
+      }
+    });
+  });
+
   it('asks for everything, newest first, in dollars, when the address says nothing', () => {
     const query = parse({});
 

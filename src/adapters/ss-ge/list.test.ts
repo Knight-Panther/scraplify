@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import type { DealType, PropertyType } from '../../realestate/kinds.js';
 import { parseResultsPage, RESULTS_PAGE_SIZE, SsGePageShapeError } from './list.js';
 
 function fixture(name: string): string {
@@ -306,6 +307,114 @@ describe('parseResultsPage', () => {
       '9 შესახვევი #15',
     ])('keeps the street number %j', (streetNumber) => {
       expect(streetOf('ვაჟა-ფშაველას გამზ.', streetNumber).streetNumber).toBe(streetNumber);
+    });
+  });
+
+  describe('every kind and deal (Phase 12A, fixtures of 2026-11-03)', () => {
+    const page1 = (name: string, propertyType: PropertyType, dealType: DealType) =>
+      parseResultsPage(fixture(name), { propertyType, dealType, page: 1 });
+    const commercial = page1('results-commercial-rent-p1.html', 'commercial', 'rent');
+    const land = page1('results-land-sale-p1.html', 'land', 'sale');
+    const hotels = page1('results-hotel-sale-p1.html', 'hotel', 'sale');
+    const daily = page1('results-flats-daily-p1.html', 'flat', 'daily');
+    const pledge = page1('results-flats-pledge-p1.html', 'flat', 'pledge');
+
+    it('reads commercial rows with their space type and no room count', () => {
+      expect(commercial.cards).toHaveLength(16);
+      for (const card of commercial.cards) {
+        expect(card.propertyType).toBe('commercial');
+        expect([6, 7, 13, 14, 21, 22, 31, null]).toContain(card.commercialType);
+        expect(card.rooms).toBeNull();
+        expect(card.landType).toBeNull();
+      }
+      expect(commercial.cards.some((card) => card.commercialType === 7)).toBe(true);
+      // ss.ge writes 0 for "none"; that is not a code.
+      expect(commercial.cards.some((card) => card.commercialType === null)).toBe(true);
+    });
+
+    it('reads land rows with their land type', () => {
+      expect(land.cards).toHaveLength(16);
+      for (const card of land.cards) {
+        expect(card.propertyType).toBe('land');
+        expect([1, 2, 3, 4, 5, 6, null]).toContain(card.landType);
+        expect(card.commercialType).toBeNull();
+      }
+      expect(land.cards.filter((card) => card.landType !== null).length).toBeGreaterThan(8);
+    });
+
+    it('reads hotels, daily rent and pledge under their own deal codes', () => {
+      expect(hotels.cards).toHaveLength(16);
+      expect(hotels.cards.every((card) => card.propertyType === 'hotel')).toBe(true);
+      expect(daily.cards).toHaveLength(16);
+      expect(daily.cards.every((card) => card.dealType === 'daily')).toBe(true);
+      expect(pledge.cards).toHaveLength(16);
+      expect(pledge.cards.every((card) => card.dealType === 'pledge')).toBe(true);
+      // The same rows refused under a list they do not belong to.
+      expect(page1('results-flats-daily-p1.html', 'flat', 'rent').skipped).toBe(16);
+    });
+
+    it('reads the photo count, furniture, built-in kitchen, exclusive and video viewing', () => {
+      const cards = [...commercial.cards, ...land.cards, ...hotels.cards, ...daily.cards];
+      for (const card of cards) {
+        expect(Number.isInteger(card.imageCount)).toBe(true);
+        expect(card.imageCount).toBeGreaterThanOrEqual(0);
+        expect(typeof card.exclusive).toBe('boolean');
+        expect(typeof card.videoViewing).toBe('boolean');
+        expect([true, false, null]).toContain(card.hasFurniture);
+        expect([true, false, null]).toContain(card.hasBuiltInKitchen);
+      }
+      expect(cards.some((card) => card.videoViewing)).toBe(true);
+      expect(cards.some((card) => card.hasFurniture === true)).toBe(true);
+      // The commercial page has rows that say nothing about furniture.
+      expect(commercial.cards.some((card) => card.hasFurniture === null)).toBe(true);
+    });
+
+    it('reads the price per m² in lari beside the one in dollars', () => {
+      expect(land.cards[0]).toMatchObject({
+        priceGel: 374000,
+        priceUsd: 144000,
+        pricePerM2Usd: 336,
+        pricePerM2Gel: 874,
+      });
+    });
+
+    it('keeps a space type code it does not know rather than dropping the row', () => {
+      const row = {
+        applicationId: 2,
+        type: 6,
+        dealType: 1,
+        title: 'x',
+        orderDate: '2026-11-03T10:00:00.000Z',
+        commercialRealEstateType: 99,
+        imageCount: 0,
+      };
+      const data = {
+        props: { pageProps: { initialPage: 1, applicationList: { realStateItemModel: [row] } } },
+      };
+      const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
+      const page = parseResultsPage(html, {
+        propertyType: 'commercial',
+        dealType: 'rent',
+        page: 1,
+      });
+
+      expect(page.cards).toHaveLength(1);
+      // No photos is real data, not unknown.
+      expect(page.cards[0]).toMatchObject({ commercialType: 99, imageCount: 0 });
+    });
+
+    it('reads an empty list as total 0 with no rows, not as past the end', () => {
+      const empty = page1('results-empty.html', 'land', 'daily');
+      expect(empty).toMatchObject({ pastEnd: false, rowCount: 0, listTotal: 0 });
+      expect(empty.cards).toEqual([]);
+      expect(commercial.listTotal).toBeGreaterThan(16);
+    });
+
+    it('sizes a list by the listings it can show, not the counter that overstates flats', () => {
+      // Guideline §4: initialTotalApplicationCount counts look-alikes the
+      // list folds away (4,755 here); initialCardCount is what can be read.
+      expect(daily.listTotal).toBe(3_329);
+      expect(pledge.listTotal).toBe(759);
     });
   });
 

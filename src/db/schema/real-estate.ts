@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { DEAL_TYPES, PROPERTY_TYPES } from '../../realestate/kinds.js';
 import { sources } from './sources.js';
 
 /**
@@ -53,12 +54,9 @@ const LISTING_SEARCH_SQL = sql.raw(
   ].join(''),
 );
 
-export const realEstateDealTypeEnum = realEstate.enum('deal_type', ['sale', 'rent']);
-export const realEstatePropertyTypeEnum = realEstate.enum('property_type', [
-  'flat',
-  'house',
-  'cottage',
-]);
+/** From `src/realestate/kinds.ts`, which keeps new values at the end (Postgres only appends). */
+export const realEstateDealTypeEnum = realEstate.enum('deal_type', DEAL_TYPES);
+export const realEstatePropertyTypeEnum = realEstate.enum('property_type', PROPERTY_TYPES);
 export const realEstateCurrencyEnum = realEstate.enum('currency', ['gel', 'usd']);
 /** `unknown` is a real answer: a source that does not say who posted is not saying "owner". */
 export const realEstatePosterTypeEnum = realEstate.enum('poster_type', [
@@ -118,6 +116,22 @@ export const realEstateListings = realEstate.table(
     posterType: realEstatePosterTypeEnum('poster_type').notNull().default('unknown'),
     /** Any paid placement on the source. */
     promoted: boolean('promoted').notNull().default(false),
+    /**
+     * ss.ge's own codes for a commercial space's type and a plot's land type
+     * (`src/realestate/kinds.ts`), stored as numbers like the location refs so
+     * a code it adds later is kept. Null when the row gives none.
+     */
+    commercialType: smallint('commercial_type'),
+    landType: smallint('land_type'),
+    /** How many photos the listing has. No photo is ever fetched or stored (Phase 12, decision 4). */
+    imageCount: smallint('image_count'),
+    /** Null when the source does not say: unknown is not "no". */
+    hasFurniture: boolean('has_furniture'),
+    hasBuiltInKitchen: boolean('has_built_in_kitchen'),
+    exclusive: boolean('exclusive').notNull().default(false),
+    /** The poster offers a viewing by video call. */
+    videoViewing: boolean('video_viewing').notNull().default(false),
+    pricePerM2Gel: numeric('price_per_m2_gel', { precision: 12, scale: 2 }),
     /** Searched, never shown on the public surface (the source policy's display rule). */
     description: text('description'),
     /** ss.ge's own id for a set of look-alike listings, when it gives one. */
@@ -237,6 +251,15 @@ export const realEstatePublicListings = realEstate
     lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     search: tsvector('search'),
     groupKey: text('group_key'),
+    // Phase 12A: appended, so `create or replace` keeps the grant (migration 0044).
+    commercialType: smallint('commercial_type'),
+    landType: smallint('land_type'),
+    imageCount: smallint('image_count'),
+    hasFurniture: boolean('has_furniture'),
+    hasBuiltInKitchen: boolean('has_built_in_kitchen'),
+    exclusive: boolean('exclusive').notNull(),
+    videoViewing: boolean('video_viewing').notNull(),
+    pricePerM2Gel: numeric('price_per_m2_gel', { precision: 12, scale: 2 }),
   })
   .as(sql`
     select
@@ -269,7 +292,15 @@ export const realEstatePublicListings = realEstate
       ${realEstateListings.firstSeenAt} as first_seen_at,
       ${realEstateListings.lastSeenAt} as last_seen_at,
       ${realEstateListings.search} as search,
-      ${realEstateListings.groupKey} as group_key
+      ${realEstateListings.groupKey} as group_key,
+      ${realEstateListings.commercialType} as commercial_type,
+      ${realEstateListings.landType} as land_type,
+      ${realEstateListings.imageCount} as image_count,
+      ${realEstateListings.hasFurniture} as has_furniture,
+      ${realEstateListings.hasBuiltInKitchen} as has_built_in_kitchen,
+      ${realEstateListings.exclusive} as exclusive,
+      ${realEstateListings.videoViewing} as video_viewing,
+      ${realEstateListings.pricePerM2Gel} as price_per_m2_gel
     from ${realEstateListings}
     where ${realEstateListings.status} = 'active'
   `);

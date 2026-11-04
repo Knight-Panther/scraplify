@@ -23,6 +23,7 @@ function card(overrides: Partial<ListingCard> = {}): ListingCard {
     priceGel: 270000,
     priceUsd: 100000,
     pricePerM2Usd: 1250,
+    pricePerM2Gel: 3375,
     currencyPosted: 'usd',
     cityRef: 95,
     cityName: 'თბილისი',
@@ -34,6 +35,13 @@ function card(overrides: Partial<ListingCard> = {}): ListingCard {
     streetNumber: '2',
     posterType: 'agent',
     promoted: false,
+    commercialType: null,
+    landType: null,
+    imageCount: 8,
+    hasFurniture: true,
+    hasBuiltInKitchen: null,
+    exclusive: false,
+    videoViewing: false,
     description: 'ახალი რემონტით',
     similarityGroup: null,
     sourceUpdatedAt: '2026-10-11T12:00:00.000Z',
@@ -111,6 +119,84 @@ describe('upsertListing', () => {
     expect(instant(rows[0]?.firstSeenAt)).toBe(instant(FIRST_SEEN));
     expect(instant(rows[0]?.lastSeenAt)).toBe(instant(SEEN_AGAIN));
     expect(await priceChangesOf(rows[0]?.id ?? '')).toHaveLength(0);
+  });
+
+  it("stores a commercial listing's space type and a land listing's land type", async () => {
+    const sourceId = await newSource();
+    await upsertListing(db, {
+      sourceId,
+      card: card({
+        sourceListingKey: '1',
+        propertyType: 'commercial',
+        dealType: 'rent',
+        rooms: null,
+        commercialType: 7,
+        imageCount: 0,
+        hasFurniture: null,
+        exclusive: true,
+        videoViewing: true,
+        pricePerM2Gel: 35,
+      }),
+      seenAt: FIRST_SEEN,
+    });
+    await upsertListing(db, {
+      sourceId,
+      card: card({ sourceListingKey: '2', propertyType: 'land', rooms: null, landType: 2 }),
+      seenAt: FIRST_SEEN,
+    });
+
+    const rows = await rowsOf(sourceId);
+    const byKey = new Map(rows.map((row) => [row.sourceListingKey, row]));
+    expect(byKey.get('1')).toMatchObject({
+      propertyType: 'commercial',
+      dealType: 'rent',
+      commercialType: 7,
+      landType: null,
+      imageCount: 0,
+      hasFurniture: null,
+      hasBuiltInKitchen: null,
+      exclusive: true,
+      videoViewing: true,
+    });
+    expect(Number(byKey.get('1')?.pricePerM2Gel)).toBe(35);
+    expect(byKey.get('2')).toMatchObject({
+      propertyType: 'land',
+      landType: 2,
+      commercialType: null,
+      imageCount: 8,
+      hasFurniture: true,
+      exclusive: false,
+    });
+  });
+
+  it('refreshes photo count, furniture and exclusive on an unchanged sighting without calling it a change', async () => {
+    const sourceId = await newSource();
+    await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+
+    const outcome = await upsertListing(db, {
+      sourceId,
+      card: card({
+        imageCount: 12,
+        hasFurniture: false,
+        hasBuiltInKitchen: true,
+        exclusive: true,
+        videoViewing: true,
+        pricePerM2Gel: 3400,
+      }),
+      seenAt: SEEN_AGAIN,
+    });
+
+    expect(outcome).toBe('unchanged');
+    const [row] = await rowsOf(sourceId);
+    expect(row).toMatchObject({
+      imageCount: 12,
+      hasFurniture: false,
+      hasBuiltInKitchen: true,
+      exclusive: true,
+      videoViewing: true,
+    });
+    expect(Number(row?.pricePerM2Gel)).toBe(3400);
+    expect(await priceChangesOf(row?.id ?? '')).toHaveLength(0);
   });
 
   it('records a price change with the old and the new price', async () => {

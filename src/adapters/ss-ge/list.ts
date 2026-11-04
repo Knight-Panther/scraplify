@@ -19,13 +19,25 @@ function listingLifeMs(posterType: ListingCard['posterType']): number {
   return (posterType === 'unknown' ? 45 : 30) * DAY_MS;
 }
 
-/** The site's own codes (guideline §4.3; the cottage code from 288 sampled rows). */
+/**
+ * The site's own codes (guideline §4.3; the cottage code from 288 sampled
+ * rows; commercial, land, hotel, daily rent and pledge from the live recon of
+ * 2026-11-03, src/adapters/ss-ge/RECON_NOTES.md).
+ */
 const PROPERTY_TYPE_CODES: Readonly<Record<number, ListingCard['propertyType']>> = {
   5: 'flat',
   4: 'house',
   1: 'cottage',
+  6: 'commercial',
+  3: 'land',
+  2: 'hotel',
 };
-const DEAL_TYPE_CODES: Readonly<Record<number, ListingCard['dealType']>> = { 4: 'sale', 1: 'rent' };
+const DEAL_TYPE_CODES: Readonly<Record<number, ListingCard['dealType']>> = {
+  4: 'sale',
+  1: 'rent',
+  3: 'daily',
+  2: 'pledge',
+};
 const CURRENCY_CODES: Readonly<Record<number, NonNullable<ListingCard['currencyPosted']>>> = {
   1: 'gel',
   2: 'usd',
@@ -59,6 +71,15 @@ export interface ResultsPage {
   rowCount: number;
   /** Rows of another kind or deal than the list being walked, or with no usable id or time. */
   skipped: number;
+  /**
+   * How many listings the site says the whole list can show
+   * (`initialCardCount`), or null when it does not say. Its other counter,
+   * `initialTotalApplicationCount`, also counts look-alikes the list folds
+   * away (4,755 against 3,329 readable flats for daily rent, 2026-11-03;
+   * guideline §4), so it is only the fallback. 0 with no rows on page 1 is an
+   * empty list, which is normal for the smallest ones.
+   */
+  listTotal: number | null;
 }
 
 export interface ExpectedResultsPage {
@@ -85,6 +106,7 @@ export function readListingPrice(value: unknown): ListingPrice {
     priceGel: bounded(price.priceGeo, PRICE_LIMIT),
     priceUsd: bounded(price.priceUsd, PRICE_LIMIT),
     pricePerM2Usd: bounded(price.unitPriceUsd, PRICE_PER_M2_LIMIT),
+    pricePerM2Gel: bounded(price.unitPriceGeo, PRICE_PER_M2_LIMIT),
     currencyPosted: CURRENCY_CODES[Number(price.currencyType)] ?? null,
   };
 }
@@ -92,6 +114,23 @@ export function readListingPrice(value: unknown): ListingPrice {
 function smallCount(value: unknown): number | null {
   const amount = positive(value);
   return amount !== null && Number.isInteger(amount) && amount <= SMALLINT_MAX ? amount : null;
+}
+
+/** A count where 0 is a real answer (no photos), or null when the row gives none. */
+function countOrZero(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= SMALLINT_MAX
+    ? value
+    : null;
+}
+
+/** A whole number of listings, 0 included, or null. */
+function countOrNone(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/** A yes or no only when the row says one; anything else is unknown. */
+function flag(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
 }
 
 function reference(value: unknown): number | null {
@@ -201,6 +240,14 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
     streetNumber: streetNumber === '0' ? null : streetNumber,
     posterType: poster,
     promoted: typeof row.vipStatus === 'number' && row.vipStatus > 0,
+    // A sub-type code: 0 is the site's "none". An unknown code is kept, not dropped.
+    commercialType: smallCount(row.commercialRealEstateType),
+    landType: smallCount(row.landType),
+    imageCount: countOrZero(row.imageCount),
+    hasFurniture: flag(row.furniture),
+    hasBuiltInKitchen: flag(row.withBuiltInKitchen),
+    exclusive: row.isExclusive === true,
+    videoViewing: row.hasRemoteViewing === true,
     description: description(row.description),
     similarityGroup:
       typeof similarity === 'number' || typeof similarity === 'string' ? String(similarity) : null,
@@ -224,9 +271,11 @@ export function parseResultsPage(html: string, expected: ExpectedResultsPage): R
   if (!Array.isArray(list) || typeof servedPage !== 'number') {
     throw new SsGePageShapeError('ss.ge results page has no listing list or page number');
   }
+  const listTotal =
+    countOrNone(pageProps.initialCardCount) ?? countOrNone(pageProps.initialTotalApplicationCount);
 
   if (servedPage !== expected.page) {
-    return { pastEnd: true, servedPage, cards: [], rowCount: list.length, skipped: 0 };
+    return { pastEnd: true, servedPage, cards: [], rowCount: list.length, skipped: 0, listTotal };
   }
 
   const cards: ListingCard[] = [];
@@ -240,5 +289,6 @@ export function parseResultsPage(html: string, expected: ExpectedResultsPage): R
     cards,
     rowCount: list.length,
     skipped: list.length - cards.length,
+    listTotal,
   };
 }

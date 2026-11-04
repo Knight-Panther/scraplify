@@ -272,7 +272,12 @@ describe('listing expiry', () => {
     });
 
     describe('the price its page states', () => {
-      const stored = { priceGel: 270000, priceUsd: 100000, pricePerM2Usd: 1250 } as const;
+      const stored = {
+        priceGel: 270000,
+        priceUsd: 100000,
+        pricePerM2Usd: 1250,
+        pricePerM2Gel: 3375,
+      } as const;
       const asText = { priceGel: '270000', priceUsd: '100000', pricePerM2Usd: '1250' };
 
       async function priceChangesOf(id: string) {
@@ -297,6 +302,7 @@ describe('listing expiry', () => {
               priceUsd: 92000,
               priceGel: 239000,
               pricePerM2Usd: 1150,
+              pricePerM2Gel: 2988,
               currencyPosted: 'usd',
             },
           },
@@ -338,7 +344,13 @@ describe('listing expiry', () => {
           check: {
             status: 'active',
             endAt: at(12),
-            price: { priceGel: null, priceUsd: null, pricePerM2Usd: null, currencyPosted: null },
+            price: {
+              priceGel: null,
+              priceUsd: null,
+              pricePerM2Usd: null,
+              pricePerM2Gel: null,
+              currencyPosted: null,
+            },
           },
           checkedAt: NOW_ISO,
         });

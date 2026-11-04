@@ -17,22 +17,25 @@ import {
   type RealEstateQuery,
 } from '../../../lib/real-estate-params.js';
 import {
+  COMMERCIAL_TYPE_LABELS,
   type Currency,
   DEAL_LABELS,
   floorText,
   KIND_LABELS,
+  LAND_TYPE_LABELS,
   listingLabel,
   money,
   perMetre,
   placeText,
   posterText,
   priceOf,
+  priceUnit,
   streetText,
 } from '../../../lib/real-estate-row.js';
 import type { RawSearchParams } from '../../../lib/search-params.js';
 
 /**
- * Homes for sale and rent, one row per listing as ss.ge shows it, each row a
+ * Property for sale, rent, daily rent and pledge, one row per listing as ss.ge shows it, each row a
  * link to the listing there. A domain of its own beside vacancies: nothing
  * here is merged, ranked or matched (concept §31).
  *
@@ -68,10 +71,10 @@ export default async function RealEstatePage({
       <header>
         <h1 className="text-xl font-semibold">Real estate</h1>
         <p className="mt-2 max-w-[var(--measure)] text-sm text-muted">
-          Flats, houses and summer cottages for sale and for rent, as{' '}
-          <span translate="no">ss.ge</span> lists them. Each row opens the listing there, where its
-          photos, description and contact are. The same home posted more than once, by its owner and
-          by agents, is one row; “Every listing” shows each copy.
+          Flats, houses, summer cottages, commercial spaces, land and hotels, for sale, for rent, by
+          the night and for pledge, as <span translate="no">ss.ge</span> lists them. Each row opens
+          the listing there, where its photos, description and contact are. The same home posted
+          more than once, by its owner and by agents, is one row; “Every listing” shows each copy.
         </p>
       </header>
 
@@ -88,8 +91,8 @@ export default async function RealEstatePage({
                 ? ' listing'
                 : ' listings'
               : total === 1
-                ? ' home'
-                : ' homes'}
+                ? ' property'
+                : ' properties'}
           </p>
           <ViewSwitch query={query} />
         </div>
@@ -156,7 +159,7 @@ function GroupHeading({ query, total }: { query: RealEstateQuery; total: number 
         className="mt-2 inline-block text-accent underline underline-offset-2"
         href={buildRealEstateHref(query, { group: '' })}
       >
-        Back to all homes
+        Back to the list
       </a>
     </div>
   );
@@ -255,7 +258,7 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
         />
       </label>
 
-      <Select label="Deal" name="deal" value={form.deal} any="sale or rent">
+      <Select label="Deal" name="deal" value={form.deal} any="any deal">
         {Object.entries(DEAL_LABELS).map(([value, label]) => (
           <option key={value} value={value}>
             {label}
@@ -270,6 +273,13 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
           </option>
         ))}
       </Select>
+
+      {form.kind === 'commercial' && (
+        <SubTypes legend="Space type" name="ct" labels={COMMERCIAL_TYPE_LABELS} checked={form.ct} />
+      )}
+      {form.kind === 'land' && (
+        <SubTypes legend="Land type" name="lt" labels={LAND_TYPE_LABELS} checked={form.lt} />
+      )}
 
       <Select label="City" name="city" value={form.city} any="anywhere in Georgia">
         {places.cities.map((city) => (
@@ -384,6 +394,48 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
         </a>
       </div>
     </form>
+  );
+}
+
+/**
+ * ss.ge's sub-types of the applied kind, any number at once. Shown once the
+ * kind has been applied: the form has no script, so the group follows the
+ * kind the way ss.ge swaps its panel. None ticked is every type.
+ */
+function SubTypes({
+  legend,
+  name,
+  labels,
+  checked,
+}: {
+  legend: string;
+  name: string;
+  labels: Readonly<Record<number, string>>;
+  checked: string[];
+}) {
+  return (
+    <fieldset className="col-span-2 min-w-0 sm:col-span-3 md:col-span-4 xl:col-span-8">
+      <legend className="mb-1 text-xs text-faint">{legend}</legend>
+      <div className="flex flex-wrap gap-2">
+        {Object.entries(labels).map(([code, label]) => (
+          <label
+            key={code}
+            className="flex cursor-pointer items-center gap-2 rounded-[var(--radius)] border border-border bg-surface px-3 py-1.5 text-sm text-foreground hover:border-border-strong has-[:checked]:border-accent has-[:checked]:bg-surface-active has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-ring)] has-[:focus-visible]:outline-solid"
+          >
+            <input
+              type="checkbox"
+              name={name}
+              value={code}
+              defaultChecked={checked.includes(code)}
+              // The ring goes on the whole chip (above), not the box inside it;
+              // important because the global focus rule in globals.css is unlayered.
+              className="size-4 accent-[var(--color-accent-strong)] focus-visible:outline-none!"
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -529,6 +581,7 @@ function Row({
 }) {
   const label = listingLabel(row);
   const price = priceOf(row, currency);
+  const unit = priceUnit(row);
   const metre = perMetre(row, currency);
   const floor = floorText(row);
   const place = placeText(row);
@@ -580,6 +633,10 @@ function Row({
 
       <td className="numeric py-1.5 pr-4 text-right">
         {price === null ? null : money(price, currency)}
+        {/* Under the amount at every width, rather than wrapping wherever the column ends. */}
+        {price === null || unit === null ? null : (
+          <span className="block text-xs text-faint">{unit}</span>
+        )}
       </td>
 
       <td className="numeric hidden py-1.5 pr-4 text-right text-muted md:table-cell">

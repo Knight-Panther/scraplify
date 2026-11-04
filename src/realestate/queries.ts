@@ -16,6 +16,7 @@ import {
 } from 'drizzle-orm';
 import { realEstatePublicListings as listings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import type { DealType, PropertyType } from './kinds.js';
 import { listingSearchQuery } from './search.js';
 
 /**
@@ -37,8 +38,12 @@ export type RealEstateSort = 'newest' | 'price-asc' | 'price-desc' | 'ppm2-asc' 
 export interface RealEstateFilters {
   /** One source's listings only. */
   sourceId?: string;
-  dealType?: 'sale' | 'rent';
-  propertyType?: 'flat' | 'house' | 'cottage';
+  dealType?: DealType;
+  propertyType?: PropertyType;
+  /** Any of these commercial space types (ss.ge codes, `COMMERCIAL_TYPE_CODES`). Empty narrows nothing. */
+  commercialTypes?: number[];
+  /** Any of these land types (`LAND_TYPE_CODES`). Empty narrows nothing. */
+  landTypes?: number[];
   cityRef?: number;
   districtRef?: number;
   subdistrictRef?: number;
@@ -74,8 +79,8 @@ export interface RealEstateFilters {
 export interface RealEstateRow {
   id: string;
   canonicalUrl: string;
-  dealType: 'sale' | 'rent';
-  propertyType: 'flat' | 'house' | 'cottage';
+  dealType: DealType;
+  propertyType: PropertyType;
   rooms: number | null;
   bedrooms: number | null;
   areaM2: number | null;
@@ -92,6 +97,10 @@ export interface RealEstateRow {
   streetNumber: string | null;
   posterType: 'owner' | 'agent' | 'developer' | 'unknown';
   promoted: boolean;
+  /** ss.ge's code for a commercial space's type, or null. */
+  commercialType: number | null;
+  /** ss.ge's code for a plot's land type, or null. */
+  landType: number | null;
   sourceUpdatedAt: string;
   firstSeenAt: string;
   /** Its look-alike group, or null. */
@@ -115,6 +124,12 @@ function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
     filters.propertyType === undefined
       ? undefined
       : eq(listings.propertyType, filters.propertyType),
+    filters.commercialTypes === undefined || filters.commercialTypes.length === 0
+      ? undefined
+      : inArray(listings.commercialType, filters.commercialTypes),
+    filters.landTypes === undefined || filters.landTypes.length === 0
+      ? undefined
+      : inArray(listings.landType, filters.landTypes),
     filters.cityRef === undefined ? undefined : eq(listings.cityRef, filters.cityRef),
     filters.districtRef === undefined ? undefined : eq(listings.districtRef, filters.districtRef),
     filters.subdistrictRef === undefined
@@ -156,13 +171,21 @@ function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
  * $1.6 million is not caught. Such a listing is kept and shown as posted, but
  * comes after every other one in the price and area sorts, the top of which
  * it would otherwise take. Never null: a missing value is not a typo.
+ *
+ * Per deal (Phase 12A): daily rent is priced by the night ($6 to $450 seen,
+ * 2026-11-03), pledge is a loan against the property and runs lower than a
+ * sale. Land is sold by the hectare at a few dollars a m², so a large cheap
+ * plot is never taken for the price typed as the area.
  */
 const implausibleValues = sql`coalesce(
   ${listings.areaM2} < 10
-  or (${listings.areaM2} > case when ${listings.propertyType} = 'flat' then 1000 else 10000 end
+  or (${listings.propertyType} <> 'land'
+      and ${listings.areaM2} > case when ${listings.propertyType} = 'flat' then 1000 else 10000 end
       and ${listings.pricePerM2Usd} < 100)
   or (${listings.dealType} = 'sale' and ${listings.priceUsd} < 5000)
-  or (${listings.dealType} = 'rent' and (${listings.priceUsd} > 50000 or ${listings.priceUsd} < 50)),
+  or (${listings.dealType} = 'pledge' and ${listings.priceUsd} < 1000)
+  or (${listings.dealType} = 'rent' and (${listings.priceUsd} > 50000 or ${listings.priceUsd} < 50))
+  or (${listings.dealType} = 'daily' and (${listings.priceUsd} > 5000 or ${listings.priceUsd} < 5)),
   false)`;
 
 /** Every order ends in the id, so paging never repeats or drops a row when keys tie. */
@@ -257,6 +280,8 @@ export async function searchRealEstate(
       streetNumber: listings.streetNumber,
       posterType: listings.posterType,
       promoted: listings.promoted,
+      commercialType: listings.commercialType,
+      landType: listings.landType,
       sourceUpdatedAt: listings.sourceUpdatedAt,
       firstSeenAt: listings.firstSeenAt,
       groupKey: listings.groupKey,

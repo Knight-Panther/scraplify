@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { realEstateListings, realEstatePriceChanges } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import type { DealType, PropertyType } from './kinds.js';
 
 /**
  * One listing as a source's results page shows it, already normalised by the
@@ -11,8 +12,8 @@ import type { DatabaseOrTransaction } from '../db/types.js';
 export interface ListingCard {
   sourceListingKey: string;
   canonicalUrl: string;
-  dealType: 'sale' | 'rent';
-  propertyType: 'flat' | 'house' | 'cottage';
+  dealType: DealType;
+  propertyType: PropertyType;
   rooms: number | null;
   bedrooms: number | null;
   areaM2: number | null;
@@ -21,6 +22,7 @@ export interface ListingCard {
   priceGel: number | null;
   priceUsd: number | null;
   pricePerM2Usd: number | null;
+  pricePerM2Gel: number | null;
   currencyPosted: 'gel' | 'usd' | null;
   cityRef: number | null;
   cityName: string | null;
@@ -32,6 +34,18 @@ export interface ListingCard {
   streetNumber: string | null;
   posterType: 'owner' | 'agent' | 'developer' | 'unknown';
   promoted: boolean;
+  /** ss.ge's code for a commercial space's type (`COMMERCIAL_TYPE_CODES`), or null. */
+  commercialType: number | null;
+  /** ss.ge's code for a plot's land type (`LAND_TYPE_CODES`), or null. */
+  landType: number | null;
+  /** How many photos it has; 0 is a real answer. No photo is ever fetched. */
+  imageCount: number | null;
+  /** Null when the source does not say. */
+  hasFurniture: boolean | null;
+  hasBuiltInKitchen: boolean | null;
+  exclusive: boolean;
+  /** The poster offers a viewing by video call. */
+  videoViewing: boolean;
   description: string | null;
   similarityGroup: string | null;
   /** ISO instants, already converted from the source's local time. */
@@ -43,7 +57,7 @@ export interface ListingCard {
 /** A listing's price as a source states it, in both currencies and the one it was posted in. */
 export type ListingPrice = Pick<
   ListingCard,
-  'priceGel' | 'priceUsd' | 'pricePerM2Usd' | 'currencyPosted'
+  'priceGel' | 'priceUsd' | 'pricePerM2Usd' | 'pricePerM2Gel' | 'currencyPosted'
 >;
 
 /**
@@ -77,6 +91,14 @@ type MeaningfulFields = Omit<
   | 'sourceListingKey'
   | 'canonicalUrl'
   | 'promoted'
+  | 'pricePerM2Gel'
+  | 'commercialType'
+  | 'landType'
+  | 'imageCount'
+  | 'hasFurniture'
+  | 'hasBuiltInKitchen'
+  | 'exclusive'
+  | 'videoViewing'
   | 'sourceUpdatedAt'
   | 'sourceCreatedAt'
   | 'expectedEndAt'
@@ -138,6 +160,7 @@ function columnsOf(card: ListingCard, contentHash: string) {
     priceGel: money(card.priceGel),
     priceUsd: money(card.priceUsd),
     pricePerM2Usd: money(card.pricePerM2Usd),
+    pricePerM2Gel: money(card.pricePerM2Gel),
     currencyPosted: card.currencyPosted,
     cityRef: card.cityRef,
     cityName: card.cityName,
@@ -148,10 +171,29 @@ function columnsOf(card: ListingCard, contentHash: string) {
     streetName: card.streetName,
     streetNumber: card.streetNumber,
     posterType: card.posterType,
-    promoted: card.promoted,
+    ...rowExtrasOf(card),
     description: card.description,
     similarityGroup: card.similarityGroup,
     contentHash,
+  };
+}
+
+/**
+ * What a results row says beside the fields that matter for a change: kept
+ * current on every sighting, a change in them never called a change. Leaving
+ * them out of `listingContentHash` also means rows stored before Phase 12A
+ * are not all taken for changed once.
+ */
+function rowExtrasOf(card: ListingCard) {
+  return {
+    promoted: card.promoted,
+    commercialType: card.commercialType,
+    landType: card.landType,
+    imageCount: card.imageCount,
+    hasFurniture: card.hasFurniture,
+    hasBuiltInKitchen: card.hasBuiltInKitchen,
+    exclusive: card.exclusive,
+    videoViewing: card.videoViewing,
   };
 }
 
@@ -256,7 +298,8 @@ export async function upsertListing(
         .set({
           lastSeenAt: seenAt,
           missedAt: null,
-          promoted: card.promoted,
+          ...rowExtrasOf(card),
+          pricePerM2Gel: money(card.pricePerM2Gel),
           contentHash,
           ...converted,
         })
@@ -352,6 +395,7 @@ export async function recordPriceSighting(
         priceGel: money(price.priceGel),
         priceUsd: money(price.priceUsd),
         pricePerM2Usd: money(price.pricePerM2Usd),
+        pricePerM2Gel: money(price.pricePerM2Gel),
         currencyPosted: price.currencyPosted,
       })
       .where(eq(realEstateListings.id, listingId));

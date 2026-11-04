@@ -8,7 +8,9 @@ import {
   placeText,
   posterText,
   priceOf,
+  priceUnit,
   streetText,
+  subTypeLabel,
 } from './real-estate-row.js';
 
 function row(overrides: Partial<RealEstateRow> = {}): RealEstateRow {
@@ -33,6 +35,8 @@ function row(overrides: Partial<RealEstateRow> = {}): RealEstateRow {
     streetNumber: '2',
     posterType: 'agent',
     promoted: false,
+    commercialType: null,
+    landType: null,
     sourceUpdatedAt: '2026-10-12T12:00:00.000Z',
     firstSeenAt: '2026-10-12T12:00:00.000Z',
     groupKey: null,
@@ -46,6 +50,30 @@ describe('real-estate row text', () => {
     expect(listingLabel(row())).toBe('Flat for sale');
     expect(listingLabel(row({ propertyType: 'house', dealType: 'rent' }))).toBe('House for rent');
     expect(listingLabel(row({ propertyType: 'cottage' }))).toBe('Summer cottage for sale');
+  });
+
+  it('labels an office for rent and a daily rent a night', () => {
+    const office = row({ propertyType: 'commercial', dealType: 'rent', commercialType: 7 });
+    expect(listingLabel(office)).toBe('Office for rent');
+    expect(listingLabel(row({ propertyType: 'land', landType: 1 }))).toBe(
+      'Agricultural land for sale',
+    );
+    expect(listingLabel(row({ propertyType: 'hotel', dealType: 'pledge' }))).toBe(
+      'Hotel for pledge',
+    );
+    // A code ss.ge adds later, or none: the kind alone.
+    expect(listingLabel(row({ propertyType: 'commercial', commercialType: 99 }))).toBe(
+      'Commercial for sale',
+    );
+    expect(listingLabel(row({ propertyType: 'land', landType: null }))).toBe('Land for sale');
+    expect(subTypeLabel(row({ propertyType: 'commercial', commercialType: 99 }))).toBe('Other');
+    expect(subTypeLabel(row())).toBeNull();
+
+    const night = row({ dealType: 'daily', priceUsd: 31, priceGel: 84 });
+    expect(listingLabel(night)).toBe('Flat for daily rent');
+    expect(priceUnit(night)).toBe('a night');
+    expect(priceUnit(row())).toBeNull();
+    expect(priceUnit(row({ dealType: 'pledge' }))).toBeNull();
   });
 
   it('writes a floor as "6 / 14" and leaves out what is not known', () => {
@@ -72,6 +100,8 @@ describe('real-estate row text', () => {
     expect(perMetre(row({ areaM2: null }), 'usd')).toBeNull();
     expect(perMetre(row({ areaM2: 0 }), 'usd')).toBeNull();
     expect(perMetre(row({ priceUsd: null }), 'usd')).toBeNull();
+    // A price for one night, spread over the floor area, says nothing.
+    expect(perMetre(row({ dealType: 'daily', priceUsd: 31 }), 'usd')).toBeNull();
   });
 
   it('names the place from the most local name it has', () => {

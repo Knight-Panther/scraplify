@@ -16,77 +16,99 @@ import {
   recordListingCheck,
 } from '../../realestate/expiry.js';
 import { type ListingCard, type UpsertOutcome, upsertListing } from '../../realestate/ingest.js';
+import type { DealType, PropertyType } from '../../realestate/kinds.js';
 import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
 import { type DetailResult, parseDetailPage } from './detail.js';
 import { parseResultsPage, RESULTS_PAGE_SIZE, type ResultsPage } from './list.js';
 import { SsGePageShapeError } from './page.js';
 
+/** The site's own words for each kind and deal, as its addresses spell them. */
+export const KIND_SLUGS: Readonly<Record<PropertyType, string>> = {
+  flat: 'bina',
+  house: 'kerdzo-saxli',
+  cottage: 'agaraki',
+  commercial: 'komerciuli',
+  land: 'mitsis-nakveti',
+  hotel: 'sastumro',
+};
+export const DEAL_SLUGS: Readonly<Record<DealType, string>> = {
+  sale: 'iyideba',
+  rent: 'qiravdeba',
+  daily: 'qiravdeba-dghiurad',
+  pledge: 'giravdeba',
+};
+
 export interface SsGeList {
-  key: 'flat-sale' | 'flat-rent' | 'house-sale' | 'house-rent' | 'cottage-sale' | 'cottage-rent';
+  /** `flat-sale` and the other keys of before Phase 12A keep their spelling, so stored progress still reads. */
+  key: `${PropertyType}-${DealType}`;
   propertyType: ListingCard['propertyType'];
   dealType: ListingCard['dealType'];
-  /** The site's own words for the kind and the deal, as its addresses spell them. */
   kindSlug: string;
   dealSlug: string;
 }
 
+function ssGeList(propertyType: PropertyType, dealType: DealType): SsGeList {
+  return {
+    key: `${propertyType}-${dealType}`,
+    propertyType,
+    dealType,
+    kindSlug: KIND_SLUGS[propertyType],
+    dealSlug: DEAL_SLUGS[dealType],
+  };
+}
+
 /**
- * Smallest first (guideline §4.4): the end of a list is where this site is
- * treacherous, and walking 21 pages of cottages shows a fault there in
- * minutes, where 2,800 pages of flats would take most of a day to reach it.
+ * All six kinds for all four deals (owner, 2026-11-03), smallest first
+ * (guideline §4.4): the end of a list is where this site is treacherous, and
+ * walking a list of a few pages shows a fault there in minutes, where 2,800
+ * pages of flats would take most of a day to reach it. The order is the
+ * readable listings per list in the recon of 2026-11-03, from 1 (land for
+ * daily rent) to 45,923 (flats for rent).
  */
-export const SS_GE_LISTS: readonly SsGeList[] = [
-  {
-    key: 'cottage-rent',
-    propertyType: 'cottage',
-    dealType: 'rent',
-    kindSlug: 'agaraki',
-    dealSlug: 'qiravdeba',
-  },
-  {
-    key: 'cottage-sale',
-    propertyType: 'cottage',
-    dealType: 'sale',
-    kindSlug: 'agaraki',
-    dealSlug: 'iyideba',
-  },
-  {
-    key: 'house-sale',
-    propertyType: 'house',
-    dealType: 'sale',
-    kindSlug: 'kerdzo-saxli',
-    dealSlug: 'iyideba',
-  },
-  {
-    key: 'house-rent',
-    propertyType: 'house',
-    dealType: 'rent',
-    kindSlug: 'kerdzo-saxli',
-    dealSlug: 'qiravdeba',
-  },
-  {
-    key: 'flat-sale',
-    propertyType: 'flat',
-    dealType: 'sale',
-    kindSlug: 'bina',
-    dealSlug: 'iyideba',
-  },
-  {
-    key: 'flat-rent',
-    propertyType: 'flat',
-    dealType: 'rent',
-    kindSlug: 'bina',
-    dealSlug: 'qiravdeba',
-  },
-];
+export const SS_GE_LISTS: readonly SsGeList[] = (
+  [
+    ['land', 'daily'],
+    ['hotel', 'pledge'],
+    ['cottage', 'pledge'],
+    ['commercial', 'pledge'],
+    ['commercial', 'daily'],
+    ['land', 'pledge'],
+    ['hotel', 'daily'],
+    ['house', 'pledge'],
+    ['land', 'rent'],
+    ['cottage', 'rent'],
+    ['cottage', 'daily'],
+    ['flat', 'pledge'],
+    ['cottage', 'sale'],
+    ['hotel', 'sale'],
+    ['flat', 'daily'],
+    ['house', 'daily'],
+    ['hotel', 'rent'],
+    ['commercial', 'sale'],
+    ['house', 'sale'],
+    ['land', 'sale'],
+    ['house', 'rent'],
+    ['commercial', 'rent'],
+    ['flat', 'sale'],
+    ['flat', 'rent'],
+  ] as const
+).map(([propertyType, dealType]) => ssGeList(propertyType, dealType));
 
 /** A resumed walk restarts this many pages before the last one it stored. */
 export const RESUME_OVERLAP_PAGES = 5;
 /** How far a resumed walk steps back, doubling each time, when the list has moved up past it. */
 const RESUME_STEP_PAGES = 20;
 const MAX_RESUME_STEPS = 6;
-/** Runs looked through for each list's last full read, which decides tonight's full read. */
+/** Runs looked through for each list's last full read, which decides tonight's full reads. */
 const FULL_READ_HISTORY_RUNS = 60;
+/**
+ * Results pages a nightly run plans to read whole lists for: about four
+ * hours at the policy's spacing (3.5 s a page). The 24 lists come to about
+ * 12,900 pages (2026-11-03), so each is read whole every three or four nights.
+ */
+export const DEEP_PAGE_BUDGET = 4_000;
+/** What a list counts against that budget before its size is known. */
+export const UNKNOWN_LIST_PAGES = 1_000;
 /** An interrupted walk older than this is not resumed: the lists have moved on too far. */
 const MAX_RESUME_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** Requests for one page before the run gives up on it. */
@@ -123,6 +145,8 @@ export interface SsGeListProgress {
   finished: 'end' | 'caught-up' | null;
   /** The oldest order time on the last page stored, which a resumed walk must not skip past. */
   oldestSeenAt?: string;
+  /** How many listings the site said the list could show, on the last page read. */
+  total?: number;
 }
 
 export interface SsGeRunProgress {
@@ -135,13 +159,14 @@ export interface SsGeRunProgress {
   walkStartedAt: string;
   lists: Partial<Record<SsGeList['key'], SsGeListProgress>>;
   /**
-   * The list a nightly run reads to its end instead of stopping at rows the
-   * last run saw: each night the one whose last full read is oldest, so each
-   * of the six is read whole about once a week. A full read refreshes every
-   * listing in it, catches price edits made without a renewal, and marks for
-   * checking the listings it no longer finds (`markMissedListings`).
+   * The lists a nightly run reads to their end instead of stopping at rows
+   * the last run saw: each night those whose last full read is oldest, as
+   * many as fit `DEEP_PAGE_BUDGET` (`listsDueForFullRead`). A full read
+   * refreshes every listing in it, catches price edits made without a
+   * renewal, and marks for checking the listings it no longer finds
+   * (`markMissedListings`). Runs before Phase 12A stored one key here.
    */
-  deep?: SsGeList['key'];
+  deep?: SsGeList['key'][];
 }
 
 export interface RunSsGeCrawlDeps {
@@ -159,6 +184,8 @@ export interface RunSsGeCrawlOptions {
   maxDetailChecks?: number;
   /** Start at page 1 even when an interrupted walk could be resumed. */
   fresh?: boolean;
+  /** Pages a nightly run plans for whole-list reads; `DEEP_PAGE_BUDGET` unless a test says otherwise. */
+  deepPageBudget?: number;
 }
 
 export interface RunSsGeCrawlResult {
@@ -227,6 +254,8 @@ interface RunState {
   progress: SsGeRunProgress;
   /** Results pages this run may still store. */
   pagesLeft: number;
+  /** Each list's size as last known before this run (`knownListings`); absent when never sized. */
+  knownListings: ReadonlyMap<SsGeList['key'], number>;
   /** Why the run stopped short; null while it has not. */
   stopReason: string | null;
   /** The site refused or would not answer: no further request is made in this run. */
@@ -302,10 +331,15 @@ interface PageRead {
  * One results page, asked for up to three times. Null means the run has
  * stopped: the page would not load, or the site refused.
  *
- * A page that carries no data, or no rows, counts as not loaded. Every list
- * here holds thousands of listings, and the site answers a page past the end
- * with page 1, never with nothing, so an empty page is a fault in the answer
- * and must not read as "the list ends here".
+ * A page that carries no data, or no rows, counts as not loaded: the site
+ * answers a page past the end with page 1, never with nothing, so an empty
+ * page is a fault in the answer and must not read as "the list ends here".
+ * The one exception is an empty list, which the site states itself: page 1,
+ * no rows, and a total of 0 (land for daily rent has had one listing, and
+ * none, 2026-11-03). It is believed only of a list never sized or last known
+ * to fit on one page: from a larger one it is a fault like any other, since a
+ * site answering every list with its empty default would otherwise end the
+ * run as complete and move the nightly baseline past rows it never read.
  */
 async function readResultsPage(
   run: RunState,
@@ -331,7 +365,15 @@ async function readResultsPage(
         page,
       });
       if (parsed.pastEnd || parsed.rowCount > 0) return { parsed, fetchedAt: fetched.fetchedAt };
-      reason = 'a page with no rows';
+      const known = run.knownListings.get(list.key);
+      const mayBeEmpty = known === undefined || known <= RESULTS_PAGE_SIZE;
+      if (page === 1 && parsed.listTotal === 0 && mayBeEmpty) {
+        return { parsed, fetchedAt: fetched.fetchedAt };
+      }
+      reason =
+        page === 1 && parsed.listTotal === 0
+          ? `no listings, from a list that last held ${known}`
+          : 'a page with no rows';
     } catch (err) {
       if (!(err instanceof SsGePageShapeError)) throw err;
       reason = err.message;
@@ -464,6 +506,7 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
     run.counters.rowCount += read.parsed.cards.length;
     run.pagesLeft--;
     state.lastPage = page;
+    if (read.parsed.listTotal !== null) state.total = read.parsed.listTotal;
     const oldestMs = Math.min(
       Number.POSITIVE_INFINITY,
       ...read.parsed.cards.map((card) => Date.parse(card.sourceUpdatedAt)),
@@ -591,10 +634,19 @@ function readProgress(value: unknown): SsGeRunProgress | null {
     if (typeof entry.oldestSeenAt === 'string' && !Number.isNaN(Date.parse(entry.oldestSeenAt))) {
       state.oldestSeenAt = entry.oldestSeenAt;
     }
+    if (typeof entry.total === 'number' && Number.isInteger(entry.total) && entry.total >= 0) {
+      state.total = entry.total;
+    }
     lists[list.key] = state;
   }
-  const deep = SS_GE_LISTS.find((list) => list.key === candidate.deep)?.key;
-  return { walkStartedAt: candidate.walkStartedAt, lists, ...(deep === undefined ? {} : { deep }) };
+  // One key before Phase 12A, a list of them since.
+  const named: unknown[] = Array.isArray(candidate.deep) ? candidate.deep : [candidate.deep];
+  const deep = SS_GE_LISTS.filter((list) => named.includes(list.key)).map((list) => list.key);
+  return {
+    walkStartedAt: candidate.walkStartedAt,
+    lists,
+    ...(candidate.deep === undefined ? {} : { deep }),
+  };
 }
 
 /**
@@ -622,39 +674,102 @@ async function interruptedWalk(
   return progress;
 }
 
-/**
- * The list whose last full read is oldest: one a sweep or any run read to its
- * end. Never read whole comes first, then the order of SS_GE_LISTS.
- */
-async function listDueForFullRead(db: Database): Promise<SsGeList['key']> {
+/** What past runs say about each list: its latest full read, and the latest size the site stated. */
+interface ListHistory {
+  lastFullRead: Map<SsGeList['key'], { walkMs: number; pages: number }>;
+  lastTotal: Map<SsGeList['key'], number>;
+}
+
+async function readListHistory(db: Database): Promise<ListHistory> {
   const recent = await db
     .select({ progress: realEstateCrawlRuns.progress })
     .from(realEstateCrawlRuns)
     .where(eq(realEstateCrawlRuns.sourceId, ssGeSource.id))
     .orderBy(desc(realEstateCrawlRuns.startedAt))
     .limit(FULL_READ_HISTORY_RUNS);
-  const lastFullRead = new Map<SsGeList['key'], number>();
+  const history: ListHistory = { lastFullRead: new Map(), lastTotal: new Map() };
   for (const row of recent) {
     const progress = readProgress(row.progress);
     if (progress === null) continue;
     const walkMs = Date.parse(progress.walkStartedAt);
     for (const list of SS_GE_LISTS) {
-      if (progress.lists[list.key]?.finished !== 'end') continue;
-      lastFullRead.set(list.key, Math.max(lastFullRead.get(list.key) ?? walkMs, walkMs));
+      const state = progress.lists[list.key];
+      // Newest run first: the first total seen is the latest.
+      if (state?.total !== undefined && !history.lastTotal.has(list.key)) {
+        history.lastTotal.set(list.key, state.total);
+      }
+      if (state?.finished !== 'end') continue;
+      const known = history.lastFullRead.get(list.key);
+      if (known === undefined || walkMs > known.walkMs) {
+        history.lastFullRead.set(list.key, { walkMs, pages: state.lastPage });
+      }
     }
   }
-  let due = SS_GE_LISTS[0] as SsGeList;
+  return history;
+}
+
+/**
+ * How many listings each list last held: the size the site last stated, or,
+ * for a list read before sizes were kept, the pages of its last full read at
+ * a full page each. Lists never sized are absent.
+ */
+function knownListings(history: ListHistory): Map<SsGeList['key'], number> {
+  const sizes = new Map<SsGeList['key'], number>();
   for (const list of SS_GE_LISTS) {
-    const readMs = lastFullRead.get(list.key) ?? Number.NEGATIVE_INFINITY;
-    const dueMs = lastFullRead.get(due.key) ?? Number.NEGATIVE_INFINITY;
-    if (readMs < dueMs) due = list;
+    const total = history.lastTotal.get(list.key);
+    const read = history.lastFullRead.get(list.key);
+    if (total !== undefined) sizes.set(list.key, total);
+    else if (read !== undefined) sizes.set(list.key, read.pages * RESULTS_PAGE_SIZE);
   }
-  return due.key;
+  return sizes;
+}
+
+/**
+ * The lists tonight's run reads whole: never read whole first, then the
+ * oldest full read, ties in the order of SS_GE_LISTS, for as long as their
+ * pages fit `budget`. The first that does not fit ends the choice, which
+ * keeps the choice simple and bounded; one list is always chosen.
+ *
+ * A list's size is the last page of its latest full read. One never read
+ * whole counts as its last stated size in pages, or `UNKNOWN_LIST_PAGES`
+ * when no run has seen it yet.
+ */
+function chooseFullReads(history: ListHistory, budget: number): SsGeList['key'][] {
+  const { lastFullRead, lastTotal } = history;
+  const sizeOf = (key: SsGeList['key']): number => {
+    const read = lastFullRead.get(key);
+    if (read !== undefined) return read.pages;
+    const total = lastTotal.get(key);
+    return total === undefined ? UNKNOWN_LIST_PAGES : Math.ceil(total / RESULTS_PAGE_SIZE);
+  };
+  const due = SS_GE_LISTS.map((list, index) => ({
+    key: list.key,
+    index,
+    readMs: lastFullRead.get(list.key)?.walkMs ?? Number.NEGATIVE_INFINITY,
+  })).sort((a, b) => a.readMs - b.readMs || a.index - b.index);
+
+  const chosen: SsGeList['key'][] = [];
+  let pages = 0;
+  for (const list of due) {
+    const size = sizeOf(list.key);
+    if (chosen.length > 0 && pages + size > budget) break;
+    chosen.push(list.key);
+    pages += size;
+  }
+  return chosen;
+}
+
+/** `chooseFullReads` over this source's recent runs. */
+export async function listsDueForFullRead(
+  db: Database,
+  budget: number = DEEP_PAGE_BUDGET,
+): Promise<SsGeList['key'][]> {
+  return chooseFullReads(await readListHistory(db), budget);
 }
 
 /**
  * One ss.ge run (docs/real-estate-implementation-guideline.md §9): walks the
- * six lists newest first and stores every row through `upsertListing`.
+ * 24 lists newest first and stores every row through `upsertListing`.
  *
  * The caller must hold this source's crawl-process lock.
  */
@@ -684,9 +799,11 @@ export async function runSsGeCrawl(
   const resumed =
     options.fresh === true ? null : await interruptedWalk(db, options.mode, Date.parse(startedAt));
   const progress: SsGeRunProgress = resumed ?? { walkStartedAt: startedAt, lists: {} };
+  const history = await readListHistory(db);
   if (options.mode === 'nightly' && progress.deep === undefined) {
-    progress.deep = await listDueForFullRead(db);
+    progress.deep = chooseFullReads(history, options.deepPageBudget ?? DEEP_PAGE_BUDGET);
   }
+  const deep = progress.deep ?? [];
   const unfinishedAtStart = SS_GE_LISTS.filter(
     (list) => (progress.lists[list.key]?.finished ?? null) === null,
   );
@@ -717,6 +834,7 @@ export async function runSsGeCrawl(
     },
     progress,
     pagesLeft: options.maxPages ?? Number.POSITIVE_INFINITY,
+    knownListings: knownListings(history),
     stopReason: null,
     siteTrouble: false,
   };
@@ -734,7 +852,7 @@ export async function runSsGeCrawl(
 
     for (const list of SS_GE_LISTS) {
       if (run.stopReason !== null) break;
-      await walkList(run, list, list.key === progress.deep ? null : olderThanMs);
+      await walkList(run, list, deep.includes(list.key) ? null : olderThanMs);
     }
 
     // A list read to its end in this run, from page 1 since the walk began:

@@ -1,10 +1,25 @@
 # scraplify — implementation status
 
-Last updated: 2026-10-19 (live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-11-03 (Phase 12A in progress on `phase-12a-ss-ge-all-kinds`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: none open (Phase 11 complete, 2026-10-19)
+## Current phase: Phase 12A — ss.ge all kinds and deals (started 2026-11-03)
+
+Owner decision 2026-11-03: the Real estate tab offers every filter ss.ge offers. Three phases, one branch each: **12A** crawls all 24 lists (six kinds × sale, rent, daily rent, pledge) and stores the extra fields results rows carry; **12B** reads each listing's own page once, from now on only (no backlog), for status, condition and amenities; **12C** builds each kind's "more filters" panel. Requests stay one at a time, 3 s apart, with no count cap (owner: "as many as safe"); 12B adds a 16-hour time box and a 20,000-request ceiling. Recon: `src/adapters/ss-ge/RECON_NOTES.md`, "Recon 2026-11-03"; scope: guideline §3.
+
+- **Phase 12A (branch `phase-12a-ss-ge-all-kinds`):** migration `0044` (enum values `commercial`, `land`, `hotel`, `daily`, `pledge`; eight list-row columns, appended to `public_listings` with `create or replace`); the parser reads the new codes, fields and the list total; the walker crawls 24 lists, finishes an empty list, and each night reads whole as many of the least recently read lists as fit 4,000 pages; policy v2; space and land type filters and per-deal typo bounds; the tab offers every kind and deal with space and land types.
+  - **12A exit gate, before merge:**
+    - [x] 24 lists crawled: the walker, 24 lists smallest first, and the 4,000-page whole-list rotation (`crawl.test.ts`, 44 DB tests).
+    - [x] Empty list handled: page 1 with no rows and a count of 0 finishes the list, believed only of a list never sized or last known to fit on one page (tests for both, and for the list that empties).
+    - [x] Trial passed (2026-11-03, `scraplify_qa_p12a`): 63 requests, none failed; 60 pages, 877 listings; the eight smallest lists and land for rent read to their end; space and land types filled on most rows.
+    - [x] Tab shows all kinds: every kind and deal, space and land types, daily prices "a night"; browser QA at 390 and 1280 on the trial rows, no horizontal scroll.
+    - [x] Full local check: lint and typecheck clean, 2,048 tests passed (9 skipped) on a throwaway Postgres; one whole-branch review (Opus), its one Important finding fixed test-first.
+  - **12A exit gate, after deploy:**
+    - [ ] First host run completed.
+    - [ ] Every list read whole once (expected about three nights after the deploy).
+
+## Phase 11 (complete, 2026-10-19)
 
 The hosted edition has been live at `jobster.fun` since 2026-09-28. Every phase in the index is merged except 7B and the Phase 1C remainder. Phase 11 (real estate from ss.ge, 11A–11E) is complete: 11E's gate closed and 11D went live on 2026-10-19. The next phase is the owner's call; the real-estate guideline's "Later" list (§3) and the open items below are the candidates.
 
@@ -263,6 +278,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 9C — tenders in Browse | merged; deployed 2026-10-07 as `9cf5065` | #44, #45 | First hosted dedupe failed on a column grant; fixed by the #45 hotfix without widening any grant. |
 | 10A — smart search | merged; deployed 2026-10-07 as `754a636` | #46 | No migration; query-time matching (`src/browse/search-terms.ts`). |
 | 10B — landing crawler | merged; deployed 2026-10-12 as `0cfbf86` | #47 | Canvas spider over the landing panel (`web/lib/landing-crawler/`); hides for readers, off under reduced motion. |
+| 12A — ss.ge all kinds and deals | in progress (branch `phase-12a-ss-ge-all-kinds`) | — | Migration `0044`; policy v2; 24 lists; deep-read budget 4,000 pages a night. |
 | 11D — grouping look-alikes | merged 2026-10-19; deployed as `989013e` | #59, #60 | `src/realestate/grouping.ts`, `realestate.listing_groups` (migration `0042`), folded view by default with "Every listing". |
 | 11E — hosted rollout | merged 2026-10-16; deployed as `bb2bcc0`; gate closed 2026-10-19 | #54 | `deploy/run-realestate.sh` and `xtelo-realestate@` units (21:30 UTC), worker grants, Hermes real-estate event, seed from the first pass. |
 | 11C — the Real estate tab | merged 2026-10-16; deployed as `bb2bcc0` | #50 | `/real-estate` over `realestate.public_listings`; migration `0040` (search column). |
