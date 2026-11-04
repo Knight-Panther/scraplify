@@ -12,7 +12,9 @@ function answer(url: string): HttpFetchResult {
  * The proxy as the crawl sees it: down (every request throws, the probe gets
  * nothing) or up. Time passes only while the run sleeps.
  */
-function setup(options: { maxWaitMs?: number; downAt?: Record<string, number> } = {}) {
+function setup(
+  options: { maxWaitMs?: number; waitUntil?: number; downAt?: Record<string, number> } = {},
+) {
   let clock = 0;
   let up = true;
   /** An outage of this many ms starts when its URL is first asked for. */
@@ -44,6 +46,7 @@ function setup(options: { maxWaitMs?: number; downAt?: Record<string, number> } 
       return up;
     },
     maxWaitMs: options.maxWaitMs ?? 600 * MIN,
+    ...(options.waitUntil === undefined ? {} : { waitUntil: options.waitUntil }),
     pollMs: MIN,
     sleep: async (ms) => {
       clock += ms;
@@ -117,6 +120,21 @@ describe('withProxyRecovery', () => {
     expect(elapsed()).toBe(60 * MIN);
     // The second outage gets what is left of the budget, not a fresh one.
     await expect(fetcher.fetch('https://home.ss.ge/b')).rejects.toBeInstanceOf(
+      ProxyUnreachableError,
+    );
+    expect(elapsed()).toBe(90 * MIN);
+  });
+
+  it("never waits past the run's time box, whatever its budget has left", async () => {
+    // The run must make its last request by its 16th hour (Phase 12B); its
+    // unit is stopped at 20, which a ten-hour wait begun late would overrun.
+    const { fetcher, elapsed } = setup({
+      maxWaitMs: 600 * MIN,
+      waitUntil: 90 * MIN,
+      downAt: { 'https://home.ss.ge/a': 600 * MIN },
+    });
+
+    await expect(fetcher.fetch('https://home.ss.ge/a')).rejects.toBeInstanceOf(
       ProxyUnreachableError,
     );
     expect(elapsed()).toBe(90 * MIN);

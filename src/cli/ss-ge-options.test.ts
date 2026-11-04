@@ -22,12 +22,13 @@ describe('parseSsGeOptions', () => {
     expect(() => parseSsGeOptions(['--refetch=all'])).toThrow();
   });
 
-  it('accepts a time box of 1 to 20 hours', () => {
+  it("accepts a time box of 1 to 19 hours, under the unit's 20", () => {
     expect(parseSsGeOptions(['--stop-after-hours=1'])).toEqual({
       mode: 'nightly',
       stopAfterMs: 60 * 60 * 1000,
     });
-    expect(parseSsGeOptions(['--stop-after-hours=20']).stopAfterMs).toBe(20 * 60 * 60 * 1000);
+    expect(parseSsGeOptions(['--stop-after-hours=19']).stopAfterMs).toBe(19 * 60 * 60 * 1000);
+    expect(() => parseSsGeOptions(['--stop-after-hours=20'])).toThrow();
     expect(() => parseSsGeOptions(['--stop-after-hours=0'])).toThrow();
     expect(() => parseSsGeOptions(['--stop-after-hours=21'])).toThrow();
     expect(() => parseSsGeOptions(['--stop-after-hours=1.5'])).toThrow();

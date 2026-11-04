@@ -43,6 +43,22 @@ vi.mock('../../realestate/ingest.js', async (importOriginal) => {
   };
 });
 
+// A listing key whose page reads with a kitchen area no column can hold:
+// the database refuses what the page said, and the run must carry on.
+const refusedPage = vi.hoisted(() => ({ key: null as string | null }));
+
+vi.mock('./detail.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./detail.js')>();
+  return {
+    ...actual,
+    parseDetailPage: (...args: Parameters<typeof actual.parseDetailPage>) => {
+      const result = actual.parseDetailPage(...args);
+      if (args[1] !== refusedPage.key || result.status !== 'active') return result;
+      return { ...result, details: { ...result.details, kitchenAreaM2: 1e9 } };
+    },
+  };
+});
+
 const testIds = vi.hoisted(() => ({
   sourceId: crypto.randomUUID(),
   policyId: crypto.randomUUID(),
@@ -948,6 +964,44 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     expect((await storedListings()).filter((row) => row.missedAt !== null)).toEqual([]);
   });
 
+  it('reads every list again the night after a run that read them all but was refused a listing page, measuring from that run', async () => {
+    const site = new FakeSite(oldLists());
+    await baseline(site, NOW - 2 * DAY_MS);
+    // Night one reads every list, then ss.ge refuses the first listing page.
+    for (const listRows of Object.values(site.lists)) {
+      for (const row of listRows) {
+        const url = buildDetailUrl(String(row.id));
+        site.script(url, status(url, 403));
+      }
+    }
+    const refused = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { mode: 'nightly', deepPageBudget: 1 },
+    );
+    expect(refused.crawlRun.status).toBe('partial');
+    for (const entry of SS_GE_LISTS) {
+      expect(progressOf(refused.crawlRun).lists[entry.key]?.finished, entry.key).not.toBeNull();
+    }
+    site.requested.length = 0;
+    site.scripted.clear();
+    // Ordered after the baseline began and before night one did: only a run
+    // measuring from the baseline would read on past page 1 for them.
+    site.lists['flat-sale'].unshift(...rows(1, 2, 40 * HOUR_MS));
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW) },
+      { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 1 },
+    );
+
+    expect(crawlRun.status).toBe('completed');
+    // A walk of its own, not night one's finished walk resumed with nothing to read.
+    expect(progressOf(crawlRun).walkStartedAt).toBe(new Date(NOW).toISOString());
+    for (const entry of SS_GE_LISTS) {
+      expect(site.resultsRequests(entry).length, entry.key).toBeGreaterThan(0);
+    }
+    expect(site.resultsRequests(list('flat-sale'))).toEqual([1]);
+  });
+
   it('carries on from an interrupted nightly run, keeping its start and the lists it finished', async () => {
     const site = new FakeSite(oldLists());
     await baseline(site, NOW - 2 * DAY_MS);
@@ -1469,6 +1523,27 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
       requestCount: 10,
       notes: 'request ceiling reached',
     });
+  });
+
+  it('skips a listing page whose details the database refuses, keeping nothing of it, and carries on', async () => {
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 3, 10 * 60_000) });
+    allLive(site);
+    refusedPage.key = '1001';
+    try {
+      const { crawlRun } = await runSsGeCrawl(
+        { db, httpFetcher: site, now: clock() },
+        { mode: 'sweep' },
+      );
+
+      expect(crawlRun).toMatchObject({ status: 'completed', detailsCount: 2 + OTHER_LISTS });
+      expect(detailRequests(site)).toHaveLength(3 + OTHER_LISTS);
+      // Still wanted, and untouched: its page is asked again next run.
+      const refused = await stored(1001);
+      expect(refused).toMatchObject({ detailsReadAt: null, verifiedAt: null });
+      expect(refused?.detailsWantedAt).not.toBeNull();
+    } finally {
+      refusedPage.key = null;
+    }
   });
 
   it('stops at once on a refusal while reading listing pages', async () => {

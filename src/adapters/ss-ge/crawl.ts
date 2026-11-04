@@ -615,11 +615,26 @@ async function readListingPages(
       continue;
     }
     failuresInARow = 0;
-    const outcome = await recordListingCheck(run.db, {
-      listingId: listing.id,
-      check,
-      checkedAt: fetched.fetchedAt,
-    });
+    let outcome: Awaited<ReturnType<typeof recordListingCheck>>;
+    try {
+      // All of it or nothing: a refused detail must not leave the end date
+      // moved and the listing still wanted.
+      outcome = await run.db.transaction((tx) =>
+        recordListingCheck(tx, { listingId: listing.id, check, checkedAt: fetched.fetchedAt }),
+      );
+    } catch (err) {
+      // As for a results row (`walkList`): one page's bad value must not end
+      // the night. The listing is asked again next run.
+      if (!isRefusedRowValue(err)) throw err;
+      logger.warn(
+        {
+          listing: listing.sourceListingKey,
+          reason: err instanceof Error ? (err.cause ?? err).toString().slice(0, 200) : null,
+        },
+        'ss.ge crawl: the database refused what a listing page said; skipped it',
+      );
+      continue;
+    }
     if (outcome === 'gone') run.counters.goneCount++;
     else if (outcome === 'verified') {
       // `verified` counts checks of listings past their end, as before 12B.
@@ -676,22 +691,52 @@ function runNotes(run: RunState): string | null {
 }
 
 /**
+ * Whether a run's walk finished every list. Its lists were then read, however
+ * the run ended after them: since Phase 12B most of a night's requests come
+ * after the lists, and trouble there says nothing about what the lists held.
+ */
+function readEveryList(progress: SsGeRunProgress | null): boolean {
+  return (
+    progress !== null &&
+    SS_GE_LISTS.every((list) => (progress.lists[list.key]?.finished ?? null) !== null)
+  );
+}
+
+/**
  * Where a nightly run may stop reading a list: rows last ordered before the
- * last completed run began, less an overlap. Measured from the start of that
+ * last run that read every list began (a completed run, or one stopped while
+ * reading listing pages), less an overlap. Measured from the start of that
  * run's whole walk, which for a sweep run in instalments is the first one.
  */
 async function nightlyCutoffMs(db: Database): Promise<number> {
-  const [last] = await db
-    .select({ startedAt: realEstateCrawlRuns.startedAt, progress: realEstateCrawlRuns.progress })
+  const columns = {
+    status: realEstateCrawlRuns.status,
+    startedAt: realEstateCrawlRuns.startedAt,
+    progress: realEstateCrawlRuns.progress,
+  };
+  const recent = await db
+    .select(columns)
     .from(realEstateCrawlRuns)
-    .where(
-      and(
-        eq(realEstateCrawlRuns.sourceId, ssGeSource.id),
-        eq(realEstateCrawlRuns.status, 'completed'),
-      ),
-    )
+    .where(eq(realEstateCrawlRuns.sourceId, ssGeSource.id))
     .orderBy(desc(realEstateCrawlRuns.startedAt))
-    .limit(1);
+    .limit(FULL_READ_HISTORY_RUNS);
+  let last = recent.find(
+    (run) => run.status === 'completed' || readEveryList(readProgress(run.progress)),
+  );
+  if (last === undefined) {
+    // None lately: the last completed run, however old.
+    [last] = await db
+      .select(columns)
+      .from(realEstateCrawlRuns)
+      .where(
+        and(
+          eq(realEstateCrawlRuns.sourceId, ssGeSource.id),
+          eq(realEstateCrawlRuns.status, 'completed'),
+        ),
+      )
+      .orderBy(desc(realEstateCrawlRuns.startedAt))
+      .limit(1);
+  }
   if (last === undefined) throw new SsGeNoBaselineError();
   const walkStartedAt = readProgress(last.progress)?.walkStartedAt ?? last.startedAt;
   return new Date(walkStartedAt).getTime() - NIGHTLY_OVERLAP_MS;
@@ -771,6 +816,9 @@ async function interruptedWalk(
   const progress = readProgress(latest.progress);
   if (progress === null || nowMs - Date.parse(progress.walkStartedAt) > MAX_RESUME_AGE_MS)
     return null;
+  // Every list read, then stopped while reading listing pages: nothing of the
+  // walk is left, and resuming it would read no list tonight.
+  if (readEveryList(progress)) return null;
   return progress;
 }
 

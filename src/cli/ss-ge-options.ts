@@ -23,7 +23,7 @@ function wholeNumber(name: string, value: string, min: number, max: number): num
  * `--max-detail-checks=N` sets how many listing pages are asked for, checks
  * first and then pages wanted for their details (no cap by default; 0 for
  * none). `--stop-after-hours=N` ends the run's requests after N hours, 1 to
- * 20 (16 by default): a trial asks for 1.
+ * 19 (16 by default), under the unit's 20-hour limit: a trial asks for 1.
  */
 export function parseSsGeOptions(args: string[]): RunSsGeCrawlOptions {
   const { values } = parseArgs({
@@ -55,7 +55,7 @@ export function parseSsGeOptions(args: string[]): RunSsGeCrawlOptions {
   }
   if (values['stop-after-hours'] !== undefined) {
     options.stopAfterMs =
-      wholeNumber('stop-after-hours', values['stop-after-hours'], 1, 20) * HOUR_MS;
+      wholeNumber('stop-after-hours', values['stop-after-hours'], 1, 19) * HOUR_MS;
   }
   if (values.fresh === true) {
     options.fresh = true;

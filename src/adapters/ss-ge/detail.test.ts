@@ -134,8 +134,9 @@ describe('parseDetailPage', () => {
         buildingStatus: 'new',
         bathrooms: 0,
         balconies: 0,
-        latitude: 41.677564,
-        longitude: 44.849989,
+        // Fixtures keep coordinates to two decimals, about a kilometre.
+        latitude: 41.68,
+        longitude: 44.85,
       });
     });
 
@@ -206,8 +207,8 @@ describe('parseDetailPage', () => {
       ).toMatchObject({
         floorType: 'duplex',
         posterEntity: 'individual',
-        latitude: 41.639213,
-        longitude: 41.613248,
+        latitude: 41.64,
+        longitude: 41.61,
       });
       const page = pageWith({
         toilet: '5+',
@@ -222,6 +223,31 @@ describe('parseDetailPage', () => {
         kitchenAreaM2: 12.5,
         houseAreaM2: null,
         yardAreaM2: null,
+      });
+    });
+
+    it('rounds an area to the cent before holding it against its column', () => {
+      const page = pageWith({
+        kitchenArea: '999999.999',
+        areaOfHouse: '0.001',
+        areaOfYard: '12.345',
+      });
+      expect(detailsOf(parseDetailPage(page, '1'))).toMatchObject({
+        // 1,000,000.00 would not fit numeric(8,2).
+        kitchenAreaM2: null,
+        houseAreaM2: null,
+        yardAreaM2: 12.35,
+      });
+      expect(
+        detailsOf(parseDetailPage(pageWith({ kitchenArea: '999999.99' }), '1')).kitchenAreaM2,
+      ).toBe(999999.99);
+    });
+
+    it("keeps coordinates to six decimals, the column's scale", () => {
+      const page = pageWith({ locationLatitude: 41.639213445578434, locationLongitude: 44.8 });
+      expect(detailsOf(parseDetailPage(page, '1'))).toMatchObject({
+        latitude: 41.639213,
+        longitude: 44.8,
       });
     });
 

@@ -48,11 +48,17 @@ function count(value: unknown): number | null {
   return amount <= SMALLINT_MAX ? amount : null;
 }
 
-/** An area ss.ge writes as text or a number; 0, empty or past its column is unknown. */
+/**
+ * An area ss.ge writes as text or a number, to the cent its column keeps; 0,
+ * empty or past its column once rounded is unknown (999,999.999 rounds to a
+ * million, which `numeric(8,2)` refuses).
+ */
 function area(value: unknown, limit: number): number | null {
   const amount =
     typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : NaN;
-  return Number.isFinite(amount) && amount > 0 && amount < limit ? amount : null;
+  if (!Number.isFinite(amount)) return null;
+  const cents = Math.round(amount * 100) / 100;
+  return cents > 0 && cents < limit ? cents : null;
 }
 
 function coordinate(value: unknown, range: { min: number; max: number }): number | null {

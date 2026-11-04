@@ -1,5 +1,9 @@
 import { sql } from 'drizzle-orm';
-import { runSsGeCrawl, SsGeNoBaselineError } from '../adapters/ss-ge/crawl.js';
+import {
+  DEFAULT_STOP_AFTER_MS,
+  runSsGeCrawl,
+  SsGeNoBaselineError,
+} from '../adapters/ss-ge/crawl.js';
 import { db, pool } from '../db/client.js';
 import { acquireCrawlProcessLock } from '../db/crawl-process-lock.js';
 import { logger } from '../logger.js';
@@ -22,8 +26,9 @@ const REQUEST_TIMEOUT_MS = 60_000;
 /**
  * How long one run may wait, over all outages together, for the Georgian
  * proxy to come back (RUNBOOK §3 step 9): the laptop may be off when the
- * 21:30 UTC run starts, or reboot or lose its internet during it. Ten hours
- * keeps the run inside its unit's 20-hour limit and clear of the next night.
+ * 21:30 UTC run starts, or reboot or lose its internet during it. Never past
+ * the run's time box (`waitUntil`, Phase 12B): a wait begun in its 15th hour
+ * would otherwise run on past the unit's 20-hour limit.
  */
 const PROXY_MAX_WAIT_MS = 10 * 60 * 60 * 1000;
 /** Between checks while waiting: a check of a tunnel that is down sends nothing to ss.ge. */
@@ -81,6 +86,8 @@ async function main(): Promise<void> {
           label: proxy.label,
           probe: () => answersThroughProxy(proxy.dispatcher, ssGePolicy.robotsUrl, userAgent),
           maxWaitMs: PROXY_MAX_WAIT_MS,
+          // Taken before the run's own start, so it ends no later than the run's box.
+          waitUntil: Date.now() + (options.stopAfterMs ?? DEFAULT_STOP_AFTER_MS),
           pollMs: PROXY_POLL_MS,
         });
 

@@ -32,6 +32,12 @@ export interface ProxyRecoveryOptions {
   probe: () => Promise<boolean>;
   /** Waiting allowed over the whole run, all outages together. */
   maxWaitMs: number;
+  /**
+   * No waiting past this instant (as `now` reads it), whatever `maxWaitMs`
+   * has left: the run's time box, so a wait begun late cannot carry the run
+   * past its unit's limit.
+   */
+  waitUntil?: number;
   /** Time between probes while waiting. */
   pollMs: number;
   sleep?: (ms: number) => Promise<void>;
@@ -64,8 +70,8 @@ function isLocalRefusal(err: unknown): boolean {
  * to the caller, whose retries handle it as before. If it does not, this
  * waits, probing every `pollMs`, and once the proxy is back asks for the same
  * URL again, so a run carries on where it was instead of ending. Waiting is
- * capped over the whole run; past the cap it throws `ProxyUnreachableError`,
- * which the caller should treat as the end of its run.
+ * capped over the whole run, and ends at `waitUntil`; past either it throws
+ * `ProxyUnreachableError`, which the caller should treat as the end of its run.
  */
 export function withProxyRecovery(inner: HttpFetcher, options: ProxyRecoveryOptions): HttpFetcher {
   const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -76,14 +82,19 @@ export function withProxyRecovery(inner: HttpFetcher, options: ProxyRecoveryOpti
   async function waitForProxy(): Promise<void> {
     const startedAt = now();
     const spent = () => waitedMs + (now() - startedAt);
-    if (spent() < options.maxWaitMs) {
+    const waitLeft = () =>
+      Math.min(
+        options.maxWaitMs - spent(),
+        (options.waitUntil ?? Number.POSITIVE_INFINITY) - now(),
+      );
+    if (waitLeft() > 0) {
       log.warn(
-        { proxy: options.label, waitLeftMin: Math.round((options.maxWaitMs - spent()) / 60_000) },
+        { proxy: options.label, waitLeftMin: Math.round(waitLeft() / 60_000) },
         'proxy unreachable; waiting for it to come back',
       );
     }
     let reportedAt = startedAt;
-    while (spent() < options.maxWaitMs) {
+    while (waitLeft() > 0) {
       await sleep(options.pollMs);
       if (await options.probe()) {
         waitedMs = spent();

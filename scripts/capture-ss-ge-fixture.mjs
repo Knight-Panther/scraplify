@@ -191,6 +191,11 @@ function trimDetail(pageProps) {
   if (!isRecord(data)) return {};
   const out = pick(data, DETAIL_FIELDS);
   out.title = maskPhones(out.title);
+  // A private poster's coordinates point at a home: a fixture keeps them to
+  // two decimals, about a kilometre, which is enough to test their range.
+  for (const field of ['locationLatitude', 'locationLongitude']) {
+    if (typeof out[field] === 'number') out[field] = Math.round(out[field] * 100) / 100;
+  }
   if (isRecord(data.price)) out.price = pick(data.price, PRICE_FIELDS);
   if (isRecord(data.address)) {
     out.address = pick(data.address, ADDRESS_FIELDS);
