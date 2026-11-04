@@ -67,9 +67,6 @@ export interface RealEstateFilters {
   priceMax?: number;
   areaMin?: number;
   areaMax?: number;
-  rooms?: number;
-  /** With `rooms`: that many or more. */
-  roomsOrMore?: boolean;
   /** `middle` is neither the first floor nor the last. */
   floor?: 'not-first' | 'not-last' | 'middle';
   /** `business` is an agency or a developer; `other` is everything the source does not mark as one. */
@@ -255,11 +252,6 @@ function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
     filters.priceMax === undefined ? undefined : lte(price, String(filters.priceMax)),
     filters.areaMin === undefined ? undefined : gte(listings.areaM2, String(filters.areaMin)),
     filters.areaMax === undefined ? undefined : lte(listings.areaM2, String(filters.areaMax)),
-    filters.rooms === undefined
-      ? undefined
-      : filters.roomsOrMore === true
-        ? gte(listings.rooms, filters.rooms)
-        : eq(listings.rooms, filters.rooms),
     floor === 'not-first' || floor === 'middle' ? gt(listings.floor, 1) : undefined,
     floor === 'not-last' || floor === 'middle'
       ? lt(listings.floor, listings.totalFloors)

@@ -183,10 +183,8 @@ describe('real-estate queries', () => {
 
       expect((await find(sourceId, { areaMin: 120 })).sort()).toEqual([big, six].sort());
       expect(await find(sourceId, { areaMin: 120, areaMax: 145 })).toEqual([big]);
-      expect(await find(sourceId, { rooms: 5 })).toEqual([big]);
-      expect((await find(sourceId, { rooms: 5, roomsOrMore: true })).sort()).toEqual(
-        [big, six].sort(),
-      );
+      expect(await find(sourceId, { roomsIn: [5] })).toEqual([big]);
+      expect((await find(sourceId, { roomsIn: [5, 6] })).sort()).toEqual([big, six].sort());
       expect(await find(sourceId, { floor: 'not-first' })).not.toContain(ground);
       expect(await find(sourceId, { floor: 'not-first' })).toContain(top);
       expect(await find(sourceId, { floor: 'not-last' })).not.toContain(top);

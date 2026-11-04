@@ -311,7 +311,19 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
         </Select>
       )}
 
-      <Select label="Rooms" name="rooms" value={form.rooms} any="any number">
+      <Select
+        label="Rooms"
+        name="rooms"
+        // Until the chips of Task C4: one count, or "5 or more" as the address now spells it.
+        value={
+          form.rooms.length === 1
+            ? (form.rooms[0] ?? '')
+            : form.rooms.join() === '5,6,7,8,9,10+'
+              ? '5+'
+              : ''
+        }
+        any="any number"
+      >
         {ROOM_LABELS.map(([value, label]) => (
           <option key={value} value={value}>
             {label}
