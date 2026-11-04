@@ -133,7 +133,7 @@ function flag(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
-function reference(value: unknown): number | null {
+export function reference(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= INTEGER_MAX
     ? value
     : null;
@@ -147,7 +147,7 @@ function reference(value: unknown): number | null {
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point
 const CONTROL_RE = /[\u0000-\u0008\u000e-\u001f\u007f]/g;
 
-function text(value: unknown): string | null {
+export function text(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.replace(CONTROL_RE, '').trim();
   return trimmed === '' ? null : trimmed;

@@ -83,11 +83,12 @@ describe('listing-page vocabularies', () => {
   });
 
   it("maps the poster's type and every amenity field ss.ge marks", () => {
+    // A construction company's page says "Construction" (listing 3671991, 2026-11-04).
     expect(POSTER_ENTITIES).toEqual({
       Individual: 'individual',
       Broker: 'broker',
       Agency: 'agency',
-      Developer: 'developer',
+      Construction: 'developer',
     });
     expect(Object.keys(AMENITY_FIELDS)).toHaveLength(33);
     expect(AMENITY_FIELDS.heating).toBe('central-heating');

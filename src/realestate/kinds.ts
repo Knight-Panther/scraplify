@@ -91,12 +91,15 @@ export const FLOOR_TYPES = {
   სხვენი: 'attic',
 } as const satisfies Record<string, string>;
 
-/** Who posted it (`userEntityType`); any other value is unknown. */
+/**
+ * Who posted it (`userEntityType`); any other value is unknown. A
+ * construction company's page says `Construction` (listing 3671991, 2026-11-04).
+ */
 export const POSTER_ENTITIES = {
   Individual: 'individual',
   Broker: 'broker',
   Agency: 'agency',
-  Developer: 'developer',
+  Construction: 'developer',
 } as const satisfies Record<string, string>;
 
 /**

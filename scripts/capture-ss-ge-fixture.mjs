@@ -4,6 +4,7 @@
  * fields the parsers read.
  *
  *   node scripts/capture-ss-ge-fixture.mjs results <url> <out-file>
+ *   node scripts/capture-ss-ge-fixture.mjs detail <url> <out-file>
  *
  * One GET, with the project's User-Agent. This repository is public and ss.ge
  * pages carry phone numbers, names, user ids and a working gateway token, so
@@ -71,6 +72,75 @@ const ADDRESS_FIELDS = [
 ];
 const PAGE_FIELDS = ['initialPage', 'initialTotalApplicationCount', 'initialCardCount'];
 
+/**
+ * What `src/adapters/ss-ge/detail.ts` reads from a listing's own page
+ * (`applicationData`): whether it is live, its price, and its details (Phase
+ * 12B). Phones, contact names, user ids and the poster's name are never kept.
+ */
+const DETAIL_FIELDS = [
+  'applicationId',
+  'status',
+  'isInactiveApplication',
+  'orderDate',
+  'endDate',
+  'realEstateTypeId',
+  'realEstateDealTypeId',
+  'title',
+  'rooms',
+  'bedrooms',
+  'floor',
+  'floors',
+  'totalArea',
+  'realEstateStatusId',
+  'realEstateStatus',
+  'state',
+  'project',
+  'floorType',
+  'floorTypeText',
+  'toilet',
+  'balcony_Loggia',
+  'kitchenArea',
+  'areaOfHouse',
+  'areaOfYard',
+  'userEntityType',
+  'locationLatitude',
+  'locationLongitude',
+  // The yes-or-no fields (AMENITY_FIELDS in src/realestate/kinds.ts).
+  'airConditioning',
+  'balcony',
+  'basement',
+  'cableTelevision',
+  'drinkingWater',
+  'electricity',
+  'elevator',
+  'fridge',
+  'furniture',
+  'garage',
+  'glazedWindows',
+  'heating',
+  'hotWater',
+  'internet',
+  'ironDoor',
+  'lastFloor',
+  'naturalGas',
+  'securityAlarm',
+  'sewage',
+  'storage',
+  'telephone',
+  'tv',
+  'washingMachine',
+  'water',
+  'wiFi',
+  'withPool',
+  'viewOnYard',
+  'viewOnStreet',
+  'light',
+  'comfortable',
+  'withBuiltInKitchen',
+  'isPetFriendly',
+  'hasRemoteViewing',
+];
+
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -116,10 +186,29 @@ function trimResults(pageProps) {
   return out;
 }
 
+function trimDetail(pageProps) {
+  const data = pageProps.applicationData;
+  if (!isRecord(data)) return {};
+  const out = pick(data, DETAIL_FIELDS);
+  out.title = maskPhones(out.title);
+  if (isRecord(data.price)) out.price = pick(data.price, PRICE_FIELDS);
+  if (isRecord(data.address)) {
+    out.address = pick(data.address, ADDRESS_FIELDS);
+    out.address.streetTitle = maskPhones(out.address.streetTitle);
+    out.address.streetNumber = maskPhones(out.address.streetNumber);
+  }
+  // Field names only, never values: what the page carries that is not kept.
+  const dropped = Object.keys(data).filter((key) => !(key in out));
+  console.log(`not kept: ${dropped.sort().join(', ')}`);
+  return { applicationData: out };
+}
+
 async function main() {
   const [mode, url, outFile] = process.argv.slice(2);
-  if (mode !== 'results' || !url || !outFile) {
-    console.error('usage: node scripts/capture-ss-ge-fixture.mjs results <url> <out-file>');
+  if ((mode !== 'results' && mode !== 'detail') || !url || !outFile) {
+    console.error(
+      'usage: node scripts/capture-ss-ge-fixture.mjs <results|detail> <url> <out-file>',
+    );
     process.exit(2);
   }
   const target = new URL(url);
@@ -138,7 +227,7 @@ async function main() {
   if (!isRecord(pageProps)) throw new Error('no pageProps on this page');
 
   const kept = {
-    props: { pageProps: trimResults(pageProps) },
+    props: { pageProps: mode === 'detail' ? trimDetail(pageProps) : trimResults(pageProps) },
     page: data.page,
     buildId: 'fixture',
   };
@@ -149,6 +238,13 @@ async function main() {
     if (pattern.test(fixture)) throw new Error(`refusing to write: the fixture contains ${what}`);
   }
   writeFileSync(outFile, fixture, 'utf-8');
+  if (mode === 'detail') {
+    const listing = kept.props.pageProps.applicationData;
+    console.log(
+      `wrote ${outFile}: listing ${listing?.applicationId ?? 'none'}, ${listing?.status ?? 'no status'}`,
+    );
+    return;
+  }
   const rows = kept.props.pageProps.applicationList.realStateItemModel.length;
   console.log(
     `wrote ${outFile}: page ${kept.props.pageProps.initialPage}, ${rows} rows, total ${kept.props.pageProps.initialTotalApplicationCount}`,
