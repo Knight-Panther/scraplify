@@ -104,6 +104,7 @@ async function main(): Promise<void> {
         reopenedCount: crawlRun.reopenedCount,
         goneCount: crawlRun.goneCount,
         verifiedCount: crawlRun.verifiedCount,
+        detailsCount: crawlRun.detailsCount,
         progress: crawlRun.progress,
         notes: crawlRun.notes,
         rateLimitBackOffs: rateLimiter.backOffCount,
