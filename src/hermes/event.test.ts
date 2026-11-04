@@ -371,6 +371,7 @@ describe('the real-estate event', () => {
       reopenedCount: 3,
       goneCount: 212,
       verifiedCount: 788,
+      detailsCount: 4210,
     });
     const event = await eventFor(run());
     expect(event).toEqual({
@@ -399,6 +400,7 @@ describe('the real-estate event', () => {
         reopened: 3,
         gone: 212,
         verified: 788,
+        details: 4210,
       },
       reason: null,
       http_status: null,
@@ -528,6 +530,9 @@ describe('realEstateStopReason', () => {
       null,
     ],
     ['partial', '5 listing pages in a row would not load', 'listings_failed', null],
+    // Phase 12B: out of its 16 hours, or its 20,000 requests, while lists were unread.
+    ['partial', 'time limit reached', 'time_limit', null],
+    ['partial', 'request ceiling reached', 'request_ceiling', null],
     [
       'partial',
       'house-sale page 9: the proxy http://127.0.0.1:18888 stayed unreachable (waited 600 min in this run)',

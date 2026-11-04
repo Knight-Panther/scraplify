@@ -1,6 +1,7 @@
 import { and, desc, eq, isNotNull, lt, lte, or, sql } from 'drizzle-orm';
 import { realEstateListings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import { type ListingDetails, recordListingDetails } from './details.js';
 import { type ListingPrice, recordPriceSighting } from './ingest.js';
 import type { DealType, PropertyType } from './kinds.js';
 
@@ -18,6 +19,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const CHECK_HORIZON_DAYS = 30;
 /** A listing shown as live although its stated end has passed is looked at again this soon. */
 export const UNSETTLED_RECHECK_DAYS = 3;
+/**
+ * A page with no listing record is not believed for a listing its list
+ * showed this recently: ss.ge renders a live listing's page that way now and
+ * then (two of eight fresh ones on 2026-11-04, live on the next request).
+ */
+export const MISSING_TRUSTED_AFTER_DAYS = 2;
 /** A listing nobody has seen or confirmed for this long past its expected end is given up. */
 export const LAPSE_AFTER_DAYS = 7;
 /** A gone listing is kept this long (a source showing it again reopens it), then deleted. */
@@ -30,7 +37,7 @@ export interface DueListing {
 
 /** What a listing's own page says, in the terms every source adapter reports it. */
 export type ListingCheck =
-  | { status: 'active'; endAt: string | null; price?: ListingPrice }
+  | { status: 'active'; endAt: string | null; price?: ListingPrice; details?: ListingDetails }
   | { status: 'gone'; reason: string };
 
 /**
@@ -73,12 +80,36 @@ export async function loadListingsDueForCheck(
     .limit(input.limit);
 }
 
-/** Writes what a listing's page said: gone, or live until a date worth believing. */
+/**
+ * Writes what a listing's page said: gone, or live until a date worth
+ * believing, with its details when the page carries them. `unsettled` is a
+ * page that showed no listing for one its list showed within
+ * `MISSING_TRUSTED_AFTER_DAYS` and no full read has missed since: it is looked
+ * at again in a few days instead.
+ */
 export async function recordListingCheck(
   db: DatabaseOrTransaction,
   input: { listingId: string; check: ListingCheck; checkedAt: string },
-): Promise<'verified' | 'gone'> {
+): Promise<'verified' | 'gone' | 'unsettled'> {
   const { listingId, check, checkedAt } = input;
+  const checkedMs = Date.parse(checkedAt);
+  if (check.status === 'gone' && check.reason === 'missing') {
+    const [listing] = await db
+      .select({ lastSeenAt: realEstateListings.lastSeenAt, missedAt: realEstateListings.missedAt })
+      .from(realEstateListings)
+      .where(eq(realEstateListings.id, listingId));
+    const seenMs = listing === undefined ? Number.NaN : Date.parse(listing.lastSeenAt);
+    // A full read of its list that missed it is a second signal: believed at once.
+    if (listing?.missedAt === null && checkedMs - seenMs < MISSING_TRUSTED_AFTER_DAYS * DAY_MS) {
+      await db
+        .update(realEstateListings)
+        .set({
+          expectedEndAt: new Date(checkedMs + UNSETTLED_RECHECK_DAYS * DAY_MS).toISOString(),
+        })
+        .where(eq(realEstateListings.id, listingId));
+      return 'unsettled';
+    }
+  }
   if (check.status === 'gone') {
     await db
       .update(realEstateListings)
@@ -93,7 +124,6 @@ export async function recordListingCheck(
     return 'gone';
   }
 
-  const checkedMs = Date.parse(checkedAt);
   const horizonMs = checkedMs + CHECK_HORIZON_DAYS * DAY_MS;
   const statedMs = check.endAt === null ? Number.NaN : Date.parse(check.endAt);
   let nextMs: number;
@@ -109,6 +139,9 @@ export async function recordListingCheck(
     .where(eq(realEstateListings.id, listingId));
   if (check.price !== undefined) {
     await recordPriceSighting(db, { listingId, price: check.price, seenAt: checkedAt });
+  }
+  if (check.details !== undefined) {
+    await recordListingDetails(db, { listingId, details: check.details, readAt: checkedAt });
   }
   return 'verified';
 }

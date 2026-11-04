@@ -11,8 +11,10 @@ import {
   buildDetailUrl,
   buildResultsUrl,
   DEEP_PAGE_BUDGET,
+  DEFAULT_STOP_AFTER_MS,
   ensureSsGeSourceSeeded,
   listsDueForFullRead,
+  MAX_REQUESTS_PER_RUN,
   RESUME_OVERLAP_PAGES,
   runSsGeCrawl,
   SS_GE_LISTS,
@@ -37,6 +39,22 @@ vi.mock('../../realestate/ingest.js', async (importOriginal) => {
       const [database, input] = args;
       if (input.card.sourceListingKey !== refusedRow.key) return actual.upsertListing(...args);
       return actual.upsertListing(database, { ...input, card: { ...input.card, areaM2: 1e9 } });
+    },
+  };
+});
+
+// A listing key whose page reads with a kitchen area no column can hold:
+// the database refuses what the page said, and the run must carry on.
+const refusedPage = vi.hoisted(() => ({ key: null as string | null }));
+
+vi.mock('./detail.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./detail.js')>();
+  return {
+    ...actual,
+    parseDetailPage: (...args: Parameters<typeof actual.parseDetailPage>) => {
+      const result = actual.parseDetailPage(...args);
+      if (args[1] !== refusedPage.key || result.status !== 'active') return result;
+      return { ...result, details: { ...result.details, kitchenAreaM2: 1e9 } };
     },
   };
 });
@@ -139,7 +157,8 @@ function rows(firstId: number, count: number, newestAgoMs = HOUR_MS): SiteRow[] 
 }
 
 type DetailState =
-  | { status: 'Active'; endsAt: number }
+  /** `fields` are what else its page says (Phase 12B details), in ss.ge's own names. */
+  | { status: 'Active'; endsAt: number; fields?: Record<string, unknown> }
   | { status: 'Expired' }
   | { status: 'Missing' };
 
@@ -211,6 +230,7 @@ class FakeSite implements HttpFetcher {
         status: state.status,
         isInactiveApplication: state.status !== 'Active',
         endDate: state.status === 'Active' ? wallClock(state.endsAt) : wallClock(NOW - DAY_MS),
+        ...(state.status === 'Active' ? state.fields : {}),
       },
     });
   }
@@ -931,7 +951,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
-      { mode: 'nightly', maxDetailChecks: 10, deepPageBudget: 3 },
+      { mode: 'nightly', maxDetailChecks: 1, deepPageBudget: 3 },
     );
 
     expect(site.requested.filter((url) => !url.includes('/l/'))).toEqual([
@@ -942,6 +962,44 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     expect(stored).toMatchObject({ status: 'gone', goneReason: 'missing', missedAt: null });
     // Every other listing of the list was seen, so none is marked.
     expect((await storedListings()).filter((row) => row.missedAt !== null)).toEqual([]);
+  });
+
+  it('reads every list again the night after a run that read them all but was refused a listing page, measuring from that run', async () => {
+    const site = new FakeSite(oldLists());
+    await baseline(site, NOW - 2 * DAY_MS);
+    // Night one reads every list, then ss.ge refuses the first listing page.
+    for (const listRows of Object.values(site.lists)) {
+      for (const row of listRows) {
+        const url = buildDetailUrl(String(row.id));
+        site.script(url, status(url, 403));
+      }
+    }
+    const refused = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { mode: 'nightly', deepPageBudget: 1 },
+    );
+    expect(refused.crawlRun.status).toBe('partial');
+    for (const entry of SS_GE_LISTS) {
+      expect(progressOf(refused.crawlRun).lists[entry.key]?.finished, entry.key).not.toBeNull();
+    }
+    site.requested.length = 0;
+    site.scripted.clear();
+    // Ordered after the baseline began and before night one did: only a run
+    // measuring from the baseline would read on past page 1 for them.
+    site.lists['flat-sale'].unshift(...rows(1, 2, 40 * HOUR_MS));
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW) },
+      { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 1 },
+    );
+
+    expect(crawlRun.status).toBe('completed');
+    // A walk of its own, not night one's finished walk resumed with nothing to read.
+    expect(progressOf(crawlRun).walkStartedAt).toBe(new Date(NOW).toISOString());
+    for (const entry of SS_GE_LISTS) {
+      expect(site.resultsRequests(entry).length, entry.key).toBeGreaterThan(0);
+    }
+    expect(site.resultsRequests(list('flat-sale'))).toEqual([1]);
   });
 
   it('carries on from an interrupted nightly run, keeping its start and the lists it finished', async () => {
@@ -1123,7 +1181,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     return (await storedListings()).find((row) => row.sourceListingKey === String(id));
   }
 
-  it('asks the page of each, extends the live and marks the others gone', async () => {
+  it('asks the page of each, extends the live, marks the expired gone and rechecks a blank page soon', async () => {
     // Ordered 46 days ago and still listed: its 45 days of life have passed,
     // and only the listing's page says what happens next.
     const site = new FakeSite({
@@ -1131,16 +1189,18 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     });
     site.details.set('1000', { status: 'Active', endsAt: NOW + 200 * DAY_MS });
     site.details.set('1001', { status: 'Expired' });
-    // 1002 has no page at all: the site answers 200 with no listing in it.
+    // 1002's page has no listing in it, though this run just saw it in its
+    // list: ss.ge does that to live listings now and then (Phase 12B).
 
+    // Three pages: the checks, not the pages its new listings want read.
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
-      { mode: 'sweep' },
+      { mode: 'sweep', maxDetailChecks: 3 },
     );
 
     expect(detailRequests(site).sort()).toEqual(['1000', '1001', '1002']);
     for (const url of site.requested) expect(isSsGeUrlAllowed(url), url).toBe(true);
-    expect(crawlRun).toMatchObject({ status: 'completed', verifiedCount: 1, goneCount: 2 });
+    expect(crawlRun).toMatchObject({ status: 'completed', verifiedCount: 1, goneCount: 1 });
 
     const live = await stored(1000);
     expect(live?.status).toBe('active');
@@ -1149,12 +1209,15 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     expect(instant(live?.expectedEndAt)).toBeGreaterThan(NOW + 29 * DAY_MS);
     expect(instant(live?.expectedEndAt)).toBeLessThan(NOW + 31 * DAY_MS);
     expect(await stored(1001)).toMatchObject({ status: 'gone', goneReason: 'expired' });
-    expect(await stored(1002)).toMatchObject({ status: 'gone', goneReason: 'missing' });
+    const blank = await stored(1002);
+    expect(blank).toMatchObject({ status: 'active', goneAt: null });
+    expect(instant(blank?.expectedEndAt)).toBeLessThan(NOW + 4 * DAY_MS);
     expect(await stored(1100)).toMatchObject({ status: 'active', verifiedAt: null });
   });
 
   it('checks no more listings than its budget', async () => {
     const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
+    for (const id of ['1000', '1001', '1002']) site.details.set(id, { status: 'Expired' });
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
@@ -1178,6 +1241,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     );
 
     expect(crawlRun.status).toBe('partial');
+    // Both still want their details read, and are not asked again: one page a run.
     expect(detailRequests(site).sort()).toEqual(['1000', '1001']);
   });
 
@@ -1269,20 +1333,21 @@ describe('runSsGeCrawl, listings past their expected end', () => {
 
   it('leaves alone a listing whose page fails, and carries on with the next', async () => {
     const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
+    site.details.set('1000', { status: 'Expired' });
     site.script(buildDetailUrl('1001'), status(buildDetailUrl('1001'), 500));
     const challenge = ok(buildDetailUrl('1002'), '<html><body>Just a moment...</body></html>');
     site.script(buildDetailUrl('1002'), challenge);
 
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, now: clock() },
-      { mode: 'sweep' },
+      { mode: 'sweep', maxDetailChecks: 3 },
     );
 
     expect(detailRequests(site)).toHaveLength(3);
     // A page that did not load says nothing: not "gone", and above all not
     // "missing", which is what a page with no listing in it would mean.
     expect(crawlRun).toMatchObject({ status: 'completed', goneCount: 1, failedRequestCount: 2 });
-    expect(await stored(1000)).toMatchObject({ status: 'gone', goneReason: 'missing' });
+    expect(await stored(1000)).toMatchObject({ status: 'gone', goneReason: 'expired' });
     expect(await stored(1001)).toMatchObject({ status: 'active', verifiedAt: null });
     expect(await stored(1002)).toMatchObject({ status: 'active', verifiedAt: null });
   });
@@ -1343,5 +1408,161 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     expect(crawlRun).toMatchObject({ status: 'completed', goneCount: 1 });
     expect(await stored(7001)).toMatchObject({ status: 'gone', goneReason: 'lapsed' });
     expect(await stored(7002)).toBeUndefined();
+  });
+});
+
+describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () => {
+  const LIVE = { status: 'Active', endsAt: NOW + 20 * DAY_MS } as const;
+  const detailRequests = (site: FakeSite) =>
+    site.requested.filter((url) => !url.includes('/l/')).map((url) => url.split('/').at(-1));
+
+  /** Every listing on the site live, so each page read saves details. */
+  function allLive(site: FakeSite): void {
+    for (const listRows of Object.values(site.lists)) {
+      for (const row of listRows) site.details.set(String(row.id), LIVE);
+    }
+  }
+
+  async function stored(id: number) {
+    return (await storedListings()).find((row) => row.sourceListingKey === String(id));
+  }
+
+  it('reads the page of each new listing after the lists, newest first, and saves its details', async () => {
+    // Ordered 10 to 29 minutes ago: newer than every other list's one listing (an hour ago).
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 20, 10 * 60_000) });
+    allLive(site);
+    site.details.set('1000', { ...LIVE, fields: { state: 'გარემონტებული', toilet: '2' } });
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep' },
+    );
+
+    const firstListingPage = site.requested.findIndex((url) => !url.includes('/l/'));
+    expect(firstListingPage).toBeGreaterThan(0);
+    expect(site.requested.slice(firstListingPage).every((url) => !url.includes('/l/'))).toBe(true);
+    const asked = detailRequests(site);
+    expect(asked.slice(0, 20)).toEqual(
+      Array.from({ length: 20 }, (_, index) => String(1_000 + index)),
+    );
+    expect(asked).toHaveLength(20 + OTHER_LISTS);
+    expect(new Set(asked).size).toBe(asked.length);
+    for (const url of site.requested) expect(isSsGeUrlAllowed(url), url).toBe(true);
+    expect(crawlRun).toMatchObject({
+      status: 'completed',
+      detailsCount: 20 + OTHER_LISTS,
+      // Not checks: none of these was past its expected end.
+      verifiedCount: 0,
+      failedRequestCount: 0,
+      notes: null,
+    });
+
+    const read = await stored(1000);
+    expect(read).toMatchObject({ condition: 'renovated', bathrooms: 2, detailsWantedAt: null });
+    expect(read?.detailsReadAt).not.toBeNull();
+    expect((await storedListings()).filter((row) => row.detailsReadAt === null)).toEqual([]);
+  });
+
+  it('stops reading listing pages at the time limit and still completes; the next night reads the rest, newest first', async () => {
+    expect(DEFAULT_STOP_AFTER_MS).toBe(16 * HOUR_MS);
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 5, 10 * 60_000) });
+    allLive(site);
+    // Seventeen hours pass while the second listing page loads.
+    let lateMs = 0;
+    const ticks = clock();
+    const now = () => new Date(Date.parse(ticks()) + lateMs).toISOString();
+    const slow: HttpFetcher = {
+      fetch: async (url) => {
+        const answer = await site.fetch(url);
+        if (detailRequests(site).length === 2) lateMs = 17 * HOUR_MS;
+        return answer;
+      },
+      close: async () => {},
+    };
+
+    const { crawlRun } = await runSsGeCrawl({ db, httpFetcher: slow, now }, { mode: 'sweep' });
+
+    expect(detailRequests(site)).toEqual(['1000', '1001']);
+    // Out of time is no fault: every list was read, and the nightly baseline moves on.
+    expect(crawlRun).toMatchObject({
+      status: 'completed',
+      detailsCount: 2,
+      notes: 'time limit reached',
+    });
+    const waiting = (await storedListings()).filter((row) => row.detailsWantedAt !== null);
+    expect(waiting).toHaveLength(3 + OTHER_LISTS);
+
+    site.requested.length = 0;
+    const next = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock(NOW + DAY_MS) },
+      { mode: 'nightly' },
+    );
+
+    expect(next.crawlRun).toMatchObject({
+      status: 'completed',
+      detailsCount: 3 + OTHER_LISTS,
+      notes: null,
+    });
+    expect(detailRequests(site).slice(0, 3)).toEqual(['1002', '1003', '1004']);
+    expect((await storedListings()).filter((row) => row.detailsReadAt === null)).toEqual([]);
+  });
+
+  it('stops the run at its request ceiling, 20,000, partial while lists are unread', async () => {
+    expect(MAX_REQUESTS_PER_RUN).toBe(20_000);
+    const site = new FakeSite();
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep', maxRequests: 10 },
+    );
+
+    expect(site.requested).toHaveLength(10);
+    expect(detailRequests(site)).toEqual([]);
+    expect(crawlRun).toMatchObject({
+      status: 'partial',
+      requestCount: 10,
+      notes: 'request ceiling reached',
+    });
+  });
+
+  it('skips a listing page whose details the database refuses, keeping nothing of it, and carries on', async () => {
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 3, 10 * 60_000) });
+    allLive(site);
+    refusedPage.key = '1001';
+    try {
+      const { crawlRun } = await runSsGeCrawl(
+        { db, httpFetcher: site, now: clock() },
+        { mode: 'sweep' },
+      );
+
+      expect(crawlRun).toMatchObject({ status: 'completed', detailsCount: 2 + OTHER_LISTS });
+      expect(detailRequests(site)).toHaveLength(3 + OTHER_LISTS);
+      // Still wanted, and untouched: its page is asked again next run.
+      const refused = await stored(1001);
+      expect(refused).toMatchObject({ detailsReadAt: null, verifiedAt: null });
+      expect(refused?.detailsWantedAt).not.toBeNull();
+    } finally {
+      refusedPage.key = null;
+    }
+  });
+
+  it('stops at once on a refusal while reading listing pages', async () => {
+    const site = new FakeSite();
+    for (const listRows of Object.values(site.lists)) {
+      for (const row of listRows) {
+        const url = buildDetailUrl(String(row.id));
+        site.script(url, status(url, 429, { 'retry-after': '600' }));
+      }
+    }
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, now: clock() },
+      { mode: 'sweep' },
+    );
+
+    expect(detailRequests(site)).toHaveLength(1);
+    expect(crawlRun).toMatchObject({ status: 'partial', detailsCount: 0 });
+    expect(crawlRun.notes).toMatch(/429/);
+    expect(await getSourceBackoffUntil(db, ssGeSource.id)).not.toBeNull();
   });
 });

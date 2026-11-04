@@ -150,6 +150,7 @@ const realEstateFinished = z
         reopened: count,
         gone: count,
         verified: count,
+        details: count,
       })
       .nullable(),
     reason: z.enum(REAL_ESTATE_STOP_REASONS).nullable(),

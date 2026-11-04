@@ -341,6 +341,7 @@ describe('parseHermesEvent, real estate', () => {
           reopened: 3,
           gone: 212,
           verified: 788,
+          details: 4210,
         },
         ...crawlRun,
       },
@@ -503,6 +504,25 @@ describe('parseHermesEvent, real estate', () => {
     expect(parse(event)).not.toBeNull();
     change(event);
     expect(parse(event)).toBeNull();
+  });
+
+  it('accepts a real-estate event with a details count and refuses one without', () => {
+    const event = realEstateEvent();
+    expect((event.counts as Record<string, unknown>).details).toBe(4210);
+    expect(parse(event)).not.toBeNull();
+    delete (event.counts as Record<string, unknown>).details;
+    expect(parse(event)).toBeNull();
+  });
+
+  it('takes the reasons a run gives when its time or requests ran out', () => {
+    for (const notes of ['time limit reached', 'request ceiling reached']) {
+      const event = buildRealEstateEvent(
+        realEstateRun({ crawl: 1, exitCode: 1 }),
+        realEstateFacts({ status: 'partial', notes }),
+        CONTEXT,
+      );
+      expect(parse(fromFile(event))).toEqual(event);
+    }
   });
 
   it('refuses a job-board event naming a real-estate source', () => {

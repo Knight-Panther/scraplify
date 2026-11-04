@@ -228,9 +228,12 @@ keys: `realestate.crawl_runs` has `page_count`, `row_count`, `new_count`, `chang
   "crawl_run": { "id": "uuid", "mode": "nightly", "status": "completed",
                  "started_at": "…", "finished_at": "…" },
   "counts": { "pages": 1480, "rows": 23680, "new": 2911, "changed": 402, "bumped": 9100,
-              "unchanged": 11267, "reopened": 3, "gone": 212, "verified": 788 }
+              "unchanged": 11267, "reopened": 3, "gone": 212, "verified": 788,
+              "details": 4210 }
 }
 ```
+
+`details` is from Phase 12B (below).
 
 `mode` is `sweep` or `nightly`; a run's `status` is `running`, `completed`, `failed` or `partial`.
 There is no `full_coverage` and no `bundle`. A run often takes several hours, so its event
@@ -307,3 +310,16 @@ Two additions, schema still 1. Hermes' side was changed first (Hermes repo `b7ab
    connection: false means the laptop is off or offline, true that it is connected but ss.ge does
    not answer through it. The id is `<source>:proxy:<state>:<since>`, made of the event itself.
    Not started by a pipeline, so the sender's 15-minute retry timer delivers it.
+
+### Listing details (Phase 12B, 2026-11-04)
+
+Schema still 1. Two additions to the real-estate event:
+
+1. **`counts.details`**: listing pages whose details the run kept, its checks' pages included.
+   Always present; the sender refuses a real-estate event without it.
+2. **Two more `reason` words**, for a run that ended partial because it ran out with lists still
+   unread: `time_limit` (its 16 hours) and `request_ceiling` (its 20,000 requests). A run that
+   runs out only while reading listing pages completes, so its `reason` stays `null`.
+
+Hermes reads `counts` key by key and shows a `reason` it has no text for as the word itself, so
+neither breaks it before its side learns them.
