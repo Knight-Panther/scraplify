@@ -27,6 +27,7 @@ import type {
   Project,
   PropertyType,
 } from './kinds.js';
+import { implausibleValuesOf } from './plausibility.js';
 import { listingSearchQuery } from './search.js';
 
 /**
@@ -292,31 +293,8 @@ function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
   );
 }
 
-/**
- * A price or area no real listing has: a poster's typo. Measured on the host
- * on 2026-10-27, 248 of 185,839 live listings, and each of 25 sampled was one:
- * a flat "for sale" at $462 (its rent), 1 m² (no area given), a flat "for
- * rent" at $87,500 a month (its sale price), 42,000 m² at $42,000 (the price
- * typed as the area). The bounds are wide on purpose; a 1,100 m² flat at
- * $1.6 million is not caught. Such a listing is kept and shown as posted, but
- * comes after every other one in the price and area sorts, the top of which
- * it would otherwise take. Never null: a missing value is not a typo.
- *
- * Per deal (Phase 12A): daily rent is priced by the night ($6 to $450 seen,
- * 2026-11-03), pledge is a loan against the property and runs lower than a
- * sale. Land is sold by the hectare at a few dollars a m², so a large cheap
- * plot is never taken for the price typed as the area.
- */
-const implausibleValues = sql`coalesce(
-  ${listings.areaM2} < 10
-  or (${listings.propertyType} <> 'land'
-      and ${listings.areaM2} > case when ${listings.propertyType} = 'flat' then 1000 else 10000 end
-      and ${listings.pricePerM2Usd} < 100)
-  or (${listings.dealType} = 'sale' and ${listings.priceUsd} < 5000)
-  or (${listings.dealType} = 'pledge' and ${listings.priceUsd} < 1000)
-  or (${listings.dealType} = 'rent' and (${listings.priceUsd} > 50000 or ${listings.priceUsd} < 50))
-  or (${listings.dealType} = 'daily' and (${listings.priceUsd} > 5000 or ${listings.priceUsd} < 5)),
-  false)`;
+/** A poster's typo in the price or area sorts last (`src/realestate/plausibility.ts`). */
+const implausibleValues = implausibleValuesOf(listings);
 
 /** Every order ends in the id, so paging never repeats or drops a row when keys tie. */
 function ordering(filters: RealEstateFilters): SQL[] {

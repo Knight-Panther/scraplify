@@ -1,9 +1,27 @@
-import { and, desc, eq, isNotNull, lt, lte, or, sql } from 'drizzle-orm';
-import { realEstateListings } from '../db/schema/index.js';
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  isNotNull,
+  lt,
+  lte,
+  or,
+  sql,
+  type Table,
+} from 'drizzle-orm';
+import {
+  FILLED_AT_ARCHIVING,
+  realEstateArchiveListings,
+  realEstateArchivePriceChanges,
+  realEstateListings,
+  realEstatePriceChanges,
+} from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
 import { type ListingDetails, recordListingDetails } from './details.js';
 import { type ListingPrice, recordPriceSighting } from './ingest.js';
 import type { DealType, PropertyType } from './kinds.js';
+import { implausibleValuesOf } from './plausibility.js';
 
 /**
  * How a listing leaves the catalogue (docs/real-estate-implementation-guideline.md
@@ -27,7 +45,7 @@ export const UNSETTLED_RECHECK_DAYS = 3;
 export const MISSING_TRUSTED_AFTER_DAYS = 2;
 /** A listing nobody has seen or confirmed for this long past its expected end is given up. */
 export const LAPSE_AFTER_DAYS = 7;
-/** A gone listing is kept this long (a source showing it again reopens it), then deleted. */
+/** A gone listing is kept this long (a source showing it again reopens it), then archived and deleted. */
 export const GONE_RETENTION_DAYS = 14;
 
 export interface DueListing {
@@ -212,21 +230,59 @@ export async function markLapsedListingsGone(
   return rows.length;
 }
 
-/** Deletes listings gone for fourteen days; their price history goes with them. Without this the table only grows. */
+const columnNames = (table: Table) => Object.values(getTableColumns(table)).map((c) => c.name);
+const ARCHIVED_LISTING_COLUMNS = columnNames(realEstateArchiveListings).filter(
+  (name) => !FILLED_AT_ARCHIVING.has(name),
+);
+const ARCHIVED_PRICE_CHANGE_COLUMNS = columnNames(realEstateArchivePriceChanges);
+
+const listed = (names: readonly string[]) =>
+  sql.join(
+    names.map((name) => sql.identifier(name)),
+    sql`, `,
+  );
+
+/**
+ * Deletes listings gone for fourteen days, and their price history with
+ * them; without this the table only grows. Each one is first copied to
+ * `realestate_archive` (Phase 13A), with its price changes, minus its link,
+ * text and coordinates.
+ *
+ * One statement does all of it, so the archive receives exactly the rows the
+ * delete removes, and either both happen or neither does. Its parts all read
+ * the table as it was when the statement began, so the price changes are
+ * copied before the delete's cascade removes them. A listing the archive
+ * already holds keeps its first copy.
+ */
 export async function deleteLongGoneListings(
   db: DatabaseOrTransaction,
   input: { sourceId: string; asOf: string },
 ): Promise<number> {
   const before = new Date(Date.parse(input.asOf) - GONE_RETENTION_DAYS * DAY_MS).toISOString();
-  const rows = await db
-    .delete(realEstateListings)
-    .where(
-      and(
-        eq(realEstateListings.sourceId, input.sourceId),
-        eq(realEstateListings.status, 'gone'),
-        lt(realEstateListings.goneAt, before),
-      ),
+  const doomed = sql.identifier('doomed');
+  const implausible = implausibleValuesOf({
+    areaM2: sql.identifier('area_m2'),
+    propertyType: sql.identifier('property_type'),
+    dealType: sql.identifier('deal_type'),
+    priceUsd: sql.identifier('price_usd'),
+    pricePerM2Usd: sql.identifier('price_per_m2_usd'),
+  });
+  const result = await db.execute<{ deleted: number }>(sql`
+    with ${doomed} as (
+      delete from ${realEstateListings}
+      where source_id = ${input.sourceId} and status = 'gone' and gone_at < ${before}
+      returning id, ${listed(ARCHIVED_LISTING_COLUMNS)}
+    ), archived as (
+      insert into ${realEstateArchiveListings} (listing_id, ${listed(ARCHIVED_LISTING_COLUMNS)}, implausible)
+      select id, ${listed(ARCHIVED_LISTING_COLUMNS)}, ${implausible} from ${doomed}
+      on conflict (listing_id) do nothing
+    ), archived_changes as (
+      insert into ${realEstateArchivePriceChanges} (${listed(ARCHIVED_PRICE_CHANGE_COLUMNS)})
+      select ${listed(ARCHIVED_PRICE_CHANGE_COLUMNS)} from ${realEstatePriceChanges}
+      where listing_id in (select id from ${doomed})
+      on conflict (id) do nothing
     )
-    .returning({ id: realEstateListings.id });
-  return rows.length;
+    select count(*)::int as deleted from ${doomed}
+  `);
+  return result.rows[0]?.deleted ?? 0;
 }

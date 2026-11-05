@@ -207,6 +207,14 @@ GRANT SELECT, INSERT, UPDATE ON realestate.crawl_runs TO scraplify_worker;
 -- above) and inserts, updates (ON CONFLICT DO UPDATE) and deletes rows of
 -- listing_groups. Requires migration 0042.
 GRANT SELECT, INSERT, UPDATE, DELETE ON realestate.listing_groups TO scraplify_worker;
+-- Phase 13A: src/realestate/expiry.ts copies each listing it deletes, and its
+-- price changes, into the archive in the same statement (INSERT ... ON
+-- CONFLICT (key) DO NOTHING). It never updates or deletes there. SELECT is
+-- needed all the same: Postgres checks it on the ON CONFLICT key columns
+-- (without it the copy failed with "permission denied for table listings"
+-- under this role, 2026-11-05). Requires migration 0046.
+GRANT USAGE ON SCHEMA realestate_archive TO scraplify_worker;
+GRANT SELECT, INSERT ON realestate_archive.listings, realestate_archive.price_changes TO scraplify_worker;
 
 
 -- =========================================================================
@@ -368,7 +376,7 @@ GRANT CREATE, USAGE ON SCHEMA public TO scraplify_migration;
 GRANT CREATE ON DATABASE <TARGET_DATABASE> TO scraplify_migration;
 
 -- Hands scraplify_migration ownership of everything <CURRENT_OWNER_ROLE>
--- owns in THIS database's `public`, `drizzle` and `realestate` schemas —
+-- owns in THIS database's `public`, `drizzle`, `realestate` and `realestate_archive` schemas —
 -- tables, views, materialized views, sequences (pg_class) and enum types
 -- (pg_type, Drizzle's pgEnum) — plus the `drizzle` and `realestate` schemas
 -- themselves if they already exist. Touches nothing outside this one connected database (no other
@@ -387,6 +395,10 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'realestate') THEN
     EXECUTE 'ALTER SCHEMA realestate OWNER TO scraplify_migration';
   END IF;
+  -- Migration 0046's schema (Phase 13A), likewise.
+  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'realestate_archive') THEN
+    EXECUTE 'ALTER SCHEMA realestate_archive OWNER TO scraplify_migration';
+  END IF;
 
   FOR obj IN
     SELECT n.nspname, c.relname, c.relkind
@@ -394,7 +406,7 @@ BEGIN
     JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
     WHERE r.rolname = '<CURRENT_OWNER_ROLE>'
-      AND n.nspname IN ('public', 'drizzle', 'realestate')
+      AND n.nspname IN ('public', 'drizzle', 'realestate', 'realestate_archive')
       AND c.relkind IN ('r', 'v', 'm', 'S')
       -- A sequence owned by a table column (serial/identity, e.g.
       -- drizzle.__drizzle_migrations_id_seq) cannot be re-owned directly —
@@ -432,7 +444,7 @@ BEGIN
     JOIN pg_catalog.pg_roles r ON r.oid = t.typowner
     JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
     WHERE r.rolname = '<CURRENT_OWNER_ROLE>'
-      AND n.nspname IN ('public', 'drizzle', 'realestate')
+      AND n.nspname IN ('public', 'drizzle', 'realestate', 'realestate_archive')
       AND t.typtype = 'e'
   LOOP
     EXECUTE format('ALTER TYPE %I.%I OWNER TO scraplify_migration', obj.nspname, obj.typname);

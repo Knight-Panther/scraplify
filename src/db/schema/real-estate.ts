@@ -82,7 +82,9 @@ export const realEstateRunStatusEnum = realEstate.enum('run_status', [
  * One row per source listing, current state only. There is no revision
  * history: a full pass re-reads every listing, and at this volume a revision
  * per change would outgrow the rest of the database within weeks. The one
- * thing kept over time is the price (`price_changes`).
+ * thing kept over time is the price (`price_changes`). A listing deleted
+ * fourteen days after it left the source is copied to `realestate_archive`
+ * first (Phase 13A).
  *
  * No phone number, person's name or user id is stored; the parsers drop them.
  */
@@ -373,7 +375,7 @@ export const realEstatePublicListings = realEstate
     where ${realEstateListings.status} = 'active'
   `);
 
-/** The only history kept: each time a listing's price moved, and from what to what. */
+/** Each time a listing's price moved, and from what to what; archived with its listing (`realestate_archive`). */
 export const realEstatePriceChanges = realEstate.table(
   'price_changes',
   {
