@@ -1,7 +1,18 @@
 import { db } from '../../../../src/db/client.js';
 import {
+  BUILDING_STATUSES,
+  CONDITIONS,
+  type DealType,
+  FLOOR_TYPES,
+  PROJECTS,
+  type PropertyType,
+} from '../../../../src/realestate/kinds.js';
+import {
   COUNT_CEILING,
   countRealEstate,
+  type DetailsCoverage,
+  detailsCoverage,
+  hasDetailFilter,
   type RealEstateLocations,
   type RealEstateRow,
   realEstateLocations,
@@ -9,17 +20,37 @@ import {
 } from '../../../../src/realestate/queries.js';
 import { absoluteTime, count, relativeTime } from '../../../lib/format.js';
 import {
+  AMENITY_LABELS,
+  amenitiesFor,
+  BUILDING_STATUS_LABELS,
+  CONDITION_LABELS,
+  COUNT_CHOICES,
+  type CountGroup,
+  countLabel,
+  FLOOR_TYPE_LABELS,
+  GROUP_LABELS,
+  LISTING_TYPE_LABELS,
+  LISTING_TYPES,
+  OTHER_INFO,
+  PANELS,
+  type PanelGroup,
+  PROJECT_LABELS,
+} from '../../../lib/real-estate-panels.js';
+import {
   buildRealEstateHref,
+  countValue,
   isFiltered,
   parseRealEstateQuery,
   REAL_ESTATE_CHUNK,
   REAL_ESTATE_MAX_SHOWN,
+  type RealEstateForm,
   type RealEstateQuery,
 } from '../../../lib/real-estate-params.js';
 import {
   COMMERCIAL_TYPE_LABELS,
   type Currency,
   DEAL_LABELS,
+  detailText,
   floorText,
   KIND_LABELS,
   LAND_TYPE_LABELS,
@@ -65,6 +96,10 @@ export default async function RealEstatePage({
   const total = await countRealEstate(db, query.filters, now);
   const rows = await fetchRows(query, Math.min(query.show, total), now);
   const currency = query.filters.currency ?? 'usd';
+  // A filter on a listing's own page sees only listings whose page was read: say how many.
+  const coverage = hasDetailFilter(query.filters)
+    ? await detailsCoverage(db, query.filters, now)
+    : null;
 
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
@@ -83,9 +118,7 @@ export default async function RealEstatePage({
       {query.form.group === '' ? (
         <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-sm">
           <p className="text-faint" aria-live="polite">
-            <span className="numeric">
-              {total > COUNT_CEILING ? `${count(COUNT_CEILING)}+` : count(total)}
-            </span>
+            <span className="numeric">{upTo(total)}</span>
             {query.form.view === 'all'
               ? total === 1
                 ? ' listing'
@@ -100,6 +133,8 @@ export default async function RealEstatePage({
         <GroupHeading query={query} total={total} />
       )}
 
+      {coverage === null || coverage.total === 0 ? null : <Coverage coverage={coverage} />}
+
       {rows.length === 0 ? (
         <EmptyState filtered={isFiltered(query)} />
       ) : (
@@ -108,6 +143,25 @@ export default async function RealEstatePage({
 
       <ShowMore query={query} shown={rows.length} total={total} />
     </main>
+  );
+}
+
+/** A count as the page writes it: past the ceiling, "10,000+". */
+function upTo(total: number): string {
+  return total > COUNT_CEILING ? `${count(COUNT_CEILING)}+` : count(total);
+}
+
+/**
+ * Under a filter on a listing's own page: how many of the listings matching
+ * everything else had their page read, since only those can match it.
+ */
+function Coverage({ coverage }: { coverage: DetailsCoverage }) {
+  return (
+    <p className="mt-1 max-w-[var(--measure)] text-sm text-faint">
+      Details read for <span className="numeric">{upTo(coverage.read)}</span> of{' '}
+      <span className="numeric">{upTo(coverage.total)}</span> matching listings. Filters on details
+      see only those.
+    </p>
   );
 }
 
@@ -188,13 +242,6 @@ const CONTROL =
   'w-full rounded-[var(--radius)] border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-faint';
 const FIELD = 'flex min-w-0 flex-col gap-1 text-xs text-faint';
 
-const ROOM_LABELS: readonly (readonly [string, string])[] = [
-  ['1', '1'],
-  ['2', '2'],
-  ['3', '3'],
-  ['4', '4'],
-  ['5+', '5 or more'],
-];
 const FLOOR_LABELS: readonly (readonly [string, string])[] = [
   ['not-first', 'not the first'],
   ['not-last', 'not the last'],
@@ -218,13 +265,38 @@ const SORT_LABELS: readonly (readonly [string, string])[] = [
   ['area-desc', 'area, largest first'],
 ];
 
+/** A whole row of the form's grid, at every width. */
+const FULL_ROW = 'col-span-2 sm:col-span-3 md:col-span-4 xl:col-span-8';
+/** Half a row on wide screens, where a short group of chips fits beside other fields. */
+const HALF_ROW = 'col-span-2 sm:col-span-3 md:col-span-4 xl:col-span-4';
+/** A compact select beside two number fields. */
+const INLINE_SELECT =
+  'shrink-0 rounded-[var(--radius)] border border-border bg-surface px-2 py-1.5 text-sm text-foreground';
+
+/** Chip choices as `[value, label]`, in the order shown. */
+type Options = readonly (readonly [string, string])[];
+
+function pairs<T extends string>(
+  values: readonly T[],
+  labels: Readonly<Record<T, string>>,
+): Options {
+  return values.map((value) => [value, labels[value]] as const);
+}
+
+function countOptions(group: CountGroup): Options {
+  return COUNT_CHOICES[group].map((n) => [countValue(group, n), countLabel(group, n)] as const);
+}
+
 /**
  * A plain GET form: no JavaScript, and the address it produces is the one a
  * link would. The area list belongs to the chosen city, so it appears once a
- * city has been applied.
+ * city has been applied; a kind's status, sub-types and "more filters" appear
+ * once that kind has been applied, the way ss.ge swaps its panel.
  */
 function Filters({ query, places }: { query: RealEstateQuery; places: RealEstateLocations }) {
   const { form } = query;
+  const kind = form.kind === '' ? null : (form.kind as PropertyType);
+  const panel: readonly PanelGroup[] = kind === null ? [] : PANELS[kind];
   const inCity = places.subdistricts.filter((entry) => String(entry.cityRef) === form.city);
   const districts = new Map<number, string>();
   for (const entry of inCity) {
@@ -274,11 +346,32 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
         ))}
       </Select>
 
-      {form.kind === 'commercial' && (
-        <SubTypes legend="Space type" name="ct" labels={COMMERCIAL_TYPE_LABELS} checked={form.ct} />
+      {panel.includes('status') && (
+        <Chips
+          legend={GROUP_LABELS.status}
+          name="st"
+          options={pairs(Object.values(BUILDING_STATUSES), BUILDING_STATUS_LABELS)}
+          checked={form.st}
+          className={HALF_ROW}
+        />
       )}
-      {form.kind === 'land' && (
-        <SubTypes legend="Land type" name="lt" labels={LAND_TYPE_LABELS} checked={form.lt} />
+      {kind === 'commercial' && (
+        <Chips
+          legend="Space type"
+          name="ct"
+          options={Object.entries(COMMERCIAL_TYPE_LABELS)}
+          checked={form.ct}
+          className={FULL_ROW}
+        />
+      )}
+      {kind === 'land' && (
+        <Chips
+          legend="Land type"
+          name="lt"
+          options={Object.entries(LAND_TYPE_LABELS)}
+          checked={form.lt}
+          className={FULL_ROW}
+        />
       )}
 
       <Select label="City" name="city" value={form.city} any="anywhere in Georgia">
@@ -311,13 +404,16 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
         </Select>
       )}
 
-      <Select label="Rooms" name="rooms" value={form.rooms} any="any number">
-        {ROOM_LABELS.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </Select>
+      {/* With no kind, rooms still narrow; a kind without rooms (land, commercial) has none to pick. */}
+      {(kind === null || panel.includes('rooms')) && (
+        <Chips
+          legend={GROUP_LABELS.rooms}
+          name="rooms"
+          options={countOptions('rooms')}
+          checked={form.rooms}
+          className={HALF_ROW}
+        />
+      )}
 
       <Range
         label="Price"
@@ -327,14 +423,18 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
         max={form.pmax}
         className="col-span-2"
       >
-        <select
-          name="cur"
-          defaultValue={form.cur}
-          aria-label="Currency"
-          className="shrink-0 rounded-[var(--radius)] border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-        >
+        <select name="cur" defaultValue={form.cur} aria-label="Currency" className={INLINE_SELECT}>
           <option value="usd">$</option>
           <option value="gel">₾</option>
+        </select>
+        <select
+          name="pm2"
+          defaultValue={form.pm2}
+          aria-label="Price bounds are"
+          className={INLINE_SELECT}
+        >
+          <option value="">total</option>
+          <option value="1">per m²</option>
         </select>
       </Range>
 
@@ -347,13 +447,12 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
         className="col-span-2"
       />
 
-      <Select label="Floor" name="floor" value={form.floor} any="any floor">
-        {FLOOR_LABELS.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </Select>
+      {/* A flat's panel has a floor range, and this choice moves there beside it. */}
+      {panel.includes('floor') ? null : (
+        <Select label="Floor" name="floor" value={form.floor} any="any floor">
+          <FloorOptions />
+        </Select>
+      )}
 
       <Select label="Posted by" name="by" value={form.by} any="anyone">
         {POSTER_LABELS.map(([value, label]) => (
@@ -382,6 +481,8 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
         </select>
       </label>
 
+      {kind === null ? null : <MoreFilters kind={kind} form={form} />}
+
       <div className="col-span-2 flex items-baseline gap-4">
         <button
           type="submit"
@@ -397,36 +498,220 @@ function Filters({ query, places }: { query: RealEstateQuery; places: RealEstate
   );
 }
 
+function FloorOptions() {
+  return FLOOR_LABELS.map(([value, label]) => (
+    <option key={value} value={value}>
+      {label}
+    </option>
+  ));
+}
+
 /**
- * ss.ge's sub-types of the applied kind, any number at once. Shown once the
- * kind has been applied: the form has no script, so the group follows the
- * kind the way ss.ge swaps its panel. None ticked is every type.
+ * ss.ge's "more filters" for the applied kind, group for group and in its
+ * order (`PANELS`). Status, rooms and area sit in the bar above, as on ss.ge.
+ * Open whenever anything in it is chosen, so an applied filter is never
+ * tucked away.
  */
-function SubTypes({
+function MoreFilters({ kind, form }: { kind: PropertyType; form: RealEstateForm }) {
+  const groups = PANELS[kind];
+  const deal = form.deal === '' ? undefined : (form.deal as DealType);
+  const chosen =
+    [form.hmin, form.hmax, form.ymin, form.ymax, form.kmin, form.kmax, form.fmin, form.fmax].filter(
+      (bound) => bound !== '',
+    ).length +
+    (groups.includes('floor') && form.floor !== '' ? 1 : 0) +
+    [form.cond, form.ftype, form.bal, form.bath, form.proj, form.ptype, form.am].reduce(
+      (sum, list) => sum + list.length,
+      0,
+    );
+
+  const group = (name: PanelGroup) => {
+    const legend = GROUP_LABELS[name];
+    switch (name) {
+      case 'status':
+      case 'rooms':
+      case 'area':
+        return null;
+      case 'house-area':
+        return <PanelRange key={name} label={`${legend}, m²`} name="h" form={form} />;
+      case 'yard-area':
+        return <PanelRange key={name} label={`${legend}, m²`} name="y" form={form} />;
+      case 'kitchen-area':
+        return <PanelRange key={name} label={`${legend}, m²`} name="k" form={form} />;
+      case 'floor':
+        return (
+          <Range
+            key={name}
+            label={legend}
+            minName="fmin"
+            maxName="fmax"
+            min={form.fmin}
+            max={form.fmax}
+            className="w-full sm:w-96"
+          >
+            <select
+              name="floor"
+              defaultValue={form.floor}
+              aria-label="Which floor"
+              className={INLINE_SELECT}
+            >
+              <option value="">any</option>
+              <FloorOptions />
+            </select>
+          </Range>
+        );
+      case 'condition':
+        return (
+          <Chips
+            key={name}
+            legend={legend}
+            name="cond"
+            options={pairs(Object.values(CONDITIONS), CONDITION_LABELS)}
+            checked={form.cond}
+          />
+        );
+      case 'floor-type':
+        return (
+          <Chips
+            key={name}
+            legend={legend}
+            name="ftype"
+            options={pairs(Object.values(FLOOR_TYPES), FLOOR_TYPE_LABELS)}
+            checked={form.ftype}
+          />
+        );
+      case 'balconies':
+        return (
+          <Chips
+            key={name}
+            legend={legend}
+            name="bal"
+            options={countOptions('balconies')}
+            checked={form.bal}
+          />
+        );
+      case 'bathrooms':
+        return (
+          <Chips
+            key={name}
+            legend={legend}
+            name="bath"
+            options={countOptions('bathrooms')}
+            checked={form.bath}
+          />
+        );
+      case 'project':
+        return (
+          <Chips
+            key={name}
+            legend={legend}
+            name="proj"
+            options={pairs(Object.values(PROJECTS), PROJECT_LABELS)}
+            checked={form.proj}
+          />
+        );
+      case 'other-info':
+        return (
+          <Chips
+            key={name}
+            legend={legend}
+            name="am"
+            options={pairs(OTHER_INFO, AMENITY_LABELS)}
+            checked={form.am}
+          />
+        );
+      case 'listing-type':
+        return (
+          <Chips
+            key={name}
+            legend={legend}
+            name="ptype"
+            options={pairs(LISTING_TYPES, LISTING_TYPE_LABELS)}
+            checked={form.ptype}
+          />
+        );
+      case 'amenities':
+        return (
+          <Chips
+            key={name}
+            legend={legend}
+            name="am"
+            options={pairs(amenitiesFor(kind, deal), AMENITY_LABELS)}
+            checked={form.am}
+          />
+        );
+    }
+  };
+
+  return (
+    <details open={chosen > 0} className={FULL_ROW}>
+      <summary className="w-fit cursor-pointer rounded-[var(--radius)] border border-border bg-surface px-3 py-1.5 text-sm text-foreground hover:border-border-strong">
+        More filters
+        {chosen === 0 ? null : (
+          <span className="text-faint">
+            {' '}
+            · <span className="numeric">{chosen}</span> chosen
+          </span>
+        )}
+      </summary>
+      <div className="mt-3 flex flex-wrap items-start gap-x-6 gap-y-4">{groups.map(group)}</div>
+    </details>
+  );
+}
+
+/** A from-to pair in the panel, its keys `<name>min` and `<name>max`. */
+function PanelRange({
+  label,
+  name,
+  form,
+}: {
+  label: string;
+  name: 'h' | 'y' | 'k';
+  form: RealEstateForm;
+}) {
+  return (
+    <Range
+      label={label}
+      minName={`${name}min`}
+      maxName={`${name}max`}
+      min={form[`${name}min`]}
+      max={form[`${name}max`]}
+      className="w-full sm:w-64"
+    />
+  );
+}
+
+/**
+ * Any number of choices at once, each a ticked box: none ticked narrows
+ * nothing. Sub-types, status, rooms and every chip group of the panel.
+ */
+function Chips({
   legend,
   name,
-  labels,
+  options,
   checked,
+  className,
 }: {
   legend: string;
   name: string;
-  labels: Readonly<Record<number, string>>;
-  checked: string[];
+  options: Options;
+  checked: readonly string[];
+  className?: string;
 }) {
   return (
-    <fieldset className="col-span-2 min-w-0 sm:col-span-3 md:col-span-4 xl:col-span-8">
+    <fieldset className={`min-w-0 ${className ?? ''}`}>
       <legend className="mb-1 text-xs text-faint">{legend}</legend>
-      <div className="flex flex-wrap gap-2">
-        {Object.entries(labels).map(([code, label]) => (
+      <div className="flex flex-wrap gap-1.5">
+        {options.map(([value, label]) => (
           <label
-            key={code}
-            className="flex cursor-pointer items-center gap-2 rounded-[var(--radius)] border border-border bg-surface px-3 py-1.5 text-sm text-foreground hover:border-border-strong has-[:checked]:border-accent has-[:checked]:bg-surface-active has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-ring)] has-[:focus-visible]:outline-solid"
+            key={value}
+            className="flex cursor-pointer items-center gap-1.5 rounded-[var(--radius)] border border-border bg-surface px-2 py-1.5 text-sm text-foreground hover:border-border-strong has-[:checked]:border-accent has-[:checked]:bg-surface-active has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-ring)] has-[:focus-visible]:outline-solid"
           >
             <input
               type="checkbox"
               name={name}
-              value={code}
-              defaultChecked={checked.includes(code)}
+              value={value}
+              defaultChecked={checked.includes(value)}
               // The ring goes on the whole chip (above), not the box inside it;
               // important because the global focus rule in globals.css is unlayered.
               className="size-4 accent-[var(--color-accent-strong)] focus-visible:outline-none!"
@@ -438,7 +723,6 @@ function SubTypes({
     </fieldset>
   );
 }
-
 function Select({
   label,
   name,
@@ -527,13 +811,13 @@ function ResultsTable({
       <table className="w-full table-fixed border-collapse text-sm leading-[var(--leading-body)]">
         <thead>
           <tr className="border-b border-border text-left text-xs text-faint">
-            <Th className="w-[42%] sm:w-[30%] md:w-[20%] xl:w-[14%]">Listing</Th>
+            <Th className="w-[42%] sm:w-[30%] md:w-[20%] xl:w-[18%]">Listing</Th>
             <Th className="hidden text-right xl:table-cell xl:w-[6%]">Rooms</Th>
             <Th className="hidden text-right md:table-cell md:w-[10%] xl:w-[7%]">Area</Th>
             <Th className="hidden text-right xl:table-cell xl:w-[8%]">Floor</Th>
             <Th className="w-[27%] text-right sm:w-[18%] md:w-[14%] xl:w-[10%]">Price</Th>
             <Th className="hidden text-right md:table-cell md:w-[12%] xl:w-[8%]">Per m²</Th>
-            <Th className="hidden pl-4 sm:table-cell sm:w-[32%] md:w-[26%] xl:w-[17%]">Location</Th>
+            <Th className="hidden pl-4 sm:table-cell sm:w-[32%] md:w-[26%] xl:w-[13%]">Location</Th>
             <Th className="hidden xl:table-cell xl:w-[12%]">Street</Th>
             <Th className="hidden xl:table-cell xl:w-[8%]">Posted by</Th>
             <Th className="w-[31%] sm:w-[20%] md:w-[18%] xl:w-[10%]">Updated</Th>
@@ -616,7 +900,7 @@ function Row({
             </a>
           )}
         </span>
-        <NarrowMeta row={row} floor={floor} place={place} street={street} />
+        <RowMeta row={row} floor={floor} place={place} street={street} />
       </td>
 
       <td className="numeric hidden py-1.5 pr-4 text-right xl:table-cell">{row.rooms}</td>
@@ -670,8 +954,13 @@ function Row({
   );
 }
 
-/** What the narrower widths drop from the columns, restated under the link where it is hidden. */
-function NarrowMeta({
+/**
+ * Under the link: what the narrower widths drop from the columns, and on a
+ * line of its own at every width the condition and building status from the
+ * listing's own page, which have no column. One line, so a known listing is
+ * one line taller at most. Nothing at all when there is nothing to add.
+ */
+function RowMeta({
   row,
   floor,
   place,
@@ -687,16 +976,24 @@ function NarrowMeta({
     row.areaM2 === null ? null : `${count(Math.round(row.areaM2))} m²`,
     floor === null ? null : floor.includes('floor') ? floor : `floor ${floor}`,
   ];
-  // Area has its own column from `md`, the location from `sm`.
+  const detail = detailText(row);
+  // Area has its own column from `md`, the location from `sm`, the rest from `xl`.
   const narrowest = [...facts, place].filter((fact) => fact !== null);
   const small = facts.filter((fact) => fact !== null);
   const medium = [facts[0], facts[2], street].filter((fact) => fact != null);
 
   return (
-    <span className="mt-0.5 block text-xs text-faint xl:hidden">
-      <span className="sm:hidden">{narrowest.join(' · ')}</span>
-      <span className="hidden sm:inline md:hidden">{small.join(' · ')}</span>
-      <span className="hidden md:inline">{medium.join(' · ')}</span>
+    <span className={`mt-0.5 block text-xs text-faint ${detail === null ? 'xl:hidden' : ''}`}>
+      <span className="block xl:hidden">
+        <span className="sm:hidden">{narrowest.join(' · ')}</span>
+        <span className="hidden sm:inline md:hidden">{small.join(' · ')}</span>
+        <span className="hidden md:inline">{medium.join(' · ')}</span>
+      </span>
+      {detail === null ? null : (
+        <span className="block truncate" title={detail}>
+          {detail}
+        </span>
+      )}
     </span>
   );
 }
@@ -732,7 +1029,7 @@ function ShowMore({
 }) {
   const more = total - shown;
   if (more <= 0 || shown === 0) return null;
-  const totalText = total > COUNT_CEILING ? `${count(COUNT_CEILING)}+` : count(total);
+  const totalText = upTo(total);
 
   if (shown >= REAL_ESTATE_MAX_SHOWN) {
     return (

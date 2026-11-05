@@ -13,7 +13,12 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { DEAL_TYPES, PROPERTY_TYPES } from '../../realestate/kinds.js';
+import {
+  type BuildingStatus,
+  type Condition,
+  DEAL_TYPES,
+  PROPERTY_TYPES,
+} from '../../realestate/kinds.js';
 import { sources } from './sources.js';
 
 /**
@@ -295,8 +300,8 @@ export const realEstatePublicListings = realEstate
     pricePerM2Gel: numeric('price_per_m2_gel', { precision: 12, scale: 2 }),
     // Phase 12B: appended, so `create or replace` keeps the grant (migration 0045).
     // Not the coordinates, nor `details_wanted_at`, which is the crawl's own.
-    buildingStatus: text('building_status'),
-    condition: text('condition'),
+    buildingStatus: text('building_status').$type<BuildingStatus>(),
+    condition: text('condition').$type<Condition>(),
     project: text('project'),
     floorType: text('floor_type'),
     bathrooms: smallint('bathrooms'),

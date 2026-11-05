@@ -1,5 +1,6 @@
 import type { DealType } from '../../src/realestate/kinds.js';
 import type { RealEstateRow } from '../../src/realestate/queries.js';
+import { BUILDING_STATUS_LABELS, CONDITION_LABELS } from './real-estate-panels.js';
 
 /**
  * What a real-estate row says in words. Kept out of the page so each rule is
@@ -131,4 +132,17 @@ export function posterText(row: RealEstateRow): string | null {
     default:
       return null;
   }
+}
+
+/**
+ * The condition and building status a listing's own page gave, in the row's
+ * lower-case meta style, the condition first as the one that tells more;
+ * null when it gave neither or was not read.
+ */
+export function detailText(row: RealEstateRow): string | null {
+  const facts = [
+    row.condition === null ? null : CONDITION_LABELS[row.condition],
+    row.buildingStatus === null ? null : BUILDING_STATUS_LABELS[row.buildingStatus],
+  ].filter((fact) => fact !== null);
+  return facts.length === 0 ? null : facts.map((fact) => fact.toLowerCase()).join(' · ');
 }

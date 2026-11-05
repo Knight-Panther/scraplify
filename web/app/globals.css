@@ -164,7 +164,7 @@
 }
 
 /* The reference's focus ring, taken verbatim — stronger than most defaults. */
-:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--color-ring);
   outline-offset: 6px;
 }
