@@ -20,6 +20,7 @@ import {
   outreachDrafts,
   parserIncidents,
   rankings,
+  realEstateArchiveListings,
   realEstateCrawlRuns,
   realEstateListingGroups,
   realEstateListings,
@@ -480,6 +481,11 @@ export async function cleanupTestSource(
     ).map((row) => row.key as string);
     await tx.delete(realEstateListings).where(eq(realEstateListings.sourceId, sourceId));
     await tx.delete(realEstateCrawlRuns).where(eq(realEstateCrawlRuns.sourceId, sourceId));
+    // The archive's copies (migration 0046) FK into sources.id as well; their
+    // price changes go with them.
+    await tx
+      .delete(realEstateArchiveListings)
+      .where(eq(realEstateArchiveListings.sourceId, sourceId));
     if (groupKeys.length > 0) {
       await tx
         .delete(realEstateListingGroups)

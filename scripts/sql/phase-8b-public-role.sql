@@ -103,6 +103,15 @@ GRANT SELECT ON public.public_crawl_status TO scraplify_public;
 -- only lets the role name the view.
 GRANT USAGE ON SCHEMA realestate TO scraplify_public;
 GRANT SELECT ON realestate.public_listings TO scraplify_public;
+-- Phase 13A (migration 0046): the real-estate archive, for the owner's Hermes
+-- agent, which logs in as this role (RUNBOOK §1, "Hermes' database tunnel").
+-- Gone listings' market facts and price changes only: no link (ss.ge's own id
+-- is kept), description or coordinates are in it. `recently_gone` is the same facts for listings
+-- gone but not yet archived, read through the view's owner like
+-- `public_listings`. The website itself never reads any of it.
+GRANT USAGE ON SCHEMA realestate_archive TO scraplify_public;
+GRANT SELECT ON realestate_archive.listings, realestate_archive.price_changes,
+  realestate_archive.recently_gone TO scraplify_public;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --

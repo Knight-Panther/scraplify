@@ -1,10 +1,13 @@
-import { eq } from 'drizzle-orm';
+import { eq, getTableColumns, sql } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from '../db/client.js';
 import {
   type NewRealEstateListingRow,
+  realEstateArchiveListings,
+  realEstateArchivePriceChanges,
   realEstateListings,
   realEstatePriceChanges,
+  realEstateRecentlyGone,
 } from '../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import {
@@ -508,6 +511,20 @@ describe('listing expiry', () => {
   });
 
   describe('deleteLongGoneListings', () => {
+    async function archived(sourceId: string) {
+      return db
+        .select()
+        .from(realEstateArchiveListings)
+        .where(eq(realEstateArchiveListings.sourceId, sourceId));
+    }
+
+    async function archivedChanges(listingId: string) {
+      return db
+        .select()
+        .from(realEstateArchivePriceChanges)
+        .where(eq(realEstateArchivePriceChanges.listingId, listingId));
+    }
+
     it('deletes a listing gone for fourteen days, with its price history, and nothing else', async () => {
       const sourceId = await newSource();
       const longGone = await listing(sourceId, { status: 'gone', goneAt: at(-15) });
@@ -537,6 +554,216 @@ describe('listing expiry', () => {
       ).toEqual([]);
     });
 
+    it('archives exactly the listings it deletes, with their price changes', async () => {
+      const sourceId = await newSource();
+      const longGone = await listing(sourceId, { status: 'gone', goneAt: at(-15) });
+      const alsoLongGone = await listing(sourceId, { status: 'gone', goneAt: at(-20) });
+      await listing(sourceId, { status: 'gone', goneAt: at(-13) });
+      await listing(sourceId, { status: 'active', goneAt: at(-30) });
+      const [change] = await db
+        .insert(realEstatePriceChanges)
+        .values([
+          {
+            listingId: longGone,
+            observedAt: at(-40),
+            oldPriceGel: '270000.00',
+            newPriceGel: '256500.00',
+            oldPriceUsd: '100000.00',
+            newPriceUsd: '95000.00',
+          },
+        ])
+        .returning();
+
+      await deleteLongGoneListings(db, { sourceId, asOf: NOW_ISO });
+
+      const rows = await archived(sourceId);
+      expect(rows.map((row) => row.listingId).sort()).toEqual([longGone, alsoLongGone].sort());
+      expect(await archivedChanges(longGone)).toEqual([change]);
+      expect(await archivedChanges(alsoLongGone)).toEqual([]);
+    });
+
+    it('keeps the facts of a listing and leaves out its link, text and coordinates', async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, {
+        sourceListingKey: 'archive-facts-1',
+        canonicalUrl: 'https://example.invalid/archive-facts-1',
+        dealType: 'rent',
+        propertyType: 'flat',
+        rooms: 3,
+        bedrooms: 2,
+        areaM2: '82.50',
+        floor: 4,
+        totalFloors: 9,
+        priceGel: '2700.00',
+        priceUsd: '1000.00',
+        pricePerM2Usd: '12.12',
+        pricePerM2Gel: '32.73',
+        currencyPosted: 'usd',
+        cityRef: 95,
+        cityName: 'თბილისი',
+        districtRef: 4,
+        districtName: 'ვაკე-საბურთალო',
+        subdistrictRef: 22,
+        subdistrictName: 'ვაკე',
+        municipalityRef: 7,
+        municipalityName: 'თბილისი',
+        streetName: 'ჭავჭავაძის გამზ.',
+        streetNumber: '12',
+        posterType: 'agent',
+        posterEntity: 'agency',
+        imageCount: 14,
+        hasFurniture: true,
+        hasBuiltInKitchen: null,
+        buildingStatus: 'old',
+        condition: 'renovated',
+        floorType: 'parquet',
+        bathrooms: 2,
+        balconies: 1,
+        kitchenArea: '12.00',
+        amenities: ['elevator', 'balcony'],
+        detailsReadAt: at(-30),
+        similarityGroup: 'sg-1',
+        groupKey: 'g-should-not-matter',
+        description: 'Call 599 12 34 56',
+        latitude: '41.709000',
+        longitude: '44.766000',
+        sourceCreatedAt: at(-90),
+        sourceUpdatedAt: at(-40),
+        firstSeenAt: at(-60),
+        lastSeenAt: at(-16),
+        status: 'gone',
+        goneAt: at(-15),
+        goneReason: 'page says removed',
+      });
+
+      await deleteLongGoneListings(db, { sourceId, asOf: NOW_ISO });
+
+      const [row] = await archived(sourceId);
+      expect(row).toMatchObject({
+        listingId: id,
+        sourceId,
+        sourceListingKey: 'archive-facts-1',
+        dealType: 'rent',
+        propertyType: 'flat',
+        rooms: 3,
+        bedrooms: 2,
+        areaM2: '82.50',
+        floor: 4,
+        totalFloors: 9,
+        priceGel: '2700.00',
+        priceUsd: '1000.00',
+        pricePerM2Usd: '12.12',
+        pricePerM2Gel: '32.73',
+        currencyPosted: 'usd',
+        cityRef: 95,
+        cityName: 'თბილისი',
+        districtRef: 4,
+        districtName: 'ვაკე-საბურთალო',
+        subdistrictRef: 22,
+        subdistrictName: 'ვაკე',
+        municipalityRef: 7,
+        municipalityName: 'თბილისი',
+        streetName: 'ჭავჭავაძის გამზ.',
+        streetNumber: '12',
+        posterType: 'agent',
+        posterEntity: 'agency',
+        imageCount: 14,
+        hasFurniture: true,
+        hasBuiltInKitchen: null,
+        buildingStatus: 'old',
+        condition: 'renovated',
+        floorType: 'parquet',
+        bathrooms: 2,
+        balconies: 1,
+        kitchenArea: '12.00',
+        amenities: ['elevator', 'balcony'],
+        similarityGroup: 'sg-1',
+        goneReason: 'page says removed',
+        implausible: false,
+      });
+      expect(instant(row?.detailsReadAt)).toBe(instant(at(-30)));
+      expect(instant(row?.sourceCreatedAt)).toBe(instant(at(-90)));
+      expect(instant(row?.firstSeenAt)).toBe(instant(at(-60)));
+      expect(instant(row?.lastSeenAt)).toBe(instant(at(-16)));
+      expect(instant(row?.goneAt)).toBe(instant(at(-15)));
+      // Nothing that could carry a link, a person's words or a location finer than the street.
+      const leftOut = ['canonical_url', 'description', 'search', 'latitude', 'longitude'];
+      const columns = Object.values(getTableColumns(realEstateArchiveListings)).map((c) => c.name);
+      expect(columns.filter((name) => leftOut.includes(name))).toEqual([]);
+      expect(JSON.stringify(row)).not.toContain('599');
+    });
+
+    it('copies only columns the live table has, so a new archive column cannot be silently empty', () => {
+      const live = new Set(Object.values(getTableColumns(realEstateListings)).map((c) => c.name));
+      const filledAtCopy = ['listing_id', 'implausible', 'archived_at'];
+      const copied = Object.values(getTableColumns(realEstateArchiveListings))
+        .map((c) => c.name)
+        .filter((name) => !filledAtCopy.includes(name));
+      expect(copied.filter((name) => !live.has(name))).toEqual([]);
+      const liveChanges = new Set(
+        Object.values(getTableColumns(realEstatePriceChanges)).map((c) => c.name),
+      );
+      const copiedChanges = Object.values(getTableColumns(realEstateArchivePriceChanges)).map(
+        (c) => c.name,
+      );
+      expect(copiedChanges.filter((name) => !liveChanges.has(name))).toEqual([]);
+    });
+
+    it("marks a poster's typo by the Real estate tab's own rule", async () => {
+      const sourceId = await newSource();
+      // A flat "for sale" at its monthly rent, and a real one.
+      const typo = await listing(sourceId, {
+        priceUsd: '462.00',
+        areaM2: '60.00',
+        status: 'gone',
+        goneAt: at(-15),
+      });
+      const real = await listing(sourceId, {
+        priceUsd: '95000.00',
+        areaM2: '60.00',
+        status: 'gone',
+        goneAt: at(-15),
+      });
+
+      await deleteLongGoneListings(db, { sourceId, asOf: NOW_ISO });
+
+      const flags = new Map(
+        (await archived(sourceId)).map((row) => [row.listingId, row.implausible]),
+      );
+      expect(flags.get(typo)).toBe(true);
+      expect(flags.get(real)).toBe(false);
+    });
+
+    it('still deletes a listing the archive already holds, and keeps the copy it had', async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, {
+        sourceListingKey: 'already-archived',
+        status: 'gone',
+        goneAt: at(-15),
+      });
+      // As after restoring a dump taken between the copy and a re-run.
+      await db.insert(realEstateArchiveListings).values({
+        listingId: id,
+        sourceId,
+        sourceListingKey: 'already-archived',
+        dealType: 'sale',
+        propertyType: 'flat',
+        posterType: 'unknown',
+        sourceUpdatedAt: at(-10),
+        firstSeenAt: at(-10),
+        lastSeenAt: at(-10),
+        goneAt: at(-15),
+        goneReason: 'the earlier copy',
+        implausible: false,
+      });
+
+      expect(await deleteLongGoneListings(db, { sourceId, asOf: NOW_ISO })).toBe(1);
+
+      expect(await read(id)).toBeUndefined();
+      const rows = await archived(sourceId);
+      expect(rows.map((row) => row.goneReason)).toEqual(['the earlier copy']);
+    });
+
     it('leaves another source alone', async () => {
       const sourceId = await newSource();
       const elsewhere = await newSource();
@@ -544,6 +771,57 @@ describe('listing expiry', () => {
 
       expect(await deleteLongGoneListings(db, { sourceId, asOf: NOW_ISO })).toBe(0);
       expect(await read(theirs)).toBeDefined();
+      expect(await archived(elsewhere)).toEqual([]);
+    });
+  });
+
+  describe('realestate_archive.recently_gone', () => {
+    async function recentlyGone(sourceId: string) {
+      return db
+        .select()
+        .from(realEstateRecentlyGone)
+        .where(eq(realEstateRecentlyGone.sourceId, sourceId));
+    }
+
+    it('holds the gone listings the archive does not have yet, and together they hold every one', async () => {
+      const sourceId = await newSource();
+      const longGone = await listing(sourceId, { status: 'gone', goneAt: at(-15) });
+      const goneLately = await listing(sourceId, {
+        status: 'gone',
+        goneAt: at(-2),
+        priceUsd: '462.00',
+        areaM2: '60.00',
+      });
+      await listing(sourceId);
+
+      expect((await recentlyGone(sourceId)).map((row) => row.listingId).sort()).toEqual(
+        [longGone, goneLately].sort(),
+      );
+
+      await deleteLongGoneListings(db, { sourceId, asOf: NOW_ISO });
+
+      const [recent] = await recentlyGone(sourceId);
+      expect(recent).toMatchObject({ listingId: goneLately, implausible: true, archivedAt: null });
+      const { rows } = await db.execute<{ listing_id: string }>(sql`
+        select listing_id from realestate_archive.listings where source_id = ${sourceId}
+        union all
+        select listing_id from realestate_archive.recently_gone where source_id = ${sourceId}
+      `);
+      expect(rows.map((row) => row.listing_id).sort()).toEqual([longGone, goneLately].sort());
+    });
+
+    it('has the archive’s columns in the archive’s order, so the two can be unioned whole', async () => {
+      const { rows } = await db.execute<{ name: string; type: string }>(sql`
+        select table_name as name, string_agg(column_name || ' ' || data_type, ', ' order by ordinal_position) as type
+        from information_schema.columns
+        where table_schema = 'realestate_archive' and table_name in ('listings', 'recently_gone')
+        group by table_name
+      `);
+      const byName = new Map(rows.map((row) => [row.name, row.type]));
+      expect(byName.get('recently_gone')).toBe(byName.get('listings'));
+      await db.execute(sql`
+        select * from realestate_archive.listings union all select * from realestate_archive.recently_gone limit 0
+      `);
     });
   });
 });

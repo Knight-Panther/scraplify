@@ -221,7 +221,7 @@ Indexes: the unique key; one for browsing on `(status, deal_type, property_type,
 
 | Table | Purpose |
 |---|---|
-| `price_changes` | Each time a listing's price moved: when, old and new price in both currencies. Deleted with its listing. The only history kept. |
+| `price_changes` | Each time a listing's price moved: when, old and new price in both currencies. Copied to the archive with its listing, then deleted with it (§8.4). |
 | `crawl_runs` | One row per run: mode, times, status, counters, and a `progress` JSON so an interrupted sweep resumes |
 
 Not built yet, added when their phase needs them: a search column (11C), English location names (11C), groups (11D).
@@ -230,10 +230,14 @@ Not built yet, added when their phase needs them: a search column (11C), English
 
 - **An unchanged listing costs one small update.** `upsertListing` compares a hash of the fields that matter. Promotion and the source's own timestamps are outside the hash, because promoted listings are re-ordered many times a day.
 - **Five outcomes per sighting:** `new`, `changed` (with a price-change row when the price moved), `bumped` (only the order time moved), `unchanged`, `reopened` (it had been marked gone).
-- **Delete gone rows after 14 days.** Otherwise the table grows without limit.
+- **Archive, then delete, gone rows after 14 days.** Otherwise the table grows without limit (§8.4).
 - **No phone number, name or user id is ever stored.**
 
 ---
+
+### 8.4 History (Phase 13A)
+
+`realestate_archive` keeps what the live tables let go of. When a gone row reaches 14 days, `deleteLongGoneListings` copies it to `realestate_archive.listings`, and its price changes to `realestate_archive.price_changes`, in the same statement as the delete, so the archive receives exactly the rows deleted. A copy keeps the listing's facts: kind and deal, size, floor, both prices, area ids and names, street name and number, poster type, the 12B details, the source's own dates, first and last seen, when and why it left, and whether its price or area was a typo by the tab's sorting rule (`src/realestate/plausibility.ts`). It leaves out the link, the description and its search words, and the coordinates. Nothing in the archive is ever updated or removed. The view `realestate_archive.recently_gone` shows the same columns for rows gone but not yet archived, so the two together hold every listing that has left. Hermes reads all three as `scraplify_public`; the website reads none of them. Owner decision 2026-11-05: the street stays, for re-grouping and for linking a flat listed again.
 
 ## 9. Acquisition
 
@@ -263,7 +267,7 @@ Absence from a list proves nothing, because flat lists hide look-alikes.
 2. A row is shown only while the current time is before the later of `expected_end_at` and `last_seen_at`, plus a two-day grace period. `last_seen_at` counts because a row the site listed this week is live, whatever its order time says.
 3. Each run, after its lists, fetches the detail pages of the rows due, with no count of their own since Phase 12B (1,500 a run until then, 1,000 until 2026-10-27): the run's 16 hours and 20,000 requests bound them (§9.4). First the rows past their expected end that the site still listed after that date; then the rows a full read missed (rule 6), the longest-lived first; then the rest past their end, most recently expired first. `Active` extends the row to its `endDate`, records its price (§10) and keeps its details (§9.4); `Expired` or inactive marks it gone. A page with no listing in it marks the row gone only when its list last showed it more than two days before, or a full read missed it (rule 6): ss.ge renders a live listing's page that way now and then (two of eight new ones on 2026-11-04, live on the next request), so such a row is looked at again in three days instead. A page that fails to load changes nothing.
 4. An `endDate` is never believed more than 30 days ahead, so a long-running listing is re-checked monthly. An `Active` listing whose `endDate` has passed is re-checked in three days.
-5. A row nobody has seen or confirmed for a week past its expected end is marked gone (`lapsed`). A gone row is deleted after 14 days.
+5. A row nobody has seen or confirmed for a week past its expected end is marked gone (`lapsed`). A gone row is archived and deleted after 14 days (§8.4).
 6. When a full read of a list ends, an active row of it that the read did not see, and none of whose look-alikes (the same `group_key` or `similarity_group`) it saw, gets `missed_at`, which puts it in rule 3's queue. Being seen or confirmed clears it. It is never a reason to mark a row gone by itself: on 2026-10-27, 47,864 active flats were in 15,053 look-alike groups, and the flat lists show one of each. A sample of 50 rows unseen since the first pass found 3 gone early (6%).
 
 A row that is neither re-seen nor checked in time is hidden at its expected end. That errs towards hiding a live listing over showing a dead one.
@@ -317,7 +321,7 @@ Real estate gets its own health section: the last run and its counters, the age 
 
 ### 12.3 Backups
 
-`deploy/backup-db.sh` dumps the whole database and keeps the off-host copies under 8 GB in total by deleting the oldest. Exclude the row data of `realestate.listings` and `realestate.crawl_runs` from the dump (`pg_dump --exclude-table-data`). Keep `price_changes`.
+`deploy/backup-db.sh` dumps the whole database and keeps the off-host copies under 8 GB in total by deleting the oldest. The exclusion of `realestate.listings` and `realestate.crawl_runs` row data planned here was never built: the dump holds every schema, 143 MB on 2026-11-05. The archive (§8.4) must stay in it, since nothing else can rebuild it.
 
 ### 12.4 Capacity
 

@@ -52,6 +52,8 @@ missing key fails fast instead of hanging on a prompt.
    q "select s.slug, i.kind, i.severity, count(*), max(i.detected_at) from parser_incidents i join sources s on s.id = i.source_id where not i.resolved group by 1, 2, 3 order by 1, 2, 3"
    echo "== last ss.ge runs (started | mode | status | requests | failed | pages | listing pages read | notes)"
    q "select started_at, mode, status, request_count, failed_request_count, page_count, details_count, left(coalesce(notes, ''), 120) from realestate.crawl_runs order by started_at desc limit 3"
+   echo "== real-estate archive (archived | newest archived_at | gone, not yet archived | gone over 14 days)"
+   q "select (select count(*) from realestate_archive.listings), (select max(archived_at) from realestate_archive.listings), (select count(*) from realestate_archive.recently_gone), (select count(*) from realestate.listings where status = 'gone' and gone_at < now() - interval '15 days')"
    EOF
    ```
 
@@ -67,7 +69,7 @@ missing key fails fast instead of hanging on a prompt.
    each. Rows: release (short sha), services, failed units, running jobs,
    next pipeline run, each source's last pipeline result and last crawl run,
    backup, health-check exit, unlinked listings, open parser incidents, disk
-   and memory, ss.ge tunnel and last ss.ge run, probe. Then one verdict line,
+   and memory, ss.ge tunnel and last ss.ge run, real-estate archive, probe. Then one verdict line,
    and a short "needs attention" list if anything is ⚠️ or ❌.
 
    How to read the signals:
@@ -92,6 +94,12 @@ missing key fails fast instead of hanging on a prompt.
      A finished run with `listing pages read` at 0 is ⚠️ when it stored any
      new or changed listings. A run whose notes say `time limit reached` is
      still ✅: the pages left over wait for the next night.
+   - The real-estate archive (Phase 13A) gains the listings each completed
+     ss.ge run deletes, 14 days after they left. Gone listings older than
+     15 days in the live table mean no run has deleted, and so archived,
+     for a night or more: ⚠️ after one night, ❌ after two. Nothing is lost
+     meanwhile; the copy happens whenever the delete next runs. An error that `realestate_archive` does not exist means the
+     release before Phase 13A: say so, it is not a fault.
 
 ## What this skill will not do
 
