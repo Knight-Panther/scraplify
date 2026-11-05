@@ -113,8 +113,19 @@ export const DEEP_PAGE_BUDGET = 4_000;
 export const UNKNOWN_LIST_PAGES = 1_000;
 /** An interrupted walk older than this is not resumed: the lists have moved on too far. */
 const MAX_RESUME_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * How long a results page that would not load waits before each new try: at
+ * once (beyond the policy's spacing), then a minute, then five, before the run
+ * gives up on it. ss.ge sends a page without its listing list now and then:
+ * on 2026-11-05, 163 of 2,131 requests, about one deep page in twelve of
+ * houses for rent, each fine on the next try. Flat-rent page 130 failed three
+ * times within seven seconds and ended a sixteen-hour run after two hours,
+ * before its checks and listing pages. The longer waits cost time only for a
+ * page that keeps failing; the time box still bounds them.
+ */
+export const PAGE_RETRY_WAITS_MS = [0, 60_000, 5 * 60_000] as const;
 /** Requests for one page before the run gives up on it. */
-const MAX_PAGE_ATTEMPTS = 3;
+const MAX_PAGE_ATTEMPTS = PAGE_RETRY_WAITS_MS.length + 1;
 /**
  * A nightly run reads back to the last completed run's start and this much
  * further: listings renewed while that run was still walking sit just behind
@@ -183,6 +194,8 @@ export interface RunSsGeCrawlDeps {
   db: Database;
   httpFetcher: HttpFetcher;
   now?: () => string;
+  /** How the run waits between tries of a page (`PAGE_RETRY_WAITS_MS`); a timer unless a test says otherwise. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface RunSsGeCrawlOptions {
@@ -268,6 +281,7 @@ interface RunState {
   db: Database;
   httpFetcher: HttpFetcher;
   now: () => string;
+  sleep: (ms: number) => Promise<void>;
   runId: string;
   counters: Counters;
   progress: SsGeRunProgress;
@@ -323,9 +337,20 @@ function describeRefusal(result: HttpFetchResult): string {
  * A request that came to nothing but was no refusal: counted, and named in
  * the log, so a night's failures can be read back by page and reason.
  */
-function noteFailure(run: RunState, url: string, reason: string): void {
+function noteFailure(
+  run: RunState,
+  url: string,
+  reason: string,
+  clues: Record<string, unknown> = {},
+): void {
   run.counters.failedRequestCount++;
-  logger.warn({ url, reason }, 'ss.ge crawl: a request failed');
+  logger.warn({ url, reason, ...clues }, 'ss.ge crawl: a request failed');
+}
+
+/** What a page that answered but held no list was, for the log: its size and title. */
+function pageClues(body: string): { bytes: number; title: string | null } {
+  const title = /<title[^>]*>([^<]{0,120})/i.exec(body)?.[1]?.trim() ?? null;
+  return { bytes: body.length, title };
 }
 
 async function request(run: RunState, url: string): Promise<Fetched> {
@@ -399,6 +424,8 @@ async function readResultsPage(
   const url = buildResultsUrl(list, page);
   let reason = '';
   for (let attempt = 1; attempt <= MAX_PAGE_ATTEMPTS; attempt++) {
+    const wait = attempt === 1 ? 0 : (PAGE_RETRY_WAITS_MS[attempt - 2] ?? 0);
+    if (wait > 0) await run.sleep(wait);
     const fetched = await request(run, url);
     if (fetched.kind === 'spent') {
       // Lists left unread: the run is partial, so the nightly baseline stays
@@ -434,7 +461,7 @@ async function readResultsPage(
       if (!(err instanceof SsGePageShapeError)) throw err;
       reason = err.message;
     }
-    noteFailure(run, url, reason);
+    noteFailure(run, url, reason, pageClues(fetched.body));
   }
   stop(
     run,
@@ -945,6 +972,8 @@ export async function runSsGeCrawl(
 ): Promise<RunSsGeCrawlResult> {
   const { db } = deps;
   const now = deps.now ?? (() => new Date().toISOString());
+  const sleep =
+    deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
   const policySync = await ensureSsGeSourceSeeded(db);
   if (policySync.outcome === 'refused-stale') {
@@ -984,6 +1013,7 @@ export async function runSsGeCrawl(
     db,
     httpFetcher,
     now,
+    sleep,
     runId: inserted.id,
     counters: {
       requestCount: 0,
