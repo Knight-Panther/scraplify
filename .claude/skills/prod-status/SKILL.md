@@ -50,8 +50,8 @@ missing key fails fast instead of hanging on a prompt.
    q "select s.slug, count(*) filter (where sl.status = 'active'), count(*) filter (where sl.status = 'active' and not exists (select 1 from opportunity_source_memberships m where m.source_listing_id = sl.id and m.superseded_at is null)) from source_listings sl join sources s on s.id = sl.source_id group by s.slug order by s.slug"
    echo "== open parser incidents (slug | kind | severity | count | latest)"
    q "select s.slug, i.kind, i.severity, count(*), max(i.detected_at) from parser_incidents i join sources s on s.id = i.source_id where not i.resolved group by 1, 2, 3 order by 1, 2, 3"
-   echo "== last ss.ge runs (started | mode | status | requests | pages | notes)"
-   q "select started_at, mode, status, request_count, page_count, left(coalesce(notes, ''), 120) from realestate.crawl_runs order by started_at desc limit 3"
+   echo "== last ss.ge runs (started | mode | status | requests | failed | pages | listing pages read | notes)"
+   q "select started_at, mode, status, request_count, failed_request_count, page_count, details_count, left(coalesce(notes, ''), 120) from realestate.crawl_runs order by started_at desc limit 3"
    EOF
    ```
 
@@ -87,6 +87,11 @@ missing key fails fast instead of hanging on a prompt.
      simply be off, and the nightly run waits up to 10 hours for it. A
      `partial` ss.ge run whose notes say the proxy `stayed unreachable` is ⚠️
      too; the next run carries on from the last completed one.
+   - Since Phase 12B a run also reads the own page of each new, changed,
+     renewed or reopened listing (RUNBOOK §3 step 8, "Listing details").
+     A finished run with `listing pages read` at 0 is ⚠️ when it stored any
+     new or changed listings. A run whose notes say `time limit reached` is
+     still ✅: the pages left over wait for the next night.
 
 ## What this skill will not do
 
