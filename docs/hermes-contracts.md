@@ -4,7 +4,7 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 
 | Contract | What | State |
 |---|---|---|
-| C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | **v1, this branch (Phase 13B)** |
+| C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`) |
 | C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`) |
 | C3 | Nightly real-estate totals | not yet built (S2) |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
