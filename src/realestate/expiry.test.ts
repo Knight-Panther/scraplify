@@ -690,7 +690,11 @@ describe('listing expiry', () => {
       const leftOut = ['canonical_url', 'description', 'search', 'latitude', 'longitude'];
       const columns = Object.values(getTableColumns(realEstateArchiveListings)).map((c) => c.name);
       expect(columns.filter((name) => leftOut.includes(name))).toEqual([]);
-      expect(JSON.stringify(row)).not.toContain('599');
+      // Whole values, not fragments: "599" alone turned up in a random source id (CI, 2026-11-06).
+      const copied = JSON.stringify(row);
+      for (const leaked of ['Call 599', '12 34 56', '41.709000', '44.766000', 'example.invalid']) {
+        expect(copied).not.toContain(leaked);
+      }
     });
 
     it('copies only columns the live table has, so a new archive column cannot be silently empty', () => {
