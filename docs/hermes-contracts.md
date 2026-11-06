@@ -71,6 +71,7 @@ Values:
 ### Version and cases
 
 - **Version:** `FILTER_BUILDER_VERSION` goes up whenever the input, its meaning or the output changes, new filters included. Hermes reads it at run time, and falls back when the module or the version it was written for is missing.
+- **The typo bounds** live in `src/realestate/plausibility.ts` and are tightened when a real case slips through. That is not a new version, since `plausibleOnly` still means "what that rule marks". C3's `rules_version` records each change for trends. The last change, 2026-11-06, found by Hermes: a monthly rent of $200 a m² or more is a typo (a sale price), however far under the $50,000 bound.
 - **Cases:** `src/realestate/filter-cases.json` holds fixture listings and 19 cases, each with the listings it must return (some in order) and its coverage counts. scraplify's `src/realestate/filter-builder.test.ts` runs every case two ways, through the SQL handed on and through the tab's own query, and both must match the file.
 - **Hermes's side:** its suite has no database. It can check that every case compiles with `psycopg` placeholders and that the file's version is the one it was written for. Its live test can `EXPLAIN` each case, read-only, on the host.
 - **Checked on 2026-11-06:** every case returned its listings, in order where asked, through psycopg 3.3.6 on the fixture.
@@ -102,9 +103,9 @@ All figures are of the listings a statistic counts, by C1's own rules: `{ groupe
 | `posts` | the same before reposts are merged |
 | `with_details` | of `listings`, those whose own page was read (12B) |
 | `price_usd_p25`, `price_usd_median`, `price_usd_p75` | the price in dollars |
-| `price_per_m2_usd_median`, `price_gel_median`, `price_per_m2_gel_median`, `area_m2_median` | medians |
+| `price_per_m2_usd_median`, `price_gel_median`, `price_per_m2_gel_median`, `area_m2_median` | medians. The per-m² ones are over listings with a known area: with no area, ss.ge's price per m² is the whole price. |
 | `taken_at`, `crawl_run_id` | when, and after which ss.ge run (null when taken by hand) |
-| `rules_version` | the rules the figures follow. It goes up when they change, so the change shows as a step and is not mistaken for a trend. |
+| `rules_version` | the rules the figures follow. It goes up when they change, so the change shows as a step and is not mistaken for a trend. 1 was the first take only (2026-11-06). 2 adds two things: a rent of $200 a m² or more is a typo, and the per-m² medians come only from listings with a known area. |
 
 ### When
 

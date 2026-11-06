@@ -17,8 +17,12 @@ import { conditions, type RealEstateFilters, shownRows } from './filters.js';
  * counts the same listings before reposts are merged.
  */
 
-/** Raised when the rules behind the figures change, so a step is not read as a trend. */
-export const TOTALS_RULES_VERSION = 1;
+/**
+ * Raised when the rules behind the figures change, so a step is not read as a
+ * trend. 2 (2026-11-06): a rent of $200 a m² or more is a typo, and prices per
+ * m² come only from listings whose area is known.
+ */
+export const TOTALS_RULES_VERSION = 2;
 /** A cell with fewer listings is not kept: one or two listings are no market, and most cells are villages. */
 export const TOTALS_MIN_LISTINGS = 5;
 
@@ -92,9 +96,12 @@ export async function takeDailyTotals(
           count(details_read_at) filter (where leads) as with_details,
           percentile_cont(array[0.25, 0.5, 0.75]) within group (order by price_usd)
             filter (where leads) as price_usd,
-          percentile_cont(0.5) within group (order by price_per_m2_usd) filter (where leads) as ppm2_usd,
+          -- With no area, ss.ge's price per m² is the whole price.
+          percentile_cont(0.5) within group (order by price_per_m2_usd)
+            filter (where leads and area_m2 is not null) as ppm2_usd,
           percentile_cont(0.5) within group (order by price_gel) filter (where leads) as price_gel,
-          percentile_cont(0.5) within group (order by price_per_m2_gel) filter (where leads) as ppm2_gel,
+          percentile_cont(0.5) within group (order by price_per_m2_gel)
+            filter (where leads and area_m2 is not null) as ppm2_gel,
           percentile_cont(0.5) within group (order by area_m2) filter (where leads) as area_m2
         from s
         group by grouping sets (${groupingSets})

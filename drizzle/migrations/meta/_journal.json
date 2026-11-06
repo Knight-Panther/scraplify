@@ -337,6 +337,13 @@
       "when": 1793986667842,
       "tag": "0047_realestate_daily_totals",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1793988091190,
+      "tag": "0048_realestate_rent_per_m2_typos",
+      "breakpoints": true
     }
   ]
 }

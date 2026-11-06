@@ -25,6 +25,13 @@ export interface PlausibilityColumns {
  * 2026-11-03), pledge is a loan against the property and runs lower than a
  * sale. Land is sold by the hectare at a few dollars a m², so a large cheap
  * plot is never taken for the price typed as the area.
+ *
+ * A monthly rent of $200 a m² or more is a sale price too, however far under
+ * $50,000 (Hermes found the case, 2026-11-06). Rent flats' 99th percentile was
+ * $26 a m², the cheapest 1% of flats for sale $714. It caught 16 live rents,
+ * among them flats at $43,000 for 25 m² and $12,000 for 35 m²; $5,200 for
+ * 120 m² in Vake ($43) is a rent. The ratio is worked out here: with no area,
+ * ss.ge's own price per m² is the whole price.
  */
 export function implausibleValuesOf(columns: PlausibilityColumns): SQL {
   const { areaM2, propertyType, dealType, priceUsd, pricePerM2Usd } = columns;
@@ -35,7 +42,7 @@ export function implausibleValuesOf(columns: PlausibilityColumns): SQL {
       and ${pricePerM2Usd} < 100)
   or (${dealType} = 'sale' and ${priceUsd} < 5000)
   or (${dealType} = 'pledge' and ${priceUsd} < 1000)
-  or (${dealType} = 'rent' and (${priceUsd} > 50000 or ${priceUsd} < 50))
+  or (${dealType} = 'rent' and (${priceUsd} > 50000 or ${priceUsd} < 50 or ${priceUsd} >= 200 * ${areaM2}))
   or (${dealType} = 'daily' and (${priceUsd} > 5000 or ${priceUsd} < 5)),
   false)`;
 }

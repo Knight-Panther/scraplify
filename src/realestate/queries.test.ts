@@ -673,6 +673,33 @@ describe('real-estate queries', () => {
       expect(await find(sourceId, { sort: 'price-desc' })).toEqual([dear, cheap, saleAsRent]);
     });
 
+    it('takes a sale price posted as rent for a typo by its price per m², however far under $50,000', async () => {
+      const sourceId = await newSource();
+      const rent = { dealType: 'rent' as const };
+      // Live on 2026-11-06: $43,000 for 25 m² and $12,000 for 35 m² "a month".
+      const saleAsRent = await listing(sourceId, {
+        ...rent,
+        priceUsd: '43000.00',
+        areaM2: '25.00',
+      });
+      const small = await listing(sourceId, { ...rent, priceUsd: '12000.00', areaM2: '35.00' });
+      // $43 a m² in Vake is a dear rent, not a typo; with no area there is no ratio to judge.
+      const dear = await listing(sourceId, { ...rent, priceUsd: '5200.00', areaM2: '120.00' });
+      const noArea = await listing(sourceId, {
+        ...rent,
+        priceUsd: '900.00',
+        areaM2: null,
+        pricePerM2Usd: '900.00',
+      });
+
+      expect(await find(sourceId, { sort: 'price-desc' })).toEqual([
+        dear,
+        noArea,
+        saleAsRent,
+        small,
+      ]);
+    });
+
     it('does not sort a $31-a-night daily rent last as a typo', async () => {
       const sourceId = await newSource();
       const daily = { dealType: 'daily' as const, areaM2: '45.00', pricePerM2Usd: '1.00' };
