@@ -1,10 +1,10 @@
 # scraplify — implementation status
 
-Last updated: 2026-11-05 (Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-11-06 (Phase 13B, the real-estate filter builder for Hermes (contract C1), on its branch; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; its first-deletion check and Phase 12B's first-week numbers open)
+## Current phase: Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; 13B on its branch; 13A's first-deletion check and Phase 12B's first-week numbers open)
 
 Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git/xtelo-speed/PLAN.md`) for real-estate statistics, price history, charts and Grafana. Scraplify's items, one branch each, in this order: **13A** the archive (S1, contract C2); **13B** a filter builder Hermes can call (S3, C1); **13C** Grafana on the host behind Cloudflare Access, host resources measured first (S4, C4); **13D** nightly totals (S2, C3); **13E** a building fingerprint (S5). Contracts: `docs/hermes-contracts.md`. Hermes builds on a contract only once it is merged, and is told in one line when each is merged or deployed.
 
@@ -22,6 +22,39 @@ Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git
     - [ ] The first run that deletes: the archive gains its rows, and no gone listing older than 15 days is left in the live table.
     - [ ] Archive size after a week.
     - [x] Hermes told "C2 merged at 6e48865" and "S1 deployed" (2026-11-05). Its H1 connection helper keeps two idle `scraplify_public` connections; agreed on condition that none stays idle inside a transaction, which would hold up a migration that recreates `public_listings`.
+- **Phase 13B, the filter builder for Hermes (contract C1), branch `phase-13b-filter-builder`:** the Real estate tab's filter rules move unchanged from `queries.ts` to `src/realestate/filters.ts`, which builds the grouped-listings subquery without a database. `src/realestate/filter-builder.ts` hands those rules on as SQL text and parameters over `realestate.public_listings`.
+  - **Input:** filters as JSON, checked strictly (zod), so a misspelled or unknown filter is refused, not ignored.
+  - **Output:** `realEstateWhere(filters, now)` returns `where`, the tab's `orderBy`, the details-coverage condition and the typo expression.
+  - **Placeholders:** Postgres's `$n`, or psycopg's `%s`.
+  - **Version:** `FILTER_BUILDER_VERSION` 1.
+  - **Two new filters, both inside the tab's own rules:**
+    - `places`, any of several cities, districts or sub-districts;
+    - `plausibleOnly`, which leaves typo prices out *before* look-alikes are folded.
+  - **Docs:** C1 in `docs/hermes-contracts.md`. Shared cases: `src/realestate/filter-cases.json`.
+  - **What the smoke test changed in the plan (2026-11-06, code and a read-only look at the host):**
+    - **Placeholders:** Hermes runs SQL through psycopg 3, which takes `%s`, not drizzle's `$1`, so the builder writes both.
+    - **Repost merging:** the grouped subquery needed a database handle, so it now builds without one. Hermes merges reposts by its own key (area, rooms, floor, price, street), not the tab's look-alike groups (83,857 grouped listings in 23,354 groups); C1 gives it the tab's.
+    - **Typos before folding:** typo prices must go before folding, or a group led by a typo drops out of a statistic entirely.
+    - **Several places:** "Vake or Vera" needs several places in one query, or folding would see only one.
+    - **Municipality:** it comes only from a listing's own page (123 of 293,355 live listings), so it is not a C1 filter yet.
+  - **13B exit gate, before merge:**
+    - [x] Tests, `filter-builder.test.ts`:
+      - every one of 19 shared cases through the SQL handed on and through the tab's own query, with coverage counts, all equal to the case file;
+      - the psycopg form, the `%` doubling, the typo expression;
+      - eight kinds of bad input refused.
+    - [x] Four planted faults each turned tests red: the typo filter dropped, no `%` doubling, unknown keys accepted, group leaders reversed.
+    - [x] The move changed nothing: the existing real-estate tests passed before the new ones were added (168).
+    - [x] Full suite 2,226 passed (9 skipped) on a throwaway Postgres; lint and typecheck clean.
+    - [x] Through Hermes's own psycopg 3.3.6, on the case file's listings in a throwaway database: all 19 cases returned the expected listings, in order where asked, with the expected coverage.
+    - [x] Cost on the host, read-only:
+      - all 45,173 flats for sale, grouped, typos out, with two medians: 1.2 s;
+      - with one listing-page condition: 0.8 s;
+      - 3-room rents in Vake: 0.1 s.
+
+      Hermes's statement timeout is 20 s.
+  - **13B exit gate, after merge:**
+    - [ ] Hermes told "C1 merged at <sha>". Its laptop clone picks it up at its next `deploy.sh`.
+    - [ ] Nothing to deploy for C1 itself. The host gets the moved rules with the next release; the tab's SQL is unchanged.
 
 ## Phase 12 — ss.ge all kinds, listing details, more filters (12A–12C live 2026-11-05; 12B's first-run and first-week checks open)
 

@@ -1,0 +1,224 @@
+{
+  "about": "Contract C1's shared cases (docs/hermes-contracts.md). Each case is filters as the builder takes them (filter-builder.ts) and the fixture listings it must return at `now`. Fixture listings are a two-room flat for sale in Saburtalo, Tbilisi, unless they say otherwise; a number in an `...At` field is days from `now`; prices and areas are numbers. `ordered` cases list the listings in the order the SQL must return them. `coverage` is how many fixture listings match every filter but those on listing-page fields, and how many of those had their page read.",
+  "version": 1,
+  "now": "2026-11-06T12:00:00.000Z",
+  "listings": {
+    "sab-flat": {},
+    "vake-flat-3r": {
+      "subdistrictRef": 1,
+      "subdistrictName": "ვაკე",
+      "rooms": 3,
+      "areaM2": 90,
+      "floor": 1,
+      "priceUsd": 180000,
+      "priceGel": 486000,
+      "pricePerM2Usd": 2000,
+      "posterType": "agent",
+      "streetName": "ჭავჭავაძის გამზ."
+    },
+    "gldani-rent": {
+      "dealType": "rent",
+      "districtRef": 7,
+      "districtName": "გლდანი-ნაძალადევი",
+      "subdistrictRef": 20,
+      "subdistrictName": "გლდანი",
+      "priceUsd": 500,
+      "priceGel": 1350,
+      "pricePerM2Usd": 8.33
+    },
+    "batumi-house": {
+      "propertyType": "house",
+      "cityRef": 2,
+      "cityName": "ბათუმი",
+      "districtRef": null,
+      "districtName": null,
+      "subdistrictRef": null,
+      "subdistrictName": null,
+      "rooms": 12,
+      "areaM2": 250,
+      "floor": null,
+      "totalFloors": null,
+      "priceUsd": 300000,
+      "priceGel": 810000,
+      "pricePerM2Usd": 1200
+    },
+    "expired": { "expectedEndAt": -5, "lastSeenAt": -5 },
+    "typo-sale": { "priceUsd": 462, "priceGel": 1247, "pricePerM2Usd": 7.7 },
+    "detail-renovated": {
+      "priceUsd": 101000,
+      "detailsReadAt": -1,
+      "condition": "renovated",
+      "amenities": ["balcony", "elevator"],
+      "posterEntity": "individual"
+    },
+    "detail-old": {
+      "priceUsd": 102000,
+      "detailsReadAt": -1,
+      "condition": "old-renovation",
+      "amenities": ["balcony"],
+      "posterEntity": "agency"
+    },
+    "group-new": { "groupKey": "g1", "priceUsd": 120000, "sourceUpdatedAt": -1 },
+    "group-old": { "groupKey": "g1", "priceUsd": 110000, "sourceUpdatedAt": -3 },
+    "g2-typo": { "groupKey": "g2", "priceUsd": 900, "pricePerM2Usd": 15, "sourceUpdatedAt": -0.5 },
+    "g2-real": { "groupKey": "g2", "priceUsd": 95000, "sourceUpdatedAt": -2 }
+  },
+  "cases": [
+    {
+      "name": "everything on show, nothing past its end",
+      "filters": {},
+      "expected": [
+        "sab-flat",
+        "vake-flat-3r",
+        "gldani-rent",
+        "batumi-house",
+        "typo-sale",
+        "detail-renovated",
+        "detail-old",
+        "group-new",
+        "group-old",
+        "g2-typo",
+        "g2-real"
+      ]
+    },
+    { "name": "a deal", "filters": { "dealType": "rent" }, "expected": ["gldani-rent"] },
+    { "name": "a kind", "filters": { "propertyType": "house" }, "expected": ["batumi-house"] },
+    { "name": "a city", "filters": { "cityRef": 2 }, "expected": ["batumi-house"] },
+    {
+      "name": "any of several places, each at its own level",
+      "filters": {
+        "places": [{ "level": "subdistrict", "ref": 1 }, { "level": "district", "ref": 7 }]
+      },
+      "expected": ["vake-flat-3r", "gldani-rent"]
+    },
+    {
+      "name": "rooms, the top choice meaning that many or more",
+      "filters": { "roomsIn": [3, 10] },
+      "expected": ["vake-flat-3r", "batumi-house"]
+    },
+    {
+      "name": "a price range in dollars, sales only",
+      "filters": { "dealType": "sale", "priceMin": 100000, "priceMax": 150000 },
+      "expected": ["sab-flat", "detail-renovated", "detail-old", "group-new", "group-old"]
+    },
+    {
+      "name": "price bounds per m²",
+      "filters": { "pricePerM2": true, "priceMin": 1900 },
+      "expected": ["vake-flat-3r"]
+    },
+    {
+      "name": "agencies and developers",
+      "filters": { "poster": "business" },
+      "expected": ["vake-flat-3r"]
+    },
+    {
+      "name": "neither the first floor nor the last; a listing with no floor is never matched",
+      "filters": { "floor": "middle" },
+      "expected": [
+        "sab-flat",
+        "gldani-rent",
+        "typo-sale",
+        "detail-renovated",
+        "detail-old",
+        "group-new",
+        "group-old",
+        "g2-typo",
+        "g2-real"
+      ]
+    },
+    { "name": "a street word", "filters": { "text": "ჭავჭავაძის" }, "expected": ["vake-flat-3r"] },
+    {
+      "name": "a listing-page field only matches listings whose page was read",
+      "filters": { "conditions": ["renovated"] },
+      "expected": ["detail-renovated"],
+      "coverage": { "total": 11, "read": 2 }
+    },
+    {
+      "name": "every amenity asked for",
+      "filters": { "amenities": ["balcony", "elevator"] },
+      "expected": ["detail-renovated"],
+      "coverage": { "total": 11, "read": 2 }
+    },
+    {
+      "name": "private owners, as the listing's page says, among sales",
+      "filters": { "ownerOnly": true, "dealType": "sale" },
+      "expected": ["detail-renovated"],
+      "coverage": { "total": 10, "read": 2 }
+    },
+    {
+      "name": "typo prices left out",
+      "filters": { "plausibleOnly": true },
+      "expected": [
+        "sab-flat",
+        "vake-flat-3r",
+        "gldani-rent",
+        "batumi-house",
+        "detail-renovated",
+        "detail-old",
+        "group-new",
+        "group-old",
+        "g2-real"
+      ]
+    },
+    {
+      "name": "look-alikes folded into their newest listing",
+      "filters": { "grouped": true },
+      "expected": [
+        "sab-flat",
+        "vake-flat-3r",
+        "gldani-rent",
+        "batumi-house",
+        "typo-sale",
+        "detail-renovated",
+        "detail-old",
+        "group-new",
+        "g2-typo"
+      ]
+    },
+    {
+      "name": "typos left out before folding, so a group led by one counts once, by its next listing",
+      "filters": { "grouped": true, "plausibleOnly": true },
+      "expected": [
+        "sab-flat",
+        "vake-flat-3r",
+        "gldani-rent",
+        "batumi-house",
+        "detail-renovated",
+        "detail-old",
+        "group-new",
+        "g2-real"
+      ]
+    },
+    {
+      "name": "folded in the order asked for: the cheapest listing leads, a typo never does",
+      "filters": { "grouped": true, "sort": "price-asc" },
+      "expected": [
+        "sab-flat",
+        "vake-flat-3r",
+        "gldani-rent",
+        "batumi-house",
+        "typo-sale",
+        "detail-renovated",
+        "detail-old",
+        "group-old",
+        "g2-real"
+      ]
+    },
+    {
+      "name": "flats for sale, cheapest first, typos last",
+      "filters": { "dealType": "sale", "propertyType": "flat", "sort": "price-asc" },
+      "ordered": true,
+      "expected": [
+        "g2-real",
+        "sab-flat",
+        "detail-renovated",
+        "detail-old",
+        "group-old",
+        "group-new",
+        "vake-flat-3r",
+        "typo-sale",
+        "g2-typo"
+      ]
+    }
+  ]
+}
