@@ -97,7 +97,7 @@ Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git
       - **Its queries under the old and new release, as the public role on the same data:** the same within noise (search 0.3 s, count 0.3 s, locations 0.4 s), so 13B's move changed nothing.
     - [ ] The first nightly run on the release takes its day (`ss.ge daily totals taken` in its journal).
     - [x] Hermes told "C3 ready, first day 2026-11-06" (2026-11-06), with what is not in the table and why.
-- **Rent typo bound, branch `realestate-rent-per-m2-typos` (2026-11-06, found by Hermes):** a sale price filed as rent slipped under the $50,000-a-month bound.
+- **Rent typo bound (2026-11-06, found by Hermes), merged as `c7e88a1` (PR #79, CI green after a flaky archive test was fixed in it) and deployed 18:17 UTC:** a sale price filed as rent slipped under the $50,000-a-month bound.
   - **What was missed:** 16 live rents at $12,000–$43,000 a month, for example $43,000 for 25 m². Rent flats' 99th percentile is $26/m², and the cheapest 1% of flats for sale are $714/m². The $195,000 "rent" Hermes reported was already caught.
   - **The fix:** `plausibility.ts` now also marks a monthly rent of $200 a m² or more, worked out from price and area, because with no area ss.ge's price per m² is the whole price. That covers the tab's price sorts, the archive's `implausible`, C1's `plausibleOnly` and the totals.
   - **Migration `0048`:** replaces `recently_gone` with `create or replace`. drizzle-kit wrote DROP and CREATE, which would have dropped Hermes' grant until `grants` ran.
@@ -108,9 +108,10 @@ Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git
     - [x] Two planted faults each turned tests red.
     - [x] Full suite 2,236 passed (9 skipped); lint and typecheck clean.
   - **Exit gate, after deploy:**
-    - [ ] Migration `0048` and `grants` applied.
-    - [ ] The day's totals taken again as `rules_version` 2.
-    - [ ] The 16 rents marked on the host.
+    - [x] Migration `0048` and `grants` applied after a backup copied off the host. The view has the new rule, and `scraplify_public` kept its grant.
+    - [x] The day's totals taken again: 2026-11-06 is all `rules_version` 2, 3,904 cells. Rent flats everywhere: 61,319 listings, median $740 a month, $11 a m².
+    - [x] The 16 rents marked on the host. The four dearest flat "rents" are gone from the first page of the tab's dearest-first sort. Health check `ok`, no failed unit, `probe: ok`.
+  - **The flaky test:** the archive privacy test searched the copied row for "599", the phone in the test listing's description. A random source id contained it, which failed CI. It now looks for whole leaked values, and a planted leak still fails it.
 
 ## Phase 12 — ss.ge all kinds, listing details, more filters (12A–12C live 2026-11-05; 12B's first-run and first-week checks open)
 
