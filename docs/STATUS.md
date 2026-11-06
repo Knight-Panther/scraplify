@@ -1,10 +1,10 @@
 # scraplify — implementation status
 
-Last updated: 2026-11-06 (Phase 13D, daily real-estate totals (contract C3), on its branch. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-11-06 (Phase 13D, daily real-estate totals (contract C3), merged as `3925192` (PR #78) and live since 17:55 UTC, first day taken, Hermes told. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; 13B merged 2026-11-06; 13D on its branch; 13A's first-deletion check and Phase 12B's first-week numbers open)
+## Current phase: Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; 13B merged and 13D live 2026-11-06; 13A's first-deletion check and Phase 12B's first-week numbers open)
 
 Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git/xtelo-speed/PLAN.md`) for real-estate statistics, price history, charts and Grafana. Scraplify's items, one branch each, in this order: **13A** the archive (S1, contract C2); **13B** a filter builder Hermes can call (S3, C1); **13C** Grafana on the host behind Cloudflare Access, host resources measured first (S4, C4); **13D** nightly totals (S2, C3); **13E** a building fingerprint (S5). Contracts: `docs/hermes-contracts.md`. Hermes builds on a contract only once it is merged, and is told in one line when each is merged or deployed.
 
@@ -55,7 +55,7 @@ Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git
   - **13B exit gate, after merge:**
     - [x] Hermes told "C1 merged at 873ceec" (2026-11-06), with the psycopg form, the statistics filters, places by ref, and municipality not in v1. Its laptop clone picks it up at its next `deploy.sh`.
     - [x] Nothing to deploy for C1 itself. The host gets the moved rules with the next release; the tab's SQL is unchanged.
-- **Phase 13D, daily totals (contract C3), branch `phase-13d-daily-totals`:** migration `0047` adds `realestate_archive.daily_totals`.
+- **Phase 13D, daily totals (contract C3), merged 2026-11-06 as `3925192` (PR #78, CI green), deployed 2026-11-06 17:55 UTC as `3925192` (backup copied off the host, migration `0047` and grants applied and checked, probe ok):** migration `0047` adds `realestate_archive.daily_totals`.
   - **What:** one row per day × area (all, city, district, sub-district) × deal × kind × room band (all, 1–4, 5+).
   - **Rules:** C1's own (`filters.ts`): on show, reposts merged, typo prices out. So a day's totals and the bot's figures agree.
   - **Figures:** the count; the count before merging; how many have details; the dollar price's quartiles and median; the medians of the lari price, the price per m² in both and the area.
@@ -89,9 +89,14 @@ Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git
     - [x] On the host, read-only: the statement over the real listings took 4.8 s and gave 4,076 cells. For flats for sale everywhere: 45,167 listings (71,115 posts), a median of $108,000 and $1,600 per m².
     - [x] Migration `0047` is additive (one table) and names its primary key, which drizzle's default name would have made 76 characters, over Postgres's 63.
   - **13D exit gate, after deploy:**
-    - [ ] Migration `0047` and `grants` applied; the first day taken by hand; `prod-status` shows it.
+    - [x] Migration `0047` and `grants` applied; the first day taken by hand; `prod-status` shows it.
+      - **Deploy checks:** the table owned by `scraplify_migration`, and each role's access (the worker's SELECT, INSERT and DELETE, never UPDATE; the public role's SELECT only).
+      - **First day, 2026-11-06, taken by hand as the worker in 6.4 s:** 3,905 cells; 223,020 listings across every place and kind (281,763 posts). Flats for sale: 45,160 listings, median $108,000, $1,600/m². `scraplify_public` reads all 3,905.
+      - **`prod-status`:** all green, `probe: ok`.
+      - **The Real estate tab** answers with 100 listings on the default, price-sorted and every-listing views.
+      - **Its queries under the old and new release, as the public role on the same data:** the same within noise (search 0.3 s, count 0.3 s, locations 0.4 s), so 13B's move changed nothing.
     - [ ] The first nightly run on the release takes its day (`ss.ge daily totals taken` in its journal).
-    - [ ] Hermes told "C3 ready, first day <date>".
+    - [x] Hermes told "C3 ready, first day 2026-11-06" (2026-11-06), with what is not in the table and why.
 
 ## Phase 12 — ss.ge all kinds, listing details, more filters (12A–12C live 2026-11-05; 12B's first-run and first-week checks open)
 
@@ -385,6 +390,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 10B — landing crawler | merged; deployed 2026-10-12 as `0cfbf86` | #47 | Canvas spider over the landing panel (`web/lib/landing-crawler/`); hides for readers, off under reduced motion. |
 | 13A — real-estate archive | merged 2026-11-05 as `6e48865`; deployed 2026-11-05 as `6e48865` | #75 | Migration `0046`; copy and delete in one statement; `recently_gone` view; grants checked under the host's roles. |
 | 13B — real-estate filter builder (C1) | merged 2026-11-06 as `873ceec`; no deploy needed | #77 | The tab's filter rules as SQL for Hermes, psycopg placeholders; `places` and `plausibleOnly`; 19 shared cases checked through Hermes's psycopg. |
+| 13D — daily real-estate totals (C3) | merged 2026-11-06 as `3925192`; deployed 2026-11-06 as `3925192` | #78 | Migration `0047`; totals by the tab's own rules after each night's grouping; grants checked under the host's roles; first day 3,905 cells. |
 | 12C — ss.ge more filters | merged 2026-11-05 as `2bdca5a`; deployed 2026-11-05 as `2bdca5a` | #74 | Each kind's "more filters" panel as on ss.ge, over the 12B details, with a coverage line. |
 | 12B — ss.ge listing details | merged 2026-11-04 as `ababa11`; deployed 2026-11-05 as `db6c115` | #73 | Migration `0045`; each listing's own page, read once from now on (no backlog); 16-hour time box, 20,000-request ceiling. |
 | 12A — ss.ge all kinds and deals | merged 2026-11-04 as `7926dfb`; deployed 2026-11-04 as `8c6ad35` | #72 | Migration `0044`; policy v2; 24 lists; deep-read budget 4,000 pages a night. |
@@ -425,6 +431,7 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
     - [ ] The next partial or failed ss.ge run's alert shows its "Why:" line.
 - Open (Phase 1C items 1, 2, 4): a correct live closure of vanished listings has not been confirmed; full walks complete, but closure on live data is unverified. Detail: Archive, "Open operational issues".
 - **Hermes role (Phase 13A review, P3):** Hermes logs in as `scraplify_public`, the public site's role, so the archive is readable by the site's credential too; a `scraplify_hermes` role would make that a database boundary. Also P3: list the archive in `phase-8b-public-role.sql`'s verification notes.
+- **Real estate tab page time (seen 2026-11-06, not caused by 13B/13D):** `/real-estate` takes 3–7 s to answer on the host, against 1 s for the landing page. Its search, count and locations queries take 0.3–0.6 s each, the same under the release before, so the rest is elsewhere in the page (its other queries or rendering). Measure before changing anything.
 - **Archive backups (Phase 13A):** the nightly dump includes `realestate_archive`. Once it passes about 250 MB, its 30 off-host copies no longer fit the 8 GB cap, so dump the archive on its own (monthly, as the joint plan proposed) and leave it out of the nightly. Measure the dump weekly from 13A's deploy.
 - Small (no severity recorded): an unparseable detail page for a listing whose stored deadline has passed should expire it rather than quarantine it; only long runs crossing midnight hit this. Archive, "Phase 7C".
 
