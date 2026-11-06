@@ -54,6 +54,8 @@ missing key fails fast instead of hanging on a prompt.
    q "select started_at, mode, status, request_count, failed_request_count, page_count, details_count, left(coalesce(notes, ''), 120) from realestate.crawl_runs order by started_at desc limit 3"
    echo "== real-estate archive (archived | newest archived_at | gone, not yet archived | gone over 14 days)"
    q "select (select count(*) from realestate_archive.listings), (select max(archived_at) from realestate_archive.listings), (select count(*) from realestate_archive.recently_gone), (select count(*) from realestate.listings where status = 'gone' and gone_at < now() - interval '15 days')"
+   echo "== real-estate daily totals (latest day | cells | listings, every place and kind | taken at)"
+   q "select day, count(*), sum(listings) filter (where area_level = 'all' and rooms_band = 'all'), max(taken_at) from realestate_archive.daily_totals group by day order by day desc limit 1"
    EOF
    ```
 
@@ -100,6 +102,11 @@ missing key fails fast instead of hanging on a prompt.
      for a night or more: ⚠️ after one night, ❌ after two. Nothing is lost
      meanwhile; the copy happens whenever the delete next runs. An error that `realestate_archive` does not exist means the
      release before Phase 13A: say so, it is not a fault.
+   - The daily totals (Phase 13D) are taken at the end of every ss.ge run
+     that got as far as a crawl row. A latest day older than the last
+     finished ss.ge run is ⚠️: its journal says `ss.ge daily totals
+     failed`. About 4,000 cells a day is normal. An error that
+     `daily_totals` does not exist means the release before Phase 13D.
 
 ## What this skill will not do
 

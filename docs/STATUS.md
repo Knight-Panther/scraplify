@@ -1,10 +1,10 @@
 # scraplify — implementation status
 
-Last updated: 2026-11-06 (Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-11-06 (Phase 13D, daily real-estate totals (contract C3), on its branch. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; 13B merged 2026-11-06; 13A's first-deletion check and Phase 12B's first-week numbers open)
+## Current phase: Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; 13B merged 2026-11-06; 13D on its branch; 13A's first-deletion check and Phase 12B's first-week numbers open)
 
 Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git/xtelo-speed/PLAN.md`) for real-estate statistics, price history, charts and Grafana. Scraplify's items, one branch each, in this order: **13A** the archive (S1, contract C2); **13B** a filter builder Hermes can call (S3, C1); **13C** Grafana on the host behind Cloudflare Access, host resources measured first (S4, C4); **13D** nightly totals (S2, C3); **13E** a building fingerprint (S5). Contracts: `docs/hermes-contracts.md`. Hermes builds on a contract only once it is merged, and is told in one line when each is merged or deployed.
 
@@ -55,6 +55,43 @@ Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git
   - **13B exit gate, after merge:**
     - [x] Hermes told "C1 merged at 873ceec" (2026-11-06), with the psycopg form, the statistics filters, places by ref, and municipality not in v1. Its laptop clone picks it up at its next `deploy.sh`.
     - [x] Nothing to deploy for C1 itself. The host gets the moved rules with the next release; the tab's SQL is unchanged.
+- **Phase 13D, daily totals (contract C3), branch `phase-13d-daily-totals`:** migration `0047` adds `realestate_archive.daily_totals`.
+  - **What:** one row per day × area (all, city, district, sub-district) × deal × kind × room band (all, 1–4, 5+).
+  - **Rules:** C1's own (`filters.ts`): on show, reposts merged, typo prices out. So a day's totals and the bot's figures agree.
+  - **Figures:** the count; the count before merging; how many have details; the dollar price's quartiles and median; the medians of the lari price, the price per m² in both and the area.
+  - **When:** `takeDailyTotals` (`src/realestate/totals.ts`) runs after each night's grouping, dated by the Tbilisi calendar, in one transaction that replaces the day. It keeps no cell under 5 listings. A failure is logged and leaves the crawl's exit code alone. By hand: `npm run totals:ss-ge`.
+  - **Grants:** the worker gets SELECT on `public_listings` and SELECT, INSERT and DELETE on the table; `scraplify_public` reads it.
+  - **Docs:** C3 in `docs/hermes-contracts.md`, guideline §8.4, RUNBOOK §3 step 8, `prod-status`.
+  - **What the smoke test changed in the plan (2026-11-06, code and a read-only look at the host):**
+    - **No rebuild-from-archive command.** Which listings were on show on a past day, and which were reposts, is not kept. On 2026-11-06, 293,355 listings were active but 282,946 on show, and 224,189 after merging reposts.
+    - **No backfill.** The live table's first-seen dates follow the crawl's growth, not the market's: 64,734 listings were "new" on 2026-11-04, the night 12A added the other kinds. So history starts on the first day taken, and a rule change raises `TOTALS_RULES_VERSION`.
+    - **Arrivals, departures, days on the market and price cuts are not in the table.** They are exact from each listing's own dates and the archive.
+    - **No new field in the Hermes event.** Its schema is strict on both sides; Hermes reads `max(day)`.
+    - **Cells under 5 listings are dropped.** All cells would be about 11,700 rows a day, mostly villages with one or two listings; 4,076 are kept.
+  - **13D exit gate, before merge:**
+    - [x] Tests, `totals.test.ts`, 7:
+      - the cells kept and left out;
+      - reposts merged, typos and listings past their end left out;
+      - the medians and quartiles;
+      - no room count in "all" only;
+      - one source only;
+      - run, time and rules recorded;
+      - a day taken twice replaced whole, other days kept;
+      - the Tbilisi date.
+    - [x] Four planted faults each turned tests red: reposts not merged, the day not cleared, typos counted, the UTC date.
+    - [x] Full suite 2,233 passed (9 skipped) on a throwaway Postgres; lint and typecheck clean.
+    - [x] Grants under the host's roles, in a throwaway database migrated as `scraplify_migration` with both role scripts filled as `apply-db-roles.sh` fills them:
+      - with `main`'s grants the worker is refused (`permission denied for table daily_totals`);
+      - with this branch's it takes the totals (8 cells) and takes them again;
+      - `scraplify_public` reads them and cannot delete;
+      - `scraplify_admin` has nothing;
+      - `scraplify_migration` owns the table.
+    - [x] On the host, read-only: the statement over the real listings took 4.8 s and gave 4,076 cells. For flats for sale everywhere: 45,167 listings (71,115 posts), a median of $108,000 and $1,600 per m².
+    - [x] Migration `0047` is additive (one table) and names its primary key, which drizzle's default name would have made 76 characters, over Postgres's 63.
+  - **13D exit gate, after deploy:**
+    - [ ] Migration `0047` and `grants` applied; the first day taken by hand; `prod-status` shows it.
+    - [ ] The first nightly run on the release takes its day (`ss.ge daily totals taken` in its journal).
+    - [ ] Hermes told "C3 ready, first day <date>".
 
 ## Phase 12 — ss.ge all kinds, listing details, more filters (12A–12C live 2026-11-05; 12B's first-run and first-week checks open)
 

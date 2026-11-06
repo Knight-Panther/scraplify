@@ -112,6 +112,9 @@ GRANT SELECT ON realestate.public_listings TO scraplify_public;
 GRANT USAGE ON SCHEMA realestate_archive TO scraplify_public;
 GRANT SELECT ON realestate_archive.listings, realestate_archive.price_changes,
   realestate_archive.recently_gone TO scraplify_public;
+-- Phase 13D: what was on the market each day (contract C3), for Hermes'
+-- trends. Requires migration 0047.
+GRANT SELECT ON realestate_archive.daily_totals TO scraplify_public;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --
