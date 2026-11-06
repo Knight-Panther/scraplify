@@ -510,14 +510,14 @@ describe('listing expiry', () => {
     });
   });
 
-  describe('deleteLongGoneListings', () => {
-    async function archived(sourceId: string) {
-      return db
-        .select()
-        .from(realEstateArchiveListings)
-        .where(eq(realEstateArchiveListings.sourceId, sourceId));
-    }
+  async function archived(sourceId: string) {
+    return db
+      .select()
+      .from(realEstateArchiveListings)
+      .where(eq(realEstateArchiveListings.sourceId, sourceId));
+  }
 
+  describe('deleteLongGoneListings', () => {
     async function archivedChanges(listingId: string) {
       return db
         .select()
@@ -808,6 +808,44 @@ describe('listing expiry', () => {
         select listing_id from realestate_archive.recently_gone where source_id = ${sourceId}
       `);
       expect(rows.map((row) => row.listing_id).sort()).toEqual([longGone, goneLately].sort());
+    });
+
+    it('marks a sale price posted as rent as the tab does, in the view and in the archive', async () => {
+      const sourceId = await newSource();
+      const rent = { status: 'gone' as const, dealType: 'rent' as const };
+      const saleAsRent = await listing(sourceId, {
+        ...rent,
+        goneAt: at(-2),
+        priceUsd: '43000.00',
+        areaM2: '25.00',
+      });
+      const dearRent = await listing(sourceId, {
+        ...rent,
+        goneAt: at(-2),
+        priceUsd: '5200.00',
+        areaM2: '120.00',
+      });
+      const archivedSaleAsRent = await listing(sourceId, {
+        ...rent,
+        goneAt: at(-15),
+        priceUsd: '12000.00',
+        areaM2: '35.00',
+      });
+
+      await deleteLongGoneListings(db, { sourceId, asOf: NOW_ISO });
+
+      const flags = new Map(
+        (await recentlyGone(sourceId)).map((row) => [row.listingId, row.implausible]),
+      );
+      expect(flags).toEqual(
+        new Map([
+          [saleAsRent, true],
+          [dearRent, false],
+        ]),
+      );
+      expect((await archived(sourceId)).map((row) => [row.listingId, row.implausible])).toEqual([
+        [archivedSaleAsRent, true],
+      ]);
     });
 
     it('has the archive’s columns in the archive’s order, so the two can be unioned whole', async () => {

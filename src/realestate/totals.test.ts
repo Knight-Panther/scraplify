@@ -228,6 +228,21 @@ describe('daily totals (contract C3)', () => {
     expect(await cellsOf(NEXT_DAY)).toHaveLength(8);
   });
 
+  it('takes prices per m² only from listings whose area is known', async () => {
+    const sourceId = await newSource();
+    for (const [i, price] of [100_000, 110_000, 120_000, 130_000, 140_000].entries()) {
+      await listing(sourceId, { priceUsd: String(price), pricePerM2Usd: String(1000 + i * 100) });
+    }
+    // With no area, ss.ge's price per m² is the whole price.
+    await listing(sourceId, { priceUsd: '100000', areaM2: null, pricePerM2Usd: '100000' });
+    await takeDailyTotals(db, { sourceId, now: NOW, crawlRunId: null });
+    expect(cell(await cellsOf(DAY), 'all', 'all')).toMatchObject({
+      listings: 6,
+      priceUsdMedian: '115000.00',
+      pricePerM2UsdMedian: '1200.00',
+    });
+  });
+
   it('dates the totals by the calendar in Tbilisi', () => {
     expect(tbilisiDay('2026-11-06T19:59:59.000Z')).toBe('2026-11-06');
     expect(tbilisiDay('2026-11-06T20:00:00.000Z')).toBe('2026-11-07');
