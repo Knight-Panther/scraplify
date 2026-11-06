@@ -244,6 +244,15 @@ function clock(startMs = NOW): () => string {
   return () => new Date(startMs + tick++ * 1000).toISOString();
 }
 
+/** The run's waits between tries of a page, taken at once (`PAGE_RETRY_WAITS_MS`). */
+const noWait = async (_ms: number): Promise<void> => {};
+
+/** A sleep that only records how long the run asked to wait. */
+function recordedWaits(): { sleep: (ms: number) => Promise<void>; waits: number[] } {
+  const waits: number[] = [];
+  return { sleep: async (ms) => void waits.push(ms), waits };
+}
+
 const list = (key: ListKey): SsGeList => {
   const found = SS_GE_LISTS.find((candidate) => candidate.key === key);
   if (found === undefined) throw new Error(`no list ${key}`);
@@ -313,7 +322,7 @@ describe('runSsGeCrawl, sweep', () => {
     });
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -344,7 +353,7 @@ describe('runSsGeCrawl, sweep', () => {
     const site = new FakeSite({ 'flat-sale': rows(1_000, 32) });
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -369,7 +378,7 @@ describe('runSsGeCrawl, sweep', () => {
     );
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -383,7 +392,7 @@ describe('runSsGeCrawl, sweep', () => {
     const site = new FakeSite({ [first.key]: rows(1_000, 16 * 12 + 3) }); // 13 pages
 
     const trial = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxPages: 9, maxDetailChecks: 0 },
     );
 
@@ -397,7 +406,7 @@ describe('runSsGeCrawl, sweep', () => {
 
     site.requested.length = 0;
     const resumed = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW + HOUR_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW + HOUR_MS) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -422,12 +431,12 @@ describe('runSsGeCrawl, sweep', () => {
     const site = new FakeSite({ [first.key]: rows(1_000, 20), [second.key]: rows(2_000, 40) });
 
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxPages: 3, maxDetailChecks: 0 },
     );
     site.requested.length = 0;
     const resumed = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW + HOUR_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW + HOUR_MS) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -441,12 +450,12 @@ describe('runSsGeCrawl, sweep', () => {
     const site = new FakeSite({ [first.key]: rows(1_000, 16 * 8) });
 
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxPages: 7, maxDetailChecks: 0 },
     );
     site.requested.length = 0;
     const fresh = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW + HOUR_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW + HOUR_MS) },
       { mode: 'sweep', fresh: true, maxDetailChecks: 0 },
     );
 
@@ -476,7 +485,7 @@ describe('runSsGeCrawl, sweep', () => {
       .returning();
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -494,7 +503,7 @@ describe('runSsGeCrawl, sweep', () => {
     site.script(second, new Error('socket hang up'), status(second, 502));
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -503,21 +512,70 @@ describe('runSsGeCrawl, sweep', () => {
     expect(await storedListings()).toHaveLength(40 + OTHER_LISTS);
   });
 
-  it('gives up on a page that fails three times, and keeps what it had', async () => {
+  it('gives up on a page that fails four times, after waiting a minute and then five, and keeps what it had', async () => {
     const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
     const second = buildResultsUrl(list('flat-sale'), 2);
-    site.script(second, status(second, 500), status(second, 500), status(second, 500));
+    site.script(
+      second,
+      status(second, 500),
+      status(second, 500),
+      status(second, 500),
+      status(second, 500),
+    );
+    const { sleep, waits } = recordedWaits();
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
-    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 3 });
+    expect(waits).toEqual([60_000, 5 * 60_000]);
+    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 4 });
+    expect(crawlRun.notes).toMatch(/flat-sale page 2 would not load after 4 tries/);
     expect(crawlRun.notes).toMatch(/flat-sale.*page 2/);
     expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({ lastPage: 1, finished: null });
     // Nothing after the page that would not load: a resumed sweep starts there.
     expect(site.requested.at(-1)).toBe(second);
+  });
+
+  it('waits a minute before the third try of a page that came back without its list, and carries on when it loads', async () => {
+    // ss.ge, 2026-11-05: a deep page now and then answers without its list for a moment.
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
+    const second = buildResultsUrl(list('flat-sale'), 2);
+    const blank = ok(second, '<html><head><title>SS.GE</title></head><body></body></html>');
+    site.script(second, blank, blank);
+    const { sleep, waits } = recordedWaits();
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+
+    expect(waits).toEqual([60_000]);
+    expect(crawlRun).toMatchObject({ status: 'completed', failedRequestCount: 2 });
+    expect(site.resultsRequests(list('flat-sale'))).toEqual([1, 2, 2, 2, 3]);
+    expect(await storedListings()).toHaveLength(40 + OTHER_LISTS);
+  });
+
+  it('stops waiting when the time box runs out, and ends partial without site trouble', async () => {
+    const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
+    const second = buildResultsUrl(list('flat-sale'), 2);
+    site.script(second, status(second, 500), status(second, 500), status(second, 500));
+    let nowMs = NOW;
+    const now = () => new Date(nowMs).toISOString();
+    // Each wait moves the clock; the box ends during the five-minute one.
+    const sleep = async (ms: number) => {
+      nowMs += ms;
+    };
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep, now },
+      { mode: 'sweep', maxDetailChecks: 0, stopAfterMs: 3 * 60_000 },
+    );
+
+    expect(crawlRun.status).toBe('partial');
+    expect(crawlRun.notes).toBe('time limit reached');
+    expect(site.requested.filter((url) => url === second)).toHaveLength(3);
   });
 
   it('treats a page with no data as a failure, never as an empty list', async () => {
@@ -525,14 +583,14 @@ describe('runSsGeCrawl, sweep', () => {
     const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
     const second = buildResultsUrl(list('flat-sale'), 2);
     const challenge = ok(second, '<html><body>Just a moment...</body></html>');
-    site.script(second, challenge, challenge, challenge);
+    site.script(second, challenge, challenge, challenge, challenge);
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
-    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 3 });
+    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 4 });
     expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({ lastPage: 1, finished: null });
   });
 
@@ -540,10 +598,10 @@ describe('runSsGeCrawl, sweep', () => {
     const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
     const second = buildResultsUrl(list('flat-sale'), 2);
     const empty = ok(second, page({ initialPage: 2, applicationList: { realStateItemModel: [] } }));
-    site.script(second, empty, empty, empty);
+    site.script(second, empty, empty, empty, empty);
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -556,7 +614,7 @@ describe('runSsGeCrawl, sweep', () => {
     const site = new FakeSite({ 'land-daily': [] });
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -581,14 +639,14 @@ describe('runSsGeCrawl, sweep', () => {
         applicationList: { realStateItemModel: [] },
       }),
     );
-    site.script(first, empty, empty, empty);
+    site.script(first, empty, empty, empty, empty);
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
-    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 3 });
+    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 4 });
     expect(progressOf(crawlRun).lists['land-daily']?.finished).toBeNull();
   });
 
@@ -597,7 +655,7 @@ describe('runSsGeCrawl, sweep', () => {
     // a run as complete and move the nightly baseline past unread renewals.
     const site = new FakeSite({ 'land-daily': rows(1_000, 40) });
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW - DAY_MS) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
     const first = buildResultsUrl(list('land-daily'), 1);
@@ -610,14 +668,14 @@ describe('runSsGeCrawl, sweep', () => {
         applicationList: { realStateItemModel: [] },
       }),
     );
-    site.script(first, empty, empty, empty);
+    site.script(first, empty, empty, empty, empty);
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
-    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 3 });
+    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 4 });
     expect(progressOf(crawlRun).lists['land-daily']?.finished).toBeNull();
     expect((await storedListings()).filter((row) => row.missedAt !== null)).toEqual([]);
   });
@@ -625,13 +683,13 @@ describe('runSsGeCrawl, sweep', () => {
   it('marks for a check the listings of a list that has emptied', async () => {
     const site = new FakeSite({ 'land-daily': rows(1_000, 1) });
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW - DAY_MS) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
     site.lists['land-daily'] = [];
 
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -646,7 +704,7 @@ describe('runSsGeCrawl, sweep', () => {
     site.script(second, status(second, 429, { 'retry-after': '3600' }));
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -660,7 +718,7 @@ describe('runSsGeCrawl, sweep', () => {
 
     site.requested.length = 0;
     const tooSoon = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW + 10 * 60_000) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW + 10 * 60_000) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
     expect(tooSoon.crawlRun).toMatchObject({ status: 'partial', requestCount: 0 });
@@ -673,7 +731,7 @@ describe('runSsGeCrawl, sweep', () => {
     site.script(second, status(second, 403, { 'cf-mitigated': 'challenge' }));
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -711,7 +769,7 @@ describe('runSsGeCrawl, sweep', () => {
     });
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher, now: clock() },
+      { db, httpFetcher, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -726,7 +784,7 @@ describe('runSsGeCrawl, sweep', () => {
     site.script(second, new ProxyUnreachableError('http://127.0.0.1:18888', 10 * HOUR_MS));
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -748,7 +806,7 @@ describe('runSsGeCrawl, sweep', () => {
     refusedRow.key = '1020';
     try {
       const { crawlRun } = await runSsGeCrawl(
-        { db, httpFetcher: site, now: clock() },
+        { db, httpFetcher: site, sleep: noWait, now: clock() },
         { mode: 'sweep', maxDetailChecks: 0 },
       );
 
@@ -765,13 +823,13 @@ describe('runSsGeCrawl, sweep', () => {
   it('records a seen listing again as unchanged, and a new price as a change', async () => {
     const site = new FakeSite({ 'flat-sale': rows(1_000, 3) });
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
     (site.lists['flat-sale'][0] as SiteRow).priceUsd = 95000;
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW + DAY_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW + DAY_MS) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -789,7 +847,7 @@ describe('runSsGeCrawl, nightly', () => {
     // With nothing to measure from it could only read everything, and a
     // timer must not start a day-long sweep by itself.
     await expect(
-      runSsGeCrawl({ db, httpFetcher: site, now: clock() }, { mode: 'nightly' }),
+      runSsGeCrawl({ db, httpFetcher: site, sleep: noWait, now: clock() }, { mode: 'nightly' }),
     ).rejects.toThrow(/sweep/);
 
     expect(site.requested).toEqual([]);
@@ -804,7 +862,7 @@ describe('runSsGeCrawl, nightly', () => {
       'flat-rent': rows(2_000, 48, seenBefore),
     });
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(lastRunAt) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(lastRunAt) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
     site.requested.length = 0;
@@ -813,7 +871,7 @@ describe('runSsGeCrawl, nightly', () => {
 
     // A page budget of one: only the first list, of one page, is read whole.
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 1 },
     );
 
@@ -835,11 +893,11 @@ describe('runSsGeCrawl, nightly', () => {
     const walkStartedAt = NOW - DAY_MS;
     const site = new FakeSite();
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(walkStartedAt) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(walkStartedAt) },
       { mode: 'sweep', maxPages: 1, maxDetailChecks: 0 },
     );
     const second = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(walkStartedAt + 2 * HOUR_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(walkStartedAt + 2 * HOUR_MS) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
     expect(second.crawlRun.status).toBe('completed');
@@ -852,7 +910,7 @@ describe('runSsGeCrawl, nightly', () => {
     ];
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 1 },
     );
 
@@ -885,7 +943,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
   }
   async function baseline(site: FakeSite, atMs: number) {
     await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(atMs) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(atMs) },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
     site.requested.length = 0;
@@ -897,7 +955,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
 
     // The sweep read every list whole, three pages each: six pages fit two lists.
     const first = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW - DAY_MS) },
       { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 6 },
     );
     expect(progressOf(first.crawlRun).deep).toEqual(['land-daily', 'hotel-pledge']);
@@ -909,7 +967,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
 
     site.requested.length = 0;
     const second = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW) },
       { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 6 },
     );
     expect(progressOf(second.crawlRun).deep).toEqual(['cottage-pledge', 'commercial-pledge']);
@@ -932,7 +990,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     });
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'nightly', maxDetailChecks: 0 },
     );
 
@@ -950,7 +1008,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     const removedKey = String(removed?.id);
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW - DAY_MS) },
       { mode: 'nightly', maxDetailChecks: 1, deepPageBudget: 3 },
     );
 
@@ -975,7 +1033,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
       }
     }
     const refused = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW - DAY_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW - DAY_MS) },
       { mode: 'nightly', deepPageBudget: 1 },
     );
     expect(refused.crawlRun.status).toBe('partial');
@@ -989,7 +1047,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     site.lists['flat-sale'].unshift(...rows(1, 2, 40 * HOUR_MS));
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW) },
       { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 1 },
     );
 
@@ -1006,16 +1064,22 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     const site = new FakeSite(oldLists());
     await baseline(site, NOW - 2 * DAY_MS);
     const houses = buildResultsUrl(list('house-sale'), 1);
-    site.script(houses, status(houses, 500), status(houses, 500), status(houses, 500));
+    site.script(
+      houses,
+      status(houses, 500),
+      status(houses, 500),
+      status(houses, 500),
+      status(houses, 500),
+    );
     const interrupted = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW - 3 * HOUR_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW - 3 * HOUR_MS) },
       { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 3 },
     );
     expect(interrupted.crawlRun.status).toBe('partial');
     site.requested.length = 0;
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW) },
       { mode: 'nightly', maxDetailChecks: 0 },
     );
 
@@ -1069,7 +1133,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     ]);
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'nightly', maxDetailChecks: 0 },
     );
 
@@ -1194,7 +1258,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
 
     // Three pages: the checks, not the pages its new listings want read.
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 3 },
     );
 
@@ -1220,7 +1284,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     for (const id of ['1000', '1001', '1002']) site.details.set(id, { status: 'Expired' });
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 2 },
     );
 
@@ -1236,7 +1300,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     const site = new FakeSite({ [first.key]: rows(1_000, 2, PAST_ITS_LIFE) });
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxPages: 1 },
     );
 
@@ -1251,7 +1315,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     site.script(refused, status(refused, 403));
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep' },
     );
 
@@ -1278,7 +1342,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     site.script(refused, status(refused, 403));
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep' },
     );
 
@@ -1306,7 +1370,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     site.script(firstPage, new ProxyUnreachableError('http://127.0.0.1:18888', 10 * HOUR_MS));
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep' },
     );
 
@@ -1322,7 +1386,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     }
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep' },
     );
 
@@ -1339,7 +1403,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     site.script(buildDetailUrl('1002'), challenge);
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 3 },
     );
 
@@ -1359,7 +1423,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     }
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep' },
     );
 
@@ -1401,7 +1465,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     ]);
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxDetailChecks: 0 },
     );
 
@@ -1434,7 +1498,7 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
     site.details.set('1000', { ...LIVE, fields: { state: 'გარემონტებული', toilet: '2' } });
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep' },
     );
 
@@ -1480,7 +1544,10 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
       close: async () => {},
     };
 
-    const { crawlRun } = await runSsGeCrawl({ db, httpFetcher: slow, now }, { mode: 'sweep' });
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: slow, sleep: noWait, now },
+      { mode: 'sweep' },
+    );
 
     expect(detailRequests(site)).toEqual(['1000', '1001']);
     // Out of time is no fault: every list was read, and the nightly baseline moves on.
@@ -1494,7 +1561,7 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
 
     site.requested.length = 0;
     const next = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock(NOW + DAY_MS) },
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW + DAY_MS) },
       { mode: 'nightly' },
     );
 
@@ -1512,7 +1579,7 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
     const site = new FakeSite();
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep', maxRequests: 10 },
     );
 
@@ -1531,7 +1598,7 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
     refusedPage.key = '1001';
     try {
       const { crawlRun } = await runSsGeCrawl(
-        { db, httpFetcher: site, now: clock() },
+        { db, httpFetcher: site, sleep: noWait, now: clock() },
         { mode: 'sweep' },
       );
 
@@ -1556,7 +1623,7 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
     }
 
     const { crawlRun } = await runSsGeCrawl(
-      { db, httpFetcher: site, now: clock() },
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
       { mode: 'sweep' },
     );
 
