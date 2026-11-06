@@ -14,6 +14,7 @@ import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { isSsGeUrlAllowed, ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
 import { regroupListings } from '../realestate/grouping.js';
+import { takeDailyTotals } from '../realestate/totals.js';
 import { parseSsGeOptions } from './ss-ge-options.js';
 
 /**
@@ -120,6 +121,7 @@ async function main(): Promise<void> {
     );
     if (crawlRun.status !== 'completed') process.exitCode = 1;
     await regroup();
+    await takeTotals(crawlRun.id);
   } catch (err) {
     if (err instanceof SsGeNoBaselineError) {
       logger.error({ sourceId: ssGeSource.id }, err.message);
@@ -154,6 +156,26 @@ async function regroup(): Promise<void> {
     );
   } catch (err) {
     logger.error({ err }, 'ss.ge look-alike grouping failed; the previous groups stay');
+  }
+}
+
+/**
+ * What was on the market today (Phase 13D), after the groups are fresh, so
+ * reposts are merged as the tab merges them tonight. Like the grouping, a
+ * failure is logged and leaves the exit code to the crawl; the day simply
+ * has no totals, and Hermes and Grafana show a gap.
+ */
+async function takeTotals(crawlRunId: string): Promise<void> {
+  const startedAtMs = Date.now();
+  try {
+    const result = await takeDailyTotals(db, {
+      sourceId: ssGeSource.id,
+      now: new Date().toISOString(),
+      crawlRunId,
+    });
+    logger.info({ ...result, durationMs: Date.now() - startedAtMs }, 'ss.ge daily totals taken');
+  } catch (err) {
+    logger.error({ err }, 'ss.ge daily totals failed; the day has none');
   }
 }
 

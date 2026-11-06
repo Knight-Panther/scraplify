@@ -6,7 +6,7 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 |---|---|---|
 | C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`) |
 | C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`) |
-| C3 | Nightly real-estate totals | not yet built (S2) |
+| C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | **v1, this branch (Phase 13D)** |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
 | C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`) |
 
@@ -74,6 +74,48 @@ Values:
 - **Cases:** `src/realestate/filter-cases.json` holds fixture listings and 19 cases, each with the listings it must return (some in order) and its coverage counts. scraplify's `src/realestate/filter-builder.test.ts` runs every case two ways, through the SQL handed on and through the tab's own query, and both must match the file.
 - **Hermes's side:** its suite has no database. It can check that every case compiles with `psycopg` placeholders and that the file's version is the one it was written for. Its live test can `EXPLAIN` each case, read-only, on the host.
 - **Checked on 2026-11-06:** every case returned its listings, in order where asked, through psycopg 3.3.6 on the fixture.
+
+## C3: daily real-estate totals (v1, migration `0047`)
+
+`realestate_archive.daily_totals` records what was on the ss.ge market each day. `scraplify_public` may `SELECT` it. Definitions are in `src/db/schema/real-estate-archive.ts`; the code that fills it is in `src/realestate/totals.ts`.
+
+### Grain
+
+One row per `day` × `area_level` × `area_ref` × `deal_type` × `property_type` × `rooms_band`. That combination is the primary key.
+
+| Column | What |
+|---|---|
+| `day` | the date in Tbilisi when the totals were taken |
+| `area_level`, `area_ref`, `area_name` | the area level is one of the following: `all` (`area_ref` 0, `area_name` null), `city`, `district` or `subdistrict`. With a level, `area_ref` is ss.ge's id, the same refs C1's `places` take, and `area_name` is the Georgian name ss.ge showed that day. |
+| `deal_type`, `property_type` | as in C1. There is no "every kind" row, since a flat's and a plot's prices do not mix. |
+| `rooms_band` | `all`, `1`, `2`, `3`, `4` or `5+`. A listing with no room count is only in `all`. |
+
+A cell with fewer than 5 listings is not kept. That leaves about 4,000 rows a day (2026-11-06): no row for a village with two flats means "too few to say".
+
+### Figures
+
+All figures are of the listings a statistic counts, by C1's own rules: `{ grouped: true, plausibleOnly: true }`. That means listings on show, with reposts merged into their group's newest listing and typo prices left out. A day's totals and the bot's C1 figures for that day agree.
+
+| Column | What |
+|---|---|
+| `listings` | how many |
+| `posts` | the same before reposts are merged |
+| `with_details` | of `listings`, those whose own page was read (12B) |
+| `price_usd_p25`, `price_usd_median`, `price_usd_p75` | the price in dollars |
+| `price_per_m2_usd_median`, `price_gel_median`, `price_per_m2_gel_median`, `area_m2_median` | medians |
+| `taken_at`, `crawl_run_id` | when, and after which ss.ge run (null when taken by hand) |
+| `rules_version` | the rules the figures follow. It goes up when they change, so the change shows as a step and is not mistaken for a trend. |
+
+### When
+
+- **Taken:** after each night's ss.ge run has regrouped the listings, about 13:30 UTC (17:30 in Tbilisi), or by hand.
+- **Ready:** a day is ready when its rows exist. There is no extra field in the pipeline event: Hermes reads `max(day)`. A day taken twice keeps the later figures.
+- **Gaps:** a night whose run fails before its crawl row has no totals, so read gaps as gaps.
+
+### What it is not
+
+- **No arrivals, departures, days on the market or price cuts.** They are worked out from each listing's own dates and price changes, which are kept: `first_seen_at` in `realestate.public_listings`; `first_seen_at` and `gone_at` in `realestate_archive.recently_gone` and `realestate_archive.listings`; and the archive's `price_changes`. Arrivals before 2026-11-05 mostly measure the crawl's own growth: 64,734 listings were first seen on 2026-11-04, the night all kinds were added.
+- **No rebuild of past days.** Which listings were on show on a past day, and which were reposts, is not kept. That is why the totals are taken, not computed later. History starts on the first day taken.
 
 ## C2: the real-estate archive (v1, migration `0046`)
 

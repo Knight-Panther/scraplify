@@ -1,10 +1,13 @@
 import { getTableColumns, type SQL, sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
+  date,
   index,
   integer,
   numeric,
   pgSchema,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -185,5 +188,77 @@ export const realEstateArchivePriceChanges = realEstateArchive.table(
   (table) => [index('archive_price_changes_listing_idx').on(table.listingId, table.observedAt)],
 );
 
+/** The area levels of `daily_totals`: `all` is every listing, whatever its place. */
+export const TOTALS_AREA_LEVELS = ['all', 'city', 'district', 'subdistrict'] as const;
+/** Room bands of `daily_totals`: `all` is every listing of the kind, rooms known or not. */
+export const TOTALS_ROOMS_BANDS = ['all', '1', '2', '3', '4', '5+'] as const;
+
+/**
+ * What was on the market each day (Phase 13D, contract C3): one row per area
+ * × deal × kind × room band, taken after each night's ss.ge run by the Real
+ * estate tab's own rules (`src/realestate/totals.ts`). A day's listings cannot
+ * be worked out again later, since which ones were on show and which were
+ * reposts of one another is not kept, so this is the record of it. The
+ * evidence of what came and went is in the archive, and those counts are
+ * worked out from there instead.
+ *
+ * A cell with fewer than `TOTALS_MIN_LISTINGS` listings is left out.
+ */
+export const realEstateDailyTotals = realEstateArchive.table(
+  'daily_totals',
+  {
+    /** The date in Tbilisi when the totals were taken. */
+    day: date('day', { mode: 'string' }).notNull(),
+    areaLevel: text('area_level').$type<(typeof TOTALS_AREA_LEVELS)[number]>().notNull(),
+    /** ss.ge's id of the city, district or sub-district; 0 at level `all`. */
+    areaRef: integer('area_ref').notNull(),
+    /** Its Georgian name, as ss.ge showed it that day; null at level `all`. */
+    areaName: text('area_name'),
+    dealType: realEstateDealTypeEnum('deal_type').notNull(),
+    propertyType: realEstatePropertyTypeEnum('property_type').notNull(),
+    roomsBand: text('rooms_band').$type<(typeof TOTALS_ROOMS_BANDS)[number]>().notNull(),
+    /** On show, reposts merged, typo prices left out: what the figures below are of. */
+    listings: integer('listings').notNull(),
+    /** The same before reposts are merged. */
+    posts: integer('posts').notNull(),
+    /** Of `listings`, those whose own page was read (Phase 12B). */
+    withDetails: integer('with_details').notNull(),
+    priceUsdP25: numeric('price_usd_p25', { precision: 14, scale: 2 }),
+    priceUsdMedian: numeric('price_usd_median', { precision: 14, scale: 2 }),
+    priceUsdP75: numeric('price_usd_p75', { precision: 14, scale: 2 }),
+    pricePerM2UsdMedian: numeric('price_per_m2_usd_median', { precision: 12, scale: 2 }),
+    priceGelMedian: numeric('price_gel_median', { precision: 14, scale: 2 }),
+    pricePerM2GelMedian: numeric('price_per_m2_gel_median', { precision: 12, scale: 2 }),
+    areaM2Median: numeric('area_m2_median', { precision: 10, scale: 2 }),
+    takenAt: timestamp('taken_at', { mode: 'string', withTimezone: true }).notNull(),
+    /** The run the totals were taken after; null when taken by hand. */
+    crawlRunId: uuid('crawl_run_id'),
+    /** `TOTALS_RULES_VERSION` when taken: a change to the rules shows as a step, not a trend. */
+    rulesVersion: smallint('rules_version').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'daily_totals_pk',
+      columns: [
+        table.day,
+        table.areaLevel,
+        table.areaRef,
+        table.dealType,
+        table.propertyType,
+        table.roomsBand,
+      ],
+    }),
+    check(
+      'daily_totals_area_level_check',
+      sql`${table.areaLevel} in ('all', 'city', 'district', 'subdistrict')`,
+    ),
+    check(
+      'daily_totals_rooms_band_check',
+      sql`${table.roomsBand} in ('all', '1', '2', '3', '4', '5+')`,
+    ),
+  ],
+);
+
 export type RealEstateArchiveListingRow = typeof realEstateArchiveListings.$inferSelect;
 export type RealEstateArchivePriceChangeRow = typeof realEstateArchivePriceChanges.$inferSelect;
+export type RealEstateDailyTotalsRow = typeof realEstateDailyTotals.$inferSelect;

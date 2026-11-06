@@ -235,9 +235,11 @@ Not built yet, added when their phase needs them: a search column (11C), English
 
 ---
 
-### 8.4 History (Phase 13A)
+### 8.4 History (Phases 13A and 13D)
 
 `realestate_archive` keeps what the live tables let go of. When a gone row reaches 14 days, `deleteLongGoneListings` copies it to `realestate_archive.listings`, and its price changes to `realestate_archive.price_changes`, in the same statement as the delete, so the archive receives exactly the rows deleted. A copy keeps the listing's facts: kind and deal, size, floor, both prices, area ids and names, street name and number, poster type, the 12B details, the source's own dates, first and last seen, when and why it left, and whether its price or area was a typo by the tab's sorting rule (`src/realestate/plausibility.ts`). It leaves out the link, the description and its search words, and the coordinates. Nothing in the archive is ever updated or removed. The view `realestate_archive.recently_gone` shows the same columns for rows gone but not yet archived, so the two together hold every listing that has left. Hermes reads all three as `scraplify_public`; the website reads none of them. Owner decision 2026-11-05: the street stays, for re-grouping and for linking a flat listed again.
+
+`realestate_archive.daily_totals` (Phase 13D) records what was on the market each day: one row per area (all, city, district, sub-district) × deal × kind × room band (all, 1 to 4, 5+). Its figures are those of the listings a statistic counts, by the tab's own rules (`src/realestate/filters.ts`): on show, reposts merged into their group's newest listing, and typo prices left out. They are the count, the count before merging, how many have details, the price's quartiles and median in dollars, and the medians of the lari price, the price per m² in both and the area. `takeDailyTotals` (`src/realestate/totals.ts`) takes them after each night's grouping, dated by the Tbilisi calendar, and keeps no cell under five listings. A day's market cannot be worked out again later: which listings were on show and which were reposts is not kept, and the dates the live table holds reflect the crawl's own growth (64,734 listings first seen on 2026-11-04, the night 12A added the other kinds). So the totals are the record, and a change to the rules raises `TOTALS_RULES_VERSION` and shows as a step. Arrivals, departures, days on the market and price cuts need no such table: they are worked out from each listing's own dates and price changes in the live table, `recently_gone` and the archive.
 
 ## 9. Acquisition
 

@@ -215,6 +215,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON realestate.listing_groups TO scraplify_w
 -- under this role, 2026-11-05). Requires migration 0046.
 GRANT USAGE ON SCHEMA realestate_archive TO scraplify_worker;
 GRANT SELECT, INSERT ON realestate_archive.listings, realestate_archive.price_changes TO scraplify_worker;
+-- Phase 13D: src/realestate/totals.ts, run at the end of each ss.ge crawl and
+-- by `npm run totals:ss-ge`, reads the tab's own view and replaces one day's
+-- rows of daily_totals (DELETE, then INSERT, in one transaction). Requires
+-- migration 0047.
+GRANT SELECT ON realestate.public_listings TO scraplify_worker;
+GRANT SELECT, INSERT, DELETE ON realestate_archive.daily_totals TO scraplify_worker;
 
 
 -- =========================================================================

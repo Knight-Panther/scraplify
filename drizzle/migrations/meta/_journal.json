@@ -330,6 +330,13 @@
       "when": 1793904751151,
       "tag": "0046_realestate_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1793986667842,
+      "tag": "0047_realestate_daily_totals",
+      "breakpoints": true
     }
   ]
 }
