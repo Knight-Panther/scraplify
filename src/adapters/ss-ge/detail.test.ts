@@ -350,14 +350,22 @@ describe('parseDetailPage', () => {
       }
     });
 
-    it("keeps a developer's name unless it names a person or holds a phone number", () => {
+    it("keeps a developer's name only when it names a company, never a person", () => {
       const named = (companyName: string) =>
         detailsOf(parseDetailPage(pageWith({ companyId: 7, companyName }), '1')).developerName;
-      expect(named('Archi')).toBe('Archi');
+      expect(named('შპს არქი')).toBe('შპს არქი');
+      expect(named('"Comfort Hills" LLC')).toBe('"Comfort Hills" LLC');
+      expect(named('სს „თიბისი“')).toBe('სს „თიბისი“');
+      expect(named('Archi Group Ltd.')).toBe('Archi Group Ltd.');
+      // No legal form: it may be a person's name.
+      expect(named('Archi')).toBeNull();
+      expect(named('გიორგი ბერიძე')).toBeNull();
       expect(named('ი/მ გიორგი ბერიძე')).toBeNull();
       expect(named('ი.მ. გიორგი ბერიძე')).toBeNull();
       expect(named('ინდ. მეწარმე გიორგი ბერიძე')).toBeNull();
-      expect(named('Builder 599 12 34 56')).toBeNull();
+      expect(named('შპს Builder 599 12 34 56')).toBeNull();
+      // A legal form's letters inside a word are not one.
+      expect(named('Bassinc Homes')).toBeNull();
     });
 
     it('reads half a street point, or one outside Georgia, as nothing', () => {

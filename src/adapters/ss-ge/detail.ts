@@ -87,15 +87,20 @@ function streetPoint(listing: Record<string, unknown>): StreetPoint | null {
 const CADASTRAL_CODE_RE = /^\d{2}(?:\.\d{2,3}){3,6}$/;
 
 /**
- * A developer's name as its account gives it, unless it names a person: an
- * individual entrepreneur ("ი/მ …", "ინდ. მეწარმე …") trades under their own
- * name, and no person's name is stored.
+ * A developer's name, only when it names a company: it carries a legal form
+ * (შპს, სს, LLC, JSC, Ltd and the like). Any other name may be a person's,
+ * an individual entrepreneur trading under their own name ("ი/მ …", or no
+ * marker at all), and no person's name is stored. Without it, `developer_ref`
+ * still ties a developer's listings together.
  */
+const COMPANY_FORM_RE =
+  /(?:^|[\s"'«„(])(?:შპს|ს\.ს\.|სს|ააიპ|LLC|L\.L\.C\.|JSC|Ltd\.?|Limited|Inc\.?|GmbH)(?=$|[\s"'»“).,])/iu;
 const PERSON_TRADER_RE = /^(?:ი\s*\/\s*მ|ი\.\s*მ\.?|ინდ(?:ივიდუალური)?\.?\s*მეწარმე)/u;
 
 function developerName(value: unknown): string | null {
   const name = addressText(value);
-  return name === null || PERSON_TRADER_RE.test(name) ? null : name;
+  if (name === null || PERSON_TRADER_RE.test(name)) return null;
+  return COMPANY_FORM_RE.test(name) ? name : null;
 }
 
 function readDetails(listing: Record<string, unknown>): ListingDetails {
