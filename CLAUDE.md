@@ -4,9 +4,18 @@ Job/opportunity aggregator (product name: Xtelo). Crawls jobs.ge and hr.ge on a 
 
 ## Session handoff
 
-A `SessionStart` hook (`.claude/settings.json` → `scripts/session-context.sh`) injects live repo state into every new session: branch, uncommitted count, last three commits, the current-phase line from `docs/STATUS.md`, and any dev server already holding port 3000/3001. It exists so a fresh session stops spending tool calls re-deriving all of that.
+A `SessionStart` hook (`.claude/settings.json` → `scripts/session-context.sh`) injects live repo state into every new session: branch, uncommitted count, last three commits, the current-phase line and the Board's open rows from `docs/STATUS.md`, and any dev server already holding port 3000/3001. It exists so a fresh session stops spending tool calls re-deriving all of that.
 
 When the user says **"save state"** (or similar, before `/clear`), write a few plain lines to `.git/session-handoff` — what is mid-flight and what the immediate next step is. That file is machine-local and gitignored by virtue of living in `.git/` (same home as `.git/codex-cooldown`), it is printed back at the next session's start, and it is **not** a status file: anything about phase or exit-gate progress belongs in `docs/STATUS.md`, which is versioned and visible to Codex. Overwrite it rather than appending, and delete it once its next step has been done.
+
+## Tracking: the Board and plan trackers
+
+Owner decision 2026-11-07: what is done, what is open and what waits on what must be readable without looking anything up.
+
+- **The Board**, at the top of `docs/STATUS.md` between `<!-- board:start -->` and `<!-- board:end -->`, has one row per open or just-finished item: ✅ done, ⏳ under way or scheduled, ❌ not started; what it waits on; and when it is next touched. Drop a ✅ row once its phase is closed.
+- **An approved plan** lives in `docs/PHASE_<n>_PLAN.md`, item by item, with the same marks, what each waits on, and a "Changed:" note wherever building changed the plan. A plan written in plan mode (`~/.claude/plans/`) is copied there when approved, and the repo copy is the one kept current. When the phase is complete, the file moves to `docs/archive/`.
+- **When they change:** in the same commit as the STATUS gate they follow. That is at least every merge, deploy and morning-after check, every plan change, and every new open item.
+- **Reminders, never blocks:** `.githooks/pre-commit` says so when `docs/STATUS.md` changes without the active plan tracker, or ticks a gate without touching the Board, and `scripts/board-nudge.sh` (a `PostToolUse` hook) asks for the update right after a PR merge or a deploy script.
 
 A `PreCompact` hook (`scripts/compact-watch.sh`) counts compactions per session and warns as they accumulate — quietly for the first two, then from the third saying plainly that starting fresh beats another summary of a summary. **Treat that third warning as a real signal**, not noise: compaction compounds, so by then the specific detail a long task depends on is usually gone. Offer to write the handoff note and stop, rather than carrying on from a blurred context. The hook never blocks compaction (a blocked compaction on a full context kills the session mid-task, which is worse) and it cannot control *when* compaction fires — that is purely token-count driven by the built-in `autoCompactWindow`, deliberately left at its default here.
 

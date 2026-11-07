@@ -4,7 +4,37 @@ Last updated: 2026-11-07 (Phase 14A, keeping the places ss.ge already sends, mer
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Phase 14 — where a listing is: ss.ge's places, Tbilisi's official map, location quality (14A live 2026-11-07, its morning-after checks open; 14B–14D not started)
+## Board
+
+<!-- board:start -->
+Every open item, what it waits on, and when it is next touched. Times are UTC (Tbilisi is UTC+4). ✅ done · ⏳ under way or scheduled · ❌ not started. Updated with every gate it follows (CLAUDE.md, "Tracking"); a new session is shown the open rows. Phase 14 item by item: [`PHASE_14_PLAN.md`](PHASE_14_PLAN.md).
+
+| | Item | Waits on | Next |
+|---|---|---|---|
+| ✅ | 14A, keep the places ss.ge sends | — | live since 2026-11-07 16:43 |
+| ⏳ | 14A's morning-after check | the first run under 14A, 2026-11-07 21:30 to about 13:40 | 2026-11-08: read `/home/ubuntu/watch-14a.log`, judge it against 14A's gate |
+| ⏳ | 14B, official map, English names, Hermes's place catalogue C6: built, CI green, PR #81 | 14A's morning-after check | merge 2026-11-08; deploy after that day's run, 13:40–20:30 |
+| ⏳ | Hermes: one line at 14B's merge, then every ask in one note at its deploy, shown to the owner first | 14B's merge and deploy | 2026-11-08 |
+| ⏳ | 14B after deploy: the nightly run refreshes the catalogue; the plan's production checks | 14B deployed | 2026-11-09 |
+| ⏳ | Owner: one look at the English names in `src/realestate/places/curated.json` | — | any time, not blocking |
+| ❌ | 14C, location quality | 14B merged; two nights of 14A data | code 2026-11-08; thresholds 2026-11-09; deploy 2026-11-10; recheck about 2026-11-14 |
+| ❌ | 14D, C1 v2 for Hermes | 14C live; Hermes's answer about 14D | from 2026-11-11 |
+| ❌ | `places:official-report` | about four nights of street points after 14B's deploy | about 2026-11-12 |
+| ❌ | C3's official-district level | a stable month of 14C | December |
+| ✅ | 13A archive, 13B filter builder, 13D daily totals | — | live |
+| ⏳ | 13A's first deletions, then the archive's size after a week | the run starting 2026-11-09 21:30 | 2026-11-10; size about 2026-11-17 |
+| ❌ | 13C, Grafana | the owner's hostname and Cloudflare Access | — |
+| ❌ | 13E, the building fingerprint | 14C's `building_key` | after 14C |
+| ✅ | 12A–12C, every kind, listing details, more filters | — | live |
+| ⏳ | 12B's first-week numbers in RECON_NOTES | a week of runs with details, from 2026-11-05 | about 2026-11-12 |
+| ❌ | `/real-estate` answers in 3–7 s | its cause, not found yet | measure before changing anything (Open items) |
+| ⏳ | A partial or failed ss.ge run's alert shows its "Why:" line | the next such run | — |
+| ⏳ | Archive dump size: split the archive out of the nightly dump past about 250 MB | — | weekly |
+| ⏳ | Drop the trial database `scraplify_qa_places` (container `xtelo-re-test`) | — | any session; the guard asks once |
+| ❌ | Backlog: 7B supervised repair; the 1C remainder | — | "Upcoming" at the end |
+<!-- board:end -->
+
+## Current phase: Phase 14 — where a listing is: ss.ge's places, Tbilisi's official map, location quality (14A live 2026-11-07, its morning-after checks open; 14B built on its branch, not merged; 14C–14D not started)
 
 Owner decisions 2026-11-06, so Hermes can tell flats apart down to the street and building, knows Tbilisi's official districts, uses metro distance, and never repeats a place the data contradicts:
 
@@ -102,7 +132,7 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
   - each street point's official district, and the overlaps between the two maps;
   - `placeKeys` and a place lookup that Hermes calls through node;
   - the view `realestate.public_places`.
-- **Phase 14C, location quality:** not started. Its thresholds are calibrated on production after 14A has run for about a week.
+- **Phase 14C, location quality:** not started. Its thresholds are set from two nights of 14A's data, then rechecked after a week (plan change 2026-11-07: each night brings thousands of pins beside their street points, and a changed threshold re-judges every listing overnight; `PHASE_14_PLAN.md`, 14C).
 - **Phase 14D, C1 v2:** not started. It is agreed with Hermes first, including each result's place on both maps.
 
 ## Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; 13B merged and 13D live 2026-11-06; 13A's first-deletion check, 13C and 13E open)
