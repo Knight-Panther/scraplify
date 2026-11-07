@@ -161,6 +161,36 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
    - **History archive (Phase 13A, first deploy after merge only).** Migration `0046` adds the `realestate_archive` schema: `listings` and `price_changes`, which keep a slim copy of every listing the nightly run deletes 14 days after it left ss.ge, and the view `recently_gone` over the gone listings not yet archived (guideline §8.4; for Hermes, `docs/hermes-contracts.md`, C2). Nothing in `realestate` changes. Step 2 applies it, backup first, **then `grants`, before the next nightly run starts on the new release**: the copy needs the worker's grant, and without it the run's last step is refused and the run ends `failed`, with nothing deleted and nothing lost. The `grants` run also lets `scraplify_public` read the three, which is how Hermes sees them. Every night it is not live, the listings that reach 14 days are deleted without a copy; the first to reach it are the 5,270 that left on 2026-10-27, deleted by the run that starts 2026-11-09 at 21:30 UTC. After the first run on the release, as `scraplify_backup`: `select count(*), max(archived_at) from realestate_archive.listings` is above 0 once a run has deleted anything (`prod-status` shows it). The nightly dump includes the schema (`pg_read_all_data`). An archived row is about 500 bytes with its indexes (341 bytes of data, measured on the host 2026-11-05): about 0.3 GB a year at the 1,600 departures a day of early November, up to about 1.3 GB at the 7,000 a day a 300,000-listing catalogue implies. Once the nightly dump passes about 250 MB, its 30 off-host copies no longer fit the 8 GB cap and the oldest are deleted first, so a restore reaches back less far; that is the point to dump the archive on its own (STATUS, open items).
    - **Daily totals (Phase 13D, first deploy after merge only).** Migration `0047` adds `realestate_archive.daily_totals`: what was on the market each day, per area, deal, kind and room band, by the Real estate tab's own rules (guideline §8.4; for Hermes, `docs/hermes-contracts.md`, C3). Nothing else changes. Step 2 applies it, backup first, **then `grants`**: the worker needs SELECT on `realestate.public_listings` and SELECT, INSERT and DELETE on the table. Without them the totals are refused at the end of the run and logged, and the crawl's exit code is not affected. Each night's ss.ge run takes the totals after its grouping (`ss.ge daily totals taken` in its journal). The first day can be taken by hand, which makes no request to ss.ge: `sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/totals-ss-ge.js`. It takes about 5 s on the host and writes about 4,000 rows a day (about 1.5 million a year, a few hundred MB with its key). A day taken twice keeps the later figures. To check, as `scraplify_backup`: `select day, count(*), sum(listings) filter (where area_level = 'all' and rooms_band = 'all') from realestate_archive.daily_totals group by day order by day desc limit 3` (`prod-status` shows it).
    - **Rent typo bound (2026-11-06, first deploy after merge only).** Migration `0048` replaces the view `realestate_archive.recently_gone` with `create or replace`, so its grant stays: its `implausible` column now also marks a monthly rent of $200 a m² or more. Step 2 applies it, backup first; run `grants` as after every migration. Then take the day's totals again by hand (`sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/totals-ss-ge.js`), so every row of the day follows `rules_version` 2.
+   - **Places (Phase 14A, first deploy after merge only).** Migration `0049` adds three things:
+     - the table `realestate.places`, ss.ge's place tree;
+     - 13 columns on `realestate.listings`, and an index on the street;
+     - ten of those columns at the end of `public_listings`, and after `archived_at` in the archive and `recently_gone`. Both views use `create or replace`, so their grants stay.
+
+     For Hermes, see `docs/hermes-contracts.md`, C5; for the table, guideline §8.2.
+     - **When:** deploy between 13:30 and 21:30 UTC, outside the ss.ge crawl. The migration waits at most 10 s for a lock, then fails and changes nothing.
+     - **Grants:** step 2 applies the migration, backup first, **then `grants`, before the next nightly run.** The worker needs SELECT, INSERT and UPDATE on `places`. Without them the run fails at its start, because it loads each sub-district's district from the tree.
+     - **By hand, after step 3 and outside a crawl:**
+       1. Build the tree from the stored listings, re-read every stored house number, and fill the districts ss.ge left out:
+
+          ```sh
+          sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/places-ss-ge.js --backfill
+          ```
+
+          This makes no request to ss.ge, holds the crawl's lock, and logs the places added per level and how many rows it backfilled.
+       2. Take the day's totals again (`… node dist/cli/totals-ss-ge.js`), so every row of the day follows `rules_version` 3.
+     - **Checks, as `scraplify_backup`:**
+       - the tree: `select level, count(*), sum(active_listings), count(*) filter (where point_status = 'known') from realestate.places group by level`;
+       - `public_listings` has 62 columns, and neither view has `ss_metro`, `pin_manual`, `cadastral_code`, `latitude` or `longitude`;
+       - `scraplify_public` reads `select count(street_ref) from realestate.public_listings`.
+     - **From then on:** each nightly run updates the tree after its grouping (`ss.ge place tree updated` in its journal, with the places added per level; a sudden jump means ss.ge renumbered). It reads up to 300 listing pages for street points before the pages wanted for their details, and these count in `details_count`.
+     - **The morning after:**
+       - `new_count` and `changed_count` in `realestate.crawl_runs` are like the three nights before. A jump in changed means a new field was taken for a change.
+       - The wanted backlog does not jump: `select count(*) from realestate.listings where details_wanted_at is not null and details_read_at is null`.
+       - Of the active Tbilisi listings (`city_name = 'თბილისი'`) seen that night, about 90% have `street_ref` and about 40% `ss_metro`.
+       - Active listings with a sub-district but no district fall to about 0. Only a sub-district that no listing names together with its district stays unfilled.
+       - Known street points rise night by night.
+
+       `prod-status` shows the tree.
 
 9. **ss.ge's Georgian exit (2026-10-26).** Since 2026-10-22 ss.ge answers only Georgian addresses, so its requests leave through the owner's home laptop in Tbilisi while every other source stays direct. The laptop (Ubuntu Server) runs tinyproxy on its own loopback, allowed to tunnel to `ss.ge` hosts on port 443 and nothing else, and holds a reverse SSH tunnel to the host with autossh. The host's `127.0.0.1:18888` then reaches that proxy, and its `127.0.0.1:2222` the laptop's SSH, for managing it from behind the home router.
    - **Host side, once:** `sudo /opt/xtelo/current/deploy/set-proxy-tunnel.sh < laptop-tunnel.pub` creates the `xtelo-tunnel` user, whose key may open those two loopback listeners and nothing else (no shell, no forwarding into the host).

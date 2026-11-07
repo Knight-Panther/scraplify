@@ -69,7 +69,7 @@
 | Operator | შპს „საქმე.ჯი", per the site's privacy policy page |
 | Stack | Next.js (pages router) on `home.ss.ge` behind Cloudflare. Data is in a `<script id="__NEXT_DATA__">` JSON block, under `props.pageProps`. |
 | Where the data sits | Results: `applicationList.realStateItemModel` (the misspelling is theirs), with `initialTotalApplicationCount` and `initialPage`. Detail: `applicationData`. |
-| Location dictionary | Embedded in every page as `pageProps.locations`: 9 main cities (Tbilisi with 5 districts and 51 sub-districts) and 63 municipalities holding 3,751 settlements. Georgian names only. |
+| Location dictionary | **Gone by 2026-11-06.** It was embedded in every page as `pageProps.locations`: 9 main cities (Tbilisi with 5 districts and 51 sub-districts) and 63 municipalities holding 3,751 settlements, in Georgian names only. Pages no longer carry it, and ss.ge's own place lists sit behind `api-gateway.ss.ge`, which the policy refuses (§4.8). Since Phase 14A the place tree is learned from the listings themselves (§8.2, `places`). |
 | Time zone | Results rows carry an explicit `+04:00`. Detail pages show the same wall-clock value with a `Z` suffix, which is wrong (§15). Georgia is UTC+4 all year. |
 | Bot handling | None seen, from a Georgian residential connection, a hosted datacenter fetch, and the production server. |
 
@@ -123,6 +123,10 @@ The last real page of each list was found by bisection (§4.5 explains why that 
 - **Who posted it is partial.** `userInfo` (a name, an image and `userType` 2 or 3) is present on about a third of rows and appears to mark agents and companies. Its exact meaning is not confirmed.
 - **`similarityGroup`** holds the id of the listing that represents a group of look-alikes. Each visible row had a distinct value.
 - **Personal data to drop in the parser:** `userId`, `userInfo.name`, `userInfo.image`.
+- **Also read since Phase 14A (recon 2026-11-06):**
+  - `address.streetId`, ss.ge's street id. Tbilisi has 1,819, each in exactly one of its 51 sub-districts, and 57 of them are microdistrict blocks. Names repeat, ids do not.
+  - `nearbySubwayStations`: each station's slug, an entrance id (`stationId`, several per station) and walking minutes on a 5/10/15/20 scale. It is on about 40% of Tbilisi rows. ss.ge works it out from the poster's pin, not from the address, so a wrong pin gives a wrong station, and a missing list does not mean far (one listing 264 m from a station had none).
+  - `floorNumber` as a developer's list or range ("7, 10, 11", "2-14").
 
 ### 4.7 Detail pages
 
@@ -135,6 +139,7 @@ The last real page of each list was found by bisection (§4.5 explains why that 
 | An expired listing | HTTP 200, `status: "Expired"`, `isInactiveApplication: true` |
 | A listing that does not exist | HTTP 200 with no `applicationData`. Never a 404. |
 | Personal data to drop | `applicationPhones`, `contactPerson`, `userId` |
+| Places, read since Phase 14A | `isManualPin` (whether the poster placed the pin; otherwise it is the map's default point); `streetLocationLatitude`/`Longitude`, ss.ge's own point for the street, the same on every listing with that street id, and 0/0 when ss.ge has none (every Batumi street sampled on 2026-11-06); `cadastralCode`; `projectId`/`projectName` and `companyId`/`companyName` for a developer's complex; the municipality, for settlements only. Good pins sit 25–100 m from their street point; bad ones 1.4–11 km away. |
 
 ### 4.8 The site's own JSON gateway (not used)
 
@@ -217,12 +222,15 @@ Unique on `(source_id, source_listing_key)`. Columns: deal and property kind; ro
 
 Indexes: the unique key; one for browsing on `(status, deal_type, property_type, city_ref, subdistrict_ref)`; and one each on update time, price, area and expected end.
 
+Phase 14A (migration `0049`) adds ss.ge's street id, the house number and its letter read from the street number, the lowest and highest floor, ss.ge's metro list, and `district_inferred`. These are outside the content hash, so they are written on every sighting and never count as a change. From the listing's page it adds whether the poster placed the pin, the cadastral code, and the developer complex and developer. The pin, its kind, the cadastral code and the metro list stay out of the public view and the archive (`docs/hermes-contracts.md`, C5).
+
 ### 8.2 Other tables
 
 | Table | Purpose |
 |---|---|
 | `price_changes` | Each time a listing's price moved: when, old and new price in both currencies. Copied to the archive with its listing, then deleted with it (§8.4). |
 | `crawl_runs` | One row per run: mode, times, status, counters, and a `progress` JSON so an interrupted sweep resumes |
+| `places` (Phase 14A, migration `0049`) | ss.ge's place tree by its own ids: municipalities, cities and settlements, districts, sub-districts and streets. Each place has the name most of its active listings give it, its parent, old names as aliases and how many active listings name it. A street also has ss.ge's own point for it (`point_status` `unknown`, `known` or `none`). `syncPlaces` (`src/realestate/places.ts`) rebuilds it from the active listings after every run, and it is filled by hand with `npm run places:ss-ge`; nothing is deleted. Each run also reads up to 300 listing pages to learn street points, busiest streets first, and the municipality of settlements with no page read. The tree supplies the district that ss.ge leaves out of its oldest listings (`district_inferred`). It is private for now; Phase 14B publishes it as `public_places` (`docs/hermes-contracts.md`, C6). |
 
 Not built yet, added when their phase needs them: a search column (11C), English location names (11C), groups (11D).
 

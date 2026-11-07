@@ -56,6 +56,8 @@ missing key fails fast instead of hanging on a prompt.
    q "select (select count(*) from realestate_archive.listings), (select max(archived_at) from realestate_archive.listings), (select count(*) from realestate_archive.recently_gone), (select count(*) from realestate.listings where status = 'gone' and gone_at < now() - interval '15 days')"
    echo "== real-estate daily totals (latest day | cells | listings, every place and kind | taken at)"
    q "select day, count(*), sum(listings) filter (where area_level = 'all' and rooms_band = 'all'), max(taken_at) from realestate_archive.daily_totals group by day order by day desc limit 1"
+   echo "== ss.ge place tree (level | places | named by active listings | street points known | none | newest last_seen_at)"
+   q "select level, count(*), count(*) filter (where active_listings > 0), count(*) filter (where point_status = 'known'), count(*) filter (where point_status = 'none'), max(last_seen_at) from realestate.places group by level order by level"
    EOF
    ```
 
@@ -71,7 +73,7 @@ missing key fails fast instead of hanging on a prompt.
    each. Rows: release (short sha), services, failed units, running jobs,
    next pipeline run, each source's last pipeline result and last crawl run,
    backup, health-check exit, unlinked listings, open parser incidents, disk
-   and memory, ss.ge tunnel and last ss.ge run, real-estate archive, probe. Then one verdict line,
+   and memory, ss.ge tunnel and last ss.ge run, real-estate archive, daily totals, place tree, probe. Then one verdict line,
    and a short "needs attention" list if anything is ⚠️ or ❌.
 
    How to read the signals:
@@ -107,6 +109,14 @@ missing key fails fast instead of hanging on a prompt.
      finished ss.ge run is ⚠️: its journal says `ss.ge daily totals
      failed`. About 4,000 cells a day is normal. An error that
      `daily_totals` does not exist means the release before Phase 13D.
+   - The place tree (Phase 14A) is updated at the end of every ss.ge run
+     that got as far as its grouping. A newest `last_seen_at` older than the
+     last finished ss.ge run is ⚠️: its journal says `ss.ge place tree update
+     failed`. Tbilisi alone has about 1,800 streets and 51 sub-districts.
+     Known street points should rise night by night until the busy streets
+     are placed; a level whose count jumps from one night to the next means
+     ss.ge renumbered its places: ⚠️. An error that `places` does not exist
+     means the release before Phase 14A.
 
 ## What this skill will not do
 

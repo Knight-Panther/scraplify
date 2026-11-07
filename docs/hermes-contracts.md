@@ -5,10 +5,11 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 | Contract | What | State |
 |---|---|---|
 | C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`) |
-| C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`) |
-| C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`) |
+| C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`); Phase 14A appends ten columns (`0049`) |
+| C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
-| C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`) |
+| C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`, below) |
+| C6 | `realestate.public_places`, ss.ge's places and Tbilisi's official map | not yet built (Phase 14B) |
 
 ## C1: the real-estate filter builder (v1)
 
@@ -56,6 +57,7 @@ Values:
   - `places: [{ "level": "subdistrict", "ref": 1 }, { "level": "district", "ref": 7 }]` means any of these. The levels are `city`, `district` and `subdistrict`.
   - The refs are the view's `city_ref`, `district_ref` and `subdistrict_ref`, with the Georgian names beside them.
   - Street names go in `text`, which searches the words of the street, city, sub-district and description.
+  - From Phase 14A's deploy, a district also matches the listings whose district was filled from their sub-district (`district_inferred`, C5), about 1,200 of ss.ge's oldest. Streets, official districts and metro come as filters in C1 v2 (Phase 14D).
 - **Not in v1: municipality.** ss.ge gives it only on a listing's own page, and only 123 of 293,355 live listings had it on 2026-11-06. Name a municipality's towns and villages through `places` instead.
 - **What it replaces in Hermes's current query:**
   - its own live rule (`expected_end_at > now()`);
@@ -105,7 +107,7 @@ All figures are of the listings a statistic counts, by C1's own rules: `{ groupe
 | `price_usd_p25`, `price_usd_median`, `price_usd_p75` | the price in dollars |
 | `price_per_m2_usd_median`, `price_gel_median`, `price_per_m2_gel_median`, `area_m2_median` | medians. The per-m² ones are over listings with a known area: with no area, ss.ge's price per m² is the whole price. |
 | `taken_at`, `crawl_run_id` | when, and after which ss.ge run (null when taken by hand) |
-| `rules_version` | the rules the figures follow. It goes up when they change, so the change shows as a step and is not mistaken for a trend. 1 was the first take only (2026-11-06). 2 adds two things: a rent of $200 a m² or more is a typo, and the per-m² medians come only from listings with a known area. |
+| `rules_version` | the rules the figures follow. It goes up when they change, so the change shows as a step and is not mistaken for a trend. 1 was the first take only (2026-11-06). 2 adds two things: a rent of $200 a m² or more is a typo, and the per-m² medians come only from listings with a known area. 3 (Phase 14A): ss.ge's oldest listings, filed with no district, count in their sub-district's district (`district_inferred`, C5), about 1,200 more listings in the district cells; the city, sub-district and `all` cells do not move. |
 
 ### When
 
@@ -155,8 +157,9 @@ Types are in migration `0046`; definitions are in `src/db/schema/real-estate-arc
 - **ss.ge's own look-alike id:** `similarity_group`.
 - **Dates:** `source_created_at` (when ss.ge says it was posted), `source_updated_at`, `first_seen_at`, `last_seen_at`, `gone_at`, `gone_reason`, `archived_at`.
 - **`implausible`:** whether the price or area is a poster's typo, by the Real estate tab's sorting rule (`src/realestate/plausibility.ts`) as it stood when the row was archived, or as it stands now in `recently_gone`. Leave these rows out of statistics. The fields the rule reads are kept, so a later rule can be applied instead.
+- **Places, Phase 14A (migration `0049`), after `archived_at`:** `street_ref`, `house_number`, `house_suffix`, `floor_low`, `floor_high`, `district_inferred`, `complex_ref`, `complex_name`, `developer_ref`, `developer_name`, meaning what they mean in C5. A listing that left before the deploy was never seen again, so it has no `street_ref`, floors or page fields; its house number and filled district come from the deploy's backfill.
 
-Never in it: the link, the description and its search words, the coordinates, photos, the poster's name or phone. Scraplify stores neither of the last two anywhere. ss.ge's own id is kept (`source_listing_key`), so a listing's address on ss.ge can be rebuilt from it, as `public_listings` shows it for live ones. Rows are kept for good: nothing deletes from the archive.
+Never in it: the link, the description and its search words, the coordinates and whether the poster placed them, the cadastral code, ss.ge's metro list, photos, the poster's name or phone. Scraplify stores neither of the last two anywhere. ss.ge's own id is kept (`source_listing_key`), so a listing's address on ss.ge can be rebuilt from it, as `public_listings` shows it for live ones. Rows are kept for good: nothing deletes from the archive.
 
 ### Working things out
 
@@ -169,3 +172,30 @@ Never in it: the link, the description and its search words, the coordinates, ph
 ### When history starts
 
 The first rows appear after the first nightly ss.ge run on the Phase 13A release that deletes anything. The oldest gone listings on 2026-11-05 left on 2026-10-27 (5,270 of them) and were still in the live table, so nothing is known to have been deleted before the archive. Departures ran at about 500–2,300 a day in early November 2026.
+
+## C5: live listings, Phase 14A's columns (migration `0049`)
+
+`realestate.public_listings` gains ten columns at its end, by `create or replace`, so `scraplify_public`'s grant stays and every earlier column keeps its place. The archive and `recently_gone` gain the same ten after `archived_at` (C2).
+
+| Column | What |
+|---|---|
+| `street_ref` | ss.ge's own street id. One id is one street in one sub-district. Names repeat (ჭავჭავაძე is six ids; აბულაძის ქ. sits in four sub-districts), so match or group streets by this, not by `street_name`. Null when the listing names no street. |
+| `house_number`, `house_suffix` | Read from `street_number`, which stays as the poster typed it: "117დ" is 117 and `დ`; "49-51" is 49 with no letter; "№12" is 12. "0", punctuation, words or a block ("7ბ ბლოკი") give both null. The letter is lower-case. |
+| `floor_low`, `floor_high` | The lowest and highest floor the listing names. One floor gives both. A developer's "7, 10, 11" or "2-14" gives its ends, where `floor` is null. |
+| `district_inferred` | True when ss.ge gave no district (its oldest listings, about 1,200 live, posted 2023-10 to 2024-07) and `district_ref`/`district_name` were filled from the sub-district's district in ss.ge's own tree. False when ss.ge stated the district. Never null. Kept current on every sighting, so if ss.ge later states the district itself, the flag turns false. |
+| `complex_ref`, `complex_name` | A developer's residential complex, from the listing's own page. |
+| `developer_ref`, `developer_name` | The developer, from the listing's own page. The name is kept only when it names a company by its legal form (შპს, სს, LLC, JSC, Ltd and the like). Otherwise it is null and the ref is kept, since a name with no legal form may be a person's. |
+
+### Reading them
+
+- **When they fill.**
+  - `street_ref`, the house number, the floors and `district_inferred` fill on every listing as the nightly run next sees it.
+  - A listing ss.ge folds behind a look-alike gets them when its own page is read.
+  - The complex and developer fill only once `details_read_at` is set. As with the 12B details, unknown is not "none".
+- **Never a change.** None of them is in the listing's content hash. They never make a listing "changed", never set off a page read, and never touch `source_updated_at` or the price history.
+- **C1 and C3.** C1's `places` filter on a district reads `district_ref`, so it matches the filled listings too. C3's district cells count them from `rules_version` 3.
+- **Not public, on purpose:**
+  - the pin (`latitude`/`longitude`) and whether the poster placed it;
+  - the cadastral code, which leads to the owner through the public registry;
+  - ss.ge's metro list. ss.ge works it out from the poster's pin, which is often wrong: a Didi Dighomi flat pinned on Liberty Square shows "Liberty Square, 5 min". Phase 14C publishes a checked metro distance instead.
+- **Not readable yet: the place tree.** `realestate.places` (ss.ge's municipalities, cities, districts, sub-districts and streets, with each street's point) becomes readable in Phase 14B, as C6's view `realestate.public_places`, together with Tbilisi's official districts and how the two maps overlap.
