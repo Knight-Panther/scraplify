@@ -22,6 +22,42 @@ if ! git diff --cached --name-only | grep -qx 'docs/STATUS.md'; then
   echo "  Not every commit needs this — ignore if this one genuinely doesn't affect tracked status." >&2
 fi
 
+# Non-blocking: the Board at the top of docs/STATUS.md and an active plan
+# tracker (docs/PHASE_*_PLAN.md) move in the same commit as the STATUS gate
+# they follow (CLAUDE.md, "Tracking"). File and line checks only, so it
+# reminds and never blocks.
+if git diff --cached --name-only | grep -qx 'docs/STATUS.md'; then
+  staged=$(git diff --cached --name-only)
+  for plan in docs/PHASE_*_PLAN.md; do
+    [ -f "$plan" ] || continue
+    if ! printf '%s\n' "$staged" | grep -qx "$plan"; then
+      echo "pre-commit: reminder — docs/STATUS.md changed but $plan did not." >&2
+      echo "  If this commit moves one of its items, mark it there too (CLAUDE.md, \"Tracking\")." >&2
+    fi
+  done
+  # A box ticked in this commit, with no change between the Board's markers.
+  if git diff --cached -U0 -- docs/STATUS.md | grep -q '^+.*- \[x\]'; then
+    board=$(git show :docs/STATUS.md 2>/dev/null \
+      | awk '/<!-- board:start -->/ { s = NR } /<!-- board:end -->/ { e = NR } END { if (s && e) print s, e }')
+    if [ -n "$board" ]; then
+      touched=$(git diff --cached -U0 -- docs/STATUS.md | awk -v board="$board" '
+        BEGIN { split(board, b, " ") }
+        /^@@/ {
+          split($3, n, ",")
+          first = substr(n[1], 2) + 0
+          count = (n[2] == "") ? 1 : n[2] + 0
+          last = (count == 0) ? first : first + count - 1
+          if (first <= b[2] && last >= b[1]) hit = 1
+        }
+        END { print hit + 0 }')
+      if [ "$touched" = 0 ]; then
+        echo "pre-commit: reminder — a gate was ticked in docs/STATUS.md but the Board at its top was not touched." >&2
+        echo "  Move that item's row too (CLAUDE.md, \"Tracking\")." >&2
+      fi
+    fi
+  fi
+fi
+
 # Blocking: implementation work belongs on a phase branch, not main (see
 # the Git workflow section in CLAUDE.md). This only checks the branch name
 # and which files are staged, not intent — a genuine governance/doc change

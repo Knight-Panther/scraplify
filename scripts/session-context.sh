@@ -8,9 +8,9 @@
 # one round trip there and nearly free here.
 #
 # Deliberately NOT a project-status file: docs/STATUS.md owns that (CLAUDE.md's
-# own rule, and the reason this prints a pointer to it rather than a copy of
-# it). This reports live git/machine state only, plus an optional short-lived
-# handoff note a session wrote on its way out.
+# own rule). This reports live git/machine state, the open rows of STATUS's own
+# Board (read from the file each time, never a second copy), plus an optional
+# short-lived handoff note a session wrote on its way out.
 #
 # Fails open: any missing tool or file just drops that line rather than
 # breaking session startup.
@@ -34,6 +34,13 @@ context=$(
 
   phase=$(grep -m1 '^## Current phase:' docs/STATUS.md 2>/dev/null | sed 's/^## //' || true)
   [ -n "$phase" ] && echo "docs/STATUS.md says: $phase"
+
+  # The Board's open rows (CLAUDE.md, "Tracking"): | mark | item | waits on | next |.
+  board=$(sed -n '/<!-- board:start -->/,/<!-- board:end -->/p' docs/STATUS.md 2>/dev/null | grep -E '^\| (⏳|❌) ' || true)
+  if [ -n "$board" ]; then
+    echo "Board, open rows (docs/STATUS.md; columns: mark | item | waits on | next):"
+    printf '%s\n' "$board" | sed 's/^/  /'
+  fi
 
   ports=$(netstat -ano 2>/dev/null | grep -i listening | grep -oE ':(3000|3001)[[:space:]]' | tr -d ': \t' | sort -u | tr '\n' ' ')
   [ -n "$ports" ] && echo "Dev server already listening on port(s): $ports"
