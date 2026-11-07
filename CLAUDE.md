@@ -21,7 +21,16 @@ A `PreCompact` hook (`scripts/compact-watch.sh`) counts compactions per session 
 
 Two Postgres databases exist locally: `scraplify` (the real crawled corpus) and `scraplify_qa` (a frozen, disposable snapshot — a few hundred listings, not kept in sync with crawls or anything else). `npm run dev` / `dev:web` always points at `scraplify` with writes permanently disabled — a hard rule, not a temporary or togglable state, because a session has accidentally mutated the real corpus twice before this existed. `npm run dev:web:qa` points at `scraplify_qa` with writes enabled, for testing anything that mutates data (Save/Dismiss, duplicate-review actions, etc.) without any risk to real data. See `web/lib/writes.ts` for the full rationale.
 
-That guard covers the dev server only. Shell commands reach the same databases around it, so a `PreToolUse` hook (`scripts/db-write-guard.sh`) asks before any Bash/PowerShell command that looks like a database write: write SQL through `psql`, `dropdb`, `pg_restore` into a database, or a corpus-writing CLI (crawl, dedupe, rank, taxonomy, retention `--apply`, matching bundle, migrate), locally or over SSH on the host. Commands naming `scraplify_qa` pass. It asks rather than blocks, so a deliberate write is one approval. If it prompts on something read-only, fix the pattern rather than working around it.
+That guard covers the dev server only. Shell commands reach the same databases around it, so a `PreToolUse` hook (`scripts/db-write-guard.sh`) asks before any Bash/PowerShell command that looks destructive, locally or over SSH on the host. That covers:
+- SQL that drops, truncates, deletes or removes a column;
+- `dropdb`, `dropuser`, and `pg_restore` into a database;
+- retention `--apply`;
+- deleting the local Postgres container or a Docker volume;
+- stopping or removing Postgres;
+- deleting a backup copy;
+- a force push.
+
+Since 2026-11-07 it is the only routine prompt. The owner's permission setup allows every other command: a bare `Bash` allow rule in `.claude/settings.local.json`, "edit automatically" mode. Reads, inserts and updates, migrations and the corpus CLIs therefore run freely. Commands naming `scraplify_qa` pass. It asks rather than blocks, so a deliberate delete is one approval. If it prompts on something harmless, or misses something destructive, fix the pattern and its case in `scripts/db-write-guard-cases.sh` rather than working around it.
 
 ## Hosted edition (live)
 

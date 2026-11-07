@@ -472,7 +472,11 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 - **Tenders (2026-10-07):** build tenders from etenders.ge for freelancers and small firms, shown in Browse together with vacancies (a "tender" tag and Kind filter; this replaced a separate Tenders tab the same day) and kept out of CV Ranked; v1 ingests public purchase tenders only (no asset sales, invite-only or anonymous tenders); the job boards' own tender posts are reclassified as tenders.
 - **Crawl pacing:** jobs.ge crawl delay removed under policy v2 (2026-09-26), then set to 2 s under v3 after a soft block (2026-09-27); hr.ge keeps 3 s.
 - **Retention:** the 60/60/180-day policy was owner-approved (2026-09-27; concept §6.1 amendment).
-- **Schema and role changes on the real database** need the owner's approval (migration and grants approval is asked for first).
+- **Schema and role changes on the real database** need the owner's approval (migration and grants approval is asked for first). Superseded on 2026-11-07, next bullet.
+- **Permissions (2026-11-07):** Claude works with no permission prompts, and pushes, merges once the gates are met, and deploys inside the window. This includes migrations and the deploy scripts' migration step.
+  - **Setup:** "edit automatically" mode with a bare `Bash` allow rule, in the gitignored `.claude/settings.local.json`.
+  - **What still asks:** destructive database operations and force pushes. `scripts/db-write-guard.sh` detects them, `scripts/db-write-guard-cases.sh` holds its 48 cases, and `.claude/settings.json` has the force-push ask rules.
+  - **Auto mode** drops the broad allow rule, so sessions in this repo stay in "edit automatically".
 - **Semantic matching:** E1 chosen 2026-09-26; matching work was to stop for the MVP the same day, then reopened by the owner on 2026-09-30 for A′ (PR #35) and role quality (PR #36). The model question is closed (A′).
 - **Hosting:** OVH VPS-1, deployed 2026-09-28.
 - **R2 backups kept inside the free tier** (owner request, 2026-09-30): 30-day expiry and a spend alert.
