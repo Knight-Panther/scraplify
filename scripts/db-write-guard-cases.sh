@@ -68,6 +68,17 @@ check ask "git push --prune origin"
 check ask "docker exec scraplify-postgres-1 psql -d scraplify -c 'drop table x' # scraplify_qa"
 check ask "psql postgresql://scraplify:pw@127.0.0.1:5432/scraplify -c 'delete from x' -v note=scraplify_qa_re"
 check ask "ssh ubuntu@152.228.171.98 \"sudo -u postgres psql -d scraplify -c 'truncate realestate.places'\" # scraplify_qa"
+# --- must ask: the exemption needs proof of a qa target (security review 2026-11-07, round 3)
+check ask "psql \"\$DATABASE_URL\" -c 'drop table x' -v db=scraplify_qa_re"
+check ask "psql \"\$DATABASE_URL\" -d scraplify_qa_re -c 'drop table x'"
+check ask "psql -c 'drop table x' # -d scraplify_qa_re"
+check ask "PGDATABASE=scraplify psql -d scraplify_qa_re -c 'truncate x'"
+check ask "echo 'drop database scraplify' | docker exec -i scraplify-postgres-1 psql -d postgres"
+# --- must ask: quoted refspecs and flags
+check ask "git push origin ':main'"
+check ask "git push origin \"+main\""
+check ask "git push origin '+refs/heads/main:refs/heads/main'"
+check ask "git push \"--force\" origin main"
 
 # --- must pass: reads, ordinary writes, migrations and the corpus CLIs
 check pass "docker exec scraplify-postgres-1 psql -U scraplify -d scraplify -c 'select count(*) from realestate.listings'"
@@ -93,6 +104,8 @@ check pass "gh pr merge 81 --merge --delete-branch"
 check pass "truncate -s 0 /tmp/x.log"
 check pass "docker compose down"
 check pass "git push origin HEAD:refs/heads/phase-14b"
+check pass "git push origin 'HEAD:refs/heads/phase-14b'"
+check pass "DATABASE_URL=postgresql://scraplify:throwaway@127.0.0.1:5544/scraplify_qa_re node -e \"client.query('DELETE FROM realestate.places')\""
 check pass "DATABASE_URL=postgresql://scraplify:throwaway@127.0.0.1:5544/scraplify_qa_re npx vitest run"
 check pass "printf 'TRUNCATE realestate.places' | docker exec -i xtelo-re-test psql -U scraplify -d scraplify_qa_re"
 check pass "docker exec -i xtelo-re-test psql -U scraplify -d scraplify_qa_re <<'SQL'

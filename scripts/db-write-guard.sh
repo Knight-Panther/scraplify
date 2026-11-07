@@ -60,16 +60,22 @@ matches_exact() {
   printf '%s' "$cmd" | grep -Eq "$1"
 }
 
-# The disposable QA databases (CLAUDE.md, "Local databases"): exempt only
-# when nothing else in the command names a real target. Without the qa names,
-# the real local corpus (`-d scraplify`, a URL ending in `/scraplify`, its
-# container) or the host must not remain, so a stray "scraplify_qa" in a
-# comment or another argument does not wave a real delete through.
-if matches 'scraplify_qa'; then
-  rest=$(printf '%s' "$cmd" | sed -E 's/scraplify_qa[A-Za-z0-9_]*//g')
-  if ! printf '%s' "$rest" | grep -Eiq 'scraplify-postgres|(-d|--dbname)[= ]*["'"'"']?scraplify([^_a-z0-9]|$)|@[^/[:space:]]+/scraplify([^_a-z0-9]|$)|\bssh\b|152\.228\.171\.98|xtelo-host'; then
-    exit 0
-  fi
+# The disposable QA databases (CLAUDE.md, "Local databases") are exempt only
+# on positive proof: the command names a scraplify_qa database as its target
+# (`-d`/`--dbname`, a URL's database, dropdb's argument, DROP DATABASE), not
+# inside a shell comment, and names no real target besides. Real targets: the
+# real local corpus (`-d scraplify`, a URL ending in `/scraplify`, its
+# container, DROP DATABASE scraplify), whatever `$DATABASE_URL` or PGDATABASE
+# point at (the shell's default is the real corpus), and the host. A command
+# that names no database at all is not exempt.
+q="[\"']?"
+qa_target="(-d|--dbname)[= ]*${q}scraplify_qa|@[^/[:space:]]+/scraplify_qa|\\bdropdb\\b[^|;&]*[[:space:]]${q}scraplify_qa|drop[[:space:]]+database[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?${q}scraplify_qa"
+real_target="scraplify-postgres|(-d|--dbname)[= ]*${q}scraplify([^_a-z0-9]|$)|@[^/[:space:]]+/scraplify([^_a-z0-9]|$)|drop[[:space:]]+database[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?${q}scraplify([^_a-z0-9]|$)|\\\$\\{?DATABASE_URL|PGDATABASE|\\bssh\\b|152\\.228\\.171\\.98|xtelo-host"
+# The proof is read with shell comments cut off, so "# -d scraplify_qa" proves
+# nothing; the real targets are read in the whole command.
+uncommented=$(printf '%s' "$cmd" | sed -E 's/(^|[[:space:]])#.*$//')
+if printf '%s' "$uncommented" | grep -Eiq "$qa_target" && ! matches "$real_target"; then
+  exit 0
 fi
 
 what=""
@@ -132,11 +138,11 @@ fi
 # a deleting push removes a remote branch. A merged PR's branch is deleted by
 # `gh pr merge --delete-branch`, which does not pass through here.
 if [ -z "$what" ] &&
-  matches_exact '\bgit[[:space:]]+push\b[^|;&]*([[:space:]](--force|--force-with-lease|-f|--mirror)\b|[[:space:]]\+[^[:space:]])'; then
+  matches_exact "\\bgit[[:space:]]+push\\b[^|;&]*([[:space:]]${q}(--force|--force-with-lease|-f|--mirror)\\b|[[:space:]]${q}\\+[^[:space:]])"; then
   what="a force push"
 fi
 if [ -z "$what" ] &&
-  matches_exact '\bgit[[:space:]]+push\b[^|;&]*([[:space:]](--delete|-d|--prune)\b|[[:space:]]:[^[:space:]])'; then
+  matches_exact "\\bgit[[:space:]]+push\\b[^|;&]*([[:space:]]${q}(--delete|-d|--prune)\\b|[[:space:]]${q}:[^[:space:]])"; then
   what="a push that deletes a remote branch"
 fi
 
