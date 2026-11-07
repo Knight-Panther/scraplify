@@ -10,6 +10,7 @@ import type {
   PosterEntity,
   Project,
 } from './kinds.js';
+import { recordStreetPoint, type StreetPoint } from './places.js';
 
 /**
  * What a listing's own page says beyond its results row (Phase 12B), as keys
@@ -33,23 +34,53 @@ export interface ListingDetails {
   longitude: number | null;
   municipalityRef: number | null;
   municipalityName: string | null;
+  /** Phase 14A. Whether the poster placed the pin; null when the page does not say. */
+  pinManual: boolean | null;
+  cadastralCode: string | null;
+  /** A developer's residential complex, and the developer. */
+  complexRef: number | null;
+  complexName: string | null;
+  developerRef: number | null;
+  developerName: string | null;
+  /**
+   * What the page's address and metro list say, as a results row says them:
+   * written only when the page gives them, since a row may have said them
+   * already, and this is how a listing folded behind a look-alike gets them.
+   */
+  streetRef: number | null;
+  ssMetro: Record<string, number> | null;
+  floorLow: number | null;
+  floorHigh: number | null;
+  /** ss.ge's own point for the page's street, with what the tree needs to hold a street it has not met. */
+  street: {
+    point: StreetPoint | null;
+    name: string | null;
+    subdistrictRef: number | null;
+    cityRef: number | null;
+  };
 }
 
 function decimal(value: number | null, scale: number): string | null {
   return value === null ? null : value.toFixed(scale);
 }
 
+/** A value the page gives, or nothing: a field it leaves out keeps what a results row said. */
+function given<K extends string, V>(key: K, value: V | null): Partial<Record<K, V>> {
+  return value === null ? {} : ({ [key]: value } as Record<K, V>);
+}
+
 /**
  * Writes what a listing's own page said, every field of it: a value a later
  * page no longer gives becomes unknown. Marks the page read and the listing
- * no longer wanted.
+ * no longer wanted. The page's street point goes to the street in the place
+ * tree (`recordStreetPoint`).
  */
 export async function recordListingDetails(
   db: DatabaseOrTransaction,
   input: { listingId: string; details: ListingDetails; readAt: string },
 ): Promise<void> {
   const { details } = input;
-  await db
+  const [listing] = await db
     .update(realEstateListings)
     .set({
       buildingStatus: details.buildingStatus,
@@ -67,10 +98,33 @@ export async function recordListingDetails(
       longitude: decimal(details.longitude, 6),
       municipalityRef: details.municipalityRef,
       municipalityName: details.municipalityName,
+      pinManual: details.pinManual,
+      cadastralCode: details.cadastralCode,
+      complexRef: details.complexRef,
+      complexName: details.complexName,
+      developerRef: details.developerRef,
+      developerName: details.developerName,
+      ...given('streetRef', details.streetRef),
+      ...given('ssMetro', details.ssMetro),
+      ...given('floorLow', details.floorLow),
+      ...given('floorHigh', details.floorHigh),
       detailsReadAt: input.readAt,
       detailsWantedAt: null,
     })
-    .where(eq(realEstateListings.id, input.listingId));
+    .where(eq(realEstateListings.id, input.listingId))
+    .returning({ sourceId: realEstateListings.sourceId });
+
+  const { street } = details;
+  if (listing === undefined || details.streetRef === null || street.point === null) return;
+  await recordStreetPoint(db, {
+    sourceId: listing.sourceId,
+    streetRef: details.streetRef,
+    streetName: street.name,
+    subdistrictRef: street.subdistrictRef,
+    cityRef: street.cityRef,
+    point: street.point,
+    readAt: input.readAt,
+  });
 }
 
 /**

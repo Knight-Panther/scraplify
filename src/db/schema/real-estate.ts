@@ -1,12 +1,14 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   customType,
   index,
   integer,
   jsonb,
   numeric,
   pgSchema,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -17,6 +19,8 @@ import {
   type BuildingStatus,
   type Condition,
   DEAL_TYPES,
+  type PlaceLevel,
+  type PointStatus,
   PROPERTY_TYPES,
 } from '../../realestate/kinds.js';
 import { sources } from './sources.js';
@@ -120,6 +124,31 @@ export const realEstateListings = realEstate.table(
     subdistrictName: text('subdistrict_name'),
     streetName: text('street_name'),
     streetNumber: text('street_number'),
+    /*
+     * Phase 14A, kept current on every sighting and never a change
+     * (`rowExtrasOf`, src/realestate/ingest.ts). `street_ref` is the source's
+     * own street id: one street in one sub-district, where names repeat (six
+     * Tbilisi streets are called Chavchavadze). The house number is read from
+     * `street_number` (src/realestate/address.ts), which stays as typed.
+     */
+    streetRef: integer('street_ref'),
+    houseNumber: integer('house_number'),
+    houseSuffix: text('house_suffix'),
+    /** The lowest and highest floor named: a developer's "7, 10, 11" or "2-14" too, where `floor` is null. */
+    floorLow: smallint('floor_low'),
+    floorHigh: smallint('floor_high'),
+    /**
+     * The metro stations the source lists near it, station → walking minutes.
+     * ss.ge works them out from the poster's map pin, so a wrong pin makes them
+     * wrong: kept, not shown, and not in the public view or the archive.
+     */
+    ssMetro: jsonb('ss_metro').$type<Record<string, number>>(),
+    /**
+     * The district was filled in from the sub-district's own (the source left
+     * it out on its oldest listings), not stated by the source. Kept current on
+     * every sighting.
+     */
+    districtInferred: boolean('district_inferred').notNull().default(false),
     posterType: realEstatePosterTypeEnum('poster_type').notNull().default('unknown'),
     /** Any paid placement on the source. */
     promoted: boolean('promoted').notNull().default(false),
@@ -164,6 +193,18 @@ export const realEstateListings = realEstate.table(
     longitude: numeric('longitude', { precision: 9, scale: 6 }),
     municipalityRef: integer('municipality_ref'),
     municipalityName: text('municipality_name'),
+    /*
+     * Phase 14A, from the page too. Whether the poster placed the pin (the
+     * map's default point otherwise); private like the pin. A parcel's
+     * cadastral code leads to its owner through the public registry, so it is
+     * private too. The complex and its developer are businesses.
+     */
+    pinManual: boolean('pin_manual'),
+    cadastralCode: text('cadastral_code'),
+    complexRef: integer('complex_ref'),
+    complexName: text('complex_name'),
+    developerRef: integer('developer_ref'),
+    developerName: text('developer_name'),
     /** When the listing's own page was last read for these fields. */
     detailsReadAt: timestamp('details_read_at', { mode: 'string', withTimezone: true }),
     /** Since when the crawl means to read its page; cleared once read. */
@@ -229,6 +270,59 @@ export const realEstateListings = realEstate.table(
     index('listings_details_wanted_idx')
       .on(table.sourceId, table.detailsWantedAt)
       .where(sql`${table.detailsReadAt} is null`),
+    index('listings_street_idx')
+      .on(table.sourceId, table.streetRef)
+      .where(sql`${table.streetRef} is not null`),
+  ],
+);
+
+/**
+ * A source's places (Phase 14A): its own tree of municipalities, cities and
+ * settlements, districts, sub-districts and streets, each by the source's own
+ * id, with the name its listings give it and its parent. Built from the
+ * listings after every run (`syncPlaces`, src/realestate/places.ts), since
+ * ss.ge's own lists are behind a host the source policy refuses. A street also
+ * gets ss.ge's own point for it, from any one of its listings' pages: the
+ * same point for every listing on the street, not anyone's home.
+ *
+ * Nothing is deleted: a place no active listing names keeps its row, with
+ * `active_listings` at 0.
+ */
+export const realEstatePlaces = realEstate.table(
+  'places',
+  {
+    sourceId: uuid('source_id')
+      .notNull()
+      .references(() => sources.id),
+    level: text('level').$type<PlaceLevel>().notNull(),
+    ref: integer('ref').notNull(),
+    parentLevel: text('parent_level').$type<PlaceLevel>(),
+    parentRef: integer('parent_ref'),
+    /** The name most of its active listings give it. */
+    nameKa: text('name_ka').notNull(),
+    /** Names it went by before. */
+    aliases: text('aliases').array().notNull().default(sql`'{}'::text[]`),
+    /** A street's point, as ss.ge places the street. */
+    latitude: numeric('latitude', { precision: 9, scale: 6 }),
+    longitude: numeric('longitude', { precision: 9, scale: 6 }),
+    pointStatus: text('point_status').$type<PointStatus>().notNull().default('unknown'),
+    pointCheckedAt: timestamp('point_checked_at', { mode: 'string', withTimezone: true }),
+    activeListings: integer('active_listings').notNull().default(0),
+    firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({ name: 'places_pk', columns: [table.sourceId, table.level, table.ref] }),
+    index('places_parent_idx').on(table.sourceId, table.parentLevel, table.parentRef),
+    check(
+      'places_level_check',
+      sql`${table.level} in ('municipality', 'city', 'district', 'subdistrict', 'street')`,
+    ),
+    check(
+      'places_parent_level_check',
+      sql`${table.parentLevel} in ('municipality', 'city', 'district', 'subdistrict')`,
+    ),
+    check('places_point_status_check', sql`${table.pointStatus} in ('unknown', 'known', 'none')`),
   ],
 );
 
@@ -316,6 +410,18 @@ export const realEstatePublicListings = realEstate
     municipalityRef: integer('municipality_ref'),
     municipalityName: text('municipality_name'),
     detailsReadAt: timestamp('details_read_at', { mode: 'string', withTimezone: true }),
+    // Phase 14A: appended, so `create or replace` keeps the grant (migration 0049).
+    // Not the metro list, the pin's kind or the cadastral code, which are private.
+    streetRef: integer('street_ref'),
+    houseNumber: integer('house_number'),
+    houseSuffix: text('house_suffix'),
+    floorLow: smallint('floor_low'),
+    floorHigh: smallint('floor_high'),
+    districtInferred: boolean('district_inferred').notNull(),
+    complexRef: integer('complex_ref'),
+    complexName: text('complex_name'),
+    developerRef: integer('developer_ref'),
+    developerName: text('developer_name'),
   })
   .as(sql`
     select
@@ -370,7 +476,17 @@ export const realEstatePublicListings = realEstate
       ${realEstateListings.amenities} as amenities,
       ${realEstateListings.municipalityRef} as municipality_ref,
       ${realEstateListings.municipalityName} as municipality_name,
-      ${realEstateListings.detailsReadAt} as details_read_at
+      ${realEstateListings.detailsReadAt} as details_read_at,
+      ${realEstateListings.streetRef} as street_ref,
+      ${realEstateListings.houseNumber} as house_number,
+      ${realEstateListings.houseSuffix} as house_suffix,
+      ${realEstateListings.floorLow} as floor_low,
+      ${realEstateListings.floorHigh} as floor_high,
+      ${realEstateListings.districtInferred} as district_inferred,
+      ${realEstateListings.complexRef} as complex_ref,
+      ${realEstateListings.complexName} as complex_name,
+      ${realEstateListings.developerRef} as developer_ref,
+      ${realEstateListings.developerName} as developer_name
     from ${realEstateListings}
     where ${realEstateListings.status} = 'active'
   `);
@@ -432,3 +548,4 @@ export type RealEstateListingRow = typeof realEstateListings.$inferSelect;
 export type NewRealEstateListingRow = typeof realEstateListings.$inferInsert;
 export type RealEstatePriceChangeRow = typeof realEstatePriceChanges.$inferSelect;
 export type RealEstateCrawlRunRow = typeof realEstateCrawlRuns.$inferSelect;
+export type RealEstatePlaceRow = typeof realEstatePlaces.$inferSelect;

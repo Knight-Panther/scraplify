@@ -1,7 +1,11 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from '../db/client.js';
-import { type NewRealEstateListingRow, realEstateListings } from '../db/schema/index.js';
+import {
+  type NewRealEstateListingRow,
+  realEstateListings,
+  realEstatePlaces,
+} from '../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import {
   type ListingDetails,
@@ -32,6 +36,22 @@ const DETAILS: ListingDetails = {
   longitude: 44.783333,
   municipalityRef: 1,
   municipalityName: 'თბილისის შემოგარენი',
+  pinManual: true,
+  cadastralCode: '01.14.12.005.017',
+  complexRef: 619,
+  complexName: 'Comfort Hills',
+  developerRef: 344,
+  developerName: 'Comfort Hills',
+  streetRef: 116,
+  ssMetro: { medical_uni: 15, tech_uni: 20 },
+  floorLow: -1,
+  floorHigh: 14,
+  street: {
+    point: { status: 'known', latitude: 41.73067, longitude: 44.769665 },
+    name: 'შარტავას ქ.',
+    subdistrictRef: 3,
+    cityRef: 95,
+  },
 };
 
 describe('listing details', () => {
@@ -99,6 +119,74 @@ describe('listing details', () => {
     expect(Number(row?.latitude)).toBe(41.716537);
     expect(Number(row?.longitude)).toBe(44.783333);
     expect(instant(row?.detailsReadAt)).toBe(NOW);
+    // Phase 14A.
+    expect(row).toMatchObject({
+      pinManual: true,
+      cadastralCode: '01.14.12.005.017',
+      complexRef: 619,
+      complexName: 'Comfort Hills',
+      developerRef: 344,
+      developerName: 'Comfort Hills',
+      streetRef: 116,
+      ssMetro: { medical_uni: 15, tech_uni: 20 },
+      floorLow: -1,
+      floorHigh: 14,
+    });
+  });
+
+  it("keeps the page's street point on the street, the same for every listing on it", async () => {
+    const sourceId = await newSource();
+    const { id } = await listing(sourceId);
+
+    await recordListingDetails(db, { listingId: id, details: DETAILS, readAt: at(0) });
+
+    const [street] = await db
+      .select()
+      .from(realEstatePlaces)
+      .where(and(eq(realEstatePlaces.sourceId, sourceId), eq(realEstatePlaces.level, 'street')));
+    expect(street).toMatchObject({
+      ref: 116,
+      parentLevel: 'subdistrict',
+      parentRef: 3,
+      nameKa: 'შარტავას ქ.',
+      pointStatus: 'known',
+      latitude: '41.730670',
+      longitude: '44.769665',
+    });
+  });
+
+  it('leaves the street, metro and floors a results row gave when the page gives none', async () => {
+    const sourceId = await newSource();
+    const { id } = await listing(sourceId, {
+      streetRef: 92,
+      ssMetro: { state_uni: 10 },
+      floorLow: 3,
+      floorHigh: 3,
+    });
+
+    await recordListingDetails(db, {
+      listingId: id,
+      details: {
+        ...DETAILS,
+        streetRef: null,
+        ssMetro: null,
+        floorLow: null,
+        floorHigh: null,
+        street: { point: null, name: null, subdistrictRef: null, cityRef: null },
+      },
+      readAt: at(0),
+    });
+
+    const [row] = await db.select().from(realEstateListings).where(eq(realEstateListings.id, id));
+    expect(row).toMatchObject({
+      streetRef: 92,
+      ssMetro: { state_uni: 10 },
+      floorLow: 3,
+      floorHigh: 3,
+    });
+    expect(
+      await db.select().from(realEstatePlaces).where(eq(realEstatePlaces.sourceId, sourceId)),
+    ).toEqual([]);
   });
 
   it('writes unknown over a value a later page no longer gives', async () => {

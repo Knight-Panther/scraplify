@@ -20,9 +20,11 @@ import { conditions, type RealEstateFilters, shownRows } from './filters.js';
 /**
  * Raised when the rules behind the figures change, so a step is not read as a
  * trend. 2 (2026-11-06): a rent of $200 a m² or more is a typo, and prices per
- * m² come only from listings whose area is known.
+ * m² come only from listings whose area is known. 3 (Phase 14A): the oldest
+ * listings, which ss.ge files with no district, count in their sub-district's
+ * district (`district_inferred`), about 1,200 more in the district cells.
  */
-export const TOTALS_RULES_VERSION = 2;
+export const TOTALS_RULES_VERSION = 3;
 /** A cell with fewer listings is not kept: one or two listings are no market, and most cells are villages. */
 export const TOTALS_MIN_LISTINGS = 5;
 

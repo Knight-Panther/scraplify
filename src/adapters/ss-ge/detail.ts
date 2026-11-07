@@ -10,7 +10,8 @@ import {
   PROJECTS,
   vocabularyKey,
 } from '../../realestate/kinds.js';
-import { readListingPrice, reference, text } from './list.js';
+import type { StreetPoint } from '../../realestate/places.js';
+import { addressText, floorRange, readListingPrice, readMetro, reference, text } from './list.js';
 import { isRecord, readPageProps, SsGePageShapeError, tbilisiWallClockToIso } from './page.js';
 
 /**
@@ -67,10 +68,46 @@ function coordinate(value: unknown, range: { min: number; max: number }): number
   return Math.round(value * 1e6) / 1e6;
 }
 
+/**
+ * ss.ge's own point for the page's street (Phase 14A), the same on every
+ * listing of that street. It sends 0/0 for a street it has no point for
+ * (every Batumi street sampled on 2026-11-06), which `coordinate` would only
+ * call missing; here it means "none", so the street is not asked about again
+ * for a while. A point outside Georgia, or half of one, is nothing.
+ */
+function streetPoint(listing: Record<string, unknown>): StreetPoint | null {
+  const { streetLocationLatitude: lat, streetLocationLongitude: lng } = listing;
+  if (lat === 0 && lng === 0) return { status: 'none' };
+  const latitude = coordinate(lat, LATITUDE);
+  const longitude = coordinate(lng, LONGITUDE);
+  return latitude === null || longitude === null ? null : { status: 'known', latitude, longitude };
+}
+
+/** A Georgian cadastral code's shape: "01.17.13.026.105", "20.48.11.084". */
+const CADASTRAL_CODE_RE = /^\d{2}(?:\.\d{2,3}){3,6}$/;
+
+/**
+ * A developer's name, only when it names a company: it carries a legal form
+ * (შპს, სს, LLC, JSC, Ltd and the like). Any other name may be a person's,
+ * an individual entrepreneur trading under their own name ("ი/მ …", or no
+ * marker at all), and no person's name is stored. Without it, `developer_ref`
+ * still ties a developer's listings together.
+ */
+const COMPANY_FORM_RE =
+  /(?:^|[\s"'«„(])(?:შპს|ს\.ს\.|სს|ააიპ|LLC|L\.L\.C\.|JSC|Ltd\.?|Limited|Inc\.?|GmbH)(?=$|[\s"'»“).,])/iu;
+const PERSON_TRADER_RE = /^(?:ი\s*\/\s*მ|ი\.\s*მ\.?|ინდ(?:ივიდუალური)?\.?\s*მეწარმე)/u;
+
+function developerName(value: unknown): string | null {
+  const name = addressText(value);
+  if (name === null || PERSON_TRADER_RE.test(name)) return null;
+  return COMPANY_FORM_RE.test(name) ? name : null;
+}
+
 function readDetails(listing: Record<string, unknown>): ListingDetails {
   const address = isRecord(listing.address) ? listing.address : {};
   const latitude = coordinate(listing.locationLatitude, LATITUDE);
   const longitude = coordinate(listing.locationLongitude, LONGITUDE);
+  const cadastral = text(listing.cadastralCode);
   const amenities: AmenityKey[] = [];
   for (const [field, key] of Object.entries(AMENITY_FIELDS)) {
     if (listing[field] === true) amenities.push(key);
@@ -92,6 +129,21 @@ function readDetails(listing: Record<string, unknown>): ListingDetails {
     longitude: latitude === null || longitude === null ? null : longitude,
     municipalityRef: reference(address.municipalityId),
     municipalityName: text(address.municipalityTitle),
+    pinManual: typeof listing.isManualPin === 'boolean' ? listing.isManualPin : null,
+    cadastralCode: cadastral !== null && CADASTRAL_CODE_RE.test(cadastral) ? cadastral : null,
+    complexRef: reference(listing.projectId),
+    complexName: addressText(listing.projectName),
+    developerRef: reference(listing.companyId),
+    developerName: developerName(listing.companyName),
+    streetRef: reference(address.streetId),
+    ssMetro: readMetro(listing.nearbySubwayStations),
+    ...floorRange(listing.floor),
+    street: {
+      point: streetPoint(listing),
+      name: addressText(address.streetTitle),
+      subdistrictRef: reference(address.subdistrictId),
+      cityRef: reference(address.cityId),
+    },
   };
 }
 

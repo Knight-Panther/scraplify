@@ -24,6 +24,7 @@ import {
   realEstateCrawlRuns,
   realEstateListingGroups,
   realEstateListings,
+  realEstatePlaces,
   resources,
   type SourceListingRow,
   sourceListingRevisions,
@@ -481,6 +482,8 @@ export async function cleanupTestSource(
     ).map((row) => row.key as string);
     await tx.delete(realEstateListings).where(eq(realEstateListings.sourceId, sourceId));
     await tx.delete(realEstateCrawlRuns).where(eq(realEstateCrawlRuns.sourceId, sourceId));
+    // Its place tree (migration 0049) FKs into sources.id too.
+    await tx.delete(realEstatePlaces).where(eq(realEstatePlaces.sourceId, sourceId));
     // The archive's copies (migration 0046) FK into sources.id as well; their
     // price changes go with them.
     await tx

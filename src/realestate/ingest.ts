@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { realEstateListings, realEstatePriceChanges } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
+import { parseHouseNumber } from './address.js';
 import type { DealType, PropertyType } from './kinds.js';
+import { type DistrictParents, inferDistrict } from './places.js';
 
 /**
  * One listing as a source's results page shows it, already normalised by the
@@ -30,8 +32,15 @@ export interface ListingCard {
   districtName: string | null;
   subdistrictRef: number | null;
   subdistrictName: string | null;
+  /** The source's own street id (Phase 14A): one street, where names repeat. */
+  streetRef: number | null;
   streetName: string | null;
   streetNumber: string | null;
+  /** The metro stations the source lists near it, station → walking minutes, as it worked them out from its pin. */
+  ssMetro: Record<string, number> | null;
+  /** The lowest and highest floor it names; a developer's list or range too. */
+  floorLow: number | null;
+  floorHigh: number | null;
   posterType: 'owner' | 'agent' | 'developer' | 'unknown';
   promoted: boolean;
   /** ss.ge's code for a commercial space's type (`COMMERCIAL_TYPE_CODES`), or null. */
@@ -74,6 +83,11 @@ export interface UpsertListingInput {
   card: ListingCard;
   /** When this run read the page the card came from. */
   seenAt: string;
+  /**
+   * Each sub-district's district (`loadDistrictParents`): a district the row
+   * leaves out is filled from it, and marked so. Without it nothing is filled.
+   */
+  parents?: DistrictParents;
 }
 
 function money(value: number | null): string | null {
@@ -102,6 +116,11 @@ type MeaningfulFields = Omit<
   | 'sourceUpdatedAt'
   | 'sourceCreatedAt'
   | 'expectedEndAt'
+  // Phase 14A: kept current on every sighting, never a change (`rowExtrasOf`).
+  | 'streetRef'
+  | 'ssMetro'
+  | 'floorLow'
+  | 'floorHigh'
 >;
 
 /**
@@ -147,8 +166,9 @@ export function listingContentHash(card: MeaningfulFields): string {
   return createHash('sha256').update(JSON.stringify(meaningful)).digest('hex');
 }
 
-function columnsOf(card: ListingCard, contentHash: string) {
+function columnsOf(card: ListingCard, contentHash: string, districtInferred: boolean) {
   return {
+    districtInferred,
     canonicalUrl: card.canonicalUrl,
     dealType: card.dealType,
     propertyType: card.propertyType,
@@ -194,6 +214,13 @@ function rowExtrasOf(card: ListingCard) {
     hasBuiltInKitchen: card.hasBuiltInKitchen,
     exclusive: card.exclusive,
     videoViewing: card.videoViewing,
+    // Phase 14A: the rows stored before it gain these on their next sighting,
+    // and none of them is taken for changed.
+    streetRef: card.streetRef,
+    ssMetro: card.ssMetro,
+    floorLow: card.floorLow,
+    floorHigh: card.floorHigh,
+    ...parseHouseNumber(card.streetNumber),
   };
 }
 
@@ -213,7 +240,15 @@ export async function upsertListing(
   db: DatabaseOrTransaction,
   input: UpsertListingInput,
 ): Promise<UpsertOutcome> {
-  const { sourceId, card, seenAt } = input;
+  const { sourceId, seenAt, parents } = input;
+  // The district filled in, if the row left it out, before anything is
+  // judged or written: the hash, every write and the stored row's comparison
+  // all see the same card.
+  const filled =
+    parents === undefined
+      ? { fields: input.card, inferred: false }
+      : inferDistrict(input.card, parents);
+  const card = filled.fields;
   const contentHash = listingContentHash(card);
 
   return db.transaction(async (tx) => {
@@ -246,6 +281,7 @@ export async function upsertListing(
         description: realEstateListings.description,
         similarityGroup: realEstateListings.similarityGroup,
         detailsReadAt: realEstateListings.detailsReadAt,
+        districtInferred: realEstateListings.districtInferred,
       })
       .from(realEstateListings)
       .where(
@@ -260,7 +296,7 @@ export async function upsertListing(
       await tx.insert(realEstateListings).values({
         sourceId,
         sourceListingKey: card.sourceListingKey,
-        ...columnsOf(card, contentHash),
+        ...columnsOf(card, contentHash, filled.inferred),
         sourceUpdatedAt: card.sourceUpdatedAt,
         sourceCreatedAt: card.sourceCreatedAt,
         expectedEndAt: card.expectedEndAt,
@@ -272,9 +308,22 @@ export async function upsertListing(
       return 'new';
     }
 
-    const { detailsReadAt, ...comparable } = existing;
+    const { detailsReadAt, districtInferred, ...comparable } = existing;
+    // The stored row filled by tonight's tree exactly as the row was, a
+    // district filled in before taken out first: a sub-district moved to
+    // another district, the source stating the district itself, or a legacy
+    // row stored before the fill existed is never a change.
+    const asStored =
+      parents === undefined
+        ? comparable
+        : inferDistrict(
+            districtInferred
+              ? { ...comparable, districtRef: null, districtName: null }
+              : comparable,
+            parents,
+          ).fields;
     const stored: MeaningfulFields = {
-      ...comparable,
+      ...asStored,
       areaM2: amountOf(existing.areaM2),
       priceGel: amountOf(existing.priceGel),
       priceUsd: amountOf(existing.priceUsd),
@@ -303,6 +352,14 @@ export async function upsertListing(
           lastSeenAt: seenAt,
           missedAt: null,
           ...rowExtrasOf(card),
+          // The district as tonight's tree fills it, which compared the same.
+          ...(parents === undefined
+            ? {}
+            : {
+                districtRef: card.districtRef,
+                districtName: card.districtName,
+                districtInferred: filled.inferred,
+              }),
           pricePerM2Gel: money(card.pricePerM2Gel),
           contentHash,
           ...converted,
@@ -325,7 +382,7 @@ export async function upsertListing(
     await tx
       .update(realEstateListings)
       .set({
-        ...columnsOf(card, contentHash),
+        ...columnsOf(card, contentHash, filled.inferred),
         // A page read out of order must not move the listing back in time.
         sourceUpdatedAt: bumped ? card.sourceUpdatedAt : existing.sourceUpdatedAt,
         expectedEndAt: bumped ? card.expectedEndAt : existing.expectedEndAt,

@@ -344,6 +344,13 @@
       "when": 1793988091190,
       "tag": "0048_realestate_rent_per_m2_typos",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794064992603,
+      "tag": "0049_realestate_places_capture",
+      "breakpoints": true
     }
   ]
 }

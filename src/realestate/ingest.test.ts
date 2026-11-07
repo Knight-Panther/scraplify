@@ -32,8 +32,12 @@ function card(overrides: Partial<ListingCard> = {}): ListingCard {
     districtName: 'ვაკე-საბურთალო',
     subdistrictRef: 3,
     subdistrictName: 'საბურთალო',
+    streetRef: 101,
     streetName: 'უნივერსიტეტის ქ.',
     streetNumber: '2',
+    ssMetro: null,
+    floorLow: 6,
+    floorHigh: 6,
     posterType: 'agent',
     promoted: false,
     commercialType: null,
@@ -68,6 +72,17 @@ const NO_DETAILS: ListingDetails = {
   longitude: null,
   municipalityRef: null,
   municipalityName: null,
+  pinManual: null,
+  cadastralCode: null,
+  complexRef: null,
+  complexName: null,
+  developerRef: null,
+  developerName: null,
+  streetRef: null,
+  ssMetro: null,
+  floorLow: null,
+  floorHigh: null,
+  street: { point: null, name: null, subdistrictRef: null, cityRef: null },
 };
 
 /** Timestamps come back in Postgres's own text form; compare the instants. */
@@ -485,5 +500,161 @@ describe('upsertListing', () => {
     expect(outcome).toBe('new');
     expect(await rowsOf(first)).toHaveLength(1);
     expect(await rowsOf(second)).toHaveLength(1);
+  });
+
+  describe('places (Phase 14A)', () => {
+    /** As a parser before 14A handed it over: no street id, metro or floor range. */
+    const before14A = (overrides: Partial<ListingCard> = {}) =>
+      card({ streetRef: null, ssMetro: null, floorLow: null, floorHigh: null, ...overrides });
+    const legacy = { districtRef: null, districtName: null } as const;
+    const vakeSaburtalo = new Map([[3, { ref: 3, name: 'ვაკე-საბურთალო' }]]);
+
+    /** A row as the code before 14A left it, its page never wanted. */
+    async function storedBefore14A(sourceId: string, overrides: Partial<ListingCard> = {}) {
+      await upsertListing(db, { sourceId, card: before14A(overrides), seenAt: FIRST_SEEN });
+      await db
+        .update(realEstateListings)
+        .set({ houseNumber: null, houseSuffix: null, detailsWantedAt: null })
+        .where(eq(realEstateListings.sourceId, sourceId));
+    }
+
+    it('gives a row stored before it its street id, metro, floors and house number, unchanged', async () => {
+      const sourceId = await newSource();
+      await storedBefore14A(sourceId, { streetNumber: '117დ' });
+
+      const outcome = await upsertListing(db, {
+        sourceId,
+        card: card({ streetNumber: '117დ', ssMetro: { medical_uni: 15 } }),
+        seenAt: SEEN_AGAIN,
+        parents: vakeSaburtalo,
+      });
+
+      expect(outcome).toBe('unchanged');
+      const [row] = await rowsOf(sourceId);
+      expect(row).toMatchObject({
+        streetRef: 101,
+        ssMetro: { medical_uni: 15 },
+        floorLow: 6,
+        floorHigh: 6,
+        houseNumber: 117,
+        houseSuffix: 'დ',
+        districtInferred: false,
+        detailsWantedAt: null,
+      });
+    });
+
+    it('fills a district the row leaves out from its sub-district, and marks it', async () => {
+      const sourceId = await newSource();
+
+      await upsertListing(db, {
+        sourceId,
+        card: card(legacy),
+        seenAt: FIRST_SEEN,
+        parents: vakeSaburtalo,
+      });
+
+      const [row] = await rowsOf(sourceId);
+      expect(row).toMatchObject({
+        districtRef: 3,
+        districtName: 'ვაკე-საბურთალო',
+        districtInferred: true,
+      });
+    });
+
+    it('fills a legacy row stored without the fill on its next sighting, unchanged', async () => {
+      const sourceId = await newSource();
+      await storedBefore14A(sourceId, legacy);
+
+      const outcome = await upsertListing(db, {
+        sourceId,
+        card: card(legacy),
+        seenAt: SEEN_AGAIN,
+        parents: vakeSaburtalo,
+      });
+
+      expect(outcome).toBe('unchanged');
+      const [row] = await rowsOf(sourceId);
+      expect(row).toMatchObject({ districtRef: 3, districtInferred: true, detailsWantedAt: null });
+    });
+
+    it('takes the source stating the district itself for no change, and drops the mark', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, {
+        sourceId,
+        card: card(legacy),
+        seenAt: FIRST_SEEN,
+        parents: vakeSaburtalo,
+      });
+
+      const outcome = await upsertListing(db, {
+        sourceId,
+        card: card(),
+        seenAt: SEEN_AGAIN,
+        parents: vakeSaburtalo,
+      });
+
+      expect(outcome).toBe('unchanged');
+      const [row] = await rowsOf(sourceId);
+      expect(row).toMatchObject({ districtRef: 3, districtInferred: false });
+    });
+
+    it('takes a sub-district moved to another district for no change, and follows it', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, {
+        sourceId,
+        card: card(legacy),
+        seenAt: FIRST_SEEN,
+        parents: vakeSaburtalo,
+      });
+      await db
+        .update(realEstateListings)
+        .set({ detailsWantedAt: null })
+        .where(eq(realEstateListings.sourceId, sourceId));
+
+      const outcome = await upsertListing(db, {
+        sourceId,
+        card: card(legacy),
+        seenAt: SEEN_AGAIN,
+        parents: new Map([[3, { ref: 5, name: 'ძველი თბილისი' }]]),
+      });
+
+      expect(outcome).toBe('unchanged');
+      const [row] = await rowsOf(sourceId);
+      expect(row).toMatchObject({
+        districtRef: 5,
+        districtName: 'ძველი თბილისი',
+        districtInferred: true,
+        detailsWantedAt: null,
+      });
+    });
+
+    it('fills nothing without the tree, and nothing the tree does not hold', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(legacy), seenAt: FIRST_SEEN });
+      await upsertListing(db, {
+        sourceId,
+        card: card({ ...legacy, sourceListingKey: '2', subdistrictRef: 44 }),
+        seenAt: FIRST_SEEN,
+        parents: vakeSaburtalo,
+      });
+
+      for (const row of await rowsOf(sourceId)) {
+        expect(row).toMatchObject({ districtRef: null, districtInferred: false });
+      }
+    });
+
+    it('never takes a change of street id or metro for a change of the listing', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+
+      const outcome = await upsertListing(db, {
+        sourceId,
+        card: card({ streetRef: 202, ssMetro: { delisi: 5 }, floorLow: 5, floorHigh: 7 }),
+        seenAt: SEEN_AGAIN,
+      });
+
+      expect(outcome).toBe('unchanged');
+      expect((await rowsOf(sourceId))[0]).toMatchObject({ streetRef: 202, ssMetro: { delisi: 5 } });
+    });
   });
 });

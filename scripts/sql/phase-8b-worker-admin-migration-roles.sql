@@ -221,6 +221,11 @@ GRANT SELECT, INSERT ON realestate_archive.listings, realestate_archive.price_ch
 -- migration 0047.
 GRANT SELECT ON realestate.public_listings TO scraplify_worker;
 GRANT SELECT, INSERT, DELETE ON realestate_archive.daily_totals TO scraplify_worker;
+-- Phase 14A: src/realestate/places.ts, the place tree. syncPlaces inserts and
+-- updates it at the end of each ss.ge crawl; a listing page read records its
+-- street's point (recordStreetPoint); the crawl reads it for the district
+-- fill and the street-point reads. Never deleted. Requires migration 0049.
+GRANT SELECT, INSERT, UPDATE ON realestate.places TO scraplify_worker;
 
 
 -- =========================================================================

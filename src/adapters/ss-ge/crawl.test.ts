@@ -2,11 +2,16 @@ import { desc, eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../../db/client.js';
 import { getSourceBackoffUntil } from '../../db/ingest.js';
-import { realEstateCrawlRuns, realEstateListings } from '../../db/schema/index.js';
+import {
+  realEstateCrawlRuns,
+  realEstateListings,
+  realEstatePlaces,
+} from '../../db/schema/index.js';
 import { cleanupTestSource } from '../../db/test-support.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
 import { ProxyUnreachableError, withProxyRecovery } from '../../net/proxy-recovery.js';
 import { isSsGeUrlAllowed, ssGeSource } from '../../policies/ss-ge.js';
+import { syncPlaces } from '../../realestate/places.js';
 import {
   buildDetailUrl,
   buildResultsUrl,
@@ -1631,5 +1636,108 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
     expect(crawlRun).toMatchObject({ status: 'partial', detailsCount: 0 });
     expect(crawlRun.notes).toMatch(/429/);
     expect(await getSourceBackoffUntil(db, ssGeSource.id)).not.toBeNull();
+  });
+});
+
+describe('runSsGeCrawl, listing pages read for the place tree (Phase 14A)', () => {
+  const LIVE = { status: 'Active', endsAt: NOW + 20 * DAY_MS } as const;
+
+  /** A listing stored and read long ago on `streetRef`, seen since the run's walk began. */
+  async function readListingOn(key: string, streetRef: number, streetName: string) {
+    await db.insert(realEstateListings).values({
+      sourceId: ssGeSource.id,
+      sourceListingKey: key,
+      canonicalUrl: `https://home.ss.ge/ka/udzravi-qoneba/${key}`,
+      dealType: 'sale',
+      propertyType: 'flat',
+      cityRef: 95,
+      subdistrictRef: 3,
+      streetRef,
+      streetName,
+      sourceUpdatedAt: new Date(NOW - 30 * DAY_MS).toISOString(),
+      expectedEndAt: new Date(NOW + 20 * DAY_MS).toISOString(),
+      firstSeenAt: new Date(NOW - 30 * DAY_MS).toISOString(),
+      // Seen since the walk began, so no full read takes it for missing.
+      lastSeenAt: new Date(NOW + DAY_MS).toISOString(),
+      detailsReadAt: new Date(NOW - 30 * DAY_MS).toISOString(),
+      contentHash: 'h',
+    });
+  }
+
+  function onStreet(streetId: number, streetTitle: string, lat: number, lng: number) {
+    return {
+      ...LIVE,
+      fields: {
+        address: { cityId: 95, subdistrictId: 3, streetId, streetTitle },
+        streetLocationLatitude: lat,
+        streetLocationLongitude: lng,
+      },
+    };
+  }
+
+  async function streetsOfTree() {
+    return db
+      .select()
+      .from(realEstatePlaces)
+      .where(eq(realEstatePlaces.sourceId, ssGeSource.id))
+      .then((rows) => rows.filter((row) => row.level === 'street'));
+  }
+
+  async function setUp() {
+    await ensureSsGeSourceSeeded(db);
+    await readListingOn('500', 116, 'შარტავას ქ.');
+    await readListingOn('501', 116, 'შარტავას ქ.');
+    await readListingOn('502', 52, 'წყნეთის გზატკეცილი');
+    await syncPlaces(db, { sourceId: ssGeSource.id, at: new Date(NOW).toISOString() });
+    const site = new FakeSite();
+    for (const listRows of Object.values(site.lists)) {
+      for (const row of listRows) site.details.set(String(row.id), LIVE);
+    }
+    site.details.set('500', onStreet(116, 'შარტავას ქ.', 41.73067, 44.769665));
+    site.details.set('501', onStreet(116, 'შარტავას ქ.', 41.73067, 44.769665));
+    site.details.set('502', onStreet(52, 'წყნეთის გზატკეცილი', 0, 0));
+    return site;
+  }
+
+  it('reads one page per street with no point before the pages wanted, and keeps the points', async () => {
+    const site = await setUp();
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep' },
+    );
+
+    const listingPages = site.requested
+      .filter((url) => !url.includes('/l/'))
+      .map((url) => url.split('/').at(-1));
+    // The busier street first, one of its two listings (either); then the quieter one.
+    expect(['500', '501']).toContain(listingPages[0]);
+    expect(listingPages[1]).toBe('502');
+    expect(listingPages.filter((key) => key === '500' || key === '501')).toHaveLength(1);
+    expect(listingPages).toHaveLength(2 + SS_GE_LISTS.length);
+    // Counted with the pages read for their details: Hermes' event is unchanged.
+    expect(crawlRun).toMatchObject({
+      status: 'completed',
+      detailsCount: 2 + SS_GE_LISTS.length,
+      verifiedCount: 0,
+    });
+    const streets = new Map((await streetsOfTree()).map((row) => [row.ref, row]));
+    expect(streets.get(116)).toMatchObject({ pointStatus: 'known', latitude: '41.730670' });
+    expect(streets.get(52)).toMatchObject({ pointStatus: 'none', latitude: null });
+  });
+
+  it('reads no more of them than its cap', async () => {
+    const site = await setUp();
+
+    await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxPlacePointReads: 1 },
+    );
+
+    const listingPages = site.requested
+      .filter((url) => !url.includes('/l/'))
+      .map((url) => url.split('/').at(-1));
+    expect(listingPages.filter((key) => key === '500' || key === '501')).toHaveLength(1);
+    expect(listingPages).not.toContain('502');
   });
 });

@@ -1,10 +1,107 @@
 # scraplify — implementation status
 
-Last updated: 2026-11-06 (Phase 13D, daily real-estate totals (contract C3), merged as `3925192` (PR #78) and live since 17:55 UTC, first day taken, Hermes told. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-11-07 (Phase 14A, keeping the places ss.ge already sends, built and checked on `phase-14a-place-capture`, its PR next; 13D's first nightly totals taken. Before that: 2026-11-06, Phase 13D, daily real-estate totals (contract C3), merged as `3925192` (PR #78) and live since 17:55 UTC, first day taken, Hermes told. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
-## Current phase: Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; 13B merged and 13D live 2026-11-06; 13A's first-deletion check and Phase 12B's first-week numbers open)
+## Current phase: Phase 14 — where a listing is: ss.ge's places, Tbilisi's official map, location quality (14A built and checked, PR next; 14B–14D not started)
+
+Owner decisions 2026-11-06, so Hermes can tell flats apart down to the street and building, knows Tbilisi's official districts, uses metro distance, and never repeats a place the data contradicts:
+
+- **Two maps, both first-class, linked, nothing renamed.** ss.ge's names stay as people use them: "Old Tbilisi", its five combined districts and its 51 sub-districts. The 10 official districts come from OpenStreetMap's borders, and the catalogue records how the two overlap. A bare name ("Vake") means ss.ge's neighbourhood. "Vake district", or a name only the official map has (Krtsanisi), means the official district. scraplify supplies the facts and links; Hermes does the wording.
+- **A contradicting location keeps the listing.** It stays findable by its street and sub-district, its pin and metro claims are not used, and it is marked `location_uncertain`. This is automatic, with no review queue.
+
+Four branches, in order:
+- **14A:** keeps what ss.ge already sends, with no new kind of request and no churn.
+- **14B:** the official map, English names and Hermes's place catalogue (contract C6, `placeKeys`).
+- **14C:** location quality, its thresholds calibrated on a week of 14A's data first.
+- **14D:** C1 v2 (street, official district, metro, precision), agreed with Hermes first.
+
+Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-07). Its session is told when C6 and `placeKeys` (14B), then C1 v2 (14D), are in `dist` on the host.
+
+- **Phase 14A, keep the places ss.ge already sends (branch `phase-14a-place-capture`, not merged yet), migration `0049`:**
+  - **From each results row:** these are kept current on every sighting and never count as a change, since they are outside the content hash.
+    - `street_ref`, ss.ge's own street id. Each id is one street in one sub-district, while names repeat: ჭავჭავაძე is six ids.
+    - `ss_metro`, the stations ss.ge lists near the listing, station → walking minutes, using the nearest entrance of each.
+    - `floor_low`/`floor_high`, which also read a developer's "7, 10, 11" or "2-14", where `floor` is null.
+    - `house_number` and `house_suffix`, read from the typed `street_number` (`src/realestate/address.ts`): "117დ" is 117 დ; "49-51" is 49; "№12" is 12; "0", punctuation, words or a block are none.
+  - **From a listing's own page:**
+    - whether the poster placed the pin (`pin_manual`);
+    - the cadastral code, kept only when its shape is right;
+    - the developer complex and the developer (`complex_ref/name`, `developer_ref/name`). The developer's name is kept only when it carries a legal form such as შპს, სს or LLC, so no person's name is kept;
+    - the street, metro and floors again, which reaches listings ss.ge folds behind a look-alike;
+    - ss.ge's own point for the street, the same on every listing on it, kept on the street's place row (0/0 means ss.ge has none).
+  - **Private, kept out of `public_listings` and the archive:**
+    - the pin and `pin_manual`;
+    - `cadastral_code`, which leads to the owner through the public registry;
+    - `ss_metro`, which ss.ge works out from the pin. 14C publishes a checked version.
+  - **The district ss.ge leaves out** of its oldest listings (about 1,200 live, posted 2023-10 to 2024-07) is filled from the sub-district's district and marked `district_inferred`.
+    - The hash, every write and the stored row's comparison all see the filled row.
+    - A stored filled district is taken out and filled again before comparing. So the fill, a sub-district moving, or ss.ge stating the district itself never counts as a change.
+  - **`realestate.places`** is ss.ge's place tree (municipality, city, district, sub-district, street), by ss.ge's own ids.
+    - Each place has the name most listings give it, its parent, its old names as aliases, how many active listings name it, and, for a street, its point.
+    - It is rebuilt from the active listings at the end of each run (`syncPlaces`), and nothing is deleted.
+    - ss.ge's own place lists sit behind `api-gateway.ss.ge`, which the policy refuses, and the `pageProps.locations` dictionary the guideline described is gone (recon 2026-11-06). So the tree is learned from listings only.
+  - **Street-point reads:** each run reads up to 300 listing pages, about 18 minutes, after the checks and before the pages wanted for their details.
+    - Each read is one page per street whose point is unknown, busiest first, and one per settlement with no page read yet (for its municipality).
+    - They count in `details_count`, so the Hermes event is unchanged.
+    - A street that ss.ge answered "none" for is asked again after 60 days. A city with 20 "none" answers and no known point is skipped.
+  - **By hand:** `npm run places:ss-ge` builds the tree from the stored rows. With `-- --backfill`, it also re-reads every stored house number and fills the stored districts. It makes no request to ss.ge and holds the crawl's lock.
+  - **C3:** `TOTALS_RULES_VERSION` is 3, since the fill moves about 1,200 listings into district cells.
+  - **Docs:** `docs/hermes-contracts.md` (C5's new columns, which C2's archive and `recently_gone` also gain, and C3's rules version 3); guideline §4.1, §4.6, §4.7 and §8.2; RUNBOOK §3 step 8, "Places"; `prod-status`.
+  - **What building it changed in the plan (2026-11-07, code, trial and review):**
+    - The plan's `places-ss-ge sync --reparse` is `npm run places:ss-ge -- --backfill`.
+    - `places` has only the columns 14A fills. 14B adds the official district, English names, match keys and overlaps in its own migration.
+    - A developer's name is kept only when it has a legal form, instead of "unless it reads as a person", because a sole trader trades under their own name (security review).
+    - Batumi has some street points, so a city is skipped only after 20 "none" answers and no known point.
+    - A legacy row stored before the fill must be filled on the stored side too. Otherwise about 1,200 rows would have counted as changed once (a test caught this).
+    - Migration `0049` uses `SET lock_timeout`, not `SET LOCAL`, so it holds whether or not the migrator wraps it in a transaction.
+    - House numbers such as "ხიზანიშვილის148" or "ოთახი25" read as none; 14C flags them.
+  - **14A exit gate, before merge:**
+    - [x] Tests:
+      - the results row and the page, on fixtures captured 2026-11-07: street id, metro by station, floor lists, a 0/0 street point, the pin's kind, the cadastral shape, company-only developer names, half or foreign points;
+      - the house-number table;
+      - no churn: a row stored before 14A gains its new fields and stays unchanged, and a new street id or metro list is no change;
+      - the district fill: filled and marked; a legacy row filled and unchanged; ss.ge stating the district; a sub-district moving; nothing without the tree;
+      - the place tree: levels and parents, names and aliases, a place with no listings kept, never a vaguer parent;
+      - street points: a new street, "none" and then a point, no street without a name;
+      - the place-point picks: busiest first, the 60-day recheck, an unplaced city, settlements;
+      - the crawl reading them before the wanted pages, within its cap;
+      - the backfill;
+      - the public view (no private field, new columns appended), the archive columns, the real-data fingerprint.
+    - [x] Planted faults turned tests red: the street id in the hash (10 tests), the un-fill removed (1).
+    - [x] Full suite 2,317 passed (9 skipped) on a throwaway Postgres, rerun on the final commit; typecheck and lint clean, and the changed files formatted.
+    - [x] Migration `0049` on a Postgres 17 throwaway: `public_listings` went from 52 to 62 columns, appended; the archive and `recently_gone` have 62 columns each.
+    - [x] Grants under the host's roles (2026-11-07). A throwaway database was migrated to `0048` as `scraplify_migration`, with `main`'s role scripts filled as `apply-db-roles.sh` fills them, then migrated to `0049`.
+      - `scraplify_public` read the new view columns before `grants` ran again, and neither view has a private column.
+      - With `main`'s grants, the worker's `places:ss-ge` was refused (`permission denied for table places`).
+      - With this branch's grants, the worker built the tree, backfilled 203 house numbers and 8 districts, recorded a street point twice and took the totals. It could not delete a place.
+      - `scraplify_public` cannot read `places` or `listings` and can write nothing. `scraplify_migration` owns the table and both views.
+    - [x] Live trial from the PC (2026-11-07, `scraplify_qa_places`): a 40-page sweep, then 10 pages with 30 street-point reads.
+      - 654 listings: 307 with a street id, 47 with metro, 203 with a house number.
+      - The tree: 166 streets, 61 sub-districts, 99 cities and settlements, 14 municipalities. The 49 pages read gave 28 street points and 4 "none".
+      - The second run's 80 re-sighted listings were all unchanged.
+      - The trial reached no flats, since the smallest lists go first. Flat floors are covered by a test on a live flats fixture.
+    - [ ] CI green on the PR.
+  - **14A exit gate, after deploy (RUNBOOK §3 step 8, "Places"):**
+    - [ ] Backup copied off the host; `0049` and `grants` applied; the views kept their grants (62 columns, no private one); the tree built and the stored rows backfilled by hand; the day's totals retaken at rules version 3; probe ok.
+    - [ ] The morning after:
+      - new and changed counts like the three nights before, and no jump in the wanted backlog;
+      - `street_ref` on about 90% and `ss_metro` on about 40% of the Tbilisi listings seen that night;
+      - active listings with a sub-district but no district at about 0;
+      - `places` counts by level, and known street points rising.
+    - [ ] Hermes told: 14A live, the new columns, what `district_inferred` means, C3 rules version 3.
+- **Phase 14B, the official map and Hermes's place catalogue (C6):** not started. It covers:
+  - OpenStreetMap's 10 Tbilisi districts and 23 metro stations, fetched once into a committed file;
+  - each street point's official district, and the overlaps between the two maps;
+  - `placeKeys` and a place lookup that Hermes calls through node;
+  - the view `realestate.public_places`.
+- **Phase 14C, location quality:** not started. Its thresholds are calibrated on production after 14A has run for about a week.
+- **Phase 14D, C1 v2:** not started. It is agreed with Hermes first, including each result's place on both maps.
+
+## Phase 13 — real-estate history, statistics and Grafana (13A live 2026-11-05; 13B merged and 13D live 2026-11-06; 13A's first-deletion check, 13C and 13E open)
+
+13C waits for the owner's hostname and Cloudflare Access. 13E, the building fingerprint, moves after 14A and 14C, onto `street_ref` and 14C's `building_key`.
 
 Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git/xtelo-speed/PLAN.md`) for real-estate statistics, price history, charts and Grafana. Scraplify's items, one branch each, in this order: **13A** the archive (S1, contract C2); **13B** a filter builder Hermes can call (S3, C1); **13C** Grafana on the host behind Cloudflare Access, host resources measured first (S4, C4); **13D** nightly totals (S2, C3); **13E** a building fingerprint (S5). Contracts: `docs/hermes-contracts.md`. Hermes builds on a contract only once it is merged, and is told in one line when each is merged or deployed.
 
@@ -409,6 +506,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 | 13A — real-estate archive | merged 2026-11-05 as `6e48865`; deployed 2026-11-05 as `6e48865` | #75 | Migration `0046`; copy and delete in one statement; `recently_gone` view; grants checked under the host's roles. |
 | 13B — real-estate filter builder (C1) | merged 2026-11-06 as `873ceec`; no deploy needed | #77 | The tab's filter rules as SQL for Hermes, psycopg placeholders; `places` and `plausibleOnly`; 19 shared cases checked through Hermes's psycopg. |
 | 13D — daily real-estate totals (C3) | merged 2026-11-06 as `3925192`; deployed 2026-11-06 as `3925192` | #78 | Migration `0047`; totals by the tab's own rules after each night's grouping; grants checked under the host's roles; first day 3,905 cells. |
+| 14A — ss.ge places kept | built on `phase-14a-place-capture`, PR next | — | Migration `0049`; street id, metro, floors and house number outside the hash; district fill churn-free; `realestate.places`; 300 street-point reads a night; grants checked under the host's roles. |
 | 12C — ss.ge more filters | merged 2026-11-05 as `2bdca5a`; deployed 2026-11-05 as `2bdca5a` | #74 | Each kind's "more filters" panel as on ss.ge, over the 12B details, with a coverage line. |
 | 12B — ss.ge listing details | merged 2026-11-04 as `ababa11`; deployed 2026-11-05 as `db6c115` | #73 | Migration `0045`; each listing's own page, read once from now on (no backlog); 16-hour time box, 20,000-request ceiling. |
 | 12A — ss.ge all kinds and deals | merged 2026-11-04 as `7926dfb`; deployed 2026-11-04 as `8c6ad35` | #72 | Migration `0044`; policy v2; 24 lists; deep-read budget 4,000 pages a night. |

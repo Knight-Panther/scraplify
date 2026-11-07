@@ -14,6 +14,7 @@ import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { isSsGeUrlAllowed, ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
 import { regroupListings } from '../realestate/grouping.js';
+import { syncPlaces } from '../realestate/places.js';
 import { takeDailyTotals } from '../realestate/totals.js';
 import { parseSsGeOptions } from './ss-ge-options.js';
 
@@ -121,6 +122,7 @@ async function main(): Promise<void> {
     );
     if (crawlRun.status !== 'completed') process.exitCode = 1;
     await regroup();
+    await updatePlaces();
     await takeTotals(crawlRun.id);
   } catch (err) {
     if (err instanceof SsGeNoBaselineError) {
@@ -156,6 +158,22 @@ async function regroup(): Promise<void> {
     );
   } catch (err) {
     logger.error({ err }, 'ss.ge look-alike grouping failed; the previous groups stay');
+  }
+}
+
+/**
+ * The place tree from tonight's listings (Phase 14A): new places, names and
+ * parents, which the next run's district fill and street-point reads use.
+ * Like the grouping, a failure is logged and leaves the exit code to the
+ * crawl; the next run uses last night's tree.
+ */
+async function updatePlaces(): Promise<void> {
+  const startedAtMs = Date.now();
+  try {
+    const added = await syncPlaces(db, { sourceId: ssGeSource.id, at: new Date().toISOString() });
+    logger.info({ added, durationMs: Date.now() - startedAtMs }, 'ss.ge place tree updated');
+  } catch (err) {
+    logger.error({ err }, 'ss.ge place tree update failed; last night’s stays');
   }
 }
 
