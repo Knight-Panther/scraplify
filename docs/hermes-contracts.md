@@ -9,7 +9,7 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 | C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
 | C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`, below) |
-| C6 | `realestate.public_places`, ss.ge's places and Tbilisi's official map | not yet built (Phase 14B) |
+| C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | v1, built on branch `phase-14b-official-map` (migration `0050`), not yet merged (Phase 14B) |
 
 ## C1: the real-estate filter builder (v1)
 
@@ -198,4 +198,67 @@ The first rows appear after the first nightly ss.ge run on the Phase 13A release
   - the pin (`latitude`/`longitude`) and whether the poster placed it;
   - the cadastral code, which leads to the owner through the public registry;
   - ss.ge's metro list. ss.ge works it out from the poster's pin, which is often wrong: a Didi Dighomi flat pinned on Liberty Square shows "Liberty Square, 5 min". Phase 14C publishes a checked metro distance instead.
-- **Not readable yet: the place tree.** `realestate.places` (ss.ge's municipalities, cities, districts, sub-districts and streets, with each street's point) becomes readable in Phase 14B, as C6's view `realestate.public_places`, together with Tbilisi's official districts and how the two maps overlap.
+- **The place tree** (ss.ge's municipalities, cities, districts, sub-districts and streets, with each street's point) is readable from Phase 14B as C6, below, together with Tbilisi's official districts and how the two maps overlap.
+
+## C6: places on both maps, and the place lookup (v1, Phase 14B, migration `0050`)
+
+### Where
+
+- **The catalogue:** the view `realestate.public_places`, which `scraplify_public` reads. It is refreshed as the last step of every nightly ss.ge run, after the totals (`ss.ge place catalogue refreshed` in its journal), and by `npm run places:ss-ge`.
+- **The lookup:** `dist/realestate/place-lookup.js` in a built scraplify clone, imported the way C1 is. It opens no database connection: you run its SQL over your own connection. Use it for every place a person names, so their words and the catalogue's keys are folded by one implementation. Your `AREA_ALIASES`, `AREA_GROUPS` and `AREA_NEAREST` are ported into the catalogue (a test holds every one of them), so they can go.
+
+```js
+import { PLACE_LOOKUP_VERSION, placeLookupSql } from '<scraplify>/dist/realestate/place-lookup.js';
+const built = placeLookupSql('Vake', { placeholders: 'psycopg', limit: 20 });
+// null when the words only name a kind of place ("street"); otherwise built.sql and built.params
+```
+
+`PLACE_LOOKUP_VERSION` is 1. It goes up whenever the folding or the lookup's output changes.
+
+### The two maps
+
+Both are first-class and linked, and neither is renamed into the other (owner, 2026-11-06).
+
+- **ss.ge's map**, as people use it: `city`, `district` (ss.ge's five combined Tbilisi districts, such as Old Tbilisi), `subdistrict` (its neighbourhoods), `street` and `municipality`. Each `ref` is ss.ge's own id, the same refs C1's `places` filter and C5's columns use.
+- **The official map:**
+  - `official_district`: Tbilisi's 10 districts by OpenStreetMap's borders. `ref` is OSM's relation id and `code` is a short name such as `isani`. Its parent is ss.ge's city Tbilisi (95).
+  - `metro_station`: 22 stations. `ref` is ours and fixed (1–22), and `code` is ss.ge's station code, the key in ss.ge's metro lists. Station Square's two halls are one station, as on ss.ge. Its parent is the official district its point is in.
+  - `neighbourhood`: the owner's names for places ss.ge does not have, under the ss.ge place their listings are listed under. For now this is only Zgvisubani, under Tbilisi Sea.
+- **The links between the maps:** a street's and a station's `official_district_ref`, and an ss.ge district's and sub-district's `official_shares`.
+
+### Columns
+
+| Column | What |
+|---|---|
+| `source_id`, `level`, `ref` | The key. |
+| `origin` | `ss.ge`, `osm` or `owner`. |
+| `code` | A station's ss.ge code, an official district's short name, a neighbourhood's name. Null for ss.ge's places. |
+| `name_ka`, `name_en` | The Georgian name: the one most active listings give, for ss.ge's places. The English name: OSM's for the official map, the owner's file for ss.ge's areas and cities (none for streets). |
+| `aliases` | Georgian names an ss.ge place went by before. |
+| `match_keys` | What the lookup matches: every name's key. |
+| `parent_level`, `parent_ref` | The parent on the place's own map. A neighbourhood's parent is an ss.ge place. |
+| `latitude`, `longitude`, `point_status` | For a street: ss.ge's own point for the street, the same for every listing on it, and not anyone's home (`unknown`, `known`, or `none` where ss.ge has none). For a station: OSM's point. |
+| `official_district_ref`, `official_basis` | For a street with a known point and for a station: the official district the point is in. `inside` means further than 50 m from any border; `border` means within 50 m, where either side is possible. Null outside Tbilisi's districts. |
+| `official_shares` | For ss.ge's Tbilisi districts and sub-districts: `{"listings": n, "located": m, "by_district": {"isani": k, …}}`. Of its active listings, `located` are on a street whose official district is known, and `by_district` counts them per official district `code`. Null elsewhere. |
+| `active_listings` | For ss.ge's places: the active listings that name it. For an official district: active listings on streets whose point is in it. For a station: active listings whose ss.ge metro list names it; that is ss.ge's own claim, from the poster's pin, and is not checked until Phase 14C. Zero for a neighbourhood. |
+| `first_seen_at`, `last_seen_at` | When the catalogue first and last held the place as it is. |
+
+### The lookup's answer
+
+Each row is a place, with `match`, the parent's `parent_name_ka` and `parent_name_en`, and for a street or station the official district's `official_name_ka` and `official_name_en`.
+- **`match`:** `exact` when one of the place's names has the same key as the words, and `partial` when the words come in order inside a name ("dighomi" in "Didi Dighomi").
+- **Order:** exact before partial. Then ss.ge's areas (city, district, sub-district), the owner's neighbourhoods and municipalities, then the official map, then streets. Then the busiest.
+- **The two-maps rule falls out of that order:**
+  - a bare name means ss.ge's place: "Vake" is the neighbourhood first, with Vake District beside it, also exact;
+  - "Vake district", "ვაკის რაიონი" and "vakis raioni" are the official district first;
+  - a name only the official map has, such as "Krtsanisi", gives the official district first.
+  - Word the difference from the rows: "Avlabari: listed under Old Tbilisi; officially in Isani".
+- **Groups:** "Dighomi" is exact for its four ss.ge areas, as your `AREA_GROUPS` had it.
+- **Several places can share a name.** Chavchavadze Avenue is several street ids in different sub-districts, so a lookup can give several exact rows. Choose among them with the person's other words, such as the city.
+
+### Reading it
+
+- **Overlaps grow with the street points.** `official_shares` comes only from ss.ge's street points, 300 of which are read a night, busiest streets first. A listing's own pin is not used, because pins are often wrong until Phase 14C checks them. Read `located` against `listings` before quoting a share.
+- **Unknown is not "no".** A street with no known point has no official district yet. That says nothing about where it is.
+- **Credit.** The official districts and stations come from OpenStreetMap (ODbL). Anything showing them to people credits "© OpenStreetMap contributors" (`docs/RIGHTS.md`, Map data).
+- **Not in it:** anything about a single listing. Pins, cadastral codes and ss.ge's per-listing metro lists stay private (C5).
