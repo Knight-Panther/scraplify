@@ -333,6 +333,8 @@ export const realEstatePlaces = realEstate.table(
     officialBasis: text('official_basis').$type<OfficialBasis>(),
     /** An ss.ge district's or sub-district's overlap with the official districts (C6). */
     officialShares: jsonb('official_shares').$type<OfficialShares>(),
+    /** `name_ka` in Latin letters, for showing where there is no English name (`romanizedName`). */
+    nameRoman: text('name_roman'),
   },
   (table) => [
     primaryKey({ name: 'places_pk', columns: [table.sourceId, table.level, table.ref] }),
@@ -393,6 +395,7 @@ export const realEstatePublicPlaces = realEstate
     activeListings: integer('active_listings').notNull(),
     firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+    nameRoman: text('name_roman'),
   })
   .as(sql`
     select
@@ -415,7 +418,8 @@ export const realEstatePublicPlaces = realEstate
       ${realEstatePlaces.officialShares} as official_shares,
       ${realEstatePlaces.activeListings} as active_listings,
       ${realEstatePlaces.firstSeenAt} as first_seen_at,
-      ${realEstatePlaces.lastSeenAt} as last_seen_at
+      ${realEstatePlaces.lastSeenAt} as last_seen_at,
+      ${realEstatePlaces.nameRoman} as name_roman
     from ${realEstatePlaces}
   `);
 

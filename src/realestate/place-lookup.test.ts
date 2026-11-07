@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { looseWord, nameKey, placeKeys } from './place-lookup.js';
+import {
+  looseWord,
+  nameKey,
+  placeKeys,
+  placeLookupSql,
+  placeTextLookupSql,
+  romanizedName,
+  splitPlaceText,
+} from './place-lookup.js';
 
 describe('looseWord', () => {
   it('romanizes and loosens as Hermes does', () => {
@@ -123,5 +131,65 @@ describe('placeKeys', () => {
   it('gives nothing for empty or punctuation-only text', () => {
     expect(placeKeys('')).toEqual([]);
     expect(placeKeys(' .,- ')).toEqual([]);
+  });
+});
+
+describe('romanizedName', () => {
+  it('writes a Georgian name in Latin letters by the national system, each word capitalized', () => {
+    expect(romanizedName('ჭავჭავაძის გამზ.')).toBe('Chavchavadzis Gamz.');
+    expect(romanizedName('წავკისი')).toBe('Tsavkisi');
+    expect(romanizedName('ხიმშიაშვილის უბანი')).toBe('Khimshiashvilis Ubani');
+    expect(romanizedName('გლდანი-ნაძალადევი')).toBe('Gldani-Nadzaladevi');
+    expect(romanizedName('300 არაგველი')).toBe('300 Aragveli');
+    expect(romanizedName('ქეთევან წამებულის გამზ. (ავლაბარი)')).toBe(
+      'Ketevan Tsamebulis Gamz. (Avlabari)',
+    );
+  });
+
+  it('keeps the letters a loose key would fold, and leaves Latin as it is', () => {
+    // A key folds kh, gh and ts (nameKey); a name to show keeps them.
+    expect(romanizedName('ღრმაღელე')).toBe('Ghrmaghele');
+    expect(romanizedName('ᲕᲐᲙᲔ')).toBe('Vake');
+    expect(romanizedName('Vake District')).toBe('Vake District');
+  });
+});
+
+describe('splitPlaceText', () => {
+  it('splits a text into parts on / , ; and each part into words', () => {
+    const split = splitPlaceText(' Temka/Zgvisubani; Vake,  Saburtalo ');
+    expect(split.parts.map((part) => part.words)).toEqual([
+      ['Temka'],
+      ['Zgvisubani'],
+      ['Vake'],
+      ['Saburtalo'],
+    ]);
+  });
+
+  it('keys every run of up to four words, and no run of kind words alone', () => {
+    const split = splitPlaceText('Vake Saburtalo street');
+    expect(Object.fromEntries(split.runs)).toEqual({
+      '0:0:1': 'vak',
+      '0:0:2': 'vak saburtal',
+      '0:0:3': 'vak saburtal',
+      '0:1:2': 'saburtal',
+      '0:1:3': 'saburtal',
+    });
+    // A hyphen keeps one word, so "vake-saburtalo" is a single run.
+    expect(Object.fromEntries(splitPlaceText('vake-saburtalo').runs)).toEqual({
+      '0:0:1': 'vak saburtal',
+    });
+  });
+
+  it('builds one query for every key, with the per-name limit, or none for kind words alone', () => {
+    const built = placeTextLookupSql('Vake, Saburtalo', { placeholders: 'psycopg', limit: 5 });
+    expect(built?.params).toEqual([JSON.stringify(['vak', 'saburtal']), 5]);
+    expect(built?.sql).not.toMatch(/\$\d/);
+    expect(placeTextLookupSql('street; ave')).toBeNull();
+  });
+
+  it('takes only a whole number as the limit', () => {
+    expect(placeLookupSql('Vake', { limit: Number.NaN })?.params[1]).toBe(50);
+    expect(placeLookupSql('Vake', { limit: 2.7 })?.params[1]).toBe(2);
+    expect(placeLookupSql('Vake', { limit: 10_000 })?.params[1]).toBe(500);
   });
 });

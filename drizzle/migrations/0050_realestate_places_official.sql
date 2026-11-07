@@ -14,6 +14,7 @@ ALTER TABLE "realestate"."places" ADD COLUMN "match_keys" text[] DEFAULT '{}'::t
 ALTER TABLE "realestate"."places" ADD COLUMN "official_district_ref" integer;--> statement-breakpoint
 ALTER TABLE "realestate"."places" ADD COLUMN "official_basis" text;--> statement-breakpoint
 ALTER TABLE "realestate"."places" ADD COLUMN "official_shares" jsonb;--> statement-breakpoint
+ALTER TABLE "realestate"."places" ADD COLUMN "name_roman" text;--> statement-breakpoint
 CREATE INDEX "places_match_keys_idx" ON "realestate"."places" USING gin ("match_keys");--> statement-breakpoint
 ALTER TABLE "realestate"."places" ADD CONSTRAINT "places_origin_check" CHECK ("realestate"."places"."origin" in ('ss.ge', 'osm', 'owner'));--> statement-breakpoint
 ALTER TABLE "realestate"."places" ADD CONSTRAINT "places_official_basis_check" CHECK ("realestate"."places"."official_basis" in ('inside', 'border'));--> statement-breakpoint
@@ -40,6 +41,7 @@ CREATE VIEW "realestate"."public_places" AS (
       "realestate"."places"."official_shares" as official_shares,
       "realestate"."places"."active_listings" as active_listings,
       "realestate"."places"."first_seen_at" as first_seen_at,
-      "realestate"."places"."last_seen_at" as last_seen_at
+      "realestate"."places"."last_seen_at" as last_seen_at,
+      "realestate"."places"."name_roman" as name_roman
     from "realestate"."places"
   );

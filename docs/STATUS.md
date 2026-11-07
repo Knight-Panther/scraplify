@@ -114,6 +114,8 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
     - `placeKeys` and `nameKey` fold names and people's words one way, with Hermes's `_ROMAN` and `_LOOSE` letter for letter;
     - `placeLookupSql` returns places on both maps over `realestate.public_places`: exact matches before partial, ss.ge's areas before the official map before streets.
     - So a bare "Vake" is the neighbourhood, with Vake District beside it, while "Vake district" or "Krtsanisi" is the official district.
+    - `placeTextLookupSql` and `resolvePlaceText` take a whole text naming several places, by Hermes's own rule (its N75). "Vake Saburtalo" is two sub-districts, "vake-saburtalo" ss.ge's district, and "Temka/Zgvisubani" two places.
+    - Every place carries `name_roman`, its Georgian name in Latin letters, for showing where there is no English name. Each ss.ge area's row names the official district holding most of its listings.
   - **C6:** the view `realestate.public_places`, which `scraplify_public` reads; it gets no grant on `places`. Documented in `docs/hermes-contracts.md`.
   - **Docs:** `docs/hermes-contracts.md` (C6); `docs/RIGHTS.md` (Map data); RUNBOOK §3 step 8, "The place catalogue on both maps"; guideline §8.2; `prod-status`.
   - **What building it changed in the plan (2026-11-07, code and data):**
@@ -122,24 +124,32 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
     - Station refs are ours, 1–22, since OSM's node ids do not fit the integer key. All 22 of ss.ge's station codes were already in the 14A trial, so the mapping did not wait for production.
     - An official district is also found by its name without the district word, in either language. That gives the two-maps rule from the lookup's order alone.
     - There is no `curated` column, since `name_en` says it. Production has 53 Tbilisi sub-districts, not the plan's 51.
+    - Hermes's review of C6 (2026-11-07, before the merge) added three things, each so Hermes keeps no second implementation:
+      - the whole-text lookup with its splitting rule;
+      - `name_roman` on every place: the owner's file names 80 places, and Hermes would otherwise romanize the rest itself;
+      - the top official district's name on each lookup row.
+      The column went into migration `0050`, which had not been applied anywhere but throwaway databases.
     - `places:official-report` is not built. The overlaps are in the view, and a report makes sense once the street points cover the busy streets, about four nights after the deploy.
   - **14B exit gate, before merge:**
     - [x] Tests:
       - the keys: Hermes's own `loose_words` output letter for letter; every form of a street; plural names; kind words left out; initials, numbers and district words kept; capital Georgian;
       - the official map: 28 points against Nominatim's own answers on OSM's full borders (Didube station is officially in Nadzaladevi, Avlabari and Elia in Isani, Ortachala in Krtsanisi), and exact squares with a hole;
       - the names: all 64 of Hermes's aliases find their place by the same words, the Dighomi group is exactly its four places, and no alias repeats a key;
-      - the catalogue: 13 database tests covering what it writes, a second refresh writing nothing, and the lookup's answers;
+      - the catalogue: 17 database tests covering what it writes, a second refresh writing nothing, the lookup's answers, and Hermes's six cases for a text naming several places;
+      - the Latin names, and splitting a text into parts and runs of words;
       - the view's 20 columns.
     - [x] Planted faults turned tests red: the polygon crossing count (2 tests), every point `inside` (1), the fixed rows always rewritten (1), a renamed place keeping its English name (1), the tree zeroing every origin's counts (1).
-    - [x] Full suite 2,379 passed (9 skipped) on a throwaway Postgres; typecheck and lint clean.
+    - [x] Planted faults for Hermes's review turned tests red too: words that each name a place joined anyway (1), the Latin name loosened like a key (2).
+    - [x] Full suite 2,388 passed (9 skipped) on a throwaway Postgres; typecheck and lint clean.
     - [x] Migration `0050` on a Postgres 17 throwaway.
     - [x] Grants under the host's roles (2026-11-07), in a throwaway database: `main`'s migrations and grants, the 14A trial's listings and tree, then `0050` and this branch's grants.
       - Before the grants, `scraplify_public` still read `public_listings` and was refused `public_places`.
       - After them, the worker built the catalogue: 10 official districts, 22 stations, 67 English names, 26 streets placed and 44 overlaps. A second run wrote nothing, and the worker could not delete a place.
+      - Rerun after Hermes's review, from a fresh database with the final `0050`: the same, and Hermes's text cases resolved through the built lookup as `scraplify_public`.
       - `scraplify_public` read `public_places` but not `places` or `listings`, could write nothing, and ran the built lookup.
     - [x] Reviews (2026-11-07), no P0 or P1:
       - Migration safety: its two P2s are deploy rules, now in the RUNBOOK. Deploy only once the ss.ge unit is inactive, and migrate and grant before the new code goes live.
-      - Surface boundary: its P2 and two P3s are under Open items.
+      - Surface boundary: its P2 and one P3 are under Open items. Its other P3, a non-numeric `limit`, went away when the lookup was rewritten for Hermes's review: the limit is now a whole number from 1 to 500, and 50 otherwise.
     - [x] CI green on PR #81, first run.
     - [ ] Merge after 14A's morning-after check, so that until then `main` is the live release and a 14A fix can ship without 14B.
   - **14B exit gate, after deploy (RUNBOOK §3 step 8, "The place catalogue on both maps"):**
@@ -608,7 +618,6 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
 - **Hermes role (Phase 13A review, P3):** Hermes logs in as `scraplify_public`, the public site's role, so the archive is readable by the site's credential too; a `scraplify_hermes` role would make that a database boundary. Also P3: list the archive in `phase-8b-public-role.sql`'s verification notes.
 - **Phase 14B review, P2 and P3, skipped under the P0/P1 rule (2026-11-07):**
   - P2: `public_places` stays free of private data only by its explicit column list. A test naming the `places` columns kept out of it would make adding one deliberate.
-  - P3: `placeLookupSql` passes a non-numeric `limit` on as `LIMIT NULL`, which returns every row. Hermes passes a number.
   - P3: street points are not checked against listings' pins. A street with one listing has a point as precise as ss.ge's for it.
 - **Real estate tab page time (seen 2026-11-06, not caused by 13B/13D):** `/real-estate` takes 3–7 s to answer on the host, against 1 s for the landing page. Its search, count and locations queries take 0.3–0.6 s each, the same under the release before, so the rest is elsewhere in the page (its other queries or rendering). Measure before changing anything.
 - **Archive backups (Phase 13A):** the nightly dump includes `realestate_archive`. Once it passes about 250 MB, its 30 off-host copies no longer fit the 8 GB cap, so dump the archive on its own (monthly, as the joint plan proposed) and leave it out of the nightly. Measure the dump weekly from 13A's deploy.

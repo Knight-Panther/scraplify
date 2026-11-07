@@ -7,7 +7,7 @@ import {
   realEstatePlaces,
 } from '../../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../../db/test-support.js';
-import { placeLookupSql } from '../place-lookup.js';
+import { placeLookupSql, placeTextLookupSql, resolvePlaceText } from '../place-lookup.js';
 import { recordStreetPoint, syncPlaces } from '../places.js';
 import { matchKeys, refreshPlaceCatalogue } from './catalogue.js';
 import { type CuratedPlaces, loadCuratedPlaces } from './curated.js';
@@ -415,8 +415,92 @@ describe('the place catalogue (Phase 14B)', () => {
       const built = placeLookupSql('Vake', { placeholders: 'psycopg' });
       expect(built?.sql).toContain("like ('%% ' || q.key || ' %%')");
       expect(built?.sql).not.toMatch(/\$\d/);
-      expect(built?.params).toEqual(['vak', 50]);
+      expect(built?.params).toEqual([JSON.stringify(['vak']), 50]);
       expect(placeLookupSql('street')).toBeNull();
     });
+
+    it('carries the official district holding most of an area’s located listings, by name', async () => {
+      const sourceId = await newSource();
+      await city(sourceId);
+      await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+      const built = placeLookupSql('Avlabari', { limit: 500 });
+      const rows = (await pool.query(built?.sql ?? '', built?.params)).rows.filter(
+        (r) => r.source_id === sourceId && r.level === 'subdistrict',
+      );
+      expect(rows[0]).toMatchObject({
+        ref: 21,
+        name_en: 'Avlabari',
+        parent_name_en: 'Old Tbilisi',
+        official_top_code: 'isani',
+        official_top_name_en: 'Isani District',
+        official_top_listings: 1,
+      });
+    });
+  });
+
+  describe('placeTextLookupSql and resolvePlaceText', () => {
+    /** The places each part of a text names: per part, per name found, the best place as level:ref. */
+    async function places(sourceId: string, text: string) {
+      const built = placeTextLookupSql(text, { limit: 500 });
+      if (built === null) return [];
+      const rows = (await pool.query(built.sql, built.params)).rows.filter(
+        (r) => r.source_id === sourceId,
+      );
+      return resolvePlaceText(built.text, rows).parts.map((part) =>
+        part.segments.map((s) => `${s.places[0]?.level}:${s.places[0]?.ref}`),
+      );
+    }
+
+    it("reads a text naming several places by Hermes's rule (N75, 2026-11-06)", async () => {
+      const sourceId = await newSource();
+      await city(sourceId);
+      await listing(sourceId, {
+        subdistrictRef: 26,
+        subdistrictName: 'ლისის ტბა',
+        streetRef: null,
+        streetName: null,
+      });
+      await listing(sourceId, {
+        districtRef: 2,
+        districtName: 'გლდანი-ნაძალადევი',
+        subdistrictRef: 37,
+        subdistrictName: 'თემქა',
+        streetRef: null,
+        streetName: null,
+      });
+      await syncPlaces(db, { sourceId, at: NOW });
+      await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+
+      // Words that each name a place are that many places, not the district their joined name is.
+      expect(await places(sourceId, 'Vake Saburtalo')).toEqual([
+        ['subdistrict:47', 'subdistrict:3'],
+      ]);
+      // With a hyphen it is one word: ss.ge's district.
+      expect(await places(sourceId, 'vake-saburtalo')).toEqual([['district:3']]);
+      // Words that name nothing alone join.
+      expect(await places(sourceId, 'Old Tbilisi')).toEqual([['district:5']]);
+      expect(await places(sourceId, 'Didi Dighomi')).toEqual([['subdistrict:45']]);
+      expect(await places(sourceId, 'Lisi Lake')).toEqual([['subdistrict:26']]);
+      // Parts split on / , and ;.
+      expect(await places(sourceId, 'Temka/Zgvisubani')).toEqual([
+        ['subdistrict:37'],
+        ['neighbourhood:1'],
+      ]);
+      expect(await places(sourceId, 'ვაკეში, საბურთალოზე')).toEqual([
+        ['subdistrict:47'],
+        ['subdistrict:3'],
+      ]);
+      // A street, with its kind word, is one name.
+      expect(await places(sourceId, 'Chavchavadze Avenue')).toEqual([['street:501']]);
+    });
+  });
+
+  it('gives every place its Georgian name in Latin letters, for showing', async () => {
+    const sourceId = await newSource();
+    await city(sourceId);
+    await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+    expect((await row(sourceId, 'street', 501))?.nameRoman).toBe('Chavchavadzis Gamz.');
+    expect((await row(sourceId, 'city', 95))?.nameRoman).toBe('Tbilisi');
+    expect((await row(sourceId, 'official_district', ISANI))?.nameRoman).toBe('Isnis Raioni');
   });
 });

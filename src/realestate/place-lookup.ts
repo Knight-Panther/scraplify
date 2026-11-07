@@ -241,16 +241,99 @@ export const LOOKUP_LEVEL_ORDER = [
   'street',
 ] as const;
 
-/** At most this many matches; the default is 50. */
+/** At most this many matches per name; the default is 50. */
 const LOOKUP_LIMIT_MAX = 500;
+const LOOKUP_LIMIT_DEFAULT = 50;
+
+/** A lower-case letter where a word starts, for capitalizing. */
+const CAPITALIZED_WORD = /(^|[\s\-(/"'«])(\p{Ll})/gu;
 
 /**
- * Places named by some words, on both maps, over `realestate.public_places`
+ * A Georgian name in Latin letters, for showing where a place has no English
+ * name: the national system, each word capitalized. "ჭავჭავაძის გამზ." is
+ * "Chavchavadzis Gamz.", "წავკისი" is "Tsavkisi". Latin letters stay as they
+ * are. Not a key: two spellings of one place can differ here.
+ */
+export function romanizedName(text: string): string {
+  let out = '';
+  for (const char of text.normalize('NFKC')) {
+    const letter = char.toLowerCase();
+    out += ROMAN.get(letter) ?? char;
+  }
+  return out.replace(
+    CAPITALIZED_WORD,
+    (_, before: string, first: string) => before + first.toUpperCase(),
+  );
+}
+
+/** The SQL behind both lookups: for each key in `$1` (a JSON array), its places, at most `$2` each. */
+function lookupSql(): string {
+  const levels = LOOKUP_LEVEL_ORDER.map((level) => `'${level}'`).join(', ');
+  return `with q as (select distinct key from jsonb_array_elements_text($1::jsonb) as k(key)),
+matched as (
+  select q.key, p.*,
+         case when q.key = any(p.match_keys) then 'exact' else 'partial' end as match,
+         row_number() over (
+           partition by q.key
+           order by (q.key = any(p.match_keys)) desc, array_position(array[${levels}], p.level),
+                    p.active_listings desc, p.level, p.ref
+         ) as rank
+    from q
+    join realestate.public_places p
+      on p.match_keys @> array[q.key]
+      or exists (select 1 from unnest(p.match_keys) as m(key)
+                  where (' ' || m.key || ' ') like ('% ' || q.key || ' %'))
+)
+select m.key, m.rank, m.match, m.source_id, m.level, m.ref, m.origin, m.code,
+       m.name_ka, m.name_en, m.name_roman,
+       m.parent_level, m.parent_ref, parent.name_ka as parent_name_ka,
+       parent.name_en as parent_name_en, parent.name_roman as parent_name_roman,
+       m.latitude, m.longitude, m.point_status,
+       m.official_district_ref, official.name_ka as official_name_ka,
+       official.name_en as official_name_en, m.official_basis, m.official_shares,
+       top.code as official_top_code, top.name_ka as official_top_name_ka,
+       top.name_en as official_top_name_en, top.listings as official_top_listings,
+       m.active_listings
+  from matched m
+  left join realestate.public_places parent
+    on parent.source_id = m.source_id and parent.level = m.parent_level and parent.ref = m.parent_ref
+  left join realestate.public_places official
+    on official.source_id = m.source_id and official.level = 'official_district'
+   and official.ref = m.official_district_ref
+  left join lateral (
+    select o.code, o.name_ka, o.name_en, s.listings::integer as listings
+      from jsonb_each_text(m.official_shares -> 'by_district') as s(code, listings)
+      join realestate.public_places o
+        on o.source_id = m.source_id and o.level = 'official_district' and o.code = s.code
+     order by s.listings::integer desc, o.code
+     limit 1
+  ) top on true
+ where m.rank <= $2
+ order by m.key, m.rank`;
+}
+
+function built(
+  keys: readonly string[],
+  options: { placeholders?: Placeholders; limit?: number },
+): BuiltSql {
+  const asked = Number.isFinite(options.limit)
+    ? Math.trunc(options.limit as number)
+    : LOOKUP_LIMIT_DEFAULT;
+  const limit = Math.min(Math.max(asked, 1), LOOKUP_LIMIT_MAX);
+  const numbered: BuiltSql = { sql: lookupSql(), params: [JSON.stringify(keys), limit] };
+  return options.placeholders === 'psycopg' ? toPsycopg(numbered) : numbered;
+}
+
+/**
+ * The places one name names, on both maps, over `realestate.public_places`
  * (C6). A place matches `exact` when one of its names has the same key, and
  * `partial` when the words come in order inside one ("dighomi" in "Didi
- * Dighomi"). Exact matches come first, then by `LOOKUP_LEVEL_ORDER`, then the
- * busiest. Each row carries its parent's names and, for a street or station,
- * its official district's, so a reply can say how the other map sees it.
+ * Dighomi"). Rows come by `rank`: exact first, then by `LOOKUP_LEVEL_ORDER`,
+ * then the busiest. Each row carries its parent's names, for a street or
+ * station its official district's, and for an ss.ge area the official
+ * district holding most of its located listings, so a reply can say how the
+ * other map sees it. For a text that may name several places, use
+ * `placeTextLookupSql`.
  *
  * Null when the words only name a kind of place ("street"). Like C1, it opens
  * no connection: the reader runs the SQL itself.
@@ -261,31 +344,132 @@ export function placeLookupSql(
 ): (BuiltSql & { key: string }) | null {
   const key = nameKey(text);
   if (key === '') return null;
-  const limit = Math.min(Math.max(Math.trunc(options.limit ?? 50), 1), LOOKUP_LIMIT_MAX);
-  const levels = LOOKUP_LEVEL_ORDER.map((level) => `'${level}'`).join(', ');
-  const numbered: BuiltSql = {
-    sql: `with q as (select $1::text as key)
-select p.source_id, p.level, p.ref, p.origin, p.code, p.name_ka, p.name_en,
-       p.parent_level, p.parent_ref, parent.name_ka as parent_name_ka, parent.name_en as parent_name_en,
-       p.latitude, p.longitude, p.point_status,
-       p.official_district_ref, official.name_ka as official_name_ka,
-       official.name_en as official_name_en, p.official_basis, p.official_shares,
-       p.active_listings,
-       case when q.key = any(p.match_keys) then 'exact' else 'partial' end as match
-  from realestate.public_places p
-  cross join q
-  left join realestate.public_places parent
-    on parent.source_id = p.source_id and parent.level = p.parent_level and parent.ref = p.parent_ref
-  left join realestate.public_places official
-    on official.source_id = p.source_id and official.level = 'official_district'
-   and official.ref = p.official_district_ref
- where p.match_keys @> array[q.key]
-    or exists (select 1 from unnest(p.match_keys) as m(key)
-                where (' ' || m.key || ' ') like ('% ' || q.key || ' %'))
- order by (q.key = any(p.match_keys)) desc, array_position(array[${levels}], p.level),
-          p.active_listings desc, p.level, p.ref
- limit $2`,
-    params: [key, limit],
+  return { ...built([key], options), key };
+}
+
+/** The most words one place name is taken to have. */
+const MAX_NAME_WORDS = 4;
+/** What a text may hold: more is cut, so a pasted page cannot become a huge query. */
+const MAX_PARTS = 10;
+const MAX_PART_WORDS = 12;
+
+/** A text as people write several places: parts split on "/", "," or ";", each a run of words split on spaces. */
+export interface PlaceText {
+  parts: { text: string; words: string[] }[];
+  /** The key of each run of up to `MAX_NAME_WORDS` words, by "part:start:end". */
+  runs: ReadonlyMap<string, string>;
+}
+
+export function splitPlaceText(text: string): PlaceText {
+  const parts = text
+    .normalize('NFKC')
+    .split(/[/,;]+/u)
+    .map((part) => part.trim())
+    .filter((part) => part !== '')
+    .slice(0, MAX_PARTS)
+    .map((part) => ({ text: part, words: part.split(/\s+/u).slice(0, MAX_PART_WORDS) }));
+  const runs = new Map<string, string>();
+  parts.forEach((part, at) => {
+    for (let start = 0; start < part.words.length; start++) {
+      for (let end = start + 1; end <= Math.min(part.words.length, start + MAX_NAME_WORDS); end++) {
+        const key = nameKey(part.words.slice(start, end).join(' '));
+        if (key !== '') runs.set(`${at}:${start}:${end}`, key);
+      }
+    }
+  });
+  return { parts, runs };
+}
+
+/**
+ * The places a whole text names, which may be several ("Vake, Saburtalo",
+ * "Temka/Zgvisubani"): the lookup's SQL for every run of words in it. Read
+ * the rows with `resolvePlaceText`. Null when no word names anything.
+ */
+export function placeTextLookupSql(
+  text: string,
+  options: { placeholders?: Placeholders; limit?: number } = {},
+): (BuiltSql & { text: PlaceText }) | null {
+  const split = splitPlaceText(text);
+  const keys = [...new Set(split.runs.values())];
+  if (keys.length === 0) return null;
+  return { ...built(keys, options), text: split };
+}
+
+/** A row of either lookup's answer, as the database returns it. */
+export interface PlaceLookupRow {
+  key: string;
+  rank: number | string;
+  match: 'exact' | 'partial';
+  level: string;
+  [column: string]: unknown;
+}
+
+/** One place name found in a text, with the places it names, best first. */
+export interface PlaceTextSegment {
+  /** The words as typed. */
+  text: string;
+  key: string;
+  /** `partial` only for a single word no place has as a whole name; null when nothing matched. */
+  match: 'exact' | 'partial' | null;
+  places: PlaceLookupRow[];
+}
+
+/** Levels that make a word a place of its own (anything but a street). */
+const AREA_LEVELS: ReadonlySet<string> = new Set(
+  LOOKUP_LEVEL_ORDER.filter((level) => level !== 'street'),
+);
+
+/**
+ * Which places a text names, from `placeTextLookupSql`'s rows. Each part is
+ * read left to right, taking the longest run of words that is a place's whole
+ * name, as Hermes did (its fix N75, 2026-11-06): words that each name a place
+ * by themselves stay that many places, so "Vake Saburtalo" is two
+ * sub-districts, while "vake-saburtalo", one word, is ss.ge's district, and
+ * "Old Tbilisi", "Didi Dighomi" and "Lisi Lake" are one place each. A single
+ * word no place has as a whole name keeps its partial matches.
+ */
+export function resolvePlaceText(
+  text: PlaceText,
+  rows: readonly PlaceLookupRow[],
+): { parts: { text: string; segments: PlaceTextSegment[] }[] } {
+  const byKey = new Map<string, PlaceLookupRow[]>();
+  for (const row of [...rows].sort((a, b) => Number(a.rank) - Number(b.rank))) {
+    const list = byKey.get(row.key);
+    if (list === undefined) byKey.set(row.key, [row]);
+    else list.push(row);
+  }
+  const exact = (key: string) => (byKey.get(key) ?? []).filter((row) => row.match === 'exact');
+  const namesAPlace = (key: string | undefined) =>
+    key !== undefined && exact(key).some((row) => AREA_LEVELS.has(row.level));
+
+  return {
+    parts: text.parts.map((part, at) => {
+      const segments: PlaceTextSegment[] = [];
+      const run = (start: number, end: number) => text.runs.get(`${at}:${start}:${end}`);
+      let start = 0;
+      while (start < part.words.length) {
+        let end = Math.min(part.words.length, start + MAX_NAME_WORDS);
+        for (; end > start + 1; end--) {
+          const key = run(start, end);
+          if (key === undefined || exact(key).length === 0) continue;
+          const words = Array.from({ length: end - start }, (_, i) => start + i);
+          if (words.every((word) => namesAPlace(run(word, word + 1)))) continue;
+          break;
+        }
+        const key = run(start, end);
+        if (key !== undefined) {
+          const hits = exact(key);
+          const places = hits.length > 0 ? hits : (byKey.get(key) ?? []);
+          segments.push({
+            text: part.words.slice(start, end).join(' '),
+            key,
+            match: hits.length > 0 ? 'exact' : places.length > 0 ? 'partial' : null,
+            places,
+          });
+        }
+        start = end;
+      }
+      return { text: part.text, segments };
+    }),
   };
-  return { ...(options.placeholders === 'psycopg' ? toPsycopg(numbered) : numbered), key };
 }

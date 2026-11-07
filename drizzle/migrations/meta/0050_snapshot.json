@@ -3003,6 +3003,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "name_roman": {
+          "name": "name_roman",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -6587,9 +6593,15 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
+        },
+        "name_roman": {
+          "name": "name_roman",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
-      "definition": "\n    select\n      \"realestate\".\"places\".\"source_id\" as source_id,\n      \"realestate\".\"places\".\"level\" as level,\n      \"realestate\".\"places\".\"ref\" as ref,\n      \"realestate\".\"places\".\"origin\" as origin,\n      \"realestate\".\"places\".\"code\" as code,\n      \"realestate\".\"places\".\"name_ka\" as name_ka,\n      \"realestate\".\"places\".\"name_en\" as name_en,\n      \"realestate\".\"places\".\"aliases\" as aliases,\n      \"realestate\".\"places\".\"match_keys\" as match_keys,\n      \"realestate\".\"places\".\"parent_level\" as parent_level,\n      \"realestate\".\"places\".\"parent_ref\" as parent_ref,\n      \"realestate\".\"places\".\"latitude\" as latitude,\n      \"realestate\".\"places\".\"longitude\" as longitude,\n      \"realestate\".\"places\".\"point_status\" as point_status,\n      \"realestate\".\"places\".\"official_district_ref\" as official_district_ref,\n      \"realestate\".\"places\".\"official_basis\" as official_basis,\n      \"realestate\".\"places\".\"official_shares\" as official_shares,\n      \"realestate\".\"places\".\"active_listings\" as active_listings,\n      \"realestate\".\"places\".\"first_seen_at\" as first_seen_at,\n      \"realestate\".\"places\".\"last_seen_at\" as last_seen_at\n    from \"realestate\".\"places\"\n  ",
+      "definition": "\n    select\n      \"realestate\".\"places\".\"source_id\" as source_id,\n      \"realestate\".\"places\".\"level\" as level,\n      \"realestate\".\"places\".\"ref\" as ref,\n      \"realestate\".\"places\".\"origin\" as origin,\n      \"realestate\".\"places\".\"code\" as code,\n      \"realestate\".\"places\".\"name_ka\" as name_ka,\n      \"realestate\".\"places\".\"name_en\" as name_en,\n      \"realestate\".\"places\".\"aliases\" as aliases,\n      \"realestate\".\"places\".\"match_keys\" as match_keys,\n      \"realestate\".\"places\".\"parent_level\" as parent_level,\n      \"realestate\".\"places\".\"parent_ref\" as parent_ref,\n      \"realestate\".\"places\".\"latitude\" as latitude,\n      \"realestate\".\"places\".\"longitude\" as longitude,\n      \"realestate\".\"places\".\"point_status\" as point_status,\n      \"realestate\".\"places\".\"official_district_ref\" as official_district_ref,\n      \"realestate\".\"places\".\"official_basis\" as official_basis,\n      \"realestate\".\"places\".\"official_shares\" as official_shares,\n      \"realestate\".\"places\".\"active_listings\" as active_listings,\n      \"realestate\".\"places\".\"first_seen_at\" as first_seen_at,\n      \"realestate\".\"places\".\"last_seen_at\" as last_seen_at,\n      \"realestate\".\"places\".\"name_roman\" as name_roman\n    from \"realestate\".\"places\"\n  ",
       "name": "public_places",
       "schema": "realestate",
       "isExisting": false,

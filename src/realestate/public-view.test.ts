@@ -80,6 +80,7 @@ describe('realestate.public_places', () => {
       'active_listings',
       'first_seen_at',
       'last_seen_at',
+      'name_roman',
     ]);
   });
 });

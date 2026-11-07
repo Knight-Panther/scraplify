@@ -205,15 +205,25 @@ The first rows appear after the first nightly ss.ge run on the Phase 13A release
 ### Where
 
 - **The catalogue:** the view `realestate.public_places`, which `scraplify_public` reads. It is refreshed as the last step of every nightly ss.ge run, after the totals (`ss.ge place catalogue refreshed` in its journal), and by `npm run places:ss-ge`.
-- **The lookup:** `dist/realestate/place-lookup.js` in a built scraplify clone, imported the way C1 is. It opens no database connection: you run its SQL over your own connection. Use it for every place a person names, so their words and the catalogue's keys are folded by one implementation. Your `AREA_ALIASES`, `AREA_GROUPS` and `AREA_NEAREST` are ported into the catalogue (a test holds every one of them), so they can go.
+- **The lookup:** `dist/realestate/place-lookup.js` in a built scraplify clone, imported the way C1 is. It opens no database connection: you run its SQL over your own connection. Use it for every place a person names, so their words and the catalogue's keys are folded by one implementation. Your `AREA_ALIASES`, `AREA_GROUPS` and `AREA_NEAREST` are ported into the catalogue (a test holds every one of them), so they can go. So can your splitting rule (N75): the text lookup applies it.
 
 ```js
-import { PLACE_LOOKUP_VERSION, placeLookupSql } from '<scraplify>/dist/realestate/place-lookup.js';
-const built = placeLookupSql('Vake', { placeholders: 'psycopg', limit: 20 });
-// null when the words only name a kind of place ("street"); otherwise built.sql and built.params
+import {
+  PLACE_LOOKUP_VERSION, placeLookupSql, placeTextLookupSql, resolvePlaceText,
+} from '<scraplify>/dist/realestate/place-lookup.js';
+
+// One name:
+const one = placeLookupSql('Vake', { placeholders: 'psycopg', limit: 20 });
+// null when the words only name a kind of place ("street"); otherwise one.sql and one.params
+
+// A whole text, which may name several places ("Vake, Saburtalo", "Temka/Zgvisubani"):
+const text = placeTextLookupSql('Vake Saburtalo', { placeholders: 'psycopg', limit: 20 });
+// run text.sql with text.params, then:
+const { parts } = resolvePlaceText(text.text, rows);
+// parts[i].segments[j] = { text, key, match, places }: the places each name in each part names, best first
 ```
 
-`PLACE_LOOKUP_VERSION` is 1. It goes up whenever the folding or the lookup's output changes.
+`PLACE_LOOKUP_VERSION` is 1. It goes up whenever the folding or the lookup's output changes. `limit` is per name, a whole number from 1 to 500; anything else is 50.
 
 ### The two maps
 
@@ -234,6 +244,7 @@ Both are first-class and linked, and neither is renamed into the other (owner, 2
 | `origin` | `ss.ge`, `osm` or `owner`. |
 | `code` | A station's ss.ge code, an official district's short name, a neighbourhood's name. Null for ss.ge's places. |
 | `name_ka`, `name_en` | The Georgian name: the one most active listings give, for ss.ge's places. The English name: OSM's for the official map, the owner's file for ss.ge's areas and cities (none for streets). |
+| `name_roman` | `name_ka` in Latin letters, on every place: the national system, letter for letter as your `_ROMAN`, each word capitalized ("Chavchavadzis Gamz.", "Tsavkisi"). Show `name_en` where there is one, else this, so the bot and the website spell a place one way. Abbreviations stay as ss.ge writes them (ქ. is "K."). It is the last column of the view. |
 | `aliases` | Georgian names an ss.ge place went by before. |
 | `match_keys` | What the lookup matches: every name's key. |
 | `parent_level`, `parent_ref` | The parent on the place's own map. A neighbourhood's parent is an ss.ge place. |
@@ -245,9 +256,10 @@ Both are first-class and linked, and neither is renamed into the other (owner, 2
 
 ### The lookup's answer
 
-Each row is a place, with `match`, the parent's `parent_name_ka` and `parent_name_en`, and for a street or station the official district's `official_name_ka` and `official_name_en`.
+Each row is a place for one `key` (a name's key; the text lookup asks for several), with its `rank` for that key and `match`.
+- **Names on the row:** the place's own, and its parent's (`parent_name_ka`, `parent_name_en`, `parent_name_roman`). For a street or station, its official district's (`official_name_ka`, `official_name_en`). For an ss.ge Tbilisi area, the official district holding most of its located listings: `official_top_code`, `official_top_name_ka`, `official_top_name_en` and `official_top_listings`, out of `official_shares.located`. That gives you "Avlabari: listed under Old Tbilisi; officially mostly in Isani (n of m located)" with no join.
 - **`match`:** `exact` when one of the place's names has the same key as the words, and `partial` when the words come in order inside a name ("dighomi" in "Didi Dighomi").
-- **Order:** exact before partial. Then ss.ge's areas (city, district, sub-district), the owner's neighbourhoods and municipalities, then the official map, then streets. Then the busiest.
+- **Order (`rank`):** exact before partial. Then ss.ge's areas (city, district, sub-district), the owner's neighbourhoods and municipalities, then the official map, then streets. Then the busiest.
 - **The two-maps rule falls out of that order:**
   - a bare name means ss.ge's place: "Vake" is the neighbourhood first, with Vake District beside it, also exact;
   - "Vake district", "ვაკის რაიონი" and "vakis raioni" are the official district first;
@@ -255,6 +267,17 @@ Each row is a place, with `match`, the parent's `parent_name_ka` and `parent_nam
   - Word the difference from the rows: "Avlabari: listed under Old Tbilisi; officially in Isani".
 - **Groups:** "Dighomi" is exact for its four ss.ge areas, as your `AREA_GROUPS` had it.
 - **Several places can share a name.** Chavchavadze Avenue is several street ids in different sub-districts, so a lookup can give several exact rows. Choose among them with the person's other words, such as the city.
+
+### A text that names several places
+
+`resolvePlaceText` applies your rule (N75, 2026-11-06), so it lives in one place.
+- **Parts:** the text splits into parts on "/", "," and ";".
+- **Names in a part:** each part is read left to right, taking the longest run of up to four words that is a place's whole name.
+- **Words that each name a place stay separate:** "Vake Saburtalo" is two sub-districts, not the district their joined name is.
+- **A hyphen keeps one word:** "vake-saburtalo" is the district.
+- **Words that name nothing alone join:** "Old Tbilisi", "Didi Dighomi" and "Lisi Lake" are one place each.
+- **A single word with no whole-name match** keeps its partial matches. A word naming nothing comes back with `match` null and no places.
+- **Held by a test:** scraplify's `src/realestate/places/catalogue.test.ts` holds your six cases, plus "ვაკეში, საბურთალოზე" and "Chavchavadze Avenue".
 
 ### Reading it
 

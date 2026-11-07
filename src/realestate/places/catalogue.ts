@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { realEstatePlaces } from '../../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../../db/types.js';
-import { nameKey } from '../place-lookup.js';
+import { nameKey, romanizedName } from '../place-lookup.js';
 import type { CuratedPlaces } from './curated.js';
 import { type OfficialMap, officialDistrictAt } from './official.js';
 
@@ -43,7 +43,7 @@ export interface CatalogueRefresh {
   streetsPlaced: number;
   /** ss.ge districts and sub-districts whose overlaps changed. */
   sharesWritten: number;
-  /** Places whose match keys changed. */
+  /** Places whose match keys or Latin name changed. */
   keysWritten: number;
 }
 
@@ -267,7 +267,9 @@ export async function refreshPlaceCatalogue(
     `);
 
     // 5. Match keys: every name's key, and the owner's aliases for the place
-    //    while its Georgian name is still the one the file names.
+    //    while its Georgian name is still the one the file names. And the
+    //    Georgian name in Latin letters, for showing where there is no
+    //    English one.
     const aliasesOf = new Map(
       curated.places.map((p) => [`${p.level}:${p.ref}:${p.nameKa}`, p.aliases ?? []]),
     );
@@ -276,10 +278,11 @@ export async function refreshPlaceCatalogue(
       ref: number;
       name_ka: string;
       name_en: string | null;
+      name_roman: string | null;
       aliases: string[];
       match_keys: string[];
     }>(sql`
-      select level, ref, name_ka, name_en, aliases, match_keys
+      select level, ref, name_ka, name_en, name_roman, aliases, match_keys
         from ${realEstatePlaces}
        where source_id = ${sourceId}
     `);
@@ -291,16 +294,19 @@ export async function refreshPlaceCatalogue(
         ...(aliasesOf.get(`${place.level}:${place.ref}:${place.name_ka}`) ?? []),
       ];
       const keys = matchKeys(place.level, names);
+      const roman = romanizedName(place.name_ka);
       const same =
-        keys.length === place.match_keys.length && keys.every((k, i) => k === place.match_keys[i]);
-      return same ? [] : [{ level: place.level, ref: place.ref, keys }];
+        roman === place.name_roman &&
+        keys.length === place.match_keys.length &&
+        keys.every((k, i) => k === place.match_keys[i]);
+      return same ? [] : [{ level: place.level, ref: place.ref, keys, roman }];
     });
     for (let from = 0; from < rekeyed.length; from += CHUNK) {
       await tx.execute(sql`
         update ${realEstatePlaces} p
-           set match_keys = array(select jsonb_array_elements_text(c.keys))
+           set match_keys = array(select jsonb_array_elements_text(c.keys)), name_roman = c.roman
           from jsonb_to_recordset(${JSON.stringify(rekeyed.slice(from, from + CHUNK))}::jsonb)
-               as c(level text, ref integer, keys jsonb)
+               as c(level text, ref integer, keys jsonb, roman text)
          where p.source_id = ${sourceId} and p.level = c.level and p.ref = c.ref
       `);
     }
