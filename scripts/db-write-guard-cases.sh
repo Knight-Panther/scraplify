@@ -91,9 +91,9 @@ check pass "npm run retention"
 check pass "ssh -i ~/.ssh/xtelo_ovh_ed25519 ubuntu@152.228.171.98 'bash /home/ubuntu/deploy-14a.sh 5006a19ff74ad4a2760b56858face2ec0d19ea99'"
 check pass "ssh ubuntu@152.228.171.98 \"sudo -n -u postgres psql -X -qAt -d scraplify -c 'set role scraplify_backup' -c 'select count(*) from realestate.places'\""
 check pass "ssh ubuntu@152.228.171.98 'sudo systemctl restart xtelo-web@public'"
-# --- must pass: the disposable databases
-check pass "docker exec xtelo-re-test dropdb -U scraplify scraplify_qa_places"
-check pass "echo 'drop database if exists scraplify_qa_grants14a' | docker exec -i xtelo-re-test psql -U scraplify -d postgres"
+# --- must ask: destructive work on the disposable databases too (no exemption since 2026-11-07)
+check ask "docker exec xtelo-re-test dropdb -U scraplify scraplify_qa_places"
+check ask "echo 'drop database if exists scraplify_qa_grants14a' | docker exec -i xtelo-re-test psql -U scraplify -d postgres"
 # --- must pass: text about SQL that runs nothing
 check pass "grep -rn 'delete from' src/realestate"
 check pass "rg -n 'DROP TABLE' drizzle/migrations"
@@ -105,13 +105,13 @@ check pass "truncate -s 0 /tmp/x.log"
 check pass "docker compose down"
 check pass "git push origin HEAD:refs/heads/phase-14b"
 check pass "git push origin 'HEAD:refs/heads/phase-14b'"
-check pass "DATABASE_URL=postgresql://scraplify:throwaway@127.0.0.1:5544/scraplify_qa_re node -e \"client.query('DELETE FROM realestate.places')\""
+check ask "DATABASE_URL=postgresql://scraplify:throwaway@127.0.0.1:5544/scraplify_qa_re node -e \"client.query('DELETE FROM realestate.places')\""
 check pass "DATABASE_URL=postgresql://scraplify:throwaway@127.0.0.1:5544/scraplify_qa_re npx vitest run"
-check pass "printf 'TRUNCATE realestate.places' | docker exec -i xtelo-re-test psql -U scraplify -d scraplify_qa_re"
-check pass "docker exec -i xtelo-re-test psql -U scraplify -d scraplify_qa_re <<'SQL'
+check ask "printf 'TRUNCATE realestate.places' | docker exec -i xtelo-re-test psql -U scraplify -d scraplify_qa_re"
+check ask "docker exec -i xtelo-re-test psql -U scraplify -d scraplify_qa_re <<'SQL'
 DELETE FROM realestate.places;
 SQL"
-check pass "docker exec xtelo-re-test sh -c \"pg_dump -U scraplify --data-only scraplify_qa_places | psql -U scraplify -d scraplify_qa_grants14a\""
+check ask "docker exec xtelo-re-test sh -c \"pg_dump -U scraplify --data-only scraplify_qa_places | psql -U scraplify -d scraplify_qa_grants14a\""
 
 # Without jq the guard falls back to the raw payload: it must still ask, and
 # still pass harmless commands. A jq that always fails stands first on PATH

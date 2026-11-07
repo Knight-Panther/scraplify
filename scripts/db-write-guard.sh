@@ -25,8 +25,7 @@
 #
 # What passes, by design: reads, inserts and updates, migrations (additive by
 # rule, and a deploy backs up first), the corpus CLIs (crawl, dedupe, rank,
-# totals, places, matching bundle). A command naming scraplify_qa passes
-# untouched, since those databases exist to be written to.
+# totals, places, matching bundle).
 #
 # It never blocks: it answers "ask", so a deliberate delete is one click. It
 # is a heuristic, not a SQL parser, and errs toward asking. It fails open (no
@@ -60,23 +59,13 @@ matches_exact() {
   printf '%s' "$cmd" | grep -Eq "$1"
 }
 
-# The disposable QA databases (CLAUDE.md, "Local databases") are exempt only
-# on positive proof: the command names a scraplify_qa database as its target
-# (`-d`/`--dbname`, a URL's database, dropdb's argument, DROP DATABASE), not
-# inside a shell comment, and names no real target besides. Real targets: the
-# real local corpus (`-d scraplify`, a URL ending in `/scraplify`, its
-# container, DROP DATABASE scraplify), whatever `$DATABASE_URL` or PGDATABASE
-# point at (the shell's default is the real corpus), and the host. A command
-# that names no database at all is not exempt.
+# No exemption, not even for the disposable scraplify_qa databases. An
+# exemption read from command text kept being fooled (security review
+# 2026-11-07, four rounds: a stray name, a comment, an unnamed second target,
+# a URL without a user), while the cost of none is small: tests run their SQL
+# inside node and rehearsal scripts run as files, neither of which this hook
+# sees, so only a hand-typed delete on a throwaway database asks.
 q="[\"']?"
-qa_target="(-d|--dbname)[= ]*${q}scraplify_qa|@[^/[:space:]]+/scraplify_qa|\\bdropdb\\b[^|;&]*[[:space:]]${q}scraplify_qa|drop[[:space:]]+database[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?${q}scraplify_qa"
-real_target="scraplify-postgres|(-d|--dbname)[= ]*${q}scraplify([^_a-z0-9]|$)|@[^/[:space:]]+/scraplify([^_a-z0-9]|$)|drop[[:space:]]+database[[:space:]]+(if[[:space:]]+exists[[:space:]]+)?${q}scraplify([^_a-z0-9]|$)|\\\$\\{?DATABASE_URL|PGDATABASE|\\bssh\\b|152\\.228\\.171\\.98|xtelo-host"
-# The proof is read with shell comments cut off, so "# -d scraplify_qa" proves
-# nothing; the real targets are read in the whole command.
-uncommented=$(printf '%s' "$cmd" | sed -E 's/(^|[[:space:]])#.*$//')
-if printf '%s' "$uncommented" | grep -Eiq "$qa_target" && ! matches "$real_target"; then
-  exit 0
-fi
 
 what=""
 
@@ -150,4 +139,4 @@ fi
 
 # Written without jq, so the answer does not depend on it either; every
 # `what` above is a fixed string with no quote or backslash in it.
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"db-write-guard: this command looks destructive (%s). Approve only if it is intended now. Commands on scraplify_qa databases alone are exempt (scripts/db-write-guard.sh)."}}\n' "$what"
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"db-write-guard: this command looks destructive (%s). Approve only if it is intended now. (scripts/db-write-guard.sh)"}}\n' "$what"

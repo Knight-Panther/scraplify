@@ -30,7 +30,7 @@ That guard covers the dev server only. Shell commands reach the same databases a
 - deleting a backup copy;
 - a force push.
 
-Since 2026-11-07 it is the only routine prompt. The owner's permission setup allows every other command: a bare `Bash` allow rule in `.claude/settings.local.json`, "edit automatically" mode. Reads, inserts and updates, migrations and the corpus CLIs therefore run freely. Commands naming `scraplify_qa` pass. It asks rather than blocks, so a deliberate delete is one approval. If it prompts on something harmless, or misses something destructive, fix the pattern and its case in `scripts/db-write-guard-cases.sh` rather than working around it.
+Since 2026-11-07 it is the only routine prompt. The owner's permission setup allows every other command: a bare `Bash` allow rule in `.claude/settings.local.json`, "edit automatically" mode. Reads, inserts and updates, migrations and the corpus CLIs therefore run freely. There is no exemption for `scraplify_qa` databases. An exemption read from command text kept being fooled, and tests and rehearsal scripts never pass through the hook anyway. It asks rather than blocks, so a deliberate delete is one approval. If it prompts on something harmless, or misses something destructive, fix the pattern and its case in `scripts/db-write-guard-cases.sh` rather than working around it.
 
 ## Hosted edition (live)
 
