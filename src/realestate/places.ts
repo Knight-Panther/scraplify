@@ -141,10 +141,14 @@ export async function syncPlaces(
 ): Promise<Record<PlaceLevel, number>> {
   const added = {} as Record<PlaceLevel, number>;
   await db.transaction(async (tx) => {
+    // The source's own places only: the catalogue counts the official map's
+    // and the owner's (src/realestate/places/catalogue.ts).
     await tx
       .update(realEstatePlaces)
       .set({ activeListings: 0 })
-      .where(eq(realEstatePlaces.sourceId, input.sourceId));
+      .where(
+        and(eq(realEstatePlaces.sourceId, input.sourceId), eq(realEstatePlaces.origin, 'ss.ge')),
+      );
     for (const level of LEVELS) {
       const ref = sql.identifier(level.ref);
       const name = sql.identifier(level.name);

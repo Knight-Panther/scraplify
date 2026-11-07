@@ -17,9 +17,11 @@ import {
 } from 'drizzle-orm/pg-core';
 import {
   type BuildingStatus,
+  type CatalogueLevel,
   type Condition,
   DEAL_TYPES,
-  type PlaceLevel,
+  type OfficialBasis,
+  type PlaceOrigin,
   type PointStatus,
   PROPERTY_TYPES,
 } from '../../realestate/kinds.js';
@@ -287,6 +289,14 @@ export const realEstateListings = realEstate.table(
  *
  * Nothing is deleted: a place no active listing names keeps its row, with
  * `active_listings` at 0.
+ *
+ * Phase 14B adds the other map, under the same source: Tbilisi's official
+ * districts and metro stations from OpenStreetMap (`origin` osm), the
+ * owner's neighbourhoods (`origin` owner), English names, the keys a lookup
+ * matches (`match_keys`, src/realestate/place-lookup.ts), each street
+ * point's official district, and how each ss.ge district and sub-district
+ * overlaps the official ones. Refreshed after every run
+ * (`refreshPlaceCatalogue`, src/realestate/places/catalogue.ts).
  */
 export const realEstatePlaces = realEstate.table(
   'places',
@@ -294,15 +304,16 @@ export const realEstatePlaces = realEstate.table(
     sourceId: uuid('source_id')
       .notNull()
       .references(() => sources.id),
-    level: text('level').$type<PlaceLevel>().notNull(),
+    level: text('level').$type<CatalogueLevel>().notNull(),
+    /** The source's own id; OSM's relation id for an official district; ours for a station or neighbourhood. */
     ref: integer('ref').notNull(),
-    parentLevel: text('parent_level').$type<PlaceLevel>(),
+    parentLevel: text('parent_level').$type<CatalogueLevel>(),
     parentRef: integer('parent_ref'),
     /** The name most of its active listings give it. */
     nameKa: text('name_ka').notNull(),
     /** Names it went by before. */
     aliases: text('aliases').array().notNull().default(sql`'{}'::text[]`),
-    /** A street's point, as ss.ge places the street. */
+    /** A street's point, as ss.ge places the street; a station's, from OSM. */
     latitude: numeric('latitude', { precision: 9, scale: 6 }),
     longitude: numeric('longitude', { precision: 9, scale: 6 }),
     pointStatus: text('point_status').$type<PointStatus>().notNull().default('unknown'),
@@ -310,21 +321,103 @@ export const realEstatePlaces = realEstate.table(
     activeListings: integer('active_listings').notNull().default(0),
     firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+    // Phase 14B (migration 0050).
+    origin: text('origin').$type<PlaceOrigin>().notNull().default('ss.ge'),
+    /** A short fixed name: ss.ge's station code, an official district's English name. */
+    code: text('code'),
+    nameEn: text('name_en'),
+    /** Every name's key (`nameKey`): what `placeLookupSql` matches. */
+    matchKeys: text('match_keys').array().notNull().default(sql`'{}'::text[]`),
+    /** A street's or a station's official district, by its point. */
+    officialDistrictRef: integer('official_district_ref'),
+    officialBasis: text('official_basis').$type<OfficialBasis>(),
+    /** An ss.ge district's or sub-district's overlap with the official districts (C6). */
+    officialShares: jsonb('official_shares').$type<OfficialShares>(),
   },
   (table) => [
     primaryKey({ name: 'places_pk', columns: [table.sourceId, table.level, table.ref] }),
     index('places_parent_idx').on(table.sourceId, table.parentLevel, table.parentRef),
+    index('places_match_keys_idx').using('gin', table.matchKeys),
     check(
       'places_level_check',
-      sql`${table.level} in ('municipality', 'city', 'district', 'subdistrict', 'street')`,
+      sql`${table.level} in ('municipality', 'city', 'district', 'subdistrict', 'street', 'official_district', 'metro_station', 'neighbourhood')`,
     ),
     check(
       'places_parent_level_check',
-      sql`${table.parentLevel} in ('municipality', 'city', 'district', 'subdistrict')`,
+      sql`${table.parentLevel} in ('municipality', 'city', 'district', 'subdistrict', 'official_district')`,
     ),
     check('places_point_status_check', sql`${table.pointStatus} in ('unknown', 'known', 'none')`),
+    check('places_origin_check', sql`${table.origin} in ('ss.ge', 'osm', 'owner')`),
+    check('places_official_basis_check', sql`${table.officialBasis} in ('inside', 'border')`),
   ],
 );
+
+/**
+ * How an ss.ge district or sub-district lies on the official map: of its
+ * active listings, how many are on a street whose point is known, and how
+ * many of those each official district holds, by its code.
+ */
+export interface OfficialShares {
+  listings: number;
+  located: number;
+  by_district: Record<string, number>;
+}
+
+/**
+ * Hermes's place catalogue (contract C6, Phase 14B): every place on both
+ * maps, with its names, parent, point, official district or overlaps, and the
+ * keys a lookup matches. Nothing in `places` is private (a street's point is
+ * ss.ge's point for the street, not anyone's home), so the view is the whole
+ * table; it exists so the public role reads a view, as with every other
+ * contract, and `places` can gain columns the contract does not promise.
+ */
+export const realEstatePublicPlaces = realEstate
+  .view('public_places', {
+    sourceId: uuid('source_id').notNull(),
+    level: text('level').$type<CatalogueLevel>().notNull(),
+    ref: integer('ref').notNull(),
+    origin: text('origin').$type<PlaceOrigin>().notNull(),
+    code: text('code'),
+    nameKa: text('name_ka').notNull(),
+    nameEn: text('name_en'),
+    aliases: text('aliases').array().notNull(),
+    matchKeys: text('match_keys').array().notNull(),
+    parentLevel: text('parent_level').$type<CatalogueLevel>(),
+    parentRef: integer('parent_ref'),
+    latitude: numeric('latitude', { precision: 9, scale: 6 }),
+    longitude: numeric('longitude', { precision: 9, scale: 6 }),
+    pointStatus: text('point_status').$type<PointStatus>().notNull(),
+    officialDistrictRef: integer('official_district_ref'),
+    officialBasis: text('official_basis').$type<OfficialBasis>(),
+    officialShares: jsonb('official_shares').$type<OfficialShares>(),
+    activeListings: integer('active_listings').notNull(),
+    firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
+  })
+  .as(sql`
+    select
+      ${realEstatePlaces.sourceId} as source_id,
+      ${realEstatePlaces.level} as level,
+      ${realEstatePlaces.ref} as ref,
+      ${realEstatePlaces.origin} as origin,
+      ${realEstatePlaces.code} as code,
+      ${realEstatePlaces.nameKa} as name_ka,
+      ${realEstatePlaces.nameEn} as name_en,
+      ${realEstatePlaces.aliases} as aliases,
+      ${realEstatePlaces.matchKeys} as match_keys,
+      ${realEstatePlaces.parentLevel} as parent_level,
+      ${realEstatePlaces.parentRef} as parent_ref,
+      ${realEstatePlaces.latitude} as latitude,
+      ${realEstatePlaces.longitude} as longitude,
+      ${realEstatePlaces.pointStatus} as point_status,
+      ${realEstatePlaces.officialDistrictRef} as official_district_ref,
+      ${realEstatePlaces.officialBasis} as official_basis,
+      ${realEstatePlaces.officialShares} as official_shares,
+      ${realEstatePlaces.activeListings} as active_listings,
+      ${realEstatePlaces.firstSeenAt} as first_seen_at,
+      ${realEstatePlaces.lastSeenAt} as last_seen_at
+    from ${realEstatePlaces}
+  `);
 
 /**
  * Look-alike listings, grouped after every crawl by `src/realestate/grouping.ts`

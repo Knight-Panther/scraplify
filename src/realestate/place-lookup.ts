@@ -1,4 +1,5 @@
 import { INVISIBLE } from '../matching/lexical/text.js';
+import { type BuiltSql, type Placeholders, toPsycopg } from './filter-builder.js';
 
 /**
  * Place names to matching keys (Phase 14B, contract C6): the one way both a
@@ -222,4 +223,69 @@ export function placeKeys(text: string): string[] {
 /** A whole name as one key, the words in order: what the catalogue stores and compares. */
 export function nameKey(text: string): string {
   return placeKeys(text).join(' ');
+}
+
+/**
+ * The order a lookup lists matches of one kind in. ss.ge's areas come first,
+ * since a bare name means what people mean by it ("Vake": the neighbourhood);
+ * then the official map; then streets.
+ */
+export const LOOKUP_LEVEL_ORDER = [
+  'city',
+  'district',
+  'subdistrict',
+  'neighbourhood',
+  'municipality',
+  'official_district',
+  'metro_station',
+  'street',
+] as const;
+
+/** At most this many matches; the default is 50. */
+const LOOKUP_LIMIT_MAX = 500;
+
+/**
+ * Places named by some words, on both maps, over `realestate.public_places`
+ * (C6). A place matches `exact` when one of its names has the same key, and
+ * `partial` when the words come in order inside one ("dighomi" in "Didi
+ * Dighomi"). Exact matches come first, then by `LOOKUP_LEVEL_ORDER`, then the
+ * busiest. Each row carries its parent's names and, for a street or station,
+ * its official district's, so a reply can say how the other map sees it.
+ *
+ * Null when the words only name a kind of place ("street"). Like C1, it opens
+ * no connection: the reader runs the SQL itself.
+ */
+export function placeLookupSql(
+  text: string,
+  options: { placeholders?: Placeholders; limit?: number } = {},
+): (BuiltSql & { key: string }) | null {
+  const key = nameKey(text);
+  if (key === '') return null;
+  const limit = Math.min(Math.max(Math.trunc(options.limit ?? 50), 1), LOOKUP_LIMIT_MAX);
+  const levels = LOOKUP_LEVEL_ORDER.map((level) => `'${level}'`).join(', ');
+  const numbered: BuiltSql = {
+    sql: `with q as (select $1::text as key)
+select p.source_id, p.level, p.ref, p.origin, p.code, p.name_ka, p.name_en,
+       p.parent_level, p.parent_ref, parent.name_ka as parent_name_ka, parent.name_en as parent_name_en,
+       p.latitude, p.longitude, p.point_status,
+       p.official_district_ref, official.name_ka as official_name_ka,
+       official.name_en as official_name_en, p.official_basis, p.official_shares,
+       p.active_listings,
+       case when q.key = any(p.match_keys) then 'exact' else 'partial' end as match
+  from realestate.public_places p
+  cross join q
+  left join realestate.public_places parent
+    on parent.source_id = p.source_id and parent.level = p.parent_level and parent.ref = p.parent_ref
+  left join realestate.public_places official
+    on official.source_id = p.source_id and official.level = 'official_district'
+   and official.ref = p.official_district_ref
+ where p.match_keys @> array[q.key]
+    or exists (select 1 from unnest(p.match_keys) as m(key)
+                where (' ' || m.key || ' ') like ('% ' || q.key || ' %'))
+ order by (q.key = any(p.match_keys)) desc, array_position(array[${levels}], p.level),
+          p.active_listings desc, p.level, p.ref
+ limit $2`,
+    params: [key, limit],
+  };
+  return { ...(options.placeholders === 'psycopg' ? toPsycopg(numbered) : numbered), key };
 }

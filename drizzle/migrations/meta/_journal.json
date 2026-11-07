@@ -351,6 +351,13 @@
       "when": 1794064992603,
       "tag": "0049_realestate_places_capture",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794074078219,
+      "tag": "0050_realestate_places_official",
+      "breakpoints": true
     }
   ]
 }

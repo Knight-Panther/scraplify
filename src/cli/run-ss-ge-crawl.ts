@@ -15,6 +15,9 @@ import { resolveUserAgent } from '../net/user-agent.js';
 import { isSsGeUrlAllowed, ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
 import { regroupListings } from '../realestate/grouping.js';
 import { syncPlaces } from '../realestate/places.js';
+import { refreshPlaceCatalogue } from '../realestate/places/catalogue.js';
+import { loadCuratedPlaces } from '../realestate/places/curated.js';
+import { loadOfficialMap } from '../realestate/places/official.js';
 import { takeDailyTotals } from '../realestate/totals.js';
 import { parseSsGeOptions } from './ss-ge-options.js';
 
@@ -124,6 +127,7 @@ async function main(): Promise<void> {
     await regroup();
     await updatePlaces();
     await takeTotals(crawlRun.id);
+    await refreshCatalogue();
   } catch (err) {
     if (err instanceof SsGeNoBaselineError) {
       logger.error({ sourceId: ssGeSource.id }, err.message);
@@ -194,6 +198,37 @@ async function takeTotals(crawlRunId: string): Promise<void> {
     logger.info({ ...result, durationMs: Date.now() - startedAtMs }, 'ss.ge daily totals taken');
   } catch (err) {
     logger.error({ err }, 'ss.ge daily totals failed; the day has none');
+  }
+}
+
+/**
+ * The place catalogue on both maps (Phase 14B, contract C6), from tonight's
+ * tree: the official districts and stations, English names, each street
+ * point's official district, the two maps' overlaps and the match keys. Last,
+ * so it never delays the steps before it. Like the tree, a failure is logged
+ * and leaves the exit code to the crawl; Hermes reads last night's catalogue.
+ */
+async function refreshCatalogue(): Promise<void> {
+  const startedAtMs = Date.now();
+  try {
+    const result = await refreshPlaceCatalogue(db, {
+      sourceId: ssGeSource.id,
+      at: new Date().toISOString(),
+      map: await loadOfficialMap(),
+      curated: await loadCuratedPlaces(),
+    });
+    logger.info(
+      { ...result, durationMs: Date.now() - startedAtMs },
+      'ss.ge place catalogue refreshed',
+    );
+    if (result.renamed.length > 0) {
+      logger.warn(
+        { renamed: result.renamed },
+        'ss.ge renamed places the owner’s names file names; their English names wait for src/realestate/places/curated.json',
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, 'ss.ge place catalogue refresh failed; last night’s stays');
   }
 }
 
