@@ -137,7 +137,7 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
       - the names: all 64 of Hermes's aliases find their place by the same words, the Dighomi group is exactly its four places, and no alias repeats a key;
       - the catalogue: 17 database tests covering what it writes, a second refresh writing nothing, the lookup's answers, and Hermes's six cases for a text naming several places;
       - the Latin names, and splitting a text into parts and runs of words;
-      - the view's 20 columns.
+      - the view's 21 columns.
     - [x] Planted faults turned tests red: the polygon crossing count (2 tests), every point `inside` (1), the fixed rows always rewritten (1), a renamed place keeping its English name (1), the tree zeroing every origin's counts (1).
     - [x] Planted faults for Hermes's review turned tests red too: words that each name a place joined anyway (1), the Latin name loosened like a key (2).
     - [x] Full suite 2,388 passed (9 skipped) on a throwaway Postgres; typecheck and lint clean.
@@ -150,7 +150,7 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
     - [x] Reviews (2026-11-07), no P0 or P1:
       - Migration safety: its two P2s are deploy rules, now in the RUNBOOK. Deploy only once the ss.ge unit is inactive, and migrate and grant before the new code goes live.
       - Surface boundary: its P2 and one P3 are under Open items. Its other P3, a non-numeric `limit`, went away when the lookup was rewritten for Hermes's review: the limit is now a whole number from 1 to 500, and 50 otherwise.
-    - [x] CI green on PR #81, first run.
+    - [x] CI green on PR #81: the first run, and again after Hermes's review (`98a26fb`).
     - [ ] Merge after 14A's morning-after check, so that until then `main` is the live release and a 14A fix can ship without 14B.
   - **14B exit gate, after deploy (RUNBOOK §3 step 8, "The place catalogue on both maps"):**
     - [ ] Deployed after 14A's morning-after check, with the catalogue filled by hand and the RUNBOOK's checks.
