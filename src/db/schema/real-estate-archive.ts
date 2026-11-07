@@ -123,6 +123,21 @@ export const realEstateArchiveListings = realEstateArchive.table(
     archivedAt: timestamp('archived_at', { mode: 'string', withTimezone: true })
       .notNull()
       .defaultNow(),
+    /*
+     * Phase 14A (migration 0049). Declared last, in the order the migration
+     * added them, so `recently_gone` keeps the table's own column order. Not
+     * the metro list, the pin's kind or the cadastral code (private).
+     */
+    streetRef: integer('street_ref'),
+    houseNumber: integer('house_number'),
+    houseSuffix: text('house_suffix'),
+    floorLow: smallint('floor_low'),
+    floorHigh: smallint('floor_high'),
+    districtInferred: boolean('district_inferred').notNull().default(false),
+    complexRef: integer('complex_ref'),
+    complexName: text('complex_name'),
+    developerRef: integer('developer_ref'),
+    developerName: text('developer_name'),
   },
   (table) => [
     index('archive_listings_source_key_idx').on(table.sourceId, table.sourceListingKey),

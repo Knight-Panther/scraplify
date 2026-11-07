@@ -165,7 +165,7 @@ const PHONE_RE = /\d(?:[\s./()+-]{0,3}\d){6,}/;
  * site; some type their phone number there, or paste a whole advert. Such a
  * value is dropped whole (33 street numbers in the first pass, 2026-10-14).
  */
-function addressText(value: unknown): string | null {
+export function addressText(value: unknown): string | null {
   const plain = text(value);
   return plain === null || PHONE_RE.test(plain) ? null : plain;
 }
@@ -175,6 +175,70 @@ function floor(value: unknown): number | null {
   if (typeof value === 'number') return Number.isInteger(value) ? value : null;
   if (typeof value !== 'string' || !WHOLE_NUMBER_RE.test(value.trim())) return null;
   return Number(value.trim());
+}
+
+/** Floors a listing can be on: below ground to the tallest towers, with room to spare. */
+const FLOOR_BOUNDS = { min: -5, max: 200 };
+/** One part of a floor list: a floor, or a range of them, a basement included ('-1-14'). */
+const FLOOR_PART_RE = /^(-?\d{1,3})(?:\s*[-–]\s*(-?\d{1,3}))?$/;
+
+/**
+ * The lowest and highest floor a listing names (Phase 14A). One floor gives
+ * both; a developer's list or range ('7, 10, 11, 13, 15', '2-14', '-1-14')
+ * gives its ends, where `floor` gives nothing. Anything else is unknown.
+ */
+export function floorRange(value: unknown): { floorLow: number | null; floorHigh: number | null } {
+  const unknown = { floorLow: null, floorHigh: null };
+  let floors: number[];
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value)) return unknown;
+    floors = [value];
+  } else if (typeof value === 'string' && value.trim() !== '') {
+    floors = [];
+    for (const part of value.split(',')) {
+      const match = FLOOR_PART_RE.exec(part.trim());
+      if (match?.[1] === undefined) return unknown;
+      floors.push(Number(match[1]));
+      if (match[2] !== undefined) floors.push(Number(match[2]));
+    }
+  } else {
+    return unknown;
+  }
+  const floorLow = Math.min(...floors);
+  const floorHigh = Math.max(...floors);
+  if (floorLow < FLOOR_BOUNDS.min || floorHigh > FLOOR_BOUNDS.max) return unknown;
+  return { floorLow, floorHigh };
+}
+
+/** ss.ge's name for a metro station, the same for every entrance of it: `medical_uni`, `samasi_aragveli`. */
+const STATION_SLUG_RE = /^[a-z0-9_]{2,40}$/;
+/** ss.ge's walking minutes come in fives up to 20; past an hour is not a walk. */
+const STATION_MINUTES_MAX = 60;
+
+/**
+ * The metro stations ss.ge lists near a listing (Phase 14A), as station →
+ * walking minutes. ss.ge works them out from the poster's map pin, so they
+ * are only as good as the pin: kept as ss.ge said them, never shown as fact.
+ * Each station is keyed by its name: ss.ge's `stationId` is one per entrance
+ * (Isani is 81, 82 and 84), so the nearest entrance's minutes count. An empty
+ * list says nothing (a listing 264 m from a station had none), so it is null.
+ */
+export function readMetro(value: unknown): Record<string, number> | null {
+  if (!Array.isArray(value)) return null;
+  const nearest = new Map<string, number>();
+  for (const station of value) {
+    if (!isRecord(station)) continue;
+    const slug =
+      typeof station.stationTitle === 'string' ? station.stationTitle.trim().toLowerCase() : '';
+    const minutes = station.timeDistance;
+    if (!STATION_SLUG_RE.test(slug)) continue;
+    if (typeof minutes !== 'number' || !Number.isInteger(minutes)) continue;
+    if (minutes < 1 || minutes > STATION_MINUTES_MAX) continue;
+    const known = nearest.get(slug);
+    if (known === undefined || minutes < known) nearest.set(slug, minutes);
+  }
+  if (nearest.size === 0) return null;
+  return Object.fromEntries([...nearest].sort(([a], [b]) => a.localeCompare(b)));
 }
 
 const ENTITIES: Readonly<Record<string, string>> = {
@@ -236,8 +300,12 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
     districtName: text(address.districtTitle),
     subdistrictRef: reference(address.subdistrictId),
     subdistrictName: text(address.subdistrictTitle),
+    // Kept even when the street's name is dropped for holding a phone number.
+    streetRef: reference(address.streetId),
     streetName: addressText(address.streetTitle),
     streetNumber: streetNumber === '0' ? null : streetNumber,
+    ssMetro: readMetro(row.nearbySubwayStations),
+    ...floorRange(row.floorNumber),
     posterType: poster,
     promoted: typeof row.vipStatus === 'number' && row.vipStatus > 0,
     // A sub-type code: 0 is the site's "none". An unknown code is kept, not dropped.

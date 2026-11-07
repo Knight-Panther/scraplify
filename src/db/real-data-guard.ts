@@ -146,6 +146,11 @@ const REAL_ESTATE_FINGERPRINT_SQL = `
     (select coalesce(string_agg(md5(cr::text), ',' order by cr.id), '')
       from realestate.crawl_runs cr
       join sources s on s.id = cr.source_id
+      where s.slug = any($1)),
+    -- The place tree (migration 0049), written by the crawl's end and its page reads.
+    (select coalesce(string_agg(md5(p::text), ',' order by p.level, p.ref), '')
+      from realestate.places p
+      join sources s on s.id = p.source_id
       where s.slug = any($1))
   )) as fingerprint
 `;

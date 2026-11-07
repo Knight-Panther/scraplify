@@ -19,6 +19,11 @@ import {
 } from '../../realestate/expiry.js';
 import { type ListingCard, type UpsertOutcome, upsertListing } from '../../realestate/ingest.js';
 import type { DealType, PropertyType } from '../../realestate/kinds.js';
+import {
+  type DistrictParents,
+  loadDistrictParents,
+  loadListingsForPlacePoints,
+} from '../../realestate/places.js';
 import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
 import { type DetailResult, parseDetailPage } from './detail.js';
 import { parseResultsPage, RESULTS_PAGE_SIZE, type ResultsPage } from './list.js';
@@ -148,6 +153,13 @@ export const DEFAULT_STOP_AFTER_MS = 16 * 60 * 60 * 1000;
 export const MAX_REQUESTS_PER_RUN = 20_000;
 /** Listing pages failing one after another before the run stops asking. */
 const MAX_DETAIL_FAILURES_IN_A_ROW = 5;
+/**
+ * Listing pages a run reads to learn streets' points and settlements'
+ * municipalities (Phase 14A), about 18 minutes at the policy's spacing. On
+ * 2026-11-06 about 1,000 Tbilisi streets with listings had no page read yet,
+ * so about four nights; the ordinary page reads learn most streets anyway.
+ */
+export const PLACE_POINT_READS_PER_RUN = 300;
 
 /** A nightly run has no completed run to measure from. */
 export class SsGeNoBaselineError extends Error {
@@ -217,6 +229,8 @@ export interface RunSsGeCrawlOptions {
   fresh?: boolean;
   /** Pages a nightly run plans for whole-list reads; `DEEP_PAGE_BUDGET` unless a test says otherwise. */
   deepPageBudget?: number;
+  /** Listing pages read for the place tree at most; `PLACE_POINT_READS_PER_RUN` unless given. */
+  maxPlacePointReads?: number;
 }
 
 export interface RunSsGeCrawlResult {
@@ -303,6 +317,10 @@ interface RunState {
   stopReason: string | null;
   /** The site refused or would not answer: no further request is made in this run. */
   siteTrouble: boolean;
+  /** Each sub-district's district, as the place tree held it when the run began (`upsertListing`). */
+  parents: DistrictParents;
+  /** Listing pages this run may still ask for to learn a street's point or a settlement's municipality. */
+  placePointReadsLeft: number;
 }
 
 /**
@@ -567,6 +585,7 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
           sourceId: ssGeSource.id,
           card,
           seenAt: read.fetchedAt,
+          parents: run.parents,
         });
       } catch (err) {
         // One listing's bad value must not end the night: a hidden control
@@ -702,6 +721,27 @@ async function checkDueListings(run: RunState): Promise<void> {
     limit,
   });
   await readListingPages(run, due, 'checks');
+}
+
+/**
+ * Reads one listing page for each street whose point ss.ge has not yet told
+ * us, and each settlement whose municipality no page has (Phase 14A,
+ * `loadListingsForPlacePoints`), the streets with most listings first, up to
+ * `PLACE_POINT_READS_PER_RUN`. Each is an ordinary listing page, its details
+ * kept like any other: it counts with them. Before the pages wanted for their
+ * details, so a long queue of those never starves the place tree.
+ */
+async function readPlacePoints(run: RunState): Promise<void> {
+  const limit = Math.min(listingPagesAllowed(run), run.placePointReadsLeft);
+  if (limit === 0) return;
+  const wanted = await loadListingsForPlacePoints(run.db, {
+    sourceId: ssGeSource.id,
+    asOf: run.now(),
+    limit: limit + run.asked.size,
+  });
+  const unasked = wanted.filter((listing) => !run.asked.has(listing.id)).slice(0, limit);
+  run.placePointReadsLeft -= unasked.length;
+  await readListingPages(run, unasked, 'details');
 }
 
 /**
@@ -1039,6 +1079,8 @@ export async function runSsGeCrawl(
     knownListings: knownListings(history),
     stopReason: null,
     siteTrouble: false,
+    parents: await loadDistrictParents(db, ssGeSource.id),
+    placePointReadsLeft: options.maxPlacePointReads ?? PLACE_POINT_READS_PER_RUN,
   };
 
   try {
@@ -1073,7 +1115,9 @@ export async function runSsGeCrawl(
     // A trial that stopped at its page limit still checks; a run the site
     // refused, or would not answer, asks for nothing more.
     if (!run.siteTrouble) await checkDueListings(run);
-    // Then, with the time and requests left, the pages listings want read.
+    // A few pages for the place tree, then, with the time and requests left,
+    // the pages listings want read.
+    if (!run.siteTrouble) await readPlacePoints(run);
     if (!run.siteTrouble) await readWantedDetails(run);
 
     // Not after site trouble: listings this run never had the chance to see

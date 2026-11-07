@@ -25,6 +25,17 @@ const NO_DETAILS: ListingDetails = {
   longitude: null,
   municipalityRef: null,
   municipalityName: null,
+  pinManual: null,
+  cadastralCode: null,
+  complexRef: null,
+  complexName: null,
+  developerRef: null,
+  developerName: null,
+  streetRef: null,
+  ssMetro: null,
+  floorLow: null,
+  floorHigh: null,
+  street: { point: null, name: null, subdistrictRef: null, cityRef: null },
 };
 
 function detailsOf(result: DetailResult): ListingDetails {
@@ -62,8 +73,8 @@ describe('parseDetailPage', () => {
         pricePerM2Gel: 4892,
         currencyPosted: 'usd',
       },
-      // This old fixture keeps none of the detail fields.
-      details: NO_DETAILS,
+      // This old fixture keeps none of the detail fields but its floor.
+      details: { ...NO_DETAILS, floorLow: 2, floorHigh: 2 },
     });
   });
 
@@ -151,6 +162,8 @@ describe('parseDetailPage', () => {
         amenities: ['balcony', 'natural-gas', 'pool'],
         municipalityRef: 1,
         municipalityName: 'თბილისის შემოგარენი',
+        // A settlement with no districts or streets: only its city is named.
+        street: { ...NO_DETAILS.street, cityRef: 70 },
       });
     });
 
@@ -276,6 +289,84 @@ describe('parseDetailPage', () => {
       expect(
         detailsOf(parseDetailPage(fixture('detail-hotel-sale.html'), '33953472')).amenities,
       ).toEqual(['air-conditioning', 'balcony', 'fridge', 'furniture', 'hot-water', 'tv', 'wifi']);
+    });
+  });
+
+  describe('places (Phase 14A, pages read 2026-11-07)', () => {
+    it("reads a developer complex, its floors, and the street with ss.ge's own point for it", () => {
+      expect(detailsOf(parseDetailPage(fixture('detail-complex.html'), '36652502'))).toMatchObject({
+        pinManual: true,
+        complexRef: 619,
+        complexName: 'Comfort Hills • კომფორტ ჰილსი',
+        developerRef: 344,
+        // The fixture never keeps a developer's name (it may name a person).
+        developerName: null,
+        streetRef: 64,
+        ssMetro: null,
+        floorLow: -1,
+        floorHigh: 14,
+        street: {
+          point: { status: 'known', latitude: 41.753906, longitude: 44.7649 },
+          name: 'გოძიაშვილის ქ.',
+          subdistrictRef: 48,
+          cityRef: 95,
+        },
+      });
+    });
+
+    it("reads ss.ge's 0/0 as a street it has no point for, not as a missing answer", () => {
+      expect(
+        detailsOf(parseDetailPage(fixture('detail-street-point-none.html'), '37263131')).street,
+      ).toEqual({
+        point: { status: 'none' },
+        name: 'შერიფ ხიმშიაშვილის გამზირი',
+        subdistrictRef: 65,
+        cityRef: 96,
+      });
+    });
+
+    it('keeps whether the poster placed the pin, and the metro ss.ge worked out from it', () => {
+      // The map's default point, on Liberty Square, for a flat in Didi Dighomi.
+      expect(
+        detailsOf(parseDetailPage(fixture('detail-default-pin.html'), '37263095')),
+      ).toMatchObject({
+        pinManual: false,
+        latitude: 41.69,
+        longitude: 44.8,
+        streetRef: 1306,
+        ssMetro: { avlabari: 20, rustaveli: 20, tavisuplebis_moedani: 5 },
+        street: { point: { status: 'known', latitude: 41.78805, longitude: 44.74883 } },
+      });
+    });
+
+    it('keeps a cadastral code of the right shape, and nothing else in its place', () => {
+      expect(
+        detailsOf(parseDetailPage(fixture('detail-cadastral.html'), '36912696')).cadastralCode,
+      ).toBe('00.00.00.000.000');
+      for (const cadastralCode of ['call 599', '01.17', '01-17-13-026-105', 1171302610]) {
+        expect(
+          detailsOf(parseDetailPage(pageWith({ cadastralCode }), '1')).cadastralCode,
+        ).toBeNull();
+      }
+    });
+
+    it("keeps a developer's name unless it names a person or holds a phone number", () => {
+      const named = (companyName: string) =>
+        detailsOf(parseDetailPage(pageWith({ companyId: 7, companyName }), '1')).developerName;
+      expect(named('Archi')).toBe('Archi');
+      expect(named('ი/მ გიორგი ბერიძე')).toBeNull();
+      expect(named('ი.მ. გიორგი ბერიძე')).toBeNull();
+      expect(named('ინდ. მეწარმე გიორგი ბერიძე')).toBeNull();
+      expect(named('Builder 599 12 34 56')).toBeNull();
+    });
+
+    it('reads half a street point, or one outside Georgia, as nothing', () => {
+      const point = (fields: Record<string, unknown>) =>
+        detailsOf(parseDetailPage(pageWith(fields), '1')).street.point;
+      expect(point({ streetLocationLatitude: 41.7, streetLocationLongitude: null })).toBeNull();
+      expect(point({ streetLocationLatitude: 51.5, streetLocationLongitude: -0.1 })).toBeNull();
+      expect(point({ streetLocationLatitude: 0, streetLocationLongitude: 44.8 })).toBeNull();
+      expect(point({})).toBeNull();
     });
   });
 });

@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { DealType, PropertyType } from '../../realestate/kinds.js';
-import { parseResultsPage, RESULTS_PAGE_SIZE, SsGePageShapeError } from './list.js';
+import {
+  floorRange,
+  parseResultsPage,
+  RESULTS_PAGE_SIZE,
+  readMetro,
+  SsGePageShapeError,
+} from './list.js';
 
 function fixture(name: string): string {
   return readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf-8');
@@ -426,4 +432,79 @@ describe('parseResultsPage', () => {
       }),
     ).toThrow(SsGePageShapeError);
   });
+});
+
+describe('places on a results row (Phase 14A, fixture of 2026-11-07)', () => {
+  const page = parseResultsPage(fixture('results-flats-sale-places-p1.html'), {
+    ...FLATS_FOR_SALE,
+    page: 1,
+  });
+  const byKey = (key: string) => {
+    const card = page.cards.find((candidate) => candidate.sourceListingKey === key);
+    if (card === undefined) throw new Error(`no card ${key}`);
+    return card;
+  };
+
+  it('keeps the street id beside its name, on every row that has a street', () => {
+    expect(page.cards).toHaveLength(16);
+    expect(page.cards.every((card) => card.streetRef !== null)).toBe(true);
+    expect(byKey('37271265')).toMatchObject({
+      subdistrictRef: 3,
+      streetRef: 92,
+      streetName: 'ნუცუბიძის ქ.',
+      streetNumber: '125ა',
+    });
+  });
+
+  it('keeps the metro stations ss.ge lists, by station, and none for an empty list', () => {
+    expect(byKey('37271265').ssMetro).toEqual({ state_uni: 10, vazha_pshavela: 15 });
+    expect(byKey('37271365').ssMetro).toBeNull();
+  });
+
+  it('reads one floor as both ends of the range', () => {
+    expect(byKey('37271265')).toMatchObject({ floor: 17, floorLow: 17, floorHigh: 17 });
+  });
+});
+
+describe('readMetro', () => {
+  it('keeps the nearest entrance of each station, and skips what is not a station', () => {
+    expect(
+      readMetro([
+        { stationId: 81, stationTitle: 'isani', timeDistance: 15 },
+        { stationId: 84, stationTitle: 'isani', timeDistance: 5 },
+        { stationId: 9, stationTitle: 'samasi_aragveli', timeDistance: 20 },
+        { stationId: 1, stationTitle: 'Bad Slug!', timeDistance: 5 },
+        { stationId: 2, stationTitle: 'delisi', timeDistance: 0 },
+        { stationId: 3, stationTitle: 'delisi', timeDistance: '5' },
+        'not a station',
+      ]),
+    ).toEqual({ isani: 5, samasi_aragveli: 20 });
+  });
+
+  it('reads no list, or a list with nothing usable, as unknown', () => {
+    expect(readMetro(null)).toBeNull();
+    expect(readMetro([])).toBeNull();
+    expect(readMetro([{ stationTitle: 'x', timeDistance: 5 }])).toBeNull();
+  });
+});
+
+describe('floorRange', () => {
+  it.each([
+    [3, 3, 3],
+    ['3', 3, 3],
+    ['7, 10, 11, 13, 15', 7, 15],
+    ['2-14', 2, 14],
+    ['-1-14', -1, 14],
+    ['-2-16', -2, 16],
+    ['1–3, 5', 1, 5],
+  ])('reads %j as floors %d to %d', (value, low, high) => {
+    expect(floorRange(value)).toEqual({ floorLow: low, floorHigh: high });
+  });
+
+  it.each([[null], [''], ['ground'], ['3a'], [2.5], ['1, x'], ['300'], ['-9']])(
+    'reads %j as unknown',
+    (value) => {
+      expect(floorRange(value)).toEqual({ floorLow: null, floorHigh: null });
+    },
+  );
 });

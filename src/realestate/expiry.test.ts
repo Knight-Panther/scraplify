@@ -445,6 +445,17 @@ describe('listing expiry', () => {
             longitude: null,
             municipalityRef: null,
             municipalityName: null,
+            pinManual: null,
+            cadastralCode: null,
+            complexRef: null,
+            complexName: null,
+            developerRef: null,
+            developerName: null,
+            streetRef: null,
+            ssMetro: null,
+            floorLow: null,
+            floorHigh: null,
+            street: { point: null, name: null, subdistrictRef: null, cityRef: null },
           },
         },
         checkedAt: NOW_ISO,
@@ -627,6 +638,20 @@ describe('listing expiry', () => {
         description: 'Call 599 12 34 56',
         latitude: '41.709000',
         longitude: '44.766000',
+        // Phase 14A: kept, but for the private ones.
+        streetRef: 19,
+        houseNumber: 12,
+        houseSuffix: null,
+        floorLow: 4,
+        floorHigh: 4,
+        districtInferred: true,
+        complexRef: 619,
+        complexName: 'Comfort Hills',
+        developerRef: 344,
+        developerName: 'Comfort Hills',
+        ssMetro: { zzprivatestation: 5 },
+        pinManual: true,
+        cadastralCode: '01.14.12.005.017',
         sourceCreatedAt: at(-90),
         sourceUpdatedAt: at(-40),
         firstSeenAt: at(-60),
@@ -680,19 +705,48 @@ describe('listing expiry', () => {
         similarityGroup: 'sg-1',
         goneReason: 'page says removed',
         implausible: false,
+        streetRef: 19,
+        houseNumber: 12,
+        houseSuffix: null,
+        floorLow: 4,
+        floorHigh: 4,
+        districtInferred: true,
+        complexRef: 619,
+        complexName: 'Comfort Hills',
+        developerRef: 344,
+        developerName: 'Comfort Hills',
       });
       expect(instant(row?.detailsReadAt)).toBe(instant(at(-30)));
       expect(instant(row?.sourceCreatedAt)).toBe(instant(at(-90)));
       expect(instant(row?.firstSeenAt)).toBe(instant(at(-60)));
       expect(instant(row?.lastSeenAt)).toBe(instant(at(-16)));
       expect(instant(row?.goneAt)).toBe(instant(at(-15)));
-      // Nothing that could carry a link, a person's words or a location finer than the street.
-      const leftOut = ['canonical_url', 'description', 'search', 'latitude', 'longitude'];
+      // Nothing that could carry a link, a person's words or a location finer
+      // than the street: not the pin, what was worked out from it (the metro
+      // list), whether the poster placed it, nor a parcel's cadastral code.
+      const leftOut = [
+        'canonical_url',
+        'description',
+        'search',
+        'latitude',
+        'longitude',
+        'ss_metro',
+        'pin_manual',
+        'cadastral_code',
+      ];
       const columns = Object.values(getTableColumns(realEstateArchiveListings)).map((c) => c.name);
       expect(columns.filter((name) => leftOut.includes(name))).toEqual([]);
       // Whole values, not fragments: "599" alone turned up in a random source id (CI, 2026-11-06).
       const copied = JSON.stringify(row);
-      for (const leaked of ['Call 599', '12 34 56', '41.709000', '44.766000', 'example.invalid']) {
+      for (const leaked of [
+        'Call 599',
+        '12 34 56',
+        '41.709000',
+        '44.766000',
+        'example.invalid',
+        'zzprivatestation',
+        '01.14.12.005.017',
+      ]) {
         expect(copied).not.toContain(leaked);
       }
     });

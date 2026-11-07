@@ -56,6 +56,8 @@ const ROW_FIELDS = [
   'isExclusive',
   'hasRemoteViewing',
 ];
+/** A metro station near the listing (Phase 14A): its name and walking minutes, never its entrance id. */
+const STATION_FIELDS = ['stationTitle', 'timeDistance'];
 const PRICE_FIELDS = ['priceGeo', 'unitPriceGeo', 'priceUsd', 'unitPriceUsd', 'currencyType'];
 const ADDRESS_FIELDS = [
   'municipalityId',
@@ -139,6 +141,15 @@ const DETAIL_FIELDS = [
   'withBuiltInKitchen',
   'isPetFriendly',
   'hasRemoteViewing',
+  // Phase 14A. The developer's name (`companyName`) is never kept: an
+  // individual entrepreneur's company is named after a person.
+  'isManualPin',
+  'streetLocationLatitude',
+  'streetLocationLongitude',
+  'cadastralCode',
+  'projectId',
+  'projectName',
+  'companyId',
 ];
 
 function isRecord(value) {
@@ -154,6 +165,11 @@ function pick(source, fields) {
 
 function maskPhones(value) {
   return typeof value === 'string' ? value.replace(PHONE_RE, '000') : value;
+}
+
+/** Each station's name and minutes only. */
+function trimStations(value) {
+  return Array.isArray(value) ? value.map((station) => pick(station, STATION_FIELDS)) : value;
 }
 
 function trimRow(row) {
@@ -172,6 +188,9 @@ function trimRow(row) {
   // Present on a business's rows; its type is all the parser reads.
   if ('userInfo' in row) {
     out.userInfo = isRecord(row.userInfo) ? { userType: row.userInfo.userType } : row.userInfo;
+  }
+  if ('nearbySubwayStations' in row) {
+    out.nearbySubwayStations = trimStations(row.nearbySubwayStations);
   }
   return out;
 }
@@ -195,6 +214,15 @@ function trimDetail(pageProps) {
   // two decimals, about a kilometre, which is enough to test their range.
   for (const field of ['locationLatitude', 'locationLongitude']) {
     if (typeof out[field] === 'number') out[field] = Math.round(out[field] * 100) / 100;
+  }
+  // The street's own point is ss.ge's, the same for every listing on it, and
+  // kept whole. A parcel's cadastral code leads to its owner through the
+  // public registry: only its shape is kept.
+  if (typeof out.cadastralCode === 'string')
+    out.cadastralCode = out.cadastralCode.replace(/\d/g, '0');
+  out.projectName = maskPhones(out.projectName);
+  if ('nearbySubwayStations' in data) {
+    out.nearbySubwayStations = trimStations(data.nearbySubwayStations);
   }
   if (isRecord(data.price)) out.price = pick(data.price, PRICE_FIELDS);
   if (isRecord(data.address)) {

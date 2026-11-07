@@ -16,6 +16,18 @@ export type PropertyType = (typeof PROPERTY_TYPES)[number];
 export type DealType = (typeof DEAL_TYPES)[number];
 
 /**
+ * The levels of a source's place tree (`realestate.places`, Phase 14A), each
+ * a child of the one before: a street is in one sub-district, which is in
+ * one district, which is in one city. A settlement outside the main cities is
+ * in a municipality.
+ */
+export const PLACE_LEVELS = ['municipality', 'city', 'district', 'subdistrict', 'street'] as const;
+export type PlaceLevel = (typeof PLACE_LEVELS)[number];
+/** Whether ss.ge's own point for a street is known (`known`), or ss.ge has none (`none`, sent as 0/0). */
+export const POINT_STATUSES = ['unknown', 'known', 'none'] as const;
+export type PointStatus = (typeof POINT_STATUSES)[number];
+
+/**
  * ss.ge's `commercialRealEstateType` codes, stored as the number (like a
  * location ref) so a code added later is kept rather than dropped. 0 means
  * none and is never stored.
