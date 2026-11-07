@@ -475,7 +475,7 @@ Older release records (`30e68a7`, `0b3476d`, the first scheduled run of `9a2b141
 - **Schema and role changes on the real database** need the owner's approval (migration and grants approval is asked for first). Superseded on 2026-11-07, next bullet.
 - **Permissions (2026-11-07):** Claude works with no permission prompts, and pushes, merges once the gates are met, and deploys inside the window. This includes migrations and the deploy scripts' migration step.
   - **Setup:** "edit automatically" mode with a bare `Bash` allow rule, in the gitignored `.claude/settings.local.json`.
-  - **What still asks:** destructive database operations and force pushes. `scripts/db-write-guard.sh` detects them, `scripts/db-write-guard-cases.sh` holds its 48 cases, and `.claude/settings.json` has the force-push ask rules.
+  - **What still asks:** destructive database operations and force pushes. `scripts/db-write-guard.sh` detects them, `scripts/db-write-guard-cases.sh` holds its 67 cases, and `.claude/settings.json` has the force-push ask rules.
   - **Auto mode** drops the broad allow rule, so sessions in this repo stay in "edit automatically".
 - **Semantic matching:** E1 chosen 2026-09-26; matching work was to stop for the MVP the same day, then reopened by the owner on 2026-09-30 for A′ (PR #35) and role quality (PR #36). The model question is closed (A′).
 - **Hosting:** OVH VPS-1, deployed 2026-09-28.

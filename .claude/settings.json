@@ -14,7 +14,14 @@
       "Bash(git push * --force*)",
       "Bash(git push * -f*)",
       "Bash(git push --mirror*)",
-      "Bash(git push * --mirror*)"
+      "Bash(git push * --mirror*)",
+      "Bash(git push --delete*)",
+      "Bash(git push * --delete*)",
+      "Bash(git push -d*)",
+      "Bash(git push * -d*)",
+      "Bash(git push --prune*)",
+      "Bash(git push * --prune*)",
+      "Bash(git push * :*)"
     ],
     "defaultMode": "acceptEdits"
   },

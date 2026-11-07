@@ -51,6 +51,23 @@ check ask "git push --force origin main"
 check ask "git push -f"
 check ask "git push origin +main"
 check ask "git push --force-with-lease origin phase-14b"
+# --- must ask: SQL it cannot read, or split across lines (security review 2026-11-07)
+check ask "psql -d scraplify < cleanup.sql"
+check ask "cat cleanup.sql | docker exec -i scraplify-postgres-1 psql -U scraplify -d scraplify"
+check ask "pg_dump -d other | psql -d scraplify"
+check ask "docker exec -i scraplify-postgres-1 psql -U scraplify -d scraplify <<'SQL'
+DROP
+TABLE realestate.places;
+SQL"
+# --- must ask: pushes that delete a remote branch
+check ask "git push origin --delete main"
+check ask "git push -d origin phase-14a-place-capture"
+check ask "git push origin :main"
+check ask "git push --prune origin"
+# --- must ask: a qa name elsewhere in the command does not exempt a real target
+check ask "docker exec scraplify-postgres-1 psql -d scraplify -c 'drop table x' # scraplify_qa"
+check ask "psql postgresql://scraplify:pw@127.0.0.1:5432/scraplify -c 'delete from x' -v note=scraplify_qa_re"
+check ask "ssh ubuntu@152.228.171.98 \"sudo -u postgres psql -d scraplify -c 'truncate realestate.places'\" # scraplify_qa"
 
 # --- must pass: reads, ordinary writes, migrations and the corpus CLIs
 check pass "docker exec scraplify-postgres-1 psql -U scraplify -d scraplify -c 'select count(*) from realestate.listings'"
@@ -75,6 +92,33 @@ check pass "git push -q origin main"
 check pass "gh pr merge 81 --merge --delete-branch"
 check pass "truncate -s 0 /tmp/x.log"
 check pass "docker compose down"
+check pass "git push origin HEAD:refs/heads/phase-14b"
+check pass "DATABASE_URL=postgresql://scraplify:throwaway@127.0.0.1:5544/scraplify_qa_re npx vitest run"
+check pass "printf 'TRUNCATE realestate.places' | docker exec -i xtelo-re-test psql -U scraplify -d scraplify_qa_re"
+check pass "docker exec -i xtelo-re-test psql -U scraplify -d scraplify_qa_re <<'SQL'
+DELETE FROM realestate.places;
+SQL"
+check pass "docker exec xtelo-re-test sh -c \"pg_dump -U scraplify --data-only scraplify_qa_places | psql -U scraplify -d scraplify_qa_grants14a\""
+
+# Without jq the guard falls back to the raw payload: it must still ask, and
+# still pass harmless commands. A jq that always fails stands first on PATH
+# (portable: Git Bash's own tools cannot be copied out of their folder).
+nojq_dir=$(mktemp -d)
+printf '#!/bin/sh\nexit 127\n' > "$nojq_dir/jq"
+chmod +x "$nojq_dir/jq"
+nojq() { # $1 = ask|pass, $2 = a JSON payload written by hand
+  total=$((total + 1))
+  out=$(printf '%s' "$2" | PATH="$nojq_dir:$PATH" sh "$guard")
+  case "$out" in *'"ask"'*) got=ask ;; *) got=pass ;; esac
+  if [ "$got" != "$1" ]; then
+    failed=$((failed + 1))
+    printf 'WRONG without jq (want %s, got %s): %s\n' "$1" "$got" "$2"
+  fi
+}
+nojq ask '{"tool_name":"Bash","tool_input":{"command":"psql -d scraplify -c \"DROP TABLE realestate.places\""}}'
+nojq ask '{"tool_name":"Bash","tool_input":{"command":"docker exec scraplify-postgres-1 dropdb -U scraplify scraplify"}}'
+nojq pass '{"tool_name":"Bash","tool_input":{"command":"git status --short"}}'
+rm -rf "$nojq_dir"
 
 printf '%s of %s cases right\n' $((total - failed)) "$total"
 [ "$failed" -eq 0 ]

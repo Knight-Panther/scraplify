@@ -19,7 +19,9 @@
 #   - deleting the real local Postgres container, or any Docker volume;
 #   - stopping, disabling or uninstalling Postgres;
 #   - deleting a backup copy (rclone, aws s3, wrangler r2);
-#   - a force push (also an ask rule in .claude/settings.json).
+#   - SQL from a file, a redirect or a piped dump, which it cannot read;
+#   - a force push, or a push that deletes a remote branch (also ask rules
+#     in .claude/settings.json).
 #
 # What passes, by design: reads, inserts and updates, migrations (additive by
 # rule, and a deploy backs up first), the corpus CLIs (crawl, dedupe, rank,
@@ -40,7 +42,14 @@ export MSYS2_ARG_CONV_EXCL='*'
 
 payload=$(cat 2>/dev/null || echo '{}')
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null || echo "")
+# Without jq (or with a payload it cannot read), match the raw payload: the
+# command text is inside it, quotes escaped, which the patterns below still
+# find. This hook is the only routine prompt, so it must not lapse silently.
+[ -n "$cmd" ] || cmd="$payload"
 [ -n "$cmd" ] || exit 0
+# One line, so SQL split across lines (a heredoc, "DROP\nTABLE") still
+# matches: grep reads line by line.
+cmd=$(printf '%s' "$cmd" | tr '\r\n' '  ')
 
 matches() {
   printf '%s' "$cmd" | grep -Eiq "$1"
@@ -51,8 +60,17 @@ matches_exact() {
   printf '%s' "$cmd" | grep -Eq "$1"
 }
 
-# The disposable QA databases (CLAUDE.md, "Local databases").
-matches 'scraplify_qa' && exit 0
+# The disposable QA databases (CLAUDE.md, "Local databases"): exempt only
+# when nothing else in the command names a real target. Without the qa names,
+# the real local corpus (`-d scraplify`, a URL ending in `/scraplify`, its
+# container) or the host must not remain, so a stray "scraplify_qa" in a
+# comment or another argument does not wave a real delete through.
+if matches 'scraplify_qa'; then
+  rest=$(printf '%s' "$cmd" | sed -E 's/scraplify_qa[A-Za-z0-9_]*//g')
+  if ! printf '%s' "$rest" | grep -Eiq 'scraplify-postgres|(-d|--dbname)[= ]*["'"'"']?scraplify([^_a-z0-9]|$)|@[^/[:space:]]+/scraplify([^_a-z0-9]|$)|\bssh\b|152\.228\.171\.98|xtelo-host'; then
+    exit 0
+  fi
+fi
 
 what=""
 
@@ -62,8 +80,13 @@ client='\b(psql|pg_dump|pg_restore|node|tsx|ssh)\b|postgres(ql)?://|DATABASE_URL
 if matches "$client"; then
   if matches '\b(drop[[:space:]]+(table|schema|database|view|materialized|index|role|user|owned|type|function|extension)|truncate[[:space:]]+(table[[:space:]]+)?["a-z_]|delete[[:space:]]+from|alter[[:space:]]+table[^;]*[[:space:]]drop[[:space:]])'; then
     what="SQL that drops, truncates or deletes data"
-  elif matches_exact '\bpsql\b[^|;&]*[[:space:]](-f|--file)([[:space:]=]|$)'; then
-    what="a psql script file, whose SQL this hook cannot read"
+  elif matches_exact '\bpsql\b[^|;&]*[[:space:]](-f|--file)([[:space:]=]|$)' ||
+    matches_exact '\bpsql\b[^|;&]*[[:space:]]<[[:space:]]*[^<[:space:]]' ||
+    matches '\.sql\b[^;&]*\|[^;&]*\bpsql\b' ||
+    matches '\bpg_dump\b[^;&]*\|[^;&]*\bpsql\b'; then
+    # SQL from a file, a redirect or another dump: this hook cannot read it.
+    # A heredoc (`psql <<SQL`) is part of the command text and is matched above.
+    what="SQL from a file or a dump, which this hook cannot read"
   fi
 fi
 
@@ -105,13 +128,20 @@ if [ -z "$what" ] &&
   what="deleting a backup copy"
 fi
 
-# A force push rewrites history others (CI, the host's clones) already have.
+# A force push rewrites history others (CI, the host's clones) already have;
+# a deleting push removes a remote branch. A merged PR's branch is deleted by
+# `gh pr merge --delete-branch`, which does not pass through here.
 if [ -z "$what" ] &&
   matches_exact '\bgit[[:space:]]+push\b[^|;&]*([[:space:]](--force|--force-with-lease|-f|--mirror)\b|[[:space:]]\+[^[:space:]])'; then
   what="a force push"
 fi
+if [ -z "$what" ] &&
+  matches_exact '\bgit[[:space:]]+push\b[^|;&]*([[:space:]](--delete|-d|--prune)\b|[[:space:]]:[^[:space:]])'; then
+  what="a push that deletes a remote branch"
+fi
 
 [ -n "$what" ] || exit 0
 
-reason="db-write-guard: this command looks destructive ($what). Approve only if it is intended now. Commands naming scraplify_qa are exempt (scripts/db-write-guard.sh)."
-jq -n --arg r "$reason" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: $r}}'
+# Written without jq, so the answer does not depend on it either; every
+# `what` above is a fixed string with no quote or backslash in it.
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"db-write-guard: this command looks destructive (%s). Approve only if it is intended now. Commands on scraplify_qa databases alone are exempt (scripts/db-write-guard.sh)."}}\n' "$what"
