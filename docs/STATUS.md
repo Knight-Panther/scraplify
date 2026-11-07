@@ -140,7 +140,8 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
     - [x] Reviews (2026-11-07), no P0 or P1:
       - Migration safety: its two P2s are deploy rules, now in the RUNBOOK. Deploy only once the ss.ge unit is inactive, and migrate and grant before the new code goes live.
       - Surface boundary: its P2 and two P3s are under Open items.
-    - [ ] CI green on the PR.
+    - [x] CI green on PR #81, first run.
+    - [ ] Merge after 14A's morning-after check, so that until then `main` is the live release and a 14A fix can ship without 14B.
   - **14B exit gate, after deploy (RUNBOOK §3 step 8, "The place catalogue on both maps"):**
     - [ ] Deployed after 14A's morning-after check, with the catalogue filled by hand and the RUNBOOK's checks.
     - [ ] The first nightly run's journal says `ss.ge place catalogue refreshed`.
