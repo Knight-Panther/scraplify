@@ -95,7 +95,10 @@ Owner decision 2026-11-05: a joint plan with the Hermes project (its local `.git
       - **`prod-status`:** all green, `probe: ok`.
       - **The Real estate tab** answers with 100 listings on the default, price-sorted and every-listing views.
       - **Its queries under the old and new release, as the public role on the same data:** the same within noise (search 0.3 s, count 0.3 s, locations 0.4 s), so 13B's move changed nothing.
-    - [ ] The first nightly run on the release takes its day (`ss.ge daily totals taken` in its journal).
+    - [x] The first nightly run on the release takes its day (`ss.ge daily totals taken` in its journal).
+      - **Run 2026-11-06 21:38 → 2026-11-07 13:39 UTC:** completed (time limit reached); 14,092 requests, 3,527 results pages, 7,444 listing pages.
+      - **Totals for 2026-11-07:** 3,916 cells, `rules_version` 2, 226,504 listings, taken in 6.1 s.
+      - **Page retries (#76):** 21 results pages came without their listing list, 104–109 KB with the home page's title or the list's. Each loaded on the immediate retry, so no page needed the 1- or 5-minute waits.
     - [x] Hermes told "C3 ready, first day 2026-11-06" (2026-11-06), with what is not in the table and why.
 - **Rent typo bound (2026-11-06, found by Hermes), merged as `c7e88a1` (PR #79, CI green after a flaky archive test was fixed in it) and deployed 18:17 UTC:** a sale price filed as rent slipped under the $50,000-a-month bound.
   - **What was missed:** 16 live rents at $12,000–$43,000 a month, for example $43,000 for 25 m². Rent flats' 99th percentile is $26/m², and the cheapest 1% of flats for sale are $714/m². The $195,000 "rent" Hermes reported was already caught.
