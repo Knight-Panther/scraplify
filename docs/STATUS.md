@@ -30,7 +30,7 @@ Every open item, what it waits on, and when it is next touched. Times are UTC (T
 | ❌ | `/real-estate` answers in 3–7 s | its cause, not found yet | measure before changing anything (Open items) |
 | ⏳ | A partial or failed ss.ge run's alert shows its "Why:" line | the next such run | — |
 | ⏳ | Archive dump size: split the archive out of the nightly dump past about 250 MB | — | weekly |
-| ⏳ | Drop the trial database `scraplify_qa_places` (container `xtelo-re-test`) | — | any session; the guard asks once |
+| ✅ | Trial databases dropped with the owner's consent: `scraplify_qa_places`, and the old `scraplify_qa_re`, recreated empty for tests and migrated through 0051 (container `xtelo-re-test`) | — | done 2026-11-08 |
 | ❌ | Backlog: 7B supervised repair; the 1C remainder | — | "Upcoming" at the end |
 <!-- board:end -->
 
