@@ -18,6 +18,7 @@ import {
   realEstateLocations,
   searchRealEstate,
 } from '../../../../src/realestate/queries.js';
+import { cachedFor } from '../../../lib/cached.js';
 import { absoluteTime, count, relativeTime } from '../../../lib/format.js';
 import {
   AMENITY_LABELS,
@@ -82,6 +83,15 @@ export const metadata = { title: 'Real estate · Xtelo' };
 /** The most the query layer returns at once. */
 const FETCH_CHUNK = 500;
 
+/**
+ * Every city and area with its listings, for the filters: one grouping of
+ * every active listing (about 0.5 s on the host), the same for every visitor,
+ * and changed only by the crawl. So it is asked once in five minutes.
+ */
+const locations = cachedFor(5 * 60_000, () =>
+  realEstateLocations(db, {}, new Date().toISOString()),
+);
+
 export default async function RealEstatePage({
   searchParams,
 }: {
@@ -90,16 +100,17 @@ export default async function RealEstatePage({
   const raw = await searchParams;
   const now = new Date().toISOString();
 
-  const places = await realEstateLocations(db, {}, now);
+  const places = await locations();
   const query = parseRealEstateQuery(raw, places, Date.parse(now));
 
-  const total = await countRealEstate(db, query.filters, now);
-  const rows = await fetchRows(query, Math.min(query.show, total), now);
+  // The count, the rows and the details coverage do not wait for one another.
+  const [total, rows, coverage] = await Promise.all([
+    countRealEstate(db, query.filters, now),
+    fetchRows(query, query.show, now),
+    // A filter on a listing's own page sees only listings whose page was read: say how many.
+    hasDetailFilter(query.filters) ? detailsCoverage(db, query.filters, now) : null,
+  ]);
   const currency = query.filters.currency ?? 'usd';
-  // A filter on a listing's own page sees only listings whose page was read: say how many.
-  const coverage = hasDetailFilter(query.filters)
-    ? await detailsCoverage(db, query.filters, now)
-    : null;
 
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
@@ -219,7 +230,11 @@ function GroupHeading({ query, total }: { query: RealEstateQuery; total: number 
   );
 }
 
-/** Read in chunks, so the query layer keeps its own limit. Safe under OFFSET because every order ends in the id. */
+/**
+ * Read in chunks, so the query layer keeps its own limit. Safe under OFFSET
+ * because every order ends in the id. A short chunk is the last one, so it
+ * needs no count first.
+ */
 async function fetchRows(
   query: RealEstateQuery,
   wanted: number,
@@ -227,13 +242,10 @@ async function fetchRows(
 ): Promise<RealEstateRow[]> {
   const rows: RealEstateRow[] = [];
   for (let offset = 0; offset < wanted; offset += FETCH_CHUNK) {
-    const batch = await searchRealEstate(
-      db,
-      { ...query.filters, limit: Math.min(FETCH_CHUNK, wanted - offset), offset },
-      now,
-    );
+    const limit = Math.min(FETCH_CHUNK, wanted - offset);
+    const batch = await searchRealEstate(db, { ...query.filters, limit, offset }, now);
     rows.push(...batch);
-    if (batch.length === 0) break;
+    if (batch.length < limit) break;
   }
   return rows;
 }
