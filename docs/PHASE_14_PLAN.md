@@ -123,12 +123,12 @@ Gates and evidence: STATUS, Phase 14A.
 - ✅ **Migration `0049`:** listing columns, `places`, the `(source_id, street_ref)` index, the public view's and archive's appended columns, `recently_gone` re-issued, the worker's grant on `places`. Changed: `SET lock_timeout`, not `SET LOCAL`, so it holds with or without the migrator's transaction.
 - ✅ **C3:** `TOTALS_RULES_VERSION` 3, since the fill moved about 1,200 listings into district cells; the day's totals retaken after the deploy.
 - ✅ **Housekeeping:** test cleanup and the real-data fingerprint cover `places`; the capture allow-list keeps the new fields (cadastral digits masked, private posters' pins at 2 decimals, no company names); fixtures for a metro page, a developer page, a 0/0 street point and the default pin; test factories.
-- ⏳ **The morning after** (2026-11-08, from the first run under 14A):
-  - new and changed counts like the nights before, and no jump in the wanted backlog (36,945 before);
-  - `street_ref` on about 90% and `ss_metro` on about 40% of the Tbilisi listings seen that night;
-  - active listings with a sub-district but no district at about 0;
-  - `places` counts by level, and known street points rising;
-  - ✅ already checked at deploy: the public role sees the new columns and no private one.
+- ✅ **The morning after** (2026-11-08, the run that ended 13:39 UTC; numbers in STATUS's 14A gate):
+  - ✅ new and changed counts like the nights before (changed 6.2% against 6.6%), and the wanted backlog grew as the night before 14A did;
+  - ✅ `street_ref` on 99.8% of the Tbilisi listings seen. `ss_metro` on 29.1%: the plan's 40% was too high, and ss.ge's own cards show the same share;
+  - ✅ active listings with a sub-district but no district: 0;
+  - ✅ 1,894 streets in the tree, 677 with a point;
+  - ✅ the public role sees the new columns and no private one.
 
 ## 14B: the official map, names and Hermes's catalogue (C6) — ✅ built, CI green, PR #81 not merged
 

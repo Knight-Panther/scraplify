@@ -226,20 +226,22 @@ export function nameKey(text: string): string {
 }
 
 /**
- * The order a lookup lists matches of one kind in. ss.ge's areas come first,
- * since a bare name means what people mean by it ("Vake": the neighbourhood);
- * then the official map; then streets.
+ * The order a lookup lists matches of one kind in, as groups. ss.ge's areas
+ * come first, since a bare name means what people mean by it ("Vake": the
+ * neighbourhood); then the official map; then its stations; then streets.
+ * Within a group the busiest comes first: production has a village called
+ * ვაკე with one listing (city 572, 2026-11-08), and the neighbourhood with
+ * 21,367 must still come before it.
  */
-export const LOOKUP_LEVEL_ORDER = [
-  'city',
-  'district',
-  'subdistrict',
-  'neighbourhood',
-  'municipality',
-  'official_district',
-  'metro_station',
-  'street',
+export const LOOKUP_LEVEL_GROUPS = [
+  ['city', 'district', 'subdistrict', 'neighbourhood', 'municipality'],
+  ['official_district'],
+  ['metro_station'],
+  ['street'],
 ] as const;
+
+/** Every level a lookup returns, in group order. */
+export const LOOKUP_LEVEL_ORDER: readonly string[] = LOOKUP_LEVEL_GROUPS.flat();
 
 /** At most this many matches per name; the default is 50. */
 const LOOKUP_LIMIT_MAX = 500;
@@ -269,14 +271,18 @@ export function romanizedName(text: string): string {
 /** The SQL behind both lookups: for each key in `$1` (a JSON array), its places, at most `$2` each. */
 function lookupSql(): string {
   const levels = LOOKUP_LEVEL_ORDER.map((level) => `'${level}'`).join(', ');
+  const group = `case ${LOOKUP_LEVEL_GROUPS.map(
+    (members, i) =>
+      `when p.level in (${members.map((level) => `'${level}'`).join(', ')}) then ${i + 1}`,
+  ).join(' ')} end`;
   return `with q as (select distinct key from jsonb_array_elements_text($1::jsonb) as k(key)),
 matched as (
   select q.key, p.*,
          case when q.key = any(p.match_keys) then 'exact' else 'partial' end as match,
          row_number() over (
            partition by q.key
-           order by (q.key = any(p.match_keys)) desc, array_position(array[${levels}], p.level),
-                    p.active_listings desc, p.level, p.ref
+           order by (q.key = any(p.match_keys)) desc, ${group}, p.active_listings desc,
+                    array_position(array[${levels}], p.level), p.ref
          ) as rank
     from q
     join realestate.public_places p
@@ -328,8 +334,9 @@ function built(
  * The places one name names, on both maps, over `realestate.public_places`
  * (C6). A place matches `exact` when one of its names has the same key, and
  * `partial` when the words come in order inside one ("dighomi" in "Didi
- * Dighomi"). Rows come by `rank`: exact first, then by `LOOKUP_LEVEL_ORDER`,
- * then the busiest. Each row carries its parent's names, for a street or
+ * Dighomi"). Rows come by `rank`: exact first, then by `LOOKUP_LEVEL_GROUPS`
+ * (ss.ge's areas, the official map, stations, streets), the busiest first in
+ * each. Each row carries its parent's names, for a street or
  * station its official district's, and for an ss.ge area the official
  * district holding most of its located listings, so a reply can say how the
  * other map sees it. For a text that may name several places, use

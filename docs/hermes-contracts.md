@@ -259,7 +259,7 @@ Both are first-class and linked, and neither is renamed into the other (owner, 2
 Each row is a place for one `key` (a name's key; the text lookup asks for several), with its `rank` for that key and `match`.
 - **Names on the row:** the place's own, and its parent's (`parent_name_ka`, `parent_name_en`, `parent_name_roman`). For a street or station, its official district's (`official_name_ka`, `official_name_en`). For an ss.ge Tbilisi area, the official district holding most of its located listings: `official_top_code`, `official_top_name_ka`, `official_top_name_en` and `official_top_listings`, out of `official_shares.located`. That gives you "Avlabari: listed under Old Tbilisi; officially mostly in Isani (n of m located)" with no join.
 - **`match`:** `exact` when one of the place's names has the same key as the words, and `partial` when the words come in order inside a name ("dighomi" in "Didi Dighomi").
-- **Order (`rank`):** exact before partial. Then ss.ge's areas (city, district, sub-district), the owner's neighbourhoods and municipalities, then the official map, then streets. Then the busiest.
+- **Order (`rank`):** exact before partial. Then by group: ss.ge's areas (cities and villages, districts, sub-districts, the owner's neighbourhoods, municipalities), then the official map, then its stations, then streets. Within a group, the busiest comes first, so the Vake neighbourhood (21,367 listings) comes before the village called ვაკე (one listing).
 - **The two-maps rule falls out of that order:**
   - a bare name means ss.ge's place: "Vake" is the neighbourhood first, with Vake District beside it, also exact;
   - "Vake district", "ვაკის რაიონი" and "vakis raioni" are the official district first;
