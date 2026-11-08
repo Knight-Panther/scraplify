@@ -75,9 +75,20 @@ test.describe('public: link previews and search', () => {
   test('robots.txt allows the catalogue and points at the sitemap', async () => {
     const { status, text } = await get('public', '/robots.txt');
     expect(status).toBe(200);
-    expect(text).toContain('Allow: /');
-    expect(text).toContain('Disallow: /api/');
+    expect(text).toContain('User-Agent: *\nAllow: /\nDisallow: /api/\n');
     expect(text).toContain('Sitemap: http://127.0.0.1:3101/sitemap.xml');
+  });
+
+  test('robots.txt turns AI-training and SEO crawlers away, but never a search engine', async () => {
+    const { text } = await get('public', '/robots.txt');
+    // One group: every listed crawler on its own User-Agent line, then Disallow: /.
+    expect(text).toMatch(/User-Agent: GPTBot\n(?:User-Agent: [^\n]+\n)*Disallow: \/\n/);
+    for (const name of ['Reflectionbot', 'SemrushBot', 'AhrefsBot']) {
+      expect(text).toContain(`User-Agent: ${name}\n`);
+    }
+    for (const name of ['Googlebot', 'Bingbot', 'OAI-SearchBot', 'facebookexternalhit']) {
+      expect(text).not.toContain(name);
+    }
   });
 
   test('the sitemap lists the public pages with absolute URLs', async () => {
