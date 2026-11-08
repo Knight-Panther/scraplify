@@ -159,7 +159,7 @@ Gates and evidence: STATUS, Phase 14B.
   - ✅ Avlabari's row has Old Tbilisi as its parent and Isani as its official overlap;
   - ⏳ the first nightly run's journal says `ss.ge place catalogue refreshed` (2026-11-09).
 
-## 14C: location quality — ❌ not started
+## 14C: location quality — ⏳ redesigned 2026-11-08, building
 
 - ❌ **Calibrate first**, read-only on production.
   - Changed 2026-11-07: on two nights of 14A data, not a week, then rechecked at a week. Each night brings thousands of pins with `pin_manual` beside their street points (see "Production on 2026-11-07" above). A week adds coverage, not a different spread, and a threshold change re-judges overnight.
@@ -173,17 +173,43 @@ Gates and evidence: STATUS, Phase 14B.
   - **Some busy streets have no point at all:** Chavchavadze Ave, Tsintsadze St, Vazha-Pshavela Ave, Gelovani Ave and others, about 15% of Tbilisi listings. For them the street's location can come only from its listings' trusted pins (their median), and the plan's "building point" idea extends to a "street point from pins".
   - **Metro claims are on 29% of Tbilisi listings seen**, not the recon's 40% (flats 28–31%, daily flats 56%). A saved page agrees, so that is ss.ge's coverage.
   - **Broken pins exist:** some carry the latitude as the longitude (Shengelaia St, 41.7882, 41.7882). `pin_far_from_area` catches them.
-- ❌ **`src/realestate/location.ts`:** `refreshListingLocations(db, {sourceId})`, one `UPDATE … FROM (CTEs)` over active rows that writes only rows whose derived values differ. It runs after the list walk and again before regrouping and totals (`src/cli/run-ss-ge-crawl.ts`). Its first run goes by hand, in chunks, outside the crawl. It computes:
-  - ❌ the official district and its basis: trusted pin → street point → sub-district (share ≥ 0.95) → none, including the pin's own district, private (moved here from 14B);
-  - ❌ `location_precision`: none < municipality < city < district < subdistrict < street < house < pin. "Pin" means placed by the poster, not a placeholder, and near its street point (or its sub-district's centre when the street has none);
-  - ❌ `location_uncertain` (public) and `location_flags`: `pin_placeholder`, `pin_far_from_street`, `pin_far_from_area`, `metro_from_untrusted_pin`, `street_outside_subdistrict`, `district_mismatch`, `house_number_junk`, `district_inferred`, `municipality_inferred`. When uncertain, the precision comes from the street only, and the pin and ss.ge's metro claims are ignored but kept privately, so a threshold change judges them again;
-  - ❌ metro from the best evidence: trusted pin → building point (the median trusted pin of one `building_key`) → ss.ge's claim when it agrees with the street point → street point. It gives `metro_station`, `metro_minutes` (on ss.ge's 5/10/15/20 scale), `metro_distance_m` (rounded to 50 m), `metro_basis` and `metro_nearby`;
-  - ❌ `building_key`: `c<complex_ref>`, or `s<street_ref>-<number><suffix>`, for 13E;
-  - ❌ the municipality copied to a settlement's unread listings;
-  - ❌ `pin_street_m`, private.
+  - **A street's own poster-placed pins agree closely.** Of 2,764 such pins on 276 Tbilisi streets with 3 or more, half sit within 84 m of their street's pin median, 75% within 549 m, 90% within 1.3 km and 95% within 1.9 km.
+  - **Complex, developer and cadastral code come only from developer listings.** All 7,585 pages read that night were flats for rent, and none had a project. Six live flat-for-sale pages show the fields still in place and empty, so the reader is right. `building_key` will mostly be street and house number.
+
+### The redesign (2026-11-08, owner's go): a street located by its own pins
+
+Changed: the plan placed listings by ss.ge's street point, with the pin checked against it. The first night shows that point is missing for some of the busiest streets and wrong for about a quarter of the checkable ones, while a street's own poster-placed pins agree closely. So 14C locates each street first, then judges each pin against that.
+
+- ❌ **A street's location**, in the catalogue refresh (`src/realestate/places/catalogue.ts`):
+  - the median of its active listings' candidate pins when there are 3 or more (basis `pins`); a candidate is poster-placed, inside Tbilisi's box, not the placeholder and not broken (latitude = longitude, or outside Georgia);
+  - otherwise ss.ge's point when the pins don't contradict it (basis `ss.ge`);
+  - otherwise none.
+  - It is kept privately on `places` (`located_latitude`, `located_longitude`, `located_basis`, `located_pins`), not in `public_places`, because a median of three pins can sit on one building.
+  - The street's official district comes from this location, so Chavchavadze Ave and the namesake streets get one. `public_places` gains `official_source` (`ss.ge` or `pins`), appended. It supersedes today's rule that leaves a contradicted street unplaced.
+- ❌ **A trusted pin:** a candidate within X of its street's location (start 600 m, between the 75th and 90th percentile above). On a street with no location, within Y of its sub-district's pin median (start 3,000 m). Anything else is untrusted, and kept privately so a threshold change judges it again.
+- ❌ **`src/realestate/location.ts`, `refreshListingLocations(db, {sourceId})`.** Set-based SQL, plus point-in-district in TypeScript for trusted pins only, a few thousand. It writes only rows whose derived values differ. It runs once at the end of each run, after the catalogue and before the totals (`src/cli/run-ss-ge-crawl.ts`: regroup, places, catalogue, locations, totals). The first run goes by hand, in chunks. Per active listing:
+  - ❌ **official district and its basis:** trusted pin (`pin`) → its street's location (`street`) → a sub-district with at least 20 trusted pins, 95% of them in one district (`area`) → none. The pin's own district stays private;
+  - ❌ **`location_precision`:** none < municipality < city < district < subdistrict < street < house < pin. `house` is a located street plus a house number;
+  - ❌ **`location_uncertain` (public) and `location_flags`:** `pin_placeholder`, `pin_broken`, `pin_far_from_street`, `pin_far_from_area`, `metro_from_untrusted_pin`, `district_mismatch`, `house_number_junk`, `district_inferred`, `municipality_inferred`. When uncertain, precision comes from the street only, and the pin and ss.ge's metro claims are ignored;
+  - ❌ **metro, ours, from the best location:** trusted pin → building point (median trusted pin of one `building_key`) → street location. It gives the nearest station, `metro_distance_m` in a straight line (rounded to 50 m), `metro_minutes` on ss.ge's 5/10/15/20 scale with edges calibrated from ss.ge's own claims on trusted pins, `metro_basis` and `metro_nearby`. ss.ge's raw claims stay private and are used only for that calibration;
+  - ❌ **`building_key`:** `c<complex_ref>`, or `s<street_ref>-<number><suffix>`, for 13E;
+  - ❌ **the municipality** copied to a settlement's unread listings;
+  - ❌ **`pin_street_m`**, private.
+- ❌ **Calibrate after the second night** (the run ending 2026-11-09 about 13:40 UTC), read-only:
+  - X and Y;
+  - the sub-district rule's 20 pins and 95%;
+  - the placeholder and broken-pin rules;
+  - the metro edges.
+  - The chosen numbers go in STATUS and the constants' comments, with their evidence.
 - ❌ **`LOCATION_RULES_VERSION`**, exported for Hermes.
-- ❌ **Migration `0051`:** the public derived columns appended to `public_listings` and the archive.
+- ❌ **Migration** (the next free number):
+  - listings' derived columns;
+  - `places`' private street location;
+  - `public_listings` and the archive with the public derived columns appended, `recently_gone` re-issued;
+  - `public_places` with `official_source` appended.
+- ❌ **Riding along, from Hermes's 14D list:** (a) the city on every lookup row; (e) "Vaja" as a Latin spelling of ვაჟა. Both are small and additive to C6.
 - ❌ **Docs:** the new columns in `docs/hermes-contracts.md`, a RUNBOOK §3 step 8 entry, `prod-status`, and 14C's gates in STATUS.
+- **Order:** code and tests on a branch from 2026-11-08; calibration after the 2026-11-09 run; a live trial; deploy on 2026-11-10 or 11-11, after 13A's first-deletion check.
 
 ## 14D: Hermes's contracts — ❌ not started
 
