@@ -39,6 +39,12 @@ No owner action remains for jobs.ge, hr.ge, etenders.ge or ss.ge.
 
 No other model is shipped or run in production. `src/matching/embed.ts` still pins the full e5 ONNX port for Node-side evaluation only; it is never served to a browser. Any further model gets a row here before it ships (`docs/archive/change.md` §11).
 
+## Map data
+
+| Data | Used as | Licence | Status |
+| --- | --- | --- | --- |
+| Tbilisi's 10 district borders and its 23 metro station nodes, from OpenStreetMap (Phase 14B) | `src/realestate/places/tbilisi.json`, written once by `scripts/fetch-osm-places.mjs` (two requests to Nominatim, borders simplified to 0.0001°). It places street points in official districts, and its names and station points are in the place catalogue Hermes reads (`realestate.public_places`, contract C6). | Open Database License 1.0, © OpenStreetMap contributors | Fine with attribution. The file carries the credit, and so do this table and C6: anything showing the official districts or stations to people credits "© OpenStreetMap contributors". The file is a derivative database, so it stays under the ODbL (share-alike), not the repository's MIT. |
+
 ## Dependencies
 
 Production dependency tree (`npm ls --omit=dev --all`, recounted 2026-10-05 on a Windows install): 158 distinct name@version entries, all under permissive licences. The count depends on the platform, because optional native packages (for example the `@img/sharp-*` binaries) differ per OS. The earlier figure of 131 (2026-09-26) came from an older tree.
@@ -67,6 +73,7 @@ Since 2026-09-30 the original code and documentation are under the MIT License (
 
 - **Source content.** The saved pages and vacancy texts in `src/adapters/*/fixtures/` and `src/matching/eval/fixtures/` belong to jobs.ge, hr.ge and the employers who posted them. They are kept only to test parsing and matching.
 - **Vendored work.** The `static-e1-v1` model (see Models) is MIT under its author's copyright.
+- **Map data.** `src/realestate/places/tbilisi.json` is derived from OpenStreetMap and stays under the ODbL (see Map data).
 - **Site assets.** They are listed above, from free sources under their own terms.
 - **Names.** Xtelo and jobster are not licensed.
 

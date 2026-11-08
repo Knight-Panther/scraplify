@@ -11,6 +11,8 @@ set -u
 
 cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 case "$cmd" in
+  # A syntax check of a deploy script (`bash -n`) is not a deploy.
+  *"bash -n "*) exit 0 ;;
   *"gh pr merge"*|*"bash "*deploy-*.sh*) ;;
   *) exit 0 ;;
 esac

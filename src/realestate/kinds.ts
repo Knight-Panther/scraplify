@@ -23,6 +23,26 @@ export type DealType = (typeof DEAL_TYPES)[number];
  */
 export const PLACE_LEVELS = ['municipality', 'city', 'district', 'subdistrict', 'street'] as const;
 export type PlaceLevel = (typeof PLACE_LEVELS)[number];
+/**
+ * Every level `realestate.places` holds (Phase 14B): the source's own tree,
+ * plus Tbilisi's official districts and metro stations (from OpenStreetMap)
+ * and the owner's neighbourhoods. A station's parent is its official
+ * district; an official district's is ss.ge's city; a neighbourhood's is the
+ * ss.ge place its listings are under.
+ */
+export const CATALOGUE_LEVELS = [
+  ...PLACE_LEVELS,
+  'official_district',
+  'metro_station',
+  'neighbourhood',
+] as const;
+export type CatalogueLevel = (typeof CATALOGUE_LEVELS)[number];
+/** Where a catalogue row comes from. */
+export const PLACE_ORIGINS = ['ss.ge', 'osm', 'owner'] as const;
+export type PlaceOrigin = (typeof PLACE_ORIGINS)[number];
+/** How a point's official district is known: well inside it, or within 50 m of a border. */
+export const OFFICIAL_BASES = ['inside', 'border'] as const;
+export type OfficialBasis = (typeof OFFICIAL_BASES)[number];
 /** Whether ss.ge's own point for a street is known (`known`), or ss.ge has none (`none`, sent as 0/0). */
 export const POINT_STATUSES = ['unknown', 'known', 'none'] as const;
 export type PointStatus = (typeof POINT_STATUSES)[number];

@@ -191,6 +191,26 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
        - Known street points rise night by night.
 
        `prod-status` shows the tree.
+   - **The place catalogue on both maps (Phase 14B, first deploy after merge only).** Migration `0050` gives `realestate.places` the other map and the catalogue Hermes reads (`docs/hermes-contracts.md`, C6; guideline §8.2):
+     - seven columns on `places`: `origin`, `code`, `name_en`, `match_keys` (with a GIN index), `official_district_ref`, `official_basis` and `official_shares`; its two level checks widen to the new levels;
+     - the view `realestate.public_places`, new, so nothing reads it before the deploy.
+
+     Nothing in `listings` or the other views changes. The official map is a committed file (`src/realestate/places/tbilisi.json`, from OpenStreetMap, ODbL), and English names are another (`src/realestate/places/curated.json`, owner-reviewed); both are read from the release's `src/`, as the title dictionary is.
+     - **When:** between 13:30 and 21:30 UTC, and only once `systemctl is-active xtelo-realestate@ss-ge` says `inactive`: the run ends about 13:40 UTC and writes `places` in its last minutes. The migration waits at most 10 s for a lock, then fails and changes nothing.
+     - **Order:** step 2 migrates, backup first, **then `grants`**; the new code goes live only after both (step 3). The old code runs on the migrated table unchanged, but the new code's refresh needs the new columns. `grants` lets `scraplify_public` read `public_places`; the worker needs nothing new.
+     - **By hand, after step 3 and outside a crawl:** fill the catalogue now rather than at the end of the next run:
+
+       ```sh
+       sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/places-ss-ge.js
+       ```
+
+       It builds the tree as each run does, then refreshes the catalogue, logging `ss.ge place catalogue refreshed` with `official` 10, `stations` 22 and `neighbourhoods` 1, and how many names, street districts, overlaps and keys it wrote. `renamed` lists places the names file names whose Georgian name ss.ge has since changed; their English name is left off until the file is checked. It makes no request to ss.ge and holds the crawl's lock.
+     - **Checks, as `scraplify_backup`:**
+       - `select level, count(*), count(name_en), count(official_district_ref), count(official_shares) from realestate.places group by level`;
+       - `scraplify_public` reads `select level, count(*) from realestate.public_places group by level` and is still refused `realestate.places`;
+       - a lookup through the release's own code: `cd /opt/xtelo/current && node -e "import('./dist/realestate/place-lookup.js').then(m => console.log(m.placeLookupSql('Vake')))"`, its SQL run as `scraplify_public`, gives sub-district ვაკე first and Vake District beside it.
+     - **From then on:** each nightly run refreshes the catalogue as its last step, after the totals (`ss.ge place catalogue refreshed` in its journal). A failure is logged and leaves the run's exit code alone; Hermes then reads the night before's. The overlaps grow with the street points, 300 a night.
+     - **Rolling back** to the release before: the old code ignores the new columns, so the table can stay as it is. Narrowing the level checks again would need the catalogue's rows deleted first; there is no reason to.
 
 9. **ss.ge's Georgian exit (2026-10-26).** Since 2026-10-22 ss.ge answers only Georgian addresses, so its requests leave through the owner's home laptop in Tbilisi while every other source stays direct. The laptop (Ubuntu Server) runs tinyproxy on its own loopback, allowed to tunnel to `ss.ge` hosts on port 443 and nothing else, and holds a reverse SSH tunnel to the host with autossh. The host's `127.0.0.1:18888` then reaches that proxy, and its `127.0.0.1:2222` the laptop's SSH, for managing it from behind the home router.
    - **Host side, once:** `sudo /opt/xtelo/current/deploy/set-proxy-tunnel.sh < laptop-tunnel.pub` creates the `xtelo-tunnel` user, whose key may open those two loopback listeners and nothing else (no shell, no forwarding into the host).

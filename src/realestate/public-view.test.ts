@@ -49,3 +49,38 @@ describe('realestate.public_listings', () => {
     expect(shown.indexOf('details_read_at')).toBe(51);
   });
 });
+
+/** Hermes's place catalogue (contract C6, migration 0050): exactly the columns the contract names. */
+describe('realestate.public_places', () => {
+  it('shows the columns C6 promises, in order', async () => {
+    const { rows } = await db.execute<{ name: string }>(sql`
+      select column_name as name
+        from information_schema.columns
+       where table_schema = 'realestate' and table_name = 'public_places'
+       order by ordinal_position
+    `);
+    expect(rows.map((row) => row.name)).toEqual([
+      'source_id',
+      'level',
+      'ref',
+      'origin',
+      'code',
+      'name_ka',
+      'name_en',
+      'aliases',
+      'match_keys',
+      'parent_level',
+      'parent_ref',
+      'latitude',
+      'longitude',
+      'point_status',
+      'official_district_ref',
+      'official_basis',
+      'official_shares',
+      'active_listings',
+      'first_seen_at',
+      'last_seen_at',
+      'name_roman',
+    ]);
+  });
+});

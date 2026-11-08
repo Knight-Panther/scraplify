@@ -1,0 +1,214 @@
+{
+  "_about": "English names and aliases for ss.ge's own places (Phase 14B, contract C6), keyed by ss.ge's ids, with the Georgian name as ss.ge gives it as a check. An alias is only needed where folding (src/realestate/place-lookup.ts) does not already join the forms; an alias several places share is a group (Hermes's AREA_GROUPS). Ported from Hermes's AREA_ALIASES, AREA_GROUPS and AREA_NEAREST (Hermes repo, workflows/integrations/xtelo.py, 2026-11-07). Draft of 2026-11-07, for the owner's one review.",
+  "places": [
+    { "level": "city", "ref": 95, "nameKa": "თბილისი", "nameEn": "Tbilisi" },
+    { "level": "city", "ref": 96, "nameKa": "ბათუმი", "nameEn": "Batumi" },
+    { "level": "city", "ref": 97, "nameKa": "ქუთაისი", "nameEn": "Kutaisi" },
+    { "level": "city", "ref": 98, "nameKa": "რუსთავი", "nameEn": "Rustavi" },
+    { "level": "city", "ref": 81, "nameKa": "ბაკურიანი", "nameEn": "Bakuriani" },
+    { "level": "city", "ref": 19, "nameKa": "მცხეთა", "nameEn": "Mtskheta" },
+    { "level": "city", "ref": 14, "nameKa": "ქობულეთი", "nameEn": "Kobuleti" },
+    { "level": "city", "ref": 102, "nameKa": "თელავი", "nameEn": "Telavi" },
+    { "level": "city", "ref": 112, "nameKa": "გუდაური", "nameEn": "Gudauri" },
+
+    { "level": "district", "ref": 1, "nameKa": "დიდუბე-ჩუღურეთი", "nameEn": "Didube-Chughureti" },
+    {
+      "level": "district",
+      "ref": 2,
+      "nameKa": "გლდანი-ნაძალადევი",
+      "nameEn": "Gldani-Nadzaladevi"
+    },
+    { "level": "district", "ref": 3, "nameKa": "ვაკე-საბურთალო", "nameEn": "Vake-Saburtalo" },
+    { "level": "district", "ref": 4, "nameKa": "ისანი-სამგორი", "nameEn": "Isani-Samgori" },
+    { "level": "district", "ref": 5, "nameKa": "ძველი თბილისი", "nameEn": "Old Tbilisi" },
+    { "level": "district", "ref": 7, "nameKa": "რუსთავის უბნები", "nameEn": "Rustavi quarters" },
+    { "level": "district", "ref": 8, "nameKa": "ბათუმის უბნები", "nameEn": "Batumi quarters" },
+    { "level": "district", "ref": 9, "nameKa": "ქუთაისის უბნები", "nameEn": "Kutaisi quarters" },
+
+    { "level": "subdistrict", "ref": 1, "nameKa": "დიდუბე", "nameEn": "Didube" },
+    { "level": "subdistrict", "ref": 31, "nameKa": "ჩუღურეთი", "nameEn": "Chughureti" },
+    {
+      "level": "subdistrict",
+      "ref": 28,
+      "nameKa": "დიღმის მასივი",
+      "nameEn": "Dighomi Massive",
+      "aliases": ["Dighomi"]
+    },
+    { "level": "subdistrict", "ref": 30, "nameKa": "სვანეთის უბანი", "nameEn": "Svaneti Quarter" },
+    { "level": "subdistrict", "ref": 29, "nameKa": "კუკია", "nameEn": "Kukia" },
+
+    { "level": "subdistrict", "ref": 33, "nameKa": "გლდანი", "nameEn": "Gldani" },
+    { "level": "subdistrict", "ref": 41, "nameKa": "ნაძალადევი", "nameEn": "Nadzaladevi" },
+    { "level": "subdistrict", "ref": 40, "nameKa": "მუხიანი", "nameEn": "Mukhiani" },
+    { "level": "subdistrict", "ref": 42, "nameKa": "სანზონა", "nameEn": "Sanzona" },
+    { "level": "subdistrict", "ref": 37, "nameKa": "თემქა", "nameEn": "Temqa" },
+    { "level": "subdistrict", "ref": 53, "nameKa": "ივერთუბანი", "nameEn": "Ivertubani" },
+    { "level": "subdistrict", "ref": 32, "nameKa": "ავჭალა", "nameEn": "Avchala" },
+    { "level": "subdistrict", "ref": 35, "nameKa": "ზაჰესი", "nameEn": "Zahesi" },
+    { "level": "subdistrict", "ref": 43, "nameKa": "სოფ. გლდანი", "nameEn": "Gldani village" },
+    { "level": "subdistrict", "ref": 34, "nameKa": "გლდანულა", "nameEn": "Gldanula" },
+    { "level": "subdistrict", "ref": 36, "nameKa": "თბილისის ზღვა", "nameEn": "Tbilisi Sea" },
+    { "level": "subdistrict", "ref": 39, "nameKa": "ლოტკინი", "nameEn": "Lotkini" },
+    {
+      "level": "subdistrict",
+      "ref": 38,
+      "nameKa": "კონიაკის დას.",
+      "nameEn": "Koniaki settlement"
+    },
+
+    { "level": "subdistrict", "ref": 3, "nameKa": "საბურთალო", "nameEn": "Saburtalo" },
+    {
+      "level": "subdistrict",
+      "ref": 45,
+      "nameKa": "დიდი დიღომი",
+      "nameEn": "Didi Dighomi",
+      "aliases": ["Dighomi"]
+    },
+    { "level": "subdistrict", "ref": 47, "nameKa": "ვაკე", "nameEn": "Vake" },
+    {
+      "level": "subdistrict",
+      "ref": 26,
+      "nameKa": "ლისის ტბა",
+      "nameEn": "Lisi Lake",
+      "aliases": ["Lisi"]
+    },
+    {
+      "level": "subdistrict",
+      "ref": 46,
+      "nameKa": "დიღომი 1-9",
+      "nameEn": "Dighomi 1-9",
+      "aliases": ["Dighomi"]
+    },
+    { "level": "subdistrict", "ref": 44, "nameKa": "ბაგები", "nameEn": "Bagebi" },
+    {
+      "level": "subdistrict",
+      "ref": 2,
+      "nameKa": "ნუცუბიძის ფერდობი",
+      "nameEn": "Nutsubidze Slope",
+      "aliases": ["Nutsubidze"]
+    },
+    {
+      "level": "subdistrict",
+      "ref": 5,
+      "nameKa": "ვაჟა ფშაველას კვარტლები",
+      "nameEn": "Vazha-Pshavela Quarters"
+    },
+    {
+      "level": "subdistrict",
+      "ref": 4,
+      "nameKa": "სოფ. დიღომი",
+      "nameEn": "Dighomi village"
+    },
+    { "level": "subdistrict", "ref": 48, "nameKa": "ვაშლიჯვარი", "nameEn": "Vashlijvari" },
+    { "level": "subdistrict", "ref": 49, "nameKa": "ვეძისი", "nameEn": "Vedzisi" },
+    { "level": "subdistrict", "ref": 50, "nameKa": "თხინვალა", "nameEn": "Tkhinvala" },
+    { "level": "subdistrict", "ref": 27, "nameKa": "კუს ტბა", "nameEn": "Turtle Lake" },
+
+    { "level": "subdistrict", "ref": 14, "nameKa": "ორთაჭალა", "nameEn": "Ortachala" },
+    { "level": "subdistrict", "ref": 10, "nameKa": "ისანი", "nameEn": "Isani" },
+    { "level": "subdistrict", "ref": 9, "nameKa": "ვარკეთილი", "nameEn": "Varketili" },
+    { "level": "subdistrict", "ref": 16, "nameKa": "სამგორი", "nameEn": "Samgori" },
+    { "level": "subdistrict", "ref": 8, "nameKa": "ვაზისუბანი", "nameEn": "Vazisubani" },
+    { "level": "subdistrict", "ref": 11, "nameKa": "ლილო", "nameEn": "Lilo" },
+    { "level": "subdistrict", "ref": 13, "nameKa": "მესამე მასივი", "nameEn": "Third Massive" },
+    { "level": "subdistrict", "ref": 24, "nameKa": "ნავთლუღი", "nameEn": "Navtlughi" },
+    { "level": "subdistrict", "ref": 17, "nameKa": "ფონიჭალა", "nameEn": "Ponichala" },
+    { "level": "subdistrict", "ref": 15, "nameKa": "ორხევი", "nameEn": "Orkhevi" },
+    { "level": "subdistrict", "ref": 19, "nameKa": "აფრიკის დას", "nameEn": "Africa settlement" },
+    {
+      "level": "subdistrict",
+      "ref": 6,
+      "nameKa": "აეროპორტის დას.",
+      "nameEn": "Airport settlement"
+    },
+    {
+      "level": "subdistrict",
+      "ref": 18,
+      "nameKa": "აეროპორტის გზატ.",
+      "nameEn": "Airport Highway"
+    },
+    { "level": "subdistrict", "ref": 7, "nameKa": "დამპალოს დას.", "nameEn": "Dampalo settlement" },
+
+    { "level": "subdistrict", "ref": 51, "nameKa": "მთაწმინდა", "nameEn": "Mtatsminda" },
+    { "level": "subdistrict", "ref": 23, "nameKa": "ვერა", "nameEn": "Vera" },
+    { "level": "subdistrict", "ref": 21, "nameKa": "ავლაბარი", "nameEn": "Avlabari" },
+    { "level": "subdistrict", "ref": 52, "nameKa": "სოლოლაკი", "nameEn": "Sololaki" },
+    { "level": "subdistrict", "ref": 22, "nameKa": "ელია", "nameEn": "Elia" },
+    { "level": "subdistrict", "ref": 20, "nameKa": "აბანოთუბანი", "nameEn": "Abanotubani" },
+
+    {
+      "level": "subdistrict",
+      "ref": 65,
+      "nameKa": "ხიმშიაშვილის უბანი",
+      "nameEn": "Khimshiashvili Quarter"
+    },
+    {
+      "level": "subdistrict",
+      "ref": 57,
+      "nameKa": "აეროპორტის უბანი",
+      "nameEn": "Airport Quarter",
+      "aliases": ["Airport Batumi"]
+    },
+    {
+      "level": "subdistrict",
+      "ref": 59,
+      "nameKa": "ბაგრატიონის უბანი",
+      "nameEn": "Bagrationi Quarter"
+    },
+    { "level": "subdistrict", "ref": 64, "nameKa": "ძველი ბათუმის უბანი", "nameEn": "Old Batumi" },
+    {
+      "level": "subdistrict",
+      "ref": 63,
+      "nameKa": "რუსთაველის უბანი",
+      "nameEn": "Rustaveli Quarter"
+    },
+    {
+      "level": "subdistrict",
+      "ref": 61,
+      "nameKa": "თამარის დასახლება",
+      "nameEn": "Tamari settlement"
+    },
+    {
+      "level": "subdistrict",
+      "ref": 62,
+      "nameKa": "კახაბრის უბანი",
+      "nameEn": "Kakhaberi Quarter"
+    },
+    {
+      "level": "subdistrict",
+      "ref": 58,
+      "nameKa": "აღმაშენებლის უბანი",
+      "nameEn": "Aghmashenebeli Quarter"
+    },
+    {
+      "level": "subdistrict",
+      "ref": 60,
+      "nameKa": "ბონი-გოროდოკის უბანი",
+      "nameEn": "Boni-Gorodok Quarter"
+    },
+    {
+      "level": "subdistrict",
+      "ref": 66,
+      "nameKa": "ჯავახიშვილის უბანი",
+      "nameEn": "Javakhishvili Quarter"
+    },
+    { "level": "subdistrict", "ref": 90, "nameKa": "მახინჯაური", "nameEn": "Makhinjauri" },
+    {
+      "level": "subdistrict",
+      "ref": 91,
+      "nameKa": "პივზაოდის უბანი",
+      "nameEn": "Pivzavodi Quarter"
+    }
+  ],
+  "neighbourhoods": [
+    {
+      "ref": 1,
+      "code": "zgvisubani",
+      "nameKa": "ზღვისუბანი",
+      "nameEn": "Zgvisubani",
+      "parentLevel": "subdistrict",
+      "parentRef": 36,
+      "note": "Not an ss.ge area: its listings are under Tbilisi Sea (თბილისის ზღვა), in Gldani-Nadzaladevi."
+    }
+  ]
+}

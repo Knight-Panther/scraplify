@@ -3,6 +3,9 @@ import { acquireCrawlProcessLock } from '../db/crawl-process-lock.js';
 import { logger } from '../logger.js';
 import { ssGeSource } from '../policies/ss-ge.js';
 import { backfillStoredListings, syncPlaces } from '../realestate/places.js';
+import { refreshPlaceCatalogue } from '../realestate/places/catalogue.js';
+import { loadCuratedPlaces } from '../realestate/places/curated.js';
+import { loadOfficialMap } from '../realestate/places/official.js';
 
 /**
  * Builds ss.ge's place tree from the stored listings by hand
@@ -10,8 +13,9 @@ import { backfillStoredListings, syncPlaces } from '../realestate/places.js';
  * 14A's deploy, so the first night already has each sub-district's district.
  * With `--backfill`, also writes what a sighting would to rows no results
  * page shows again soon: house numbers, and districts the source left out.
- * Makes no request to ss.ge. Holds the crawl's lock, so it never runs beside
- * a crawl writing the same rows.
+ * Then refreshes the place catalogue on both maps (Phase 14B), as the crawl's
+ * last step does. Makes no request to ss.ge. Holds the crawl's lock, so it
+ * never runs beside a crawl writing the same rows.
  */
 async function main(): Promise<void> {
   const backfill = process.argv.slice(2).includes('--backfill');
@@ -33,6 +37,17 @@ async function main(): Promise<void> {
         'ss.ge stored listings backfilled',
       );
     }
+    const catalogueStartedAtMs = Date.now();
+    const catalogue = await refreshPlaceCatalogue(db, {
+      sourceId: ssGeSource.id,
+      at: new Date().toISOString(),
+      map: await loadOfficialMap(),
+      curated: await loadCuratedPlaces(),
+    });
+    logger.info(
+      { ...catalogue, durationMs: Date.now() - catalogueStartedAtMs },
+      'ss.ge place catalogue refreshed',
+    );
   } finally {
     await lock.release();
   }

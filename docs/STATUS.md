@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-11-07 (Phase 14A, keeping the places ss.ge already sends, merged as `5006a19` (PR #80) and live since 16:43 UTC, stored rows backfilled, the day's totals retaken as rules version 3; its morning-after checks open; 13D's first nightly totals taken. Before that: 2026-11-06, Phase 13D, daily real-estate totals (contract C3), merged as `3925192` (PR #78) and live since 17:55 UTC, first day taken, Hermes told. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-11-07 (Phase 14B, the official map and Hermes's place catalogue (C6), built and tested on branch `phase-14b-official-map`, not merged; before that, Phase 14A, keeping the places ss.ge already sends, merged as `5006a19` (PR #80) and live since 16:43 UTC, stored rows backfilled, the day's totals retaken as rules version 3; its morning-after checks open; 13D's first nightly totals taken. Before that: 2026-11-06, Phase 13D, daily real-estate totals (contract C3), merged as `3925192` (PR #78) and live since 17:55 UTC, first day taken, Hermes told. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
@@ -127,11 +127,76 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
       - active listings with a sub-district but no district at about 0;
       - `places` counts by level, and known street points rising.
     - [x] Hermes told (2026-11-07, session `hermes-5a`): 14A live, the new columns, what `district_inferred` means, C3 rules version 3, what stays private, and that it still waits for 14B–14D.
-- **Phase 14B, the official map and Hermes's place catalogue (C6):** not started. It covers:
-  - OpenStreetMap's 10 Tbilisi districts and 23 metro stations, fetched once into a committed file;
-  - each street point's official district, and the overlaps between the two maps;
-  - `placeKeys` and a place lookup that Hermes calls through node;
-  - the view `realestate.public_places`.
+- **Phase 14B, the official map and Hermes's place catalogue (C6), built on branch `phase-14b-official-map` (2026-11-07), not merged:** migration `0050`.
+  - **The official map:** `src/realestate/places/tbilisi.json`, fetched once from OpenStreetMap by `scripts/fetch-osm-places.mjs` (ODbL, `docs/RIGHTS.md`, Map data).
+    - Tbilisi's 10 districts, with borders simplified to about 10 m (54 KB).
+    - The 22 metro stations, matched to ss.ge's station codes. Station Square's two halls are one station, as on ss.ge.
+    - `officialDistrictAt` (`src/realestate/places/official.ts`) places a point, marking it `border` within 50 m of one.
+  - **English names:** `src/realestate/places/curated.json`, covering Tbilisi's 5 combined districts and 53 sub-districts, Batumi's 12, ss.ge's three city containers and nine cities. It ports Hermes's `AREA_ALIASES`, `AREA_GROUPS` (Dighomi, four places) and `AREA_NEAREST` (Zgvisubani, an owner neighbourhood). It is a draft for the owner's one look.
+  - **The catalogue** (`refreshPlaceCatalogue`, `src/realestate/places/catalogue.ts`): the last step of every ss.ge run, after the totals, and part of `npm run places:ss-ge`. Into `realestate.places` it writes:
+    - the official districts, the stations (each under the district its point is in) and the owner's neighbourhood;
+    - English names, by ss.ge id and current Georgian name. A place ss.ge renamed is left without one and reported;
+    - each street point's official district;
+    - each Tbilisi district's and sub-district's overlap with the official districts, counted from its listings' streets;
+    - every place's match keys.
+    It writes only what changed. A failure is logged and leaves the run's exit code alone.
+  - **The lookup** (`src/realestate/place-lookup.ts`), which Hermes imports from `dist`, like C1:
+    - `placeKeys` and `nameKey` fold names and people's words one way, with Hermes's `_ROMAN` and `_LOOSE` letter for letter;
+    - `placeLookupSql` returns places on both maps over `realestate.public_places`: exact matches before partial, ss.ge's areas before the official map before streets.
+    - So a bare "Vake" is the neighbourhood, with Vake District beside it, while "Vake district" or "Krtsanisi" is the official district.
+    - `placeTextLookupSql` and `resolvePlaceText` take a whole text naming several places, by Hermes's own rule (its N75). "Vake Saburtalo" is two sub-districts, "vake-saburtalo" ss.ge's district, and "Temka/Zgvisubani" two places.
+    - Every place carries `name_roman`, its Georgian name in Latin letters, for showing where there is no English name. Each ss.ge area's row names the official district holding most of its listings.
+  - **C6:** the view `realestate.public_places`, which `scraplify_public` reads; it gets no grant on `places`. Documented in `docs/hermes-contracts.md`.
+  - **Docs:** `docs/hermes-contracts.md` (C6); `docs/RIGHTS.md` (Map data); RUNBOOK §3 step 8, "The place catalogue on both maps"; guideline §8.2; `prod-status`.
+  - **What building it changed in the plan (2026-11-07, code and data):**
+    - The keys do not reuse CV matching's stemmer: it strips the plural -ები, and many place names are plural in form, which would split ბაგები from "Bagebi". They have their own ending rule and Hermes's romanization.
+    - The pin's official district is not stored. Pins are unchecked until 14C, so the overlaps come from ss.ge's street points alone, and 14C places pins under its trust rules. 14B therefore changes nothing in the page reads, only the run's last step.
+    - Station refs are ours, 1–22, since OSM's node ids do not fit the integer key. All 22 of ss.ge's station codes were already in the 14A trial, so the mapping did not wait for production.
+    - An official district is also found by its name without the district word, in either language. That gives the two-maps rule from the lookup's order alone.
+    - There is no `curated` column, since `name_en` says it. Production has 53 Tbilisi sub-districts, not the plan's 51.
+    - Hermes's review of C6 (2026-11-07, before the merge) added three things, each so Hermes keeps no second implementation:
+      - the whole-text lookup with its splitting rule;
+      - `name_roman` on every place: the owner's file names 80 places, and Hermes would otherwise romanize the rest itself;
+      - the top official district's name on each lookup row.
+      The column went into migration `0050`, which had not been applied anywhere but throwaway databases.
+    - `places:official-report` is not built. The overlaps are in the view, and a report makes sense once the street points cover the busy streets, about four nights after the deploy.
+    - **The first night of street points (2026-11-08, before the merge) showed ss.ge's points are sometimes wrong.**
+      - It places some streets by a namesake. Titsian Tabidze St in Vake carries Galaktion Tabidze St's point, 2.8 km away, on every one of its pages (five read live from the PC).
+      - Of the 245 Tbilisi streets with 3 or more poster-placed pins, 67 had a point more than 1 km from those pins' median.
+      - So a street whose own listings contradict its point now gets no official district, and its listings count as not located. Unknown, never a wrong district. The review's P3 is therefore done for streets with enough pins.
+      - Streets with fewer pins stay unchecked; 14C calibrates the check.
+      - ss.ge also sends no point at all for some of the busiest streets: Chavchavadze Ave, Tsintsadze St, Vazha-Pshavela Ave and Gelovani Ave, about 15% of Tbilisi's listings. That is ss.ge's data (five Chavchavadze pages read live all said 0/0), not a reading fault.
+  - **14B exit gate, before merge:**
+    - [x] Tests:
+      - the keys: Hermes's own `loose_words` output letter for letter; every form of a street; plural names; kind words left out; initials, numbers and district words kept; capital Georgian;
+      - the official map: 28 points against Nominatim's own answers on OSM's full borders (Didube station is officially in Nadzaladevi, Avlabari and Elia in Isani, Ortachala in Krtsanisi), and exact squares with a hole;
+      - the names: all 64 of Hermes's aliases find their place by the same words, the Dighomi group is exactly its four places, and no alias repeats a key;
+      - the catalogue: 17 tests covering what it writes, a second refresh writing nothing, a street point its own listings' pins contradict, the lookup's answers, and Hermes's six cases for a text naming several places;
+      - the Latin names, and splitting a text into parts and runs of words;
+      - the view's 21 columns.
+    - [x] Planted faults turned tests red: the polygon crossing count (2 tests), every point `inside` (1), the fixed rows always rewritten (1), a renamed place keeping its English name (1), the tree zeroing every origin's counts (1).
+    - [x] Planted faults for Hermes's review turned tests red too: words that each name a place joined anyway (1), the Latin name loosened like a key (2). So did a contradicted street point placed anyway (1).
+    - [x] Full suite 2,388 passed (9 skipped) on a throwaway Postgres; typecheck and lint clean.
+    - [x] Migration `0050` on a Postgres 17 throwaway.
+    - [x] Grants under the host's roles (2026-11-07), in a throwaway database: `main`'s migrations and grants, the 14A trial's listings and tree, then `0050` and this branch's grants.
+      - Before the grants, `scraplify_public` still read `public_listings` and was refused `public_places`.
+      - After them, the worker built the catalogue: 10 official districts, 22 stations, 67 English names, 26 streets placed and 44 overlaps. A second run wrote nothing, and the worker could not delete a place.
+      - Rerun after Hermes's review, from a fresh database with the final `0050`: the same, and Hermes's text cases resolved through the built lookup as `scraplify_public`.
+      - `scraplify_public` read `public_places` but not `places` or `listings`, could write nothing, and ran the built lookup.
+    - [x] Reviews (2026-11-07), no P0 or P1:
+      - Migration safety: its two P2s are deploy rules, now in the RUNBOOK. Deploy only once the ss.ge unit is inactive, and migrate and grant before the new code goes live.
+      - Surface boundary: its P2 and one P3 are under Open items. Its other P3, a non-numeric `limit`, went away when the lookup was rewritten for Hermes's review: the limit is now a whole number from 1 to 500, and 50 otherwise.
+    - [x] CI green on PR #81: the first run, and again after Hermes's review (`98a26fb`).
+    - [ ] Merge after 14A's morning-after check, so that until then `main` is the live release and a 14A fix can ship without 14B.
+  - **14B exit gate, after deploy (RUNBOOK §3 step 8, "The place catalogue on both maps"):**
+    - [ ] Deployed after 14A's morning-after check, with the catalogue filled by hand and the RUNBOOK's checks.
+    - [ ] The first nightly run's journal says `ss.ge place catalogue refreshed`.
+    - [ ] The plan's checks on production:
+      - 5 Tbilisi districts, 53 sub-districts and about 1,800 streets on ss.ge's map, with 10 official districts and 22 stations;
+      - lookups: "Vake" gives the neighbourhood with Vake District beside it, "Chavchavadze" its streets, "dighomi" its four places, and "Medical University" the station;
+      - Avlabari's row has Old Tbilisi as its parent and Isani as its official overlap.
+    - [ ] Hermes told: C6 and the lookup are in `dist` on the host. It switches its item 3b to them and deletes its alias tables.
+    - [ ] The owner's one look at the English names in `curated.json`. They are data, so they can be corrected any time.
 - **Phase 14C, location quality:** not started. Its thresholds are set from two nights of 14A's data, then rechecked after a week (plan change 2026-11-07: each night brings thousands of pins beside their street points, and a changed threshold re-judges every listing overnight; `PHASE_14_PLAN.md`, 14C).
 - **Phase 14D, C1 v2:** not started. It is agreed with Hermes first, including each result's place on both maps.
 
@@ -587,6 +652,9 @@ All P2/P3 or optional; no P0 or P1 is open. "Archive" below means `archive/statu
     - [ ] The next partial or failed ss.ge run's alert shows its "Why:" line.
 - Open (Phase 1C items 1, 2, 4): a correct live closure of vanished listings has not been confirmed; full walks complete, but closure on live data is unverified. Detail: Archive, "Open operational issues".
 - **Hermes role (Phase 13A review, P3):** Hermes logs in as `scraplify_public`, the public site's role, so the archive is readable by the site's credential too; a `scraplify_hermes` role would make that a database boundary. Also P3: list the archive in `phase-8b-public-role.sql`'s verification notes.
+- **Phase 14B review, P2 and P3, skipped under the P0/P1 rule (2026-11-07):**
+  - P2: `public_places` stays free of private data only by its explicit column list. A test naming the `places` columns kept out of it would make adding one deliberate.
+  - P3, done in part (2026-11-08): street points are checked against their listings' poster-placed pins when a street has 3 or more. Streets with fewer stay unchecked until 14C.
 - **Real estate tab page time (seen 2026-11-06, not caused by 13B/13D):** `/real-estate` takes 3–7 s to answer on the host, against 1 s for the landing page. Its search, count and locations queries take 0.3–0.6 s each, the same under the release before, so the rest is elsewhere in the page (its other queries or rendering). Measure before changing anything.
 - **Archive backups (Phase 13A):** the nightly dump includes `realestate_archive`. Once it passes about 250 MB, its 30 off-host copies no longer fit the 8 GB cap, so dump the archive on its own (monthly, as the joint plan proposed) and leave it out of the nightly. Measure the dump weekly from 13A's deploy.
 - Small (no severity recorded): an unparseable detail page for a listing whose stored deadline has passed should expire it rather than quarantine it; only long runs crossing midnight hit this. Archive, "Phase 7C".

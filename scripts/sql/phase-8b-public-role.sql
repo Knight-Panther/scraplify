@@ -115,6 +115,10 @@ GRANT SELECT ON realestate_archive.listings, realestate_archive.price_changes,
 -- Phase 13D: what was on the market each day (contract C3), for Hermes'
 -- trends. Requires migration 0047.
 GRANT SELECT ON realestate_archive.daily_totals TO scraplify_public;
+-- Phase 14B: the place catalogue on both maps (contract C6), for Hermes'
+-- place lookup. The view only: no grant on realestate.places, which may gain
+-- columns the contract does not promise. Requires migration 0050.
+GRANT SELECT ON realestate.public_places TO scraplify_public;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --

@@ -9,7 +9,7 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 | C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
 | C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`, below) |
-| C6 | `realestate.public_places`, ss.ge's places and Tbilisi's official map | not yet built (Phase 14B) |
+| C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | v1, built on branch `phase-14b-official-map` (migration `0050`), not yet merged (Phase 14B) |
 
 ## C1: the real-estate filter builder (v1)
 
@@ -198,4 +198,92 @@ The first rows appear after the first nightly ss.ge run on the Phase 13A release
   - the pin (`latitude`/`longitude`) and whether the poster placed it;
   - the cadastral code, which leads to the owner through the public registry;
   - ss.ge's metro list. ss.ge works it out from the poster's pin, which is often wrong: a Didi Dighomi flat pinned on Liberty Square shows "Liberty Square, 5 min". Phase 14C publishes a checked metro distance instead.
-- **Not readable yet: the place tree.** `realestate.places` (ss.ge's municipalities, cities, districts, sub-districts and streets, with each street's point) becomes readable in Phase 14B, as C6's view `realestate.public_places`, together with Tbilisi's official districts and how the two maps overlap.
+- **The place tree** (ss.ge's municipalities, cities, districts, sub-districts and streets, with each street's point) is readable from Phase 14B as C6, below, together with Tbilisi's official districts and how the two maps overlap.
+
+## C6: places on both maps, and the place lookup (v1, Phase 14B, migration `0050`)
+
+### Where
+
+- **The catalogue:** the view `realestate.public_places`, which `scraplify_public` reads. It is refreshed as the last step of every nightly ss.ge run, after the totals (`ss.ge place catalogue refreshed` in its journal), and by `npm run places:ss-ge`.
+- **The lookup:** `dist/realestate/place-lookup.js` in a built scraplify clone, imported the way C1 is. It opens no database connection: you run its SQL over your own connection. Use it for every place a person names, so their words and the catalogue's keys are folded by one implementation. Your `AREA_ALIASES`, `AREA_GROUPS` and `AREA_NEAREST` are ported into the catalogue (a test holds every one of them), so they can go. So can your splitting rule (N75): the text lookup applies it.
+
+```js
+import {
+  PLACE_LOOKUP_VERSION, placeLookupSql, placeTextLookupSql, resolvePlaceText,
+} from '<scraplify>/dist/realestate/place-lookup.js';
+
+// One name:
+const one = placeLookupSql('Vake', { placeholders: 'psycopg', limit: 20 });
+// null when the words only name a kind of place ("street"); otherwise one.sql and one.params
+
+// A whole text, which may name several places ("Vake, Saburtalo", "Temka/Zgvisubani"):
+const text = placeTextLookupSql('Vake Saburtalo', { placeholders: 'psycopg', limit: 20 });
+// run text.sql with text.params, then:
+const { parts } = resolvePlaceText(text.text, rows);
+// parts[i].segments[j] = { text, key, match, places }: the places each name in each part names, best first
+```
+
+`PLACE_LOOKUP_VERSION` is 1. It goes up whenever the folding or the lookup's output changes. `limit` is per name, a whole number from 1 to 500; anything else is 50.
+
+### The two maps
+
+Both are first-class and linked, and neither is renamed into the other (owner, 2026-11-06).
+
+- **ss.ge's map**, as people use it: `city`, `district` (ss.ge's five combined Tbilisi districts, such as Old Tbilisi), `subdistrict` (its neighbourhoods), `street` and `municipality`. Each `ref` is ss.ge's own id, the same refs C1's `places` filter and C5's columns use.
+- **The official map:**
+  - `official_district`: Tbilisi's 10 districts by OpenStreetMap's borders. `ref` is OSM's relation id and `code` is a short name such as `isani`. Its parent is ss.ge's city Tbilisi (95).
+  - `metro_station`: 22 stations. `ref` is ours and fixed (1–22), and `code` is ss.ge's station code, the key in ss.ge's metro lists. Station Square's two halls are one station, as on ss.ge. Its parent is the official district its point is in.
+  - `neighbourhood`: the owner's names for places ss.ge does not have, under the ss.ge place their listings are listed under. For now this is only Zgvisubani, under Tbilisi Sea.
+- **The links between the maps:** a street's and a station's `official_district_ref`, and an ss.ge district's and sub-district's `official_shares`.
+
+### Columns
+
+| Column | What |
+|---|---|
+| `source_id`, `level`, `ref` | The key. |
+| `origin` | `ss.ge`, `osm` or `owner`. |
+| `code` | A station's ss.ge code, an official district's short name, a neighbourhood's name. Null for ss.ge's places. |
+| `name_ka`, `name_en` | The Georgian name: the one most active listings give, for ss.ge's places. The English name: OSM's for the official map, the owner's file for ss.ge's areas and cities (none for streets). |
+| `name_roman` | `name_ka` in Latin letters, on every place: the national system, letter for letter as your `_ROMAN`, each word capitalized ("Chavchavadzis Gamz.", "Tsavkisi"). Show `name_en` where there is one, else this, so the bot and the website spell a place one way. Abbreviations stay as ss.ge writes them (ქ. is "K."). It is the last column of the view. |
+| `aliases` | Georgian names an ss.ge place went by before. |
+| `match_keys` | What the lookup matches: every name's key. |
+| `parent_level`, `parent_ref` | The parent on the place's own map. A neighbourhood's parent is an ss.ge place. |
+| `latitude`, `longitude`, `point_status` | For a street: ss.ge's own point for the street, the same for every listing on it, and not anyone's home (`unknown`, `known`, or `none` where ss.ge has none). For a station: OSM's point. |
+| `official_district_ref`, `official_basis` | For a street with a known point and for a station: the official district the point is in. `inside` means further than 50 m from any border; `border` means within 50 m, where either side is possible. Null outside Tbilisi's districts, and null for a street whose own listings contradict ss.ge's point (see "Reading it"). |
+| `official_shares` | For ss.ge's Tbilisi districts and sub-districts: `{"listings": n, "located": m, "by_district": {"isani": k, …}}`. Of its active listings, `located` are on a street whose official district is known, and `by_district` counts them per official district `code`. Null elsewhere. |
+| `active_listings` | For ss.ge's places: the active listings that name it. For an official district: active listings on streets whose point is in it. For a station: active listings whose ss.ge metro list names it; that is ss.ge's own claim, from the poster's pin, and is not checked until Phase 14C. Zero for a neighbourhood. |
+| `first_seen_at`, `last_seen_at` | When the catalogue first and last held the place as it is. |
+
+### The lookup's answer
+
+Each row is a place for one `key` (a name's key; the text lookup asks for several), with its `rank` for that key and `match`.
+- **Names on the row:** the place's own, and its parent's (`parent_name_ka`, `parent_name_en`, `parent_name_roman`). For a street or station, its official district's (`official_name_ka`, `official_name_en`). For an ss.ge Tbilisi area, the official district holding most of its located listings: `official_top_code`, `official_top_name_ka`, `official_top_name_en` and `official_top_listings`, out of `official_shares.located`. That gives you "Avlabari: listed under Old Tbilisi; officially mostly in Isani (n of m located)" with no join.
+- **`match`:** `exact` when one of the place's names has the same key as the words, and `partial` when the words come in order inside a name ("dighomi" in "Didi Dighomi").
+- **Order (`rank`):** exact before partial. Then ss.ge's areas (city, district, sub-district), the owner's neighbourhoods and municipalities, then the official map, then streets. Then the busiest.
+- **The two-maps rule falls out of that order:**
+  - a bare name means ss.ge's place: "Vake" is the neighbourhood first, with Vake District beside it, also exact;
+  - "Vake district", "ვაკის რაიონი" and "vakis raioni" are the official district first;
+  - a name only the official map has, such as "Krtsanisi", gives the official district first.
+  - Word the difference from the rows: "Avlabari: listed under Old Tbilisi; officially in Isani".
+- **Groups:** "Dighomi" is exact for its four ss.ge areas, as your `AREA_GROUPS` had it.
+- **Several places can share a name.** Chavchavadze Avenue is several street ids in different sub-districts, so a lookup can give several exact rows. Choose among them with the person's other words, such as the city.
+
+### A text that names several places
+
+`resolvePlaceText` applies your rule (N75, 2026-11-06), so it lives in one place.
+- **Parts:** the text splits into parts on "/", "," and ";".
+- **Names in a part:** each part is read left to right, taking the longest run of up to four words that is a place's whole name.
+- **Words that each name a place stay separate:** "Vake Saburtalo" is two sub-districts, not the district their joined name is.
+- **A hyphen keeps one word:** "vake-saburtalo" is the district.
+- **Words that name nothing alone join:** "Old Tbilisi", "Didi Dighomi" and "Lisi Lake" are one place each.
+- **A single word with no whole-name match** keeps its partial matches. A word naming nothing comes back with `match` null and no places.
+- **Held by a test:** scraplify's `src/realestate/places/catalogue.test.ts` holds your six cases, plus "ვაკეში, საბურთალოზე" and "Chavchavadze Avenue".
+
+### Reading it
+
+- **Overlaps grow with the street points.** `official_shares` comes only from ss.ge's street points, 300 of which are read a night, busiest streets first. A listing's own pin is not used, because pins are often wrong until Phase 14C checks them. Read `located` against `listings` before quoting a share.
+- **ss.ge's street points are sometimes wrong.** It places some streets by a namesake: Titsian Tabidze St in Vake carries Galaktion Tabidze St's point, 2.8 km away. When 3 or more of a street's active listings have a pin the poster placed, and their median is more than 1 km from ss.ge's point, the street gets no official district and its listings count as not located. On 2026-11-08 that was 67 of the 245 Tbilisi streets with enough such pins. A street with fewer is not checked yet; Phase 14C calibrates the check.
+- **Some busy streets have no point at all.** ss.ge sends none for Chavchavadze Ave, Tsintsadze St, Vazha-Pshavela Ave and Gelovani Ave, among others: about 15% of Tbilisi's listings on 2026-11-08.
+- **Unknown is not "no".** A street with no known point, or a disputed one, has no official district. That says nothing about where it is.
+- **Credit.** The official districts and stations come from OpenStreetMap (ODbL). Anything showing them to people credits "© OpenStreetMap contributors" (`docs/RIGHTS.md`, Map data).
+- **Not in it:** anything about a single listing. Pins, cadastral codes and ss.ge's per-listing metro lists stay private (C5).

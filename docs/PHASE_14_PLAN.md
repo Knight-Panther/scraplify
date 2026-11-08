@@ -138,6 +138,7 @@ Gates and evidence: STATUS, Phase 14B.
   - Changed: 22 stations, not 23. Station Square's two halls are one station, as on ss.ge. Station refs are ours, 1–22, since OSM's node ids do not fit the integer key.
 - ✅ **`officialDistrictAt`** (`src/realestate/places/official.ts`), marking a point within 50 m of a border as `border`.
 - ✅ **Each street point's official district.** Changed: written by the catalogue refresh at the end of each run (`refreshPlaceCatalogue`, `src/realestate/places/catalogue.ts`), not inside `syncPlaces`.
+  - Changed 2026-11-08, before the merge: ss.ge places some streets by a namesake (Titsian Tabidze St in Vake has Galaktion Tabidze's point, 2.8 km away). So a street whose own active listings' poster-placed pins (3 or more) sit more than 1 km from ss.ge's point gets no official district: 67 of the 245 checkable Tbilisi streets that night. This was the review's P3, which the first night's data turned into a correctness issue.
 - ↪ **The pin's official district (private), with a one-off for older pins:** moved to 14C, because pins are unchecked until then.
 - ✅ **Overlaps:** `official_shares` on ss.ge's Tbilisi districts and sub-districts, recomputed nightly. C1 never expands one map into the other.
   - Changed: counted from street points only, not pins, so a share grows with the street points. Read `located` against `listings` before quoting one.
@@ -165,6 +166,12 @@ Gates and evidence: STATUS, Phase 14B.
   - Known cases: the recon's 31 hand-checked listings were not kept by id. 14C builds its known cases from production while calibrating, including a Teimurazi St listing pinned on Liberty Square.
   - The chosen numbers go in STATUS and in the constants' comments, with their evidence.
 - **What to expect:** pins reach about 3,000 more Tbilisi listings a night, so for months most listings are placed by their street, not their pin. `street` will be the common precision, and the official district and metro will mostly come from street points.
+- **What the first night showed (2026-11-08), which 14C's design has to take in:**
+  - **Street points are not as good as the recon sample suggested.** Poster-placed pins sat a median 434 m from their street's point, 75% within 1.2 km and 90% within 2.6 km (2,513 pins). Pins ss.ge set itself: median 491 m, 90% within 7.2 km (841). A fixed 1 km "far from street" rule would flag 29% of poster-placed pins.
+  - **About a quarter of checkable street points are wrong:** 67 of 245 streets were more than 1 km from their own poster pins' median (namesake streets). The pin-to-street rule must compare against a checked street point (the catalogue now leaves a disputed one unplaced), or against the street's own pins.
+  - **Some busy streets have no point at all:** Chavchavadze Ave, Tsintsadze St, Vazha-Pshavela Ave, Gelovani Ave and others, about 15% of Tbilisi listings. For them the street's location can come only from its listings' trusted pins (their median), and the plan's "building point" idea extends to a "street point from pins".
+  - **Metro claims are on 29% of Tbilisi listings seen**, not the recon's 40% (flats 28–31%, daily flats 56%). A saved page agrees, so that is ss.ge's coverage.
+  - **Broken pins exist:** some carry the latitude as the longitude (Shengelaia St, 41.7882, 41.7882). `pin_far_from_area` catches them.
 - ❌ **`src/realestate/location.ts`:** `refreshListingLocations(db, {sourceId})`, one `UPDATE … FROM (CTEs)` over active rows that writes only rows whose derived values differ. It runs after the list walk and again before regrouping and totals (`src/cli/run-ss-ge-crawl.ts`). Its first run goes by hand, in chunks, outside the crawl. It computes:
   - ❌ the official district and its basis: trusted pin → street point → sub-district (share ≥ 0.95) → none, including the pin's own district, private (moved here from 14B);
   - ❌ `location_precision`: none < municipality < city < district < subdistrict < street < house < pin. "Pin" means placed by the poster, not a placeholder, and near its street point (or its sub-district's centre when the street has none);

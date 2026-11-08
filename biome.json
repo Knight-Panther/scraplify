@@ -10,6 +10,7 @@
       "!!.codex",
       "!!drizzle/migrations",
       "!!src/adapters/**/fixtures",
+      "!!src/realestate/places/tbilisi.json",
       "!**/*.svg"
     ]
   },

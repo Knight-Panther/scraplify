@@ -58,6 +58,8 @@ missing key fails fast instead of hanging on a prompt.
    q "select day, count(*), sum(listings) filter (where area_level = 'all' and rooms_band = 'all'), max(taken_at) from realestate_archive.daily_totals group by day order by day desc limit 1"
    echo "== ss.ge place tree (level | places | named by active listings | street points known | none | newest last_seen_at)"
    q "select level, count(*), count(*) filter (where active_listings > 0), count(*) filter (where point_status = 'known'), count(*) filter (where point_status = 'none'), max(last_seen_at) from realestate.places group by level order by level"
+   echo "== place catalogue (official districts | stations | streets with an official district | streets with a known point | Tbilisi areas with overlaps | listings located in them)"
+   q "select count(*) filter (where level = 'official_district'), count(*) filter (where level = 'metro_station'), count(*) filter (where level = 'street' and official_district_ref is not null), count(*) filter (where level = 'street' and point_status = 'known'), count(*) filter (where official_shares is not null), sum((official_shares->>'located')::int) filter (where level = 'district') || ' of ' || sum((official_shares->>'listings')::int) filter (where level = 'district') from realestate.places"
    EOF
    ```
 
@@ -73,7 +75,7 @@ missing key fails fast instead of hanging on a prompt.
    each. Rows: release (short sha), services, failed units, running jobs,
    next pipeline run, each source's last pipeline result and last crawl run,
    backup, health-check exit, unlinked listings, open parser incidents, disk
-   and memory, ss.ge tunnel and last ss.ge run, real-estate archive, daily totals, place tree, probe. Then one verdict line,
+   and memory, ss.ge tunnel and last ss.ge run, real-estate archive, daily totals, place tree, place catalogue, probe. Then one verdict line,
    and a short "needs attention" list if anything is ⚠️ or ❌.
 
    How to read the signals:
@@ -117,6 +119,14 @@ missing key fails fast instead of hanging on a prompt.
      are placed; a level whose count jumps from one night to the next means
      ss.ge renumbered its places: ⚠️. An error that `places` does not exist
      means the release before Phase 14A.
+   - The place catalogue (Phase 14B, contract C6) is refreshed as the last
+     step of every ss.ge run. 10 official districts and 22 stations is ✅;
+     fewer means it has not been refreshed since the deploy (journal:
+     `ss.ge place catalogue refresh failed`, or the by-hand step was
+     skipped): ⚠️. Streets with an official district follow the known
+     street points inside Tbilisi (Batumi's and other cities' points have
+     none), and the located listings grow with them. An error that column
+     `origin` does not exist means the release before Phase 14B.
 
 ## What this skill will not do
 
