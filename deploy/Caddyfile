@@ -43,6 +43,13 @@
 	reverse_proxy 127.0.0.1:3000
 }
 
+# www only sends people on to the public host, with the same path and query.
+# People type it: before this, about 250 lookups in a week found no address.
+www.{$PUBLIC_HOST} {
+	import common www
+	redir https://{$PUBLIC_HOST}{uri} permanent
+}
+
 {$ADMIN_HOST} {
 	import common admin
 	request_body {
