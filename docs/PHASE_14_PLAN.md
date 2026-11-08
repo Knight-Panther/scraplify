@@ -152,7 +152,7 @@ Gates and evidence: STATUS, Phase 14B.
   - ⏳ The owner's one look. They are data, so not blocking.
 - ❌ **`npm run places:official-report`** (per sub-district, its shares and split streets): deferred, not dropped. The overlaps are already in the view, and a report is worth reading once street points cover the busy streets, about four nights after the deploy.
 - ✅ **C6:** the view `realestate.public_places`; `scraplify_public` reads the view only. Documented in `docs/hermes-contracts.md`, with the two-maps rule and the meanings.
-- ⏳ **Hermes switches its item 3b (its H2 area words) to C6 and deletes its alias tables:** asked in the combined note at the deploy.
+- ✅ **Hermes told** (2026-11-08): switch its item 3b (its H2 area words) to C6 and delete its alias tables, in the one note the owner approved. The switch itself is Hermes's work.
 - **Exit checks on production** (2026-11-08; numbers in STATUS's 14B gate):
   - ✅ 5 Tbilisi districts, 51 sub-districts and 1,430 streets (613 with a point) on ss.ge's map, with 10 official districts and 22 stations. Streets grow as the walks reach more listings;
   - ✅ lookups: "Vake" gives the neighbourhood first with Vake District beside it (after the fix), "Chavchavadze" its streets, "dighomi" its four places, and "Medical University" the station;

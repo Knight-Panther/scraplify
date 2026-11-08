@@ -14,7 +14,7 @@ Every open item, what it waits on, and when it is next touched. Times are UTC (T
 | ✅ | 14A, keep the places ss.ge sends | — | live since 2026-11-07 16:43 |
 | ✅ | 14A's morning-after check: passed (the 14A gate has the numbers) | — | done 2026-11-08 13:40 |
 | ✅ | 14B, official map, English names, Hermes's place catalogue C6 | — | live since 2026-11-08 13:43; lookup-order fix live 13:52 |
-| ⏳ | Hermes: the merge line sent; every ask in one note, shown to the owner first | the owner's look at the note | 2026-11-08 |
+| ✅ | Hermes told: the merge line, then every ask in one note the owner approved | — | sent 2026-11-08; its answer about 14D feeds 14D |
 | ⏳ | 14B after deploy: the first nightly run refreshes the catalogue | the run starting 2026-11-08 21:30 | 2026-11-09 |
 | ⏳ | Owner: one look at the English names in `src/realestate/places/curated.json` | — | any time, not blocking |
 | ❌ | 14C, location quality: the first night's findings change its design (`PHASE_14_PLAN.md`, 14C) | two nights of 14A data | design and code from 2026-11-09; thresholds after that night; deploy 2026-11-10 or 11; recheck about 2026-11-14 |
@@ -212,7 +212,7 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
       - **ss.ge's Tbilisi:** 5 districts, 51 sub-districts and 1,430 streets, 613 with a point. Streets grow as the walks reach more listings; the plan's "about 1,800" was ss.ge's whole list. With them, 10 official districts and 22 stations.
       - **Lookups:** "Vake" gives the neighbourhood first, with Vake District beside it; "Vake district" gives the official district; "Chavchavadze" gives its streets (after Kutaisi's Chavchavadze settlement, an area); "dighomi" gives its four places; "Medical University" gives the station; "Avlabari" gives the sub-district and the station.
       - **Avlabari:** its row has Old Tbilisi as its parent and Isani as its official overlap (706 of 3,797 listings located, all in Isani).
-    - [ ] Hermes told: C6 and the lookup are in `dist` on the host. It switches its item 3b to them and deletes its alias tables.
+    - [x] Hermes told (2026-11-08, session `hermes-f5`): one line at the merge; at the deploy, one note the owner approved, with every ask in it. The asks: C6 into the joint plan's contracts table; its area words switched to the text lookup, and its alias tables and splitter deleted; how to word the two maps and read a null official district; 14A's coverage; and what C6 lacks for 14D. Its switch is its own work, not a gate here.
     - [ ] The owner's one look at the English names in `curated.json`. They are data, so they can be corrected any time.
 - **Phase 14C, location quality:** not started. Its thresholds are set from two nights of 14A's data, then rechecked after a week (plan change 2026-11-07: each night brings thousands of pins beside their street points, and a changed threshold re-judges every listing overnight; `PHASE_14_PLAN.md`, 14C).
 - **Phase 14D, C1 v2:** not started. It is agreed with Hermes first, including each result's place on both maps.
