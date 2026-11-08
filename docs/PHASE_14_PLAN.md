@@ -8,13 +8,13 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 
 **Marks:** ✅ done · ⏳ under way, or scheduled · ❌ not started · ↪ moved or dropped, with where it went. Times are UTC (Tbilisi is UTC+4).
 
-## Where it stands (2026-11-08 14:00 UTC)
+## Where it stands (2026-11-08 18:00 UTC)
 
 | Sub-phase | State | Waits on | Next |
 |---|---|---|---|
 | **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80); morning-after check passed 2026-11-08 | — | — |
 | **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82) | the first nightly refresh; the owner's look at Hermes's note | ⏳ the journal on 2026-11-09; the note to Hermes |
-| **14C** location quality | ❌ | two nights of 14A data; its design takes in the first night's findings (14C below) | design and code from 2026-11-09; deploy 2026-11-10 or 11 |
+| **14C** location quality | ⏳ built on its branch (c1–c6, 2026-11-08), trial on a copy of production passed | the second night's data for calibration; 13A's first-deletion check | calibrate 2026-11-09 after 13:40; PR; deploy 2026-11-10 or 11 |
 | **14D** C1 v2 for Hermes | ❌ | 14C live; Hermes's answer about 14D | after 14C |
 
 ## What waits on what
@@ -159,7 +159,7 @@ Gates and evidence: STATUS, Phase 14B.
   - ✅ Avlabari's row has Old Tbilisi as its parent and Isani as its official overlap;
   - ⏳ the first nightly run's journal says `ss.ge place catalogue refreshed` (2026-11-09).
 
-## 14C: location quality — ⏳ redesigned 2026-11-08, building
+## 14C: location quality — ⏳ built on its branch 2026-11-08; calibration, PR and deploy next
 
 - ❌ **Calibrate first**, read-only on production.
   - Changed 2026-11-07: on two nights of 14A data, not a week, then rechecked at a week. Each night brings thousands of pins with `pin_manual` beside their street points (see "Production on 2026-11-07" above). A week adds coverage, not a different spread, and a threshold change re-judges overnight.
@@ -210,8 +210,8 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
   - `places`' private street location;
   - `public_listings` and the archive with the public derived columns appended, `recently_gone` re-issued;
   - `public_places` with `official_source` appended.
-- ❌ **Riding along, from Hermes's 14D list:** (a) the city on every lookup row; (e) "Vaja" as a Latin spelling of ვაჟა. Both are small and additive to C6.
-- ❌ **Docs:** the new columns in `docs/hermes-contracts.md`, a RUNBOOK §3 step 8 entry, `prod-status`, and 14C's gates in STATUS.
+- ✅ **Riding along, from Hermes's 14D list** (built on the branch, `1c4803b`): (a) the city on every lookup row, three parents up (a recursive walk cost 400 ms a lookup; three joins nothing); (e) a second key with ჟ as "j" for names that have one, so "Vaja" finds ვაჟა. `PLACE_LOOKUP_VERSION` 2.
+- ⏳ **Docs:** ✅ the new columns in `docs/hermes-contracts.md` (C5's 14C section, C6), ✅ RUNBOOK §3 step 8 "Location quality", ✅ 14C's gates in STATUS; ❌ `prod-status`, at the deploy.
 - **Order:** code and tests on a branch from 2026-11-08; calibration after the 2026-11-09 run; a live trial; deploy on 2026-11-10 or 11-11, after 13A's first-deletion check.
 
 ## 14D: Hermes's contracts — ❌ not started
