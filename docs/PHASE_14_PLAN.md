@@ -188,7 +188,7 @@ Gates and evidence: STATUS, Phase 14B.
 ## 14D: Hermes's contracts — ❌ not started
 
 - ⏳ **Agree first**, in Hermes's `.git/xtelo-speed/PLAN.md`:
-  - ⏳ C6 and the bare-name rule: asked in the combined note at 14B's deploy;
+  - ✅ C6 and the bare-name rule: in the joint plan's contracts table since 2026-11-08 (Hermes added the row). Its switch of H2's area words waits for the owner's go;
   - ❌ the meanings of precision, flags and basis ("unknown" is not "no"; basis `street` means approximate);
   - ❌ C1 v2's exact JSON, with a v1 fallback;
   - ❌ C3's official level only after a stable month.
@@ -197,6 +197,12 @@ Gates and evidence: STATUS, Phase 14B.
   - `metro {maxMinutes, stations?}`, `minPrecision`, `excludeUncertain`;
   - output `locationCoverage`; unknown never matches, as with today's detail filters;
   - Hermes's ask (2026-11-07): each result row carries its place on both maps and how the other map sees it, from C6's overlaps, so the bot says "Avlabari: Old Tbilisi on ss.ge, officially Isani" without mapping anything itself.
+- ❌ **What Hermes said C6 still lacks for 14D (2026-11-08, checked against `dist` at `0d9f7bc`)**, all for 14D:
+  - (a) **A city on every lookup row.** Rows carry only the direct parent, so "Rustaveli, Batumi" can't pick Batumi's street without walking the chain. Add `city_ref` and the city's names to each lookup row, or a city filter on both lookups.
+  - (b) **Streets outside Tbilisi.** Answered: C6 already holds them (Batumi 257, Kutaisi 133, Rustavi 74 on 2026-11-08, growing nightly). What's missing is (a), so the bot can say "no street of that name in Batumi" instead of matching across cities.
+  - (c) **C1 v2 takes a C6 row's (level, ref) as it is,** at every level: official_district (OSM ref), metro_station (1–22) and neighbourhood. A neighbourhood applies its parent, and the coverage says so.
+  - (d) **Unknown counts.** An official-district or metro filter also returns how many listings in the matching ss.ge areas have no known official district or no metro, so the bot says "at least N, M unknown". This is `locationCoverage`, made specific.
+  - (e) **"Vaja Pshavela",** a common English spelling, keys to `vaj psavel` and misses the avenue (`vaz psavel`). Folding j into z would merge ჯ with ჟ, so it needs a Latin spelling variant or an alias. ვაჟა appears in 14 street names.
 - ❌ **Later:** C3's `area_level 'official_district'`, after a stable month of 14C.
 
 **Not in this plan:** 13E's fingerprint itself (after 14A and 14C, on `street_ref` and `building_key`); street and metro filters on the website; korpus and block words read from descriptions.
