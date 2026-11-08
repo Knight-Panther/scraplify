@@ -12,7 +12,7 @@ Every open item, what it waits on, and when it is next touched. Times are UTC (T
 | | Item | Waits on | Next |
 |---|---|---|---|
 | ✅ | 14A, keep the places ss.ge sends | — | live since 2026-11-07 16:43 |
-| ⏳ | 14A's morning-after check | the first run under 14A, 2026-11-07 21:30 to about 13:40 | 2026-11-08: read `/home/ubuntu/watch-14a.log`, judge it against 14A's gate |
+| ✅ | 14A's morning-after check: passed (the 14A gate has the numbers) | — | done 2026-11-08 13:40 |
 | ⏳ | 14B, official map, English names, Hermes's place catalogue C6: built, CI green, PR #81 | 14A's morning-after check | merge 2026-11-08; deploy after that day's run, 13:40–20:30 |
 | ⏳ | Hermes: one line at 14B's merge, then every ask in one note at its deploy, shown to the owner first | 14B's merge and deploy | 2026-11-08 |
 | ⏳ | 14B after deploy: the nightly run refreshes the catalogue; the plan's production checks | 14B deployed | 2026-11-09 |
@@ -121,11 +121,18 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
       - **Totals for 2026-11-07, retaken as `rules_version` 3:** 3,911 cells and 226,027 listings. The 13:39 take had 226,504, because 591 posts passed the tab's two-day grace in the three hours between.
       - **Checks:** both sites ready; health check `ok` on every source and the ss.ge proxy; `probe: ok`; `/real-estate` answers in 3.8 s, as before (Open items). Old builds pruned; disk 39%.
       - **Baseline for the morning check:** the 2026-11-06 21:38 UTC run had 14,435 new, 3,744 changed and 32,467 unchanged, and read 7,444 listing pages. Pages wanted but not yet read: 36,945.
-    - [ ] The morning after:
-      - new and changed counts like the three nights before, and no jump in the wanted backlog;
-      - `street_ref` on about 90% and `ss_metro` on about 40% of the Tbilisi listings seen that night;
-      - active listings with a sub-district but no district at about 0;
-      - `places` counts by level, and known street points rising.
+    - [x] The morning after (the run of 2026-11-07 21:39 to 2026-11-08 13:39 UTC, `completed`; checked 13:40 UTC):
+      - **Counts:** 6,069 new, 3,959 changed, 50,896 unchanged, 143 reopened, 5,146 gone. Changed was 6.2% of sightings, against 6.6% the night before 14A. 14,850 requests, 22 failed, each read on a retry.
+      - **The wanted backlog:** 36,945 to 48,061 (+11.1k), as the night before 14A (+10.7k). The night's 7,585 page reads went to checking listings missed in the walk, then to street points, before any wanted page. That is 12B's reading capacity, not 14A (12B's first-week numbers).
+      - **New columns:** `street_ref` on 99.8% of the 48,544 Tbilisi listings seen. `ss_metro` on 29.1%, not the plan's 40% (flats 28–31%, daily flats 56%). A results page saved on 2026-11-07 shows the same share of cards with a metro list, so that is ss.ge's own coverage.
+      - **District fill:** active listings with a sub-district but no district: 0. 1,125 filled.
+      - **Places:** 1,894 streets, all named by active listings, with 677 points known and 264 "none". One city added.
+      - **End of the run:** the journal says `ss.ge place tree updated` (953 streets added) and `ss.ge daily totals taken` (2026-11-08, 3,891 cells, `rules_version` 3). The Hermes event was written. The journal had 0 errors.
+      - **Private:** no private column in `public_listings`.
+      - **Two findings for 14B and 14C,** recorded in 14B below and in `PHASE_14_PLAN.md`:
+        - ss.ge places about a quarter of the checkable streets by a namesake;
+        - it has no point at all for some of the busiest (about 15% of Tbilisi listings).
+      - **The deploy script's own check was wrong.** A running oneshot unit is `activating`, which `systemctl is-active --quiet` reports as not running. 14B's script now reads `ActiveState`.
     - [x] Hermes told (2026-11-07, session `hermes-5a`): 14A live, the new columns, what `district_inferred` means, C3 rules version 3, what stays private, and that it still waits for 14B–14D.
 - **Phase 14B, the official map and Hermes's place catalogue (C6), built on branch `phase-14b-official-map` (2026-11-07), not merged:** migration `0050`.
   - **The official map:** `src/realestate/places/tbilisi.json`, fetched once from OpenStreetMap by `scripts/fetch-osm-places.mjs` (ODbL, `docs/RIGHTS.md`, Map data).
@@ -166,6 +173,10 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
       - So a street whose own listings contradict its point now gets no official district, and its listings count as not located. Unknown, never a wrong district. The review's P3 is therefore done for streets with enough pins.
       - Streets with fewer pins stay unchecked; 14C calibrates the check.
       - ss.ge also sends no point at all for some of the busiest streets: Chavchavadze Ave, Tsintsadze St, Vazha-Pshavela Ave and Gelovani Ave, about 15% of Tbilisi's listings. That is ss.ge's data (five Chavchavadze pages read live all said 0/0), not a reading fault.
+    - **The deploy's lookups on production (2026-11-08) showed a bare "Vake" gave a village first.** Production has a village called ვაკე with one listing (city 572), and the lookup ranked cities before sub-districts. 16 villages or municipalities share a key with a district or sub-district.
+      - The lookup now ranks by group: ss.ge's areas, then the official map, then stations, then streets. Within a group, the busiest comes first (`LOOKUP_LEVEL_GROUPS`).
+      - A test holds the village case.
+      - Fixed before Hermes was asked to switch, so `PLACE_LOOKUP_VERSION` stays 1.
   - **14B exit gate, before merge:**
     - [x] Tests:
       - the keys: Hermes's own `loose_words` output letter for letter; every form of a street; plural names; kind words left out; initials, numbers and district words kept; capital Georgian;
@@ -187,7 +198,8 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
       - Migration safety: its two P2s are deploy rules, now in the RUNBOOK. Deploy only once the ss.ge unit is inactive, and migrate and grant before the new code goes live.
       - Surface boundary: its P2 and one P3 are under Open items. Its other P3, a non-numeric `limit`, went away when the lookup was rewritten for Hermes's review: the limit is now a whole number from 1 to 500, and 50 otherwise.
     - [x] CI green on PR #81: the first run, and again after Hermes's review (`98a26fb`).
-    - [ ] Merge after 14A's morning-after check, so that until then `main` is the live release and a 14A fix can ship without 14B.
+    - [x] Merged after 14A's morning-after check: 2026-11-08 13:42 UTC as `f81599a` (PR #81, CI green on `f81d4ee`). Hermes told in one line at the merge (session `hermes-f5`).
+    - [x] The street-point check (part 6) rehearsed under the host's roles too: the worker ran it, and a second run wrote nothing.
   - **14B exit gate, after deploy (RUNBOOK §3 step 8, "The place catalogue on both maps"):**
     - [ ] Deployed after 14A's morning-after check, with the catalogue filled by hand and the RUNBOOK's checks.
     - [ ] The first nightly run's journal says `ss.ge place catalogue refreshed`.

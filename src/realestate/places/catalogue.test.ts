@@ -414,8 +414,22 @@ describe('the place catalogue (Phase 14B)', () => {
     it("reads a bare name as ss.ge's neighbourhood, with the official district beside it", async () => {
       const sourceId = await newSource();
       await city(sourceId);
+      // A village called ვაკე with one listing, as production has (city 572,
+      // 2026-11-08): the busier neighbourhood still comes first.
+      await listing(sourceId, {
+        cityRef: 572,
+        cityName: 'ვაკე',
+        districtRef: null,
+        districtName: null,
+        subdistrictRef: null,
+        subdistrictName: null,
+        streetRef: null,
+        streetName: null,
+      });
+      await syncPlaces(db, { sourceId, at: NOW });
       await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
       const vake = await lookup(sourceId, 'Vake');
+      expect(vake).toContainEqual({ level: 'city', ref: 572, match: 'exact', parent: null });
       expect(vake[0]).toEqual({
         level: 'subdistrict',
         ref: 47,
