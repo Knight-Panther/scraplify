@@ -277,7 +277,14 @@ export const realEstateListings = realEstate.table(
     buildingKey: text('building_key'),
     /** `LOCATION_RULES_VERSION` the derived columns were worked out under; null until the first refresh. */
     locationRules: smallint('location_rules'),
-    /** Private, like the pin: whether it is trusted, its distance to the street's location, and its official district. */
+    /**
+     * Private, like the pin: whether it is trusted, its distance to the
+     * street's location, and the official district it lies in. When the pin
+     * is trusted, that district becomes the public `official_district_ref`
+     * (basis `pin`): one of Tbilisi's ten, coarser than the street and
+     * sub-district already shown. The column keeps an untrusted pin's
+     * district out of view.
+     */
     pinTrusted: boolean('pin_trusted'),
     pinStreetM: integer('pin_street_m'),
     pinOfficialDistrictRef: integer('pin_official_district_ref'),

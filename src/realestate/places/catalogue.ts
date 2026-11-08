@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { realEstatePlaces } from '../../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../../db/types.js';
 import { nameKey, romanizedName } from '../place-lookup.js';
+import { candidatePinsSql, metersApart, STREET_LOCATION_MIN_PINS } from '../location-rules.js';
 import type { CuratedPlaces } from './curated.js';
 import { type OfficialMap, officialDistrictAt } from './official.js';
 
@@ -33,22 +34,12 @@ const CHUNK = 2_000;
  * ss.ge places some streets by a namesake: Titsian Tabidze St in Vake carries
  * the point of Galaktion Tabidze St, 2.8 km away, on every one of its pages.
  * On 2026-11-08, 67 of the 245 Tbilisi streets with 3 or more poster-placed
- * pins had a point more than 1 km from those pins' median. A point its own
- * street's listings contradict gives that street no official district
- * (unknown, never a wrong one), and its listings count as not located. A
- * street with fewer poster-placed pins is not checked here; Phase 14C
- * calibrates the check.
+ * pins had a point more than this from those pins' median, and ss.ge has no
+ * point at all for some of the busiest streets. So a street is located by its
+ * own listings' candidate pins when it has enough (Phase 14C), and by ss.ge's
+ * point otherwise. This distance only counts the points the pins contradict.
  */
-export const STREET_POINT_CHECK_PINS = 3;
 export const STREET_POINT_DISPUTE_METERS = 1_000;
-
-const METERS_PER_DEGREE = 111_195;
-
-/** Metres between two nearby points, on a local plane. */
-function metersApart(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const kx = METERS_PER_DEGREE * Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180);
-  return Math.hypot((lng1 - lng2) * kx, (lat1 - lat2) * METERS_PER_DEGREE);
-}
 
 /** What a refresh found and wrote. */
 export interface CatalogueRefresh {
@@ -60,9 +51,11 @@ export interface CatalogueRefresh {
   named: number;
   /** Places the owner's file names whose Georgian name ss.ge has since changed: their English name is left off until the file is checked. */
   renamed: string[];
-  /** Streets whose official district was set or changed. */
+  /** Streets whose location or official district was set or changed. */
   streetsPlaced: number;
-  /** Streets left without an official district because their own listings' poster-placed pins contradict ss.ge's point. */
+  /** Streets located by their own listings' pins. */
+  streetsByPins: number;
+  /** Of those, the ones whose pins contradict ss.ge's point for them (namesakes). */
   streetsDisputed: number;
   /** ss.ge districts and sub-districts whose overlaps changed. */
   sharesWritten: number;
@@ -189,64 +182,100 @@ export async function refreshPlaceCatalogue(
          and p.name_en is distinct from v.name_en
     `);
 
-    // 3. Each street point's official district, unless the street's own
-    //    listings' poster-placed pins contradict the point.
+    // 3. Each street's location (Phase 14C): the median of its listings'
+    //    candidate pins when it has enough, else ss.ge's point; and the
+    //    official district that location is in.
     const streets = await tx.execute<{
       ref: number;
       latitude: string | null;
       longitude: string | null;
+      located_latitude: string | null;
+      located_longitude: string | null;
+      located_basis: string | null;
+      located_pins: number | null;
       official_district_ref: number | null;
       official_basis: string | null;
+      official_source: string | null;
       pins: number | string;
       pin_lat: number | string | null;
       pin_lng: number | string | null;
     }>(sql`
-      with pins as (
+      with ${candidatePinsSql(sourceId)}, medians as (
         select street_ref, count(*)::integer as n,
-               percentile_cont(0.5) within group (order by latitude::float8) as lat,
-               percentile_cont(0.5) within group (order by longitude::float8) as lng
-          from realestate.listings
-         where source_id = ${sourceId} and status = 'active' and pin_manual
-           and street_ref is not null and latitude is not null and longitude is not null
-         group by street_ref
+               percentile_cont(0.5) within group (order by lat) as lat,
+               percentile_cont(0.5) within group (order by lng) as lng
+          from candidates where street_ref is not null group by street_ref
       )
-      select s.ref, s.latitude, s.longitude, s.official_district_ref, s.official_basis,
-             coalesce(pins.n, 0) as pins, pins.lat as pin_lat, pins.lng as pin_lng
+      select s.ref, s.latitude, s.longitude,
+             s.located_latitude, s.located_longitude, s.located_basis, s.located_pins,
+             s.official_district_ref, s.official_basis, s.official_source,
+             coalesce(m.n, 0) as pins, m.lat as pin_lat, m.lng as pin_lng
         from ${realEstatePlaces} s
-        left join pins on pins.street_ref = s.ref
+        left join medians m on m.street_ref = s.ref
        where s.source_id = ${sourceId} and s.level = 'street'
     `);
+    let streetsByPins = 0;
     let streetsDisputed = 0;
     const placed = streets.rows.flatMap((street) => {
-      const disputed =
-        street.latitude !== null &&
-        street.longitude !== null &&
-        street.pin_lat !== null &&
-        street.pin_lng !== null &&
-        Number(street.pins) >= STREET_POINT_CHECK_PINS &&
-        metersApart(
-          Number(street.latitude),
-          Number(street.longitude),
-          Number(street.pin_lat),
-          Number(street.pin_lng),
-        ) > STREET_POINT_DISPUTE_METERS;
-      if (disputed) streetsDisputed++;
-      const place =
-        street.latitude === null || street.longitude === null || disputed
+      const ssge =
+        street.latitude === null || street.longitude === null
           ? null
-          : officialDistrictAt(map, Number(street.latitude), Number(street.longitude));
-      const ref = place?.district.ref ?? null;
-      const basis = place?.basis ?? null;
-      return ref === street.official_district_ref && basis === street.official_basis
-        ? []
-        : [{ ref: street.ref, official_district_ref: ref, official_basis: basis }];
+          : { lat: Number(street.latitude), lng: Number(street.longitude) };
+      const byPins =
+        Number(street.pins) >= STREET_LOCATION_MIN_PINS &&
+        street.pin_lat !== null &&
+        street.pin_lng !== null;
+      let location: { lat: number; lng: number; basis: 'pins' | 'ss.ge'; pins: number } | null =
+        null;
+      if (byPins) {
+        location = {
+          lat: Number(street.pin_lat),
+          lng: Number(street.pin_lng),
+          basis: 'pins',
+          pins: Number(street.pins),
+        };
+        streetsByPins++;
+        if (
+          ssge !== null &&
+          metersApart(ssge.lat, ssge.lng, location.lat, location.lng) > STREET_POINT_DISPUTE_METERS
+        ) {
+          streetsDisputed++;
+        }
+      } else if (ssge !== null) {
+        location = { ...ssge, basis: 'ss.ge', pins: 0 };
+      }
+      const place = location === null ? null : officialDistrictAt(map, location.lat, location.lng);
+      const next = {
+        ref: street.ref,
+        located_latitude: location === null ? null : location.lat.toFixed(6),
+        located_longitude: location === null ? null : location.lng.toFixed(6),
+        located_basis: location?.basis ?? null,
+        located_pins: location?.pins ?? null,
+        official_district_ref: place?.district.ref ?? null,
+        official_basis: place?.basis ?? null,
+        official_source: place === null ? null : (location?.basis ?? null),
+      };
+      const unchanged =
+        next.located_latitude === street.located_latitude &&
+        next.located_longitude === street.located_longitude &&
+        next.located_basis === street.located_basis &&
+        next.located_pins === street.located_pins &&
+        next.official_district_ref === street.official_district_ref &&
+        next.official_basis === street.official_basis &&
+        next.official_source === street.official_source;
+      return unchanged ? [] : [next];
     });
     for (let from = 0; from < placed.length; from += CHUNK) {
       await tx.execute(sql`
         update ${realEstatePlaces} p
-           set official_district_ref = c.official_district_ref, official_basis = c.official_basis
+           set located_latitude = c.located_latitude, located_longitude = c.located_longitude,
+               located_basis = c.located_basis, located_pins = c.located_pins,
+               official_district_ref = c.official_district_ref, official_basis = c.official_basis,
+               official_source = c.official_source
           from jsonb_to_recordset(${JSON.stringify(placed.slice(from, from + CHUNK))}::jsonb)
-               as c(ref integer, official_district_ref integer, official_basis text)
+               as c(ref integer, located_latitude numeric, located_longitude numeric,
+                    located_basis text, located_pins integer, official_district_ref integer,
+                    official_basis text, official_source text)
          where p.source_id = ${sourceId} and p.level = 'street' and p.ref = c.ref
       `);
     }
@@ -378,6 +407,7 @@ export async function refreshPlaceCatalogue(
       named: englishNames.rowCount ?? 0,
       renamed: renamedRows.rows.map((row) => `${row.level} ${row.ref} is now ${row.name_ka}`),
       streetsPlaced: placed.length,
+      streetsByPins,
       streetsDisputed,
       sharesWritten: shares.rowCount ?? 0,
       keysWritten: rekeyed.length,
