@@ -2,7 +2,14 @@ import { eq, sql } from 'drizzle-orm';
 import { realEstatePlaces } from '../../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../../db/types.js';
 import { nameKey, nameKeys, romanizedName } from '../place-lookup.js';
-import { candidatePinsSql, metersApart, STREET_LOCATION_MIN_PINS } from '../location-rules.js';
+import {
+  candidatePinsSql,
+  metersApart,
+  metersSql,
+  STREET_LOCATION_MIN_PINS,
+  STREET_LOCATION_SUPPORT,
+  TRUSTED_PIN_STREET_METERS,
+} from '../location-rules.js';
 import type { CuratedPlaces } from './curated.js';
 import { type OfficialMap, officialDistrictAt } from './official.js';
 
@@ -34,10 +41,11 @@ const CHUNK = 2_000;
  * ss.ge places some streets by a namesake: Titsian Tabidze St in Vake carries
  * the point of Galaktion Tabidze St, 2.8 km away, on every one of its pages.
  * On 2026-11-08, 67 of the 245 Tbilisi streets with 3 or more poster-placed
- * pins had a point more than this from those pins' median, and ss.ge has no
- * point at all for some of the busiest streets. So a street is located by its
- * own listings' candidate pins when it has enough (Phase 14C), and by ss.ge's
- * point otherwise. This distance only counts the points the pins contradict.
+ * pins had a point more than this from those pins' median; against
+ * OpenStreetMap's lines, ss.ge's point was more than 500 m off its street for
+ * 29% of streets. So a street is located by its own listings' candidate pins
+ * when they agree (Phase 14C, `location-rules.ts`), and by ss.ge's point
+ * otherwise, unless every one of its pins lies more than this from that point.
  */
 export const STREET_POINT_DISPUTE_METERS = 1_000;
 
@@ -55,7 +63,7 @@ export interface CatalogueRefresh {
   streetsPlaced: number;
   /** Streets located by their own listings' pins. */
   streetsByPins: number;
-  /** Of those, the ones whose pins contradict ss.ge's point for them (namesakes). */
+  /** Streets whose own pins contradict ss.ge's point for them (namesakes): located by the pins, or, when the pins disagree among themselves too, not at all. */
   streetsDisputed: number;
   /** ss.ge districts and sub-districts whose overlaps changed. */
   sharesWritten: number;
@@ -183,7 +191,8 @@ export async function refreshPlaceCatalogue(
     `);
 
     // 3. Each street's location (Phase 14C): the median of its listings'
-    //    distinct candidate pin positions when it has enough, else ss.ge's point; and the
+    //    distinct candidate pin positions when they agree on it, else
+    //    ss.ge's point unless those positions all contradict it; and the
     //    official district that location is in.
     const streets = await tx.execute<{
       ref: number;
@@ -199,6 +208,8 @@ export async function refreshPlaceCatalogue(
       pins: number | string;
       pin_lat: number | string | null;
       pin_lng: number | string | null;
+      near_median: number | string;
+      near_point: number | string;
     }>(sql`
       with ${candidatePinsSql(sourceId)}, positions as (
         select distinct street_ref, lat, lng from candidates where street_ref is not null
@@ -207,13 +218,30 @@ export async function refreshPlaceCatalogue(
                percentile_cont(0.5) within group (order by lat) as lat,
                percentile_cont(0.5) within group (order by lng) as lng
           from positions group by street_ref
+      ), agreement as (
+        select p.street_ref,
+               count(*) filter (
+                 where ${metersSql(sql`p.lat`, sql`p.lng`, sql`m.lat`, sql`m.lng`)} <= ${TRUSTED_PIN_STREET_METERS}
+               )::integer as near_median,
+               count(*) filter (
+                 where s.latitude is not null and s.longitude is not null
+                   and ${metersSql(sql`p.lat`, sql`p.lng`, sql`s.latitude::float8`, sql`s.longitude::float8`)}
+                       <= ${STREET_POINT_DISPUTE_METERS}
+               )::integer as near_point
+          from positions p
+          join medians m on m.street_ref = p.street_ref
+          join ${realEstatePlaces} s
+            on s.source_id = ${sourceId} and s.level = 'street' and s.ref = p.street_ref
+         group by p.street_ref
       )
       select s.ref, s.latitude, s.longitude,
              s.located_latitude, s.located_longitude, s.located_basis, s.located_pins,
              s.official_district_ref, s.official_basis, s.official_source,
-             coalesce(m.n, 0) as pins, m.lat as pin_lat, m.lng as pin_lng
+             coalesce(m.n, 0) as pins, m.lat as pin_lat, m.lng as pin_lng,
+             coalesce(a.near_median, 0) as near_median, coalesce(a.near_point, 0) as near_point
         from ${realEstatePlaces} s
         left join medians m on m.street_ref = s.ref
+        left join agreement a on a.street_ref = s.ref
        where s.source_id = ${sourceId} and s.level = 'street'
     `);
     let streetsByPins = 0;
@@ -223,10 +251,12 @@ export async function refreshPlaceCatalogue(
         street.latitude === null || street.longitude === null
           ? null
           : { lat: Number(street.latitude), lng: Number(street.longitude) };
+      const positions = Number(street.pins);
       const byPins =
-        Number(street.pins) >= STREET_LOCATION_MIN_PINS &&
+        positions >= STREET_LOCATION_MIN_PINS &&
         street.pin_lat !== null &&
-        street.pin_lng !== null;
+        street.pin_lng !== null &&
+        Number(street.near_median) >= Math.min(STREET_LOCATION_SUPPORT, positions);
       let location: { lat: number; lng: number; basis: 'pins' | 'ss.ge'; pins: number } | null =
         null;
       if (byPins) {
@@ -234,7 +264,7 @@ export async function refreshPlaceCatalogue(
           lat: Number(street.pin_lat),
           lng: Number(street.pin_lng),
           basis: 'pins',
-          pins: Number(street.pins),
+          pins: positions,
         };
         streetsByPins++;
         if (
@@ -244,7 +274,9 @@ export async function refreshPlaceCatalogue(
           streetsDisputed++;
         }
       } else if (ssge !== null) {
-        location = { ...ssge, basis: 'ss.ge', pins: 0 };
+        // Pins that disagree among themselves can still all contradict ss.ge's point.
+        if (positions > 0 && Number(street.near_point) === 0) streetsDisputed++;
+        else location = { ...ssge, basis: 'ss.ge', pins: 0 };
       }
       const place = location === null ? null : officialDistrictAt(map, location.lat, location.lng);
       const next = {

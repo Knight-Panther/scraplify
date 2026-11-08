@@ -143,9 +143,10 @@ describe('refreshListingLocations (Phase 14C)', () => {
   /**
    * Chavchavadze 501: three pins near ss.ge's point and one 2.6 km off, so
    * the street is located by their median, in Vake, 2 km from any station.
-   * Vazha-Pshavela 507: one pin, so located by ss.ge's point, 400 m from
-   * Medical University. Kavtaradze 503: no point and two pins, so not
-   * located; Saburtalo's pins judge them instead.
+   * Vazha-Pshavela 507: one poster's pin, 376 m from ss.ge's point and 50 m
+   * from Medical University, so located by that pin. Kavtaradze 503: no
+   * point and two pins 7.9 km apart, so not located; Saburtalo's pins judge
+   * them instead. Gorgiladze 601 in Batumi: no pin, so ss.ge's point.
    */
   async function city(sourceId: string) {
     await listing(sourceId, 'a1', { ...pin(41.71, 44.766), houseNumber: 12, streetNumber: '12' });
@@ -168,7 +169,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
     await listing(sourceId, 'b5-broken', { ...VAZHA, ...pin(41.7882, 41.7882) });
     await listing(sourceId, 'b6-ssge-pin', { ...VAZHA, ...pin(41.75, 44.8, false) });
     await listing(sourceId, 'c1', { ...KAVTARADZE, ...pin(41.729, 44.745) });
-    await listing(sourceId, 'c3-far', { ...KAVTARADZE, ...pin(41.77, 44.745) });
+    await listing(sourceId, 'c3-far', { ...KAVTARADZE, ...pin(41.8, 44.745) });
     await listing(sourceId, 'c4-house', { ...KAVTARADZE, houseNumber: 7, streetNumber: '7' });
     await listing(sourceId, 'd1', { ...KAVTARADZE, ...NO_STREET, ...pin(41.7295, 44.7455) });
     await listing(sourceId, 'e1-junk', { ...VAZHA, streetNumber: 'ოთახი25' });
@@ -233,7 +234,8 @@ describe('refreshListingLocations (Phase 14C)', () => {
       buildingKey: 's507-30',
       locationRules: LOCATION_RULES_VERSION,
       pinTrusted: true,
-      pinStreetM: 376,
+      // Vazha-Pshavela's one pin locates the street itself.
+      pinStreetM: 0,
     });
     // On a street located by its pins: a1 is 24 m from their median.
     expect(await located(sourceId, 'a1')).toMatchObject({
@@ -269,29 +271,64 @@ describe('refreshListingLocations (Phase 14C)', () => {
     expect(far?.pinOfficialDistrictRef).toBe(officialDistrictAt(map, 41.725, 44.79)?.district.ref);
   });
 
-  it('trusts a pin far from a long street’s middle when the street’s other pins run past it', async () => {
+  it('trusts a pin far from a long street’s middle when another of the street’s pins is near it', async () => {
     const sourceId = await newSource();
     // Seven positions 250 m apart along Chavchavadze: 1.5 km of avenue.
     for (let i = 0; i < 7; i++) {
       await listing(sourceId, `line${i}`, pin(41.71, 44.75 + i * 0.003));
     }
-    // 2.9 km off: one flat posted twice and a neighbour 25 m away. Two positions,
-    // each with one other near it: not enough, and the copies do not vouch for each other.
+    // 3 km east of the middle: two positions 65 m apart, each the other's neighbour.
+    await listing(sourceId, 'pair0', pin(41.71, 44.8));
+    await listing(sourceId, 'pair1', pin(41.7105, 44.8003));
+    // 2.8 km off: one flat posted twice is one position, and its copies do not vouch for each other.
     await listing(sourceId, 'repost0', pin(41.725, 44.79));
     await listing(sourceId, 'repost1', pin(41.725, 44.79));
-    await listing(sourceId, 'repost2', pin(41.7252, 44.7902));
     await refresh(sourceId);
 
     const end = await located(sourceId, 'line0');
     expect(end).toMatchObject({ pinTrusted: true, locationFlags: [], locationPrecision: 'pin' });
     expect(end?.pinStreetM).toBeGreaterThan(800);
-    for (let i = 0; i < 3; i++) {
-      expect(await located(sourceId, `repost${i}`)).toMatchObject({
+    for (const key of ['pair0', 'pair1']) {
+      const paired = await located(sourceId, key);
+      expect(paired).toMatchObject({ pinTrusted: true, locationFlags: [] });
+      expect(paired?.pinStreetM).toBeGreaterThan(2_500);
+    }
+    for (const key of ['repost0', 'repost1']) {
+      expect(await located(sourceId, key)).toMatchObject({
         pinTrusted: false,
         locationFlags: ['pin_far_from_street'],
         locationUncertain: true,
       });
     }
+  });
+
+  it('never judges a pin by ss.ge’s point: on a street its pins do not locate, by its sub-district’s pins', async () => {
+    const sourceId = await newSource();
+    // Vazha-Pshavela 507 (ss.ge's point 41.72386, 44.76181): one pin 70 m from the
+    // point and one 2.3 km east of it disagree, so ss.ge's point locates the street.
+    await listing(sourceId, 'near', { ...VAZHA, ...pin(41.7245, 44.762) });
+    await listing(sourceId, 'east', { ...VAZHA, ...pin(41.7245, 44.79) });
+    // More Saburtalo positions on no street, so the sub-district has a pin median
+    // (41.7248, 44.763); 'north' is 3.9 km from it.
+    await listing(sourceId, 'third', { ...VAZHA, ...NO_STREET, ...pin(41.725, 44.763) });
+    await listing(sourceId, 'fourth', { ...VAZHA, ...NO_STREET, ...pin(41.7248, 44.7625) });
+    await listing(sourceId, 'north', { ...VAZHA, ...NO_STREET, ...pin(41.76, 44.763) });
+    await refresh(sourceId);
+
+    // Only a gross error is caught by the sub-district: 3.9 km is within its 5 km.
+    expect(await located(sourceId, 'north')).toMatchObject({ pinTrusted: true, locationFlags: [] });
+
+    // 2.3 km from ss.ge's point, but well within Saburtalo's pins: trusted.
+    const east = await located(sourceId, 'east');
+    expect(east).toMatchObject({
+      pinTrusted: true,
+      locationFlags: [],
+      locationUncertain: false,
+      locationPrecision: 'pin',
+      officialDistrictBasis: 'pin',
+    });
+    expect(east?.pinStreetM).toBeGreaterThan(2_000);
+    expect(await located(sourceId, 'near')).toMatchObject({ pinTrusted: true, locationFlags: [] });
   });
 
   it('flags the map’s default and a broken pin, and ss.ge’s metro claim worked out from the default', async () => {
@@ -305,9 +342,10 @@ describe('refreshListingLocations (Phase 14C)', () => {
       locationPrecision: 'street',
       locationUncertain: true,
       locationFlags: ['pin_placeholder', 'metro_from_untrusted_pin'],
+      // From the street, which b2-pin locates, 50 m from Medical University.
       metroBasis: 'street',
       metroStation: 'medical_uni',
-      metroMinutes: 10,
+      metroMinutes: 5,
       pinTrusted: false,
       pinOfficialDistrictRef: null,
     });
@@ -342,7 +380,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
       locationPrecision: 'pin',
       pinTrusted: true,
     });
-    // 4.5 km from Saburtalo's pins, on an unlocated street, in a sub-district too thin to place it.
+    // 7.9 km from Saburtalo's pins, on an unlocated street, in a sub-district too thin to place it.
     expect(await located(sourceId, 'c3-far')).toMatchObject({
       officialDistrictRef: null,
       officialDistrictBasis: null,
@@ -371,15 +409,16 @@ describe('refreshListingLocations (Phase 14C)', () => {
       buildingKey: 's507-30',
       pinTrusted: null,
     });
+    // Another house on the street: its metro is the street's, which b2-pin locates.
     expect(await located(sourceId, 'b1-house')).toMatchObject({
       officialDistrictRef: SABURTALO,
       officialDistrictBasis: 'street',
       locationPrecision: 'house',
       metroBasis: 'street',
       metroStation: 'medical_uni',
-      metroMinutes: 10,
+      metroMinutes: 5,
       metroNearby: ['medical_uni', 'tech_uni'],
-      metroDistanceM: 400,
+      metroDistanceM: 50,
       buildingKey: 's507-12',
     });
     expect((await located(sourceId, 'e4-complex'))?.buildingKey).toBe('c77');
@@ -428,8 +467,9 @@ describe('refreshListingLocations (Phase 14C)', () => {
 
   it('places a sub-district’s other listings when its trusted pins lie almost all in one official district', async () => {
     const sourceId = await newSource();
+    // Ten positions, the fewest that place a sub-district, all in Vake.
     const vakeArea = { ...NO_STREET, subdistrictRef: 36, subdistrictName: 'ზემო ვაკე' };
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 10; i++) {
       await listing(sourceId, `v${i}`, { ...vakeArea, ...pin(41.708 + i * 0.0001, 44.762) });
     }
     await listing(sourceId, 'v-unpinned', vakeArea);
@@ -440,7 +480,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
     await listing(sourceId, 's-unpinned', { ...VAZHA, ...NO_STREET });
 
     const result = await refresh(sourceId);
-    expect(result).toMatchObject({ pins: 23, trusted: 23, flagged: 0, areas: 1 });
+    expect(result).toMatchObject({ pins: 13, trusted: 13, flagged: 0, areas: 1 });
     expect(await located(sourceId, 'v-unpinned')).toMatchObject({
       officialDistrictRef: VAKE,
       officialDistrictBasis: 'area',

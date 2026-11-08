@@ -116,15 +116,17 @@ export async function refreshListingLocations(
     lat: string;
     lng: string;
     district: number | null;
+    basis: 'pins' | 'ss.ge';
   }>(sql`
-    select ref, located_latitude as lat, located_longitude as lng, official_district_ref as district
+    select ref, located_latitude as lat, located_longitude as lng, official_district_ref as district,
+           located_basis as basis
       from ${realEstatePlaces}
      where source_id = ${sourceId} and level = 'street' and located_basis is not null
   `);
   const streets = new Map(
     streetRows.rows.map((row) => [
       row.ref,
-      { lat: Number(row.lat), lng: Number(row.lng), district: row.district },
+      { lat: Number(row.lat), lng: Number(row.lng), district: row.district, basis: row.basis },
     ]),
   );
 
@@ -178,7 +180,9 @@ export async function refreshListingLocations(
     } else {
       district = officialDistrictAt(map, pin.lat, pin.lng)?.district.ref ?? null;
       const area = pin.subdistrict_ref === null ? undefined : areaMedians.get(pin.subdistrict_ref);
-      if (streetM !== null) {
+      // Only a street its own pins locate judges a pin: ss.ge's point is off
+      // its street more often than a poster's pin is (location-rules.ts).
+      if (street?.basis === 'pins' && streetM !== null) {
         trusted =
           streetM <= TRUSTED_PIN_STREET_METERS ||
           neighbours(streetPositions.get(pin.street_ref as number), pin) >= STREET_NEIGHBOUR_PINS;

@@ -2,23 +2,41 @@ import { type SQL, sql } from 'drizzle-orm';
 
 /**
  * The rules that judge where a listing is (Phase 14C, docs/PHASE_14_PLAN.md,
- * 14C). Starting values from the first night of 14A's data (2026-11-08); the
- * thresholds are calibrated on two nights and recorded here with their
- * evidence. A change raises `LOCATION_RULES_VERSION`, and the next refresh
- * judges every listing again: the raw evidence (pins, ss.ge's claims) is kept,
- * and nothing derived is hashed, so it costs no churn.
+ * 14C). Calibrated on the first night of 14A's data (2026-11-08) against
+ * ground truth: OpenStreetMap's own line for each Tbilisi street of the same
+ * name (1,225 of 1,430 streets matched), fetched once and never shipped. Of
+ * 2,868 poster-placed Tbilisi pins, 87% lie within 100 m of their street's
+ * line and 5% more than 300 m from it, while ss.ge's own point for a street
+ * is more than 500 m off its line for 29% of streets (38% of those with no
+ * pin). So a street's own pins locate it before ss.ge's point does, and a pin
+ * is never judged against ss.ge's point. A change raises
+ * `LOCATION_RULES_VERSION`, and the next refresh judges every listing again:
+ * the raw evidence (pins, ss.ge's claims) is kept, and nothing derived is
+ * hashed, so it costs no churn.
  */
 export const LOCATION_RULES_VERSION = 1;
 
 /**
- * A street is located by its own listings' pins when they sit at this many
- * distinct positions: half of a street's poster-placed pins sit within 84 m
- * of their median (2,764 pins on 276 streets, 2026-11-08). Positions, not
- * pins, and each position counts once in every median here: one flat
- * reposted three times is one place, and on the first trial many "located"
- * streets were exactly that.
+ * A street is located by its own listings' pins from this many distinct
+ * positions. Positions, not pins, and each position counts once in every
+ * median here: one flat reposted three times is one place. Even one position
+ * beats ss.ge's point: where the two were more than 500 m apart, the pin lay
+ * on the street 60 times and ss.ge's point 4 times (2026-11-08); a street's
+ * single position was on its line for 89% of streets, its 6 or more
+ * positions' median for 94%.
  */
-export const STREET_LOCATION_MIN_PINS = 3;
+export const STREET_LOCATION_MIN_PINS = 1;
+
+/**
+ * The median must sit where the street's pins agree: at least this many of
+ * its positions (all of them, when it has fewer) within
+ * `TRUSTED_PIN_STREET_METERS` of it. Scattered positions have a median near
+ * none of them: one street's 8 positions spread over 12 km gave a point 4 km
+ * from the nearest (13 of 191 pin-located streets, 1,088 listings, on
+ * 2026-11-08). Such a street falls back to ss.ge's point, unless its
+ * positions all contradict that too.
+ */
+export const STREET_LOCATION_SUPPORT = 2;
 
 /** The map's default point, where a pin lands when the poster never moves it. */
 export const PLACEHOLDER_PIN = { latitude: 41.6938, longitude: 44.8015 } as const;
@@ -39,34 +57,44 @@ export const CITY_RADIUS_METERS = 30_000;
 export const METERS_PER_DEGREE = 111_195;
 
 /**
- * A candidate pin is trusted within this of its street's location: between
- * the 75th (549 m) and 90th (1,325 m) percentile of a street's own pins
- * around their median (2026-11-08).
+ * A candidate pin is trusted within this of its street's location (when the
+ * street is located by pins): between the 75th (549 m) and 90th (1,325 m)
+ * percentile of a street's own pins around their median (2026-11-08). 1 km
+ * instead trusted 12 more pins off their street to stop 32 false alarms.
  */
 export const TRUSTED_PIN_STREET_METERS = 600;
 
 /**
  * A street is a line, not a point: a pin further than that from its street's
  * middle is still trusted when at least this many other distinct positions on
- * the same street lie within the same distance of it. On the trial of
- * 2026-11-08, 391 of 680 such pins had them (median 969 m from the middle,
- * along Chavchavadze, Vazha-Pshavela and Kazbegi Avenues); the 289 without
- * sat a median 1.75 km off.
+ * the same street lie within the same distance of it. Against OSM's lines
+ * (2026-11-08), a pin with no other position of its street within 600 m was
+ * off its street 13% of the time, with one or more 2-5%; one neighbour
+ * instead of two trusted 7 more wrong pins and stopped 77 false alarms.
  */
-export const STREET_NEIGHBOUR_PINS = 2;
+export const STREET_NEIGHBOUR_PINS = 1;
 
-/** On a street with no location, a candidate pin is trusted within this of its sub-district's pin median. */
-export const TRUSTED_PIN_AREA_METERS = 3_000;
+/**
+ * A pin whose street is not located by pins (only ss.ge's point, or nothing)
+ * is trusted within this of its sub-district's pin median. Pins on their
+ * street sat a median 954 m from it (90% within 2.8 km), pins off it 1.2 km
+ * (90% within 5.2 km): only the gross errors are caught here. 5 km instead
+ * of 3 trusted 2 more wrong pins and stopped 22 false alarms (2026-11-08).
+ */
+export const TRUSTED_PIN_AREA_METERS = 5_000;
 
 /** A sub-district's pin median needs this many candidate pins. */
 export const AREA_MEDIAN_MIN_PINS = 3;
 
 /**
  * A sub-district gives its listings an official district (basis `area`) when
- * at least this many of its trusted pins lie in official districts, and this
- * share of them in one.
+ * at least this many of its distinct trusted positions lie in official
+ * districts, and this share of them in one (below 20 positions, all of them).
+ * Against the district of each listing's street on OSM (2026-11-08): 10
+ * positions placed 9 sub-districts and 6.5% of the checkable listings wrong,
+ * 20 placed 3 and 9.2% wrong.
  */
-export const AREA_MIN_TRUSTED_PINS = 20;
+export const AREA_MIN_TRUSTED_PINS = 10;
 export const AREA_MIN_SHARE = 0.95;
 
 /**
