@@ -26,7 +26,10 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 - **14B's after-deploy checks** wait on the first nightly run on 14B (starting 2026-11-08 21:30), whose journal should say `ss.ge place catalogue refreshed`.
 - **14C's code** waits on nothing. It is built on a branch stacked on 14B's.
 - **14C's thresholds** were calibrated on the first night's data against OpenStreetMap's street lines (2026-11-08). The second night's run (ending about 2026-11-09 13:40) confirms them before the merge.
-- **14C's deploy** waits on 14B being live, the thresholds being set, and 13A's first-deletion check (the run starting 2026-11-09 21:30), so two first runs never share a night. That makes it 2026-11-10, after that run ends. It also carries the `/real-estate` page fix (PR #84, merged to `main`, outside this plan).
+- **14C's deploy** waits on 14B being live, the thresholds being set, and 13A's first-deletion check (the run starting 2026-11-09 21:30), so two first runs never share a night. That makes it 2026-11-10, after that run ends. It also carries changes merged to `main` outside this plan:
+  - the `/real-estate` page fix (PR #84);
+  - zstd backups under a 7 GB cap, and a `robots.txt` that turns AI-training and SEO crawlers away (PR #86). After the deploy, check the live `robots.txt`; the first zstd backup runs 2026-11-11 at 09:00 UTC.
+  - `www.jobster.fun`'s redirect (PR #85) is already live: the Caddyfile was installed by hand.
 - **14C's threshold recheck** waits on a week of 14A data, about 2026-11-14. A changed threshold re-judges every listing overnight with no churn, because the raw evidence is kept and nothing derived is hashed.
 - **14D's build** waits on 14C's columns, which its filters read, and on Hermes's answer about what C6 lacks for 14D.
 - **14D's merge** waits on Hermes reviewing C1 v2's exact shape, as it reviewed C6.
