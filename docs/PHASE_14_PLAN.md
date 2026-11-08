@@ -99,7 +99,7 @@ Kept because 14C calibrates against it.
 | Building / complex | page | `complex_ref/name`, `developer_ref/name`, `cadastral_code`; derived `building_key` | complex and developer yes; cadastral **no** | ✅ kept (14A); ❌ `building_key` (14C) |
 | Pin | page | Keep, with `pin_manual` and the pin's official district. | **no**, never archived | ✅ pin and `pin_manual` (14A); ↪ the pin's official district moved from 14B to 14C |
 | **Street point** | page, one per street id | On the street's catalogue row (0/0 → "none"). | yes: ss.ge's point for a street, not a home | ✅ read (14A); its official district (14B) |
-| **Metro** | results row and page, worked out from ss.ge's pin | Raw claims private (`ss_metro`); public, checked `metro_station`, `metro_minutes`, `metro_distance_m`, `metro_basis`, `metro_nearby`. | checked only | ✅ raw claims (14A); ❌ checked (14C) |
+| **Metro** | results row and page, worked out from ss.ge's pin | Raw claims private (`ss_metro`); public, checked `metro_station`, `metro_minutes`, `metro_basis`, `metro_nearby` (codes only); `metro_distance_m` private. | checked only, without the distance | ✅ raw claims (14A); ❌ checked (14C) |
 | Repost group | results row | as is | as is | ✅ |
 | Apartment no., map POIs, house.ge link, mortgage rates | — | ignore | — | — |
 
@@ -180,8 +180,8 @@ Gates and evidence: STATUS, Phase 14B.
 
 Changed: the plan placed listings by ss.ge's street point, with the pin checked against it. The first night shows that point is missing for some of the busiest streets and wrong for about a quarter of the checkable ones, while a street's own poster-placed pins agree closely. So 14C locates each street first, then judges each pin against that.
 
-- ❌ **A street's location**, in the catalogue refresh (`src/realestate/places/catalogue.ts`):
-  - the median of its active listings' candidate pins when there are 3 or more (basis `pins`); a candidate is poster-placed, inside Tbilisi's box, not the placeholder and not broken (latitude = longitude, or outside Georgia);
+- ⏳ **A street's location**, in the catalogue refresh (`src/realestate/places/catalogue.ts`), built on the branch, tests next:
+  - the median of its active listings' candidate pins when there are 3 or more (basis `pins`); a candidate is poster-placed, not the placeholder, not one exact pin shared by 3 or more streets, and within 30 km of its city's pin median (`src/realestate/location-rules.ts`). Changed: not "inside Tbilisi's box" or "latitude = longitude", which would wrongly reject Batumi (near 41.64, 41.63); the distance to the city's own median catches the swapped pins in every city;
   - otherwise ss.ge's point when the pins don't contradict it (basis `ss.ge`);
   - otherwise none.
   - It is kept privately on `places` (`located_latitude`, `located_longitude`, `located_basis`, `located_pins`), not in `public_places`, because a median of three pins can sit on one building.
@@ -191,7 +191,8 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
   - ❌ **official district and its basis:** trusted pin (`pin`) → its street's location (`street`) → a sub-district with at least 20 trusted pins, 95% of them in one district (`area`) → none. The pin's own district stays private;
   - ❌ **`location_precision`:** none < municipality < city < district < subdistrict < street < house < pin. `house` is a located street plus a house number;
   - ❌ **`location_uncertain` (public) and `location_flags`:** `pin_placeholder`, `pin_broken`, `pin_far_from_street`, `pin_far_from_area`, `metro_from_untrusted_pin`, `district_mismatch`, `house_number_junk`, `district_inferred`, `municipality_inferred`. When uncertain, precision comes from the street only, and the pin and ss.ge's metro claims are ignored;
-  - ❌ **metro, ours, from the best location:** trusted pin → building point (median trusted pin of one `building_key`) → street location. It gives the nearest station, `metro_distance_m` in a straight line (rounded to 50 m), `metro_minutes` on ss.ge's 5/10/15/20 scale with edges calibrated from ss.ge's own claims on trusted pins, `metro_basis` and `metro_nearby`. ss.ge's raw claims stay private and are used only for that calibration;
+  - ❌ **metro, ours, from the best location:** trusted pin → building point (median trusted pin of one `building_key`) → street location. It gives the nearest station, `metro_minutes` on ss.ge's 5/10/15/20 scale with edges calibrated from ss.ge's own claims on trusted pins, `metro_basis`, and `metro_nearby` as station codes. ss.ge's raw claims stay private and are used only for that calibration.
+    - Changed (privacy review, 2026-11-08): `metro_distance_m` (straight line, rounded to 50 m) is private, not public or archived, and `metro_nearby` holds codes without distances. Exact distances to two or three stations would give back the pin, which is private. The public metro is now as coarse as what ss.ge itself shows on a listing. A test holds `public_listings` to no distance column and no JSON column;
   - ❌ **`building_key`:** `c<complex_ref>`, or `s<street_ref>-<number><suffix>`, for 13E;
   - ❌ **the municipality** copied to a settlement's unread listings;
   - ❌ **`pin_street_m`**, private.
@@ -202,7 +203,7 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
   - the metro edges.
   - The chosen numbers go in STATUS and the constants' comments, with their evidence.
 - ❌ **`LOCATION_RULES_VERSION`**, exported for Hermes.
-- ❌ **Migration** (the next free number):
+- ✅ **Migration `0051`**, on the branch, applied only to throwaway databases (regenerated after the privacy review):
   - listings' derived columns;
   - `places`' private street location;
   - `public_listings` and the archive with the public derived columns appended, `recently_gone` re-issued;

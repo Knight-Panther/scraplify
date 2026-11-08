@@ -14,15 +14,15 @@ ALTER TABLE "realestate"."listings" ADD COLUMN "location_precision" text;--> sta
 ALTER TABLE "realestate"."listings" ADD COLUMN "location_uncertain" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "location_flags" text[] DEFAULT '{}'::text[] NOT NULL;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "metro_station" text;--> statement-breakpoint
-ALTER TABLE "realestate"."listings" ADD COLUMN "metro_distance_m" integer;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "metro_minutes" smallint;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "metro_basis" text;--> statement-breakpoint
-ALTER TABLE "realestate"."listings" ADD COLUMN "metro_nearby" jsonb;--> statement-breakpoint
+ALTER TABLE "realestate"."listings" ADD COLUMN "metro_nearby" text[];--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "building_key" text;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "location_rules" smallint;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "pin_trusted" boolean;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "pin_street_m" integer;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD COLUMN "pin_official_district_ref" integer;--> statement-breakpoint
+ALTER TABLE "realestate"."listings" ADD COLUMN "metro_distance_m" integer;--> statement-breakpoint
 ALTER TABLE "realestate"."places" ADD COLUMN "located_latitude" numeric(9, 6);--> statement-breakpoint
 ALTER TABLE "realestate"."places" ADD COLUMN "located_longitude" numeric(9, 6);--> statement-breakpoint
 ALTER TABLE "realestate"."places" ADD COLUMN "located_basis" text;--> statement-breakpoint
@@ -34,10 +34,9 @@ ALTER TABLE "realestate_archive"."listings" ADD COLUMN "location_precision" text
 ALTER TABLE "realestate_archive"."listings" ADD COLUMN "location_uncertain" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "realestate_archive"."listings" ADD COLUMN "location_flags" text[] DEFAULT '{}'::text[] NOT NULL;--> statement-breakpoint
 ALTER TABLE "realestate_archive"."listings" ADD COLUMN "metro_station" text;--> statement-breakpoint
-ALTER TABLE "realestate_archive"."listings" ADD COLUMN "metro_distance_m" integer;--> statement-breakpoint
 ALTER TABLE "realestate_archive"."listings" ADD COLUMN "metro_minutes" smallint;--> statement-breakpoint
 ALTER TABLE "realestate_archive"."listings" ADD COLUMN "metro_basis" text;--> statement-breakpoint
-ALTER TABLE "realestate_archive"."listings" ADD COLUMN "metro_nearby" jsonb;--> statement-breakpoint
+ALTER TABLE "realestate_archive"."listings" ADD COLUMN "metro_nearby" text[];--> statement-breakpoint
 ALTER TABLE "realestate_archive"."listings" ADD COLUMN "building_key" text;--> statement-breakpoint
 ALTER TABLE "realestate_archive"."listings" ADD COLUMN "location_rules" smallint;--> statement-breakpoint
 ALTER TABLE "realestate"."listings" ADD CONSTRAINT "listings_official_district_basis_check" CHECK ("realestate"."listings"."official_district_basis" in ('pin', 'street', 'area')) NOT VALID;--> statement-breakpoint
@@ -115,7 +114,6 @@ CREATE OR REPLACE VIEW "realestate"."public_listings" AS (
       "realestate"."listings"."location_uncertain" as location_uncertain,
       "realestate"."listings"."location_flags" as location_flags,
       "realestate"."listings"."metro_station" as metro_station,
-      "realestate"."listings"."metro_distance_m" as metro_distance_m,
       "realestate"."listings"."metro_minutes" as metro_minutes,
       "realestate"."listings"."metro_basis" as metro_basis,
       "realestate"."listings"."metro_nearby" as metro_nearby,
@@ -159,4 +157,4 @@ CREATE OR REPLACE VIEW "realestate_archive"."recently_gone" AS (select "id" as "
   or ("deal_type" = 'pledge' and "price_usd" < 1000)
   or ("deal_type" = 'rent' and ("price_usd" > 50000 or "price_usd" < 50 or "price_usd" >= 200 * "area_m2"))
   or ("deal_type" = 'daily' and ("price_usd" > 5000 or "price_usd" < 5)),
-  false) as "implausible", null::timestamptz as "archived_at", "street_ref" as "street_ref", "house_number" as "house_number", "house_suffix" as "house_suffix", "floor_low" as "floor_low", "floor_high" as "floor_high", "district_inferred" as "district_inferred", "complex_ref" as "complex_ref", "complex_name" as "complex_name", "developer_ref" as "developer_ref", "developer_name" as "developer_name", "official_district_ref" as "official_district_ref", "official_district_basis" as "official_district_basis", "location_precision" as "location_precision", "location_uncertain" as "location_uncertain", "location_flags" as "location_flags", "metro_station" as "metro_station", "metro_distance_m" as "metro_distance_m", "metro_minutes" as "metro_minutes", "metro_basis" as "metro_basis", "metro_nearby" as "metro_nearby", "building_key" as "building_key", "location_rules" as "location_rules" from "realestate"."listings" where "realestate"."listings"."status" = 'gone');
+  false) as "implausible", null::timestamptz as "archived_at", "street_ref" as "street_ref", "house_number" as "house_number", "house_suffix" as "house_suffix", "floor_low" as "floor_low", "floor_high" as "floor_high", "district_inferred" as "district_inferred", "complex_ref" as "complex_ref", "complex_name" as "complex_name", "developer_ref" as "developer_ref", "developer_name" as "developer_name", "official_district_ref" as "official_district_ref", "official_district_basis" as "official_district_basis", "location_precision" as "location_precision", "location_uncertain" as "location_uncertain", "location_flags" as "location_flags", "metro_station" as "metro_station", "metro_minutes" as "metro_minutes", "metro_basis" as "metro_basis", "metro_nearby" as "metro_nearby", "building_key" as "building_key", "location_rules" as "location_rules" from "realestate"."listings" where "realestate"."listings"."status" = 'gone');

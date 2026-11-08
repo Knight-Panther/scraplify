@@ -1,5 +1,5 @@
 {
-  "id": "566ca0f8-86d4-4caf-a8ed-6a39769a46e8",
+  "id": "aaa82e03-b973-4bec-8093-ca8d0e510881",
   "prevId": "2c620dcc-c5b3-4704-8770-3639879b85c5",
   "version": "7",
   "dialect": "postgresql",
@@ -2646,12 +2646,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "metro_distance_m": {
-          "name": "metro_distance_m",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "metro_minutes": {
           "name": "metro_minutes",
           "type": "smallint",
@@ -2666,7 +2660,7 @@
         },
         "metro_nearby": {
           "name": "metro_nearby",
-          "type": "jsonb",
+          "type": "text[]",
           "primaryKey": false,
           "notNull": false
         },
@@ -2696,6 +2690,12 @@
         },
         "pin_official_district_ref": {
           "name": "pin_official_district_ref",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metro_distance_m": {
+          "name": "metro_distance_m",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -3763,12 +3763,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "metro_distance_m": {
-          "name": "metro_distance_m",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "metro_minutes": {
           "name": "metro_minutes",
           "type": "smallint",
@@ -3783,7 +3777,7 @@
         },
         "metro_nearby": {
           "name": "metro_nearby",
-          "type": "jsonb",
+          "type": "text[]",
           "primaryKey": false,
           "notNull": false
         },
@@ -6718,12 +6712,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "metro_distance_m": {
-          "name": "metro_distance_m",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "metro_minutes": {
           "name": "metro_minutes",
           "type": "smallint",
@@ -6738,7 +6726,7 @@
         },
         "metro_nearby": {
           "name": "metro_nearby",
-          "type": "jsonb",
+          "type": "text[]",
           "primaryKey": false,
           "notNull": false
         },
@@ -6755,7 +6743,7 @@
           "notNull": false
         }
       },
-      "definition": "\n    select\n      \"realestate\".\"listings\".\"id\" as id,\n      \"realestate\".\"listings\".\"source_id\" as source_id,\n      \"realestate\".\"listings\".\"canonical_url\" as canonical_url,\n      \"realestate\".\"listings\".\"deal_type\" as deal_type,\n      \"realestate\".\"listings\".\"property_type\" as property_type,\n      \"realestate\".\"listings\".\"rooms\" as rooms,\n      \"realestate\".\"listings\".\"bedrooms\" as bedrooms,\n      \"realestate\".\"listings\".\"area_m2\" as area_m2,\n      \"realestate\".\"listings\".\"floor\" as floor,\n      \"realestate\".\"listings\".\"total_floors\" as total_floors,\n      \"realestate\".\"listings\".\"price_gel\" as price_gel,\n      \"realestate\".\"listings\".\"price_usd\" as price_usd,\n      \"realestate\".\"listings\".\"price_per_m2_usd\" as price_per_m2_usd,\n      \"realestate\".\"listings\".\"currency_posted\" as currency_posted,\n      \"realestate\".\"listings\".\"city_ref\" as city_ref,\n      \"realestate\".\"listings\".\"city_name\" as city_name,\n      \"realestate\".\"listings\".\"district_ref\" as district_ref,\n      \"realestate\".\"listings\".\"district_name\" as district_name,\n      \"realestate\".\"listings\".\"subdistrict_ref\" as subdistrict_ref,\n      \"realestate\".\"listings\".\"subdistrict_name\" as subdistrict_name,\n      \"realestate\".\"listings\".\"street_name\" as street_name,\n      \"realestate\".\"listings\".\"street_number\" as street_number,\n      \"realestate\".\"listings\".\"poster_type\" as poster_type,\n      \"realestate\".\"listings\".\"promoted\" as promoted,\n      \"realestate\".\"listings\".\"source_updated_at\" as source_updated_at,\n      \"realestate\".\"listings\".\"expected_end_at\" as expected_end_at,\n      \"realestate\".\"listings\".\"first_seen_at\" as first_seen_at,\n      \"realestate\".\"listings\".\"last_seen_at\" as last_seen_at,\n      \"realestate\".\"listings\".\"search\" as search,\n      \"realestate\".\"listings\".\"group_key\" as group_key,\n      \"realestate\".\"listings\".\"commercial_type\" as commercial_type,\n      \"realestate\".\"listings\".\"land_type\" as land_type,\n      \"realestate\".\"listings\".\"image_count\" as image_count,\n      \"realestate\".\"listings\".\"has_furniture\" as has_furniture,\n      \"realestate\".\"listings\".\"has_built_in_kitchen\" as has_built_in_kitchen,\n      \"realestate\".\"listings\".\"exclusive\" as exclusive,\n      \"realestate\".\"listings\".\"video_viewing\" as video_viewing,\n      \"realestate\".\"listings\".\"price_per_m2_gel\" as price_per_m2_gel,\n      \"realestate\".\"listings\".\"building_status\" as building_status,\n      \"realestate\".\"listings\".\"condition\" as condition,\n      \"realestate\".\"listings\".\"project\" as project,\n      \"realestate\".\"listings\".\"floor_type\" as floor_type,\n      \"realestate\".\"listings\".\"bathrooms\" as bathrooms,\n      \"realestate\".\"listings\".\"balconies\" as balconies,\n      \"realestate\".\"listings\".\"kitchen_area\" as kitchen_area,\n      \"realestate\".\"listings\".\"house_area\" as house_area,\n      \"realestate\".\"listings\".\"yard_area\" as yard_area,\n      \"realestate\".\"listings\".\"poster_entity\" as poster_entity,\n      \"realestate\".\"listings\".\"amenities\" as amenities,\n      \"realestate\".\"listings\".\"municipality_ref\" as municipality_ref,\n      \"realestate\".\"listings\".\"municipality_name\" as municipality_name,\n      \"realestate\".\"listings\".\"details_read_at\" as details_read_at,\n      \"realestate\".\"listings\".\"street_ref\" as street_ref,\n      \"realestate\".\"listings\".\"house_number\" as house_number,\n      \"realestate\".\"listings\".\"house_suffix\" as house_suffix,\n      \"realestate\".\"listings\".\"floor_low\" as floor_low,\n      \"realestate\".\"listings\".\"floor_high\" as floor_high,\n      \"realestate\".\"listings\".\"district_inferred\" as district_inferred,\n      \"realestate\".\"listings\".\"complex_ref\" as complex_ref,\n      \"realestate\".\"listings\".\"complex_name\" as complex_name,\n      \"realestate\".\"listings\".\"developer_ref\" as developer_ref,\n      \"realestate\".\"listings\".\"developer_name\" as developer_name,\n      \"realestate\".\"listings\".\"official_district_ref\" as official_district_ref,\n      \"realestate\".\"listings\".\"official_district_basis\" as official_district_basis,\n      \"realestate\".\"listings\".\"location_precision\" as location_precision,\n      \"realestate\".\"listings\".\"location_uncertain\" as location_uncertain,\n      \"realestate\".\"listings\".\"location_flags\" as location_flags,\n      \"realestate\".\"listings\".\"metro_station\" as metro_station,\n      \"realestate\".\"listings\".\"metro_distance_m\" as metro_distance_m,\n      \"realestate\".\"listings\".\"metro_minutes\" as metro_minutes,\n      \"realestate\".\"listings\".\"metro_basis\" as metro_basis,\n      \"realestate\".\"listings\".\"metro_nearby\" as metro_nearby,\n      \"realestate\".\"listings\".\"building_key\" as building_key,\n      \"realestate\".\"listings\".\"location_rules\" as location_rules\n    from \"realestate\".\"listings\"\n    where \"realestate\".\"listings\".\"status\" = 'active'\n  ",
+      "definition": "\n    select\n      \"realestate\".\"listings\".\"id\" as id,\n      \"realestate\".\"listings\".\"source_id\" as source_id,\n      \"realestate\".\"listings\".\"canonical_url\" as canonical_url,\n      \"realestate\".\"listings\".\"deal_type\" as deal_type,\n      \"realestate\".\"listings\".\"property_type\" as property_type,\n      \"realestate\".\"listings\".\"rooms\" as rooms,\n      \"realestate\".\"listings\".\"bedrooms\" as bedrooms,\n      \"realestate\".\"listings\".\"area_m2\" as area_m2,\n      \"realestate\".\"listings\".\"floor\" as floor,\n      \"realestate\".\"listings\".\"total_floors\" as total_floors,\n      \"realestate\".\"listings\".\"price_gel\" as price_gel,\n      \"realestate\".\"listings\".\"price_usd\" as price_usd,\n      \"realestate\".\"listings\".\"price_per_m2_usd\" as price_per_m2_usd,\n      \"realestate\".\"listings\".\"currency_posted\" as currency_posted,\n      \"realestate\".\"listings\".\"city_ref\" as city_ref,\n      \"realestate\".\"listings\".\"city_name\" as city_name,\n      \"realestate\".\"listings\".\"district_ref\" as district_ref,\n      \"realestate\".\"listings\".\"district_name\" as district_name,\n      \"realestate\".\"listings\".\"subdistrict_ref\" as subdistrict_ref,\n      \"realestate\".\"listings\".\"subdistrict_name\" as subdistrict_name,\n      \"realestate\".\"listings\".\"street_name\" as street_name,\n      \"realestate\".\"listings\".\"street_number\" as street_number,\n      \"realestate\".\"listings\".\"poster_type\" as poster_type,\n      \"realestate\".\"listings\".\"promoted\" as promoted,\n      \"realestate\".\"listings\".\"source_updated_at\" as source_updated_at,\n      \"realestate\".\"listings\".\"expected_end_at\" as expected_end_at,\n      \"realestate\".\"listings\".\"first_seen_at\" as first_seen_at,\n      \"realestate\".\"listings\".\"last_seen_at\" as last_seen_at,\n      \"realestate\".\"listings\".\"search\" as search,\n      \"realestate\".\"listings\".\"group_key\" as group_key,\n      \"realestate\".\"listings\".\"commercial_type\" as commercial_type,\n      \"realestate\".\"listings\".\"land_type\" as land_type,\n      \"realestate\".\"listings\".\"image_count\" as image_count,\n      \"realestate\".\"listings\".\"has_furniture\" as has_furniture,\n      \"realestate\".\"listings\".\"has_built_in_kitchen\" as has_built_in_kitchen,\n      \"realestate\".\"listings\".\"exclusive\" as exclusive,\n      \"realestate\".\"listings\".\"video_viewing\" as video_viewing,\n      \"realestate\".\"listings\".\"price_per_m2_gel\" as price_per_m2_gel,\n      \"realestate\".\"listings\".\"building_status\" as building_status,\n      \"realestate\".\"listings\".\"condition\" as condition,\n      \"realestate\".\"listings\".\"project\" as project,\n      \"realestate\".\"listings\".\"floor_type\" as floor_type,\n      \"realestate\".\"listings\".\"bathrooms\" as bathrooms,\n      \"realestate\".\"listings\".\"balconies\" as balconies,\n      \"realestate\".\"listings\".\"kitchen_area\" as kitchen_area,\n      \"realestate\".\"listings\".\"house_area\" as house_area,\n      \"realestate\".\"listings\".\"yard_area\" as yard_area,\n      \"realestate\".\"listings\".\"poster_entity\" as poster_entity,\n      \"realestate\".\"listings\".\"amenities\" as amenities,\n      \"realestate\".\"listings\".\"municipality_ref\" as municipality_ref,\n      \"realestate\".\"listings\".\"municipality_name\" as municipality_name,\n      \"realestate\".\"listings\".\"details_read_at\" as details_read_at,\n      \"realestate\".\"listings\".\"street_ref\" as street_ref,\n      \"realestate\".\"listings\".\"house_number\" as house_number,\n      \"realestate\".\"listings\".\"house_suffix\" as house_suffix,\n      \"realestate\".\"listings\".\"floor_low\" as floor_low,\n      \"realestate\".\"listings\".\"floor_high\" as floor_high,\n      \"realestate\".\"listings\".\"district_inferred\" as district_inferred,\n      \"realestate\".\"listings\".\"complex_ref\" as complex_ref,\n      \"realestate\".\"listings\".\"complex_name\" as complex_name,\n      \"realestate\".\"listings\".\"developer_ref\" as developer_ref,\n      \"realestate\".\"listings\".\"developer_name\" as developer_name,\n      \"realestate\".\"listings\".\"official_district_ref\" as official_district_ref,\n      \"realestate\".\"listings\".\"official_district_basis\" as official_district_basis,\n      \"realestate\".\"listings\".\"location_precision\" as location_precision,\n      \"realestate\".\"listings\".\"location_uncertain\" as location_uncertain,\n      \"realestate\".\"listings\".\"location_flags\" as location_flags,\n      \"realestate\".\"listings\".\"metro_station\" as metro_station,\n      \"realestate\".\"listings\".\"metro_minutes\" as metro_minutes,\n      \"realestate\".\"listings\".\"metro_basis\" as metro_basis,\n      \"realestate\".\"listings\".\"metro_nearby\" as metro_nearby,\n      \"realestate\".\"listings\".\"building_key\" as building_key,\n      \"realestate\".\"listings\".\"location_rules\" as location_rules\n    from \"realestate\".\"listings\"\n    where \"realestate\".\"listings\".\"status\" = 'active'\n  ",
       "name": "public_listings",
       "schema": "realestate",
       "isExisting": false,
@@ -6904,7 +6892,7 @@
     },
     "realestate_archive.recently_gone": {
       "columns": {},
-      "definition": "select \"id\" as \"listing_id\", \"source_id\" as \"source_id\", \"source_listing_key\" as \"source_listing_key\", \"deal_type\" as \"deal_type\", \"property_type\" as \"property_type\", \"commercial_type\" as \"commercial_type\", \"land_type\" as \"land_type\", \"rooms\" as \"rooms\", \"bedrooms\" as \"bedrooms\", \"area_m2\" as \"area_m2\", \"floor\" as \"floor\", \"total_floors\" as \"total_floors\", \"price_gel\" as \"price_gel\", \"price_usd\" as \"price_usd\", \"price_per_m2_usd\" as \"price_per_m2_usd\", \"price_per_m2_gel\" as \"price_per_m2_gel\", \"currency_posted\" as \"currency_posted\", \"city_ref\" as \"city_ref\", \"city_name\" as \"city_name\", \"district_ref\" as \"district_ref\", \"district_name\" as \"district_name\", \"subdistrict_ref\" as \"subdistrict_ref\", \"subdistrict_name\" as \"subdistrict_name\", \"municipality_ref\" as \"municipality_ref\", \"municipality_name\" as \"municipality_name\", \"street_name\" as \"street_name\", \"street_number\" as \"street_number\", \"poster_type\" as \"poster_type\", \"poster_entity\" as \"poster_entity\", \"image_count\" as \"image_count\", \"has_furniture\" as \"has_furniture\", \"has_built_in_kitchen\" as \"has_built_in_kitchen\", \"building_status\" as \"building_status\", \"condition\" as \"condition\", \"project\" as \"project\", \"floor_type\" as \"floor_type\", \"bathrooms\" as \"bathrooms\", \"balconies\" as \"balconies\", \"kitchen_area\" as \"kitchen_area\", \"house_area\" as \"house_area\", \"yard_area\" as \"yard_area\", \"amenities\" as \"amenities\", \"details_read_at\" as \"details_read_at\", \"similarity_group\" as \"similarity_group\", \"source_created_at\" as \"source_created_at\", \"source_updated_at\" as \"source_updated_at\", \"first_seen_at\" as \"first_seen_at\", \"last_seen_at\" as \"last_seen_at\", \"gone_at\" as \"gone_at\", \"gone_reason\" as \"gone_reason\", coalesce(\n  \"area_m2\" < 10\n  or (\"property_type\" <> 'land'\n      and \"area_m2\" > case when \"property_type\" = 'flat' then 1000 else 10000 end\n      and \"price_per_m2_usd\" < 100)\n  or (\"deal_type\" = 'sale' and \"price_usd\" < 5000)\n  or (\"deal_type\" = 'pledge' and \"price_usd\" < 1000)\n  or (\"deal_type\" = 'rent' and (\"price_usd\" > 50000 or \"price_usd\" < 50 or \"price_usd\" >= 200 * \"area_m2\"))\n  or (\"deal_type\" = 'daily' and (\"price_usd\" > 5000 or \"price_usd\" < 5)),\n  false) as \"implausible\", null::timestamptz as \"archived_at\", \"street_ref\" as \"street_ref\", \"house_number\" as \"house_number\", \"house_suffix\" as \"house_suffix\", \"floor_low\" as \"floor_low\", \"floor_high\" as \"floor_high\", \"district_inferred\" as \"district_inferred\", \"complex_ref\" as \"complex_ref\", \"complex_name\" as \"complex_name\", \"developer_ref\" as \"developer_ref\", \"developer_name\" as \"developer_name\", \"official_district_ref\" as \"official_district_ref\", \"official_district_basis\" as \"official_district_basis\", \"location_precision\" as \"location_precision\", \"location_uncertain\" as \"location_uncertain\", \"location_flags\" as \"location_flags\", \"metro_station\" as \"metro_station\", \"metro_distance_m\" as \"metro_distance_m\", \"metro_minutes\" as \"metro_minutes\", \"metro_basis\" as \"metro_basis\", \"metro_nearby\" as \"metro_nearby\", \"building_key\" as \"building_key\", \"location_rules\" as \"location_rules\" from \"realestate\".\"listings\" where \"realestate\".\"listings\".\"status\" = 'gone'",
+      "definition": "select \"id\" as \"listing_id\", \"source_id\" as \"source_id\", \"source_listing_key\" as \"source_listing_key\", \"deal_type\" as \"deal_type\", \"property_type\" as \"property_type\", \"commercial_type\" as \"commercial_type\", \"land_type\" as \"land_type\", \"rooms\" as \"rooms\", \"bedrooms\" as \"bedrooms\", \"area_m2\" as \"area_m2\", \"floor\" as \"floor\", \"total_floors\" as \"total_floors\", \"price_gel\" as \"price_gel\", \"price_usd\" as \"price_usd\", \"price_per_m2_usd\" as \"price_per_m2_usd\", \"price_per_m2_gel\" as \"price_per_m2_gel\", \"currency_posted\" as \"currency_posted\", \"city_ref\" as \"city_ref\", \"city_name\" as \"city_name\", \"district_ref\" as \"district_ref\", \"district_name\" as \"district_name\", \"subdistrict_ref\" as \"subdistrict_ref\", \"subdistrict_name\" as \"subdistrict_name\", \"municipality_ref\" as \"municipality_ref\", \"municipality_name\" as \"municipality_name\", \"street_name\" as \"street_name\", \"street_number\" as \"street_number\", \"poster_type\" as \"poster_type\", \"poster_entity\" as \"poster_entity\", \"image_count\" as \"image_count\", \"has_furniture\" as \"has_furniture\", \"has_built_in_kitchen\" as \"has_built_in_kitchen\", \"building_status\" as \"building_status\", \"condition\" as \"condition\", \"project\" as \"project\", \"floor_type\" as \"floor_type\", \"bathrooms\" as \"bathrooms\", \"balconies\" as \"balconies\", \"kitchen_area\" as \"kitchen_area\", \"house_area\" as \"house_area\", \"yard_area\" as \"yard_area\", \"amenities\" as \"amenities\", \"details_read_at\" as \"details_read_at\", \"similarity_group\" as \"similarity_group\", \"source_created_at\" as \"source_created_at\", \"source_updated_at\" as \"source_updated_at\", \"first_seen_at\" as \"first_seen_at\", \"last_seen_at\" as \"last_seen_at\", \"gone_at\" as \"gone_at\", \"gone_reason\" as \"gone_reason\", coalesce(\n  \"area_m2\" < 10\n  or (\"property_type\" <> 'land'\n      and \"area_m2\" > case when \"property_type\" = 'flat' then 1000 else 10000 end\n      and \"price_per_m2_usd\" < 100)\n  or (\"deal_type\" = 'sale' and \"price_usd\" < 5000)\n  or (\"deal_type\" = 'pledge' and \"price_usd\" < 1000)\n  or (\"deal_type\" = 'rent' and (\"price_usd\" > 50000 or \"price_usd\" < 50 or \"price_usd\" >= 200 * \"area_m2\"))\n  or (\"deal_type\" = 'daily' and (\"price_usd\" > 5000 or \"price_usd\" < 5)),\n  false) as \"implausible\", null::timestamptz as \"archived_at\", \"street_ref\" as \"street_ref\", \"house_number\" as \"house_number\", \"house_suffix\" as \"house_suffix\", \"floor_low\" as \"floor_low\", \"floor_high\" as \"floor_high\", \"district_inferred\" as \"district_inferred\", \"complex_ref\" as \"complex_ref\", \"complex_name\" as \"complex_name\", \"developer_ref\" as \"developer_ref\", \"developer_name\" as \"developer_name\", \"official_district_ref\" as \"official_district_ref\", \"official_district_basis\" as \"official_district_basis\", \"location_precision\" as \"location_precision\", \"location_uncertain\" as \"location_uncertain\", \"location_flags\" as \"location_flags\", \"metro_station\" as \"metro_station\", \"metro_minutes\" as \"metro_minutes\", \"metro_basis\" as \"metro_basis\", \"metro_nearby\" as \"metro_nearby\", \"building_key\" as \"building_key\", \"location_rules\" as \"location_rules\" from \"realestate\".\"listings\" where \"realestate\".\"listings\".\"status\" = 'gone'",
       "name": "recently_gone",
       "schema": "realestate_archive",
       "isExisting": false,

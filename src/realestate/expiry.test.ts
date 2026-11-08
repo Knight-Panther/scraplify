@@ -733,6 +733,11 @@ describe('listing expiry', () => {
         'ss_metro',
         'pin_manual',
         'cadastral_code',
+        // Phase 14C: what the pin says, judged, and its distance to the metro.
+        'pin_trusted',
+        'pin_street_m',
+        'pin_official_district_ref',
+        'metro_distance_m',
       ];
       const columns = Object.values(getTableColumns(realEstateArchiveListings)).map((c) => c.name);
       expect(columns.filter((name) => leftOut.includes(name))).toEqual([]);

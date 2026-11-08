@@ -266,13 +266,17 @@ export const realEstateListings = realEstate.table(
     /** True when the pin or ss.ge's metro claim contradicts the street; the flags say which. */
     locationUncertain: boolean('location_uncertain').notNull().default(false),
     locationFlags: text('location_flags').array().notNull().default(sql`'{}'::text[]`),
-    /** Our metro, from the best location: the nearest station, its straight-line distance and ss.ge's minutes band. */
+    /**
+     * Our metro, from the best location, shown as coarsely as ss.ge shows it:
+     * the nearest station and its minutes band (5/10/15/20). Its distance is
+     * private (`metro_distance_m`): distances to two or three stations would
+     * give the pin back.
+     */
     metroStation: text('metro_station'),
-    metroDistanceM: integer('metro_distance_m'),
     metroMinutes: smallint('metro_minutes'),
     metroBasis: text('metro_basis').$type<MetroBasis>(),
-    /** Every station within the farthest minutes band, by its code, with its distance in metres. */
-    metroNearby: jsonb('metro_nearby').$type<Record<string, number>>(),
+    /** The codes of every station within the farthest minutes band, nearest first; no distances. */
+    metroNearby: text('metro_nearby').array(),
     /** `c<complex_ref>` or `s<street_ref>-<number><suffix>`: one building, for grouping (13E). */
     buildingKey: text('building_key'),
     /** `LOCATION_RULES_VERSION` the derived columns were worked out under; null until the first refresh. */
@@ -288,6 +292,8 @@ export const realEstateListings = realEstate.table(
     pinTrusted: boolean('pin_trusted'),
     pinStreetM: integer('pin_street_m'),
     pinOfficialDistrictRef: integer('pin_official_district_ref'),
+    /** Straight-line metres from the best location to `metro_station`, rounded to 50; private (see `metro_station`). */
+    metroDistanceM: integer('metro_distance_m'),
   },
   (table) => [
     uniqueIndex('listings_source_key_idx').on(table.sourceId, table.sourceListingKey),
@@ -587,17 +593,16 @@ export const realEstatePublicListings = realEstate
     developerRef: integer('developer_ref'),
     developerName: text('developer_name'),
     // Phase 14C: appended, so `create or replace` keeps the grant (migration 0051).
-    // Not the pin's trust, its distance to the street or its official district, which are private.
+    // Not the pin's trust, its distance to the street or to the metro, or its official district, which are private.
     officialDistrictRef: integer('official_district_ref'),
     officialDistrictBasis: text('official_district_basis').$type<OfficialDistrictBasis>(),
     locationPrecision: text('location_precision').$type<LocationPrecision>(),
     locationUncertain: boolean('location_uncertain').notNull(),
     locationFlags: text('location_flags').array().notNull(),
     metroStation: text('metro_station'),
-    metroDistanceM: integer('metro_distance_m'),
     metroMinutes: smallint('metro_minutes'),
     metroBasis: text('metro_basis').$type<MetroBasis>(),
-    metroNearby: jsonb('metro_nearby').$type<Record<string, number>>(),
+    metroNearby: text('metro_nearby').array(),
     buildingKey: text('building_key'),
     locationRules: smallint('location_rules'),
   })
@@ -671,7 +676,6 @@ export const realEstatePublicListings = realEstate
       ${realEstateListings.locationUncertain} as location_uncertain,
       ${realEstateListings.locationFlags} as location_flags,
       ${realEstateListings.metroStation} as metro_station,
-      ${realEstateListings.metroDistanceM} as metro_distance_m,
       ${realEstateListings.metroMinutes} as metro_minutes,
       ${realEstateListings.metroBasis} as metro_basis,
       ${realEstateListings.metroNearby} as metro_nearby,
