@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { realEstatePlaces } from '../../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../../db/types.js';
-import { nameKey, romanizedName } from '../place-lookup.js';
+import { nameKey, nameKeys, romanizedName } from '../place-lookup.js';
 import { candidatePinsSql, metersApart, STREET_LOCATION_MIN_PINS } from '../location-rules.js';
 import type { CuratedPlaces } from './curated.js';
 import { type OfficialMap, officialDistrictAt } from './official.js';
@@ -428,9 +428,10 @@ const DISTRICT_WORDS = new Set([nameKey('district'), nameKey('რაიონი
 export function matchKeys(level: string, names: readonly string[]): string[] {
   const keys = new Set<string>();
   for (const name of names) {
-    const key = nameKey(name);
-    if (key === '') continue;
+    const [key, ...variants] = nameKeys(name);
+    if (key === undefined) continue;
     keys.add(key);
+    for (const variant of variants) keys.add(variant);
     if (level !== 'official_district') continue;
     const words = key.split(' ');
     const last = words.at(-1);

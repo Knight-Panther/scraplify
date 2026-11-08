@@ -7,7 +7,13 @@ import {
   realEstatePlaces,
 } from '../../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../../db/test-support.js';
-import { placeLookupSql, placeTextLookupSql, resolvePlaceText } from '../place-lookup.js';
+import {
+  nameKeys,
+  PLACE_LOOKUP_VERSION,
+  placeLookupSql,
+  placeTextLookupSql,
+  resolvePlaceText,
+} from '../place-lookup.js';
 import { recordStreetPoint, syncPlaces } from '../places.js';
 import { matchKeys, refreshPlaceCatalogue } from './catalogue.js';
 import { type CuratedPlaces, loadCuratedPlaces } from './curated.js';
@@ -585,6 +591,41 @@ describe('the place catalogue (Phase 14B)', () => {
         'metro_station',
         'street',
       ]);
+    });
+
+    it('says which city every place is in, and reads "Vaja" as ვაჟა (Hermes’s 14D points a and e)', async () => {
+      const sourceId = await newSource();
+      await city(sourceId);
+      await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+      const cities = async (words: string) => {
+        const built = placeLookupSql(words, { limit: 500 });
+        if (built === null) return [];
+        const result = await pool.query(built.sql, built.params);
+        return result.rows
+          .filter((r) => r.source_id === sourceId && r.match === 'exact')
+          .map((r) => [r.level, r.ref, r.city_ref, r.city_name_ka, r.city_name_en]);
+      };
+      // A Batumi street says Batumi; Tbilisi's say Tbilisi, from a street, a
+      // station two levels down, an official district and the city itself.
+      expect(await cities('Gorgiladze')).toEqual([['street', 601, 96, 'ბათუმი', 'Batumi']]);
+      expect((await cities('Chavchavadze')).map((row) => row.slice(2))).toEqual([
+        [95, 'თბილისი', 'Tbilisi'],
+        [95, 'თბილისი', 'Tbilisi'],
+      ]);
+      expect((await cities('Medical University'))[0]?.slice(2)).toEqual([95, 'თბილისი', 'Tbilisi']);
+      expect((await cities('Vake district'))[0]?.slice(2)).toEqual([95, 'თბილისი', 'Tbilisi']);
+      expect(await cities('Tbilisi')).toContainEqual(['city', 95, 95, 'თბილისი', 'Tbilisi']);
+      // "Vaja" for ვაჟა finds what "Vazha" does; ჯ is not folded into ჟ for anyone else.
+      const vaja = (await lookup(sourceId, 'Vaja Pshavela')).filter((m) => m.match === 'exact');
+      expect(vaja.map((m) => [m.level, m.ref])).toEqual(
+        (await lookup(sourceId, 'Vazha-Pshavela'))
+          .filter((m) => m.match === 'exact')
+          .map((m) => [m.level, m.ref]),
+      );
+      expect(vaja.map((m) => m.level)).toEqual(['metro_station', 'street']);
+      expect(nameKeys('ვაჟა-ფშაველას გამზ.')).toEqual(['vaz psavel', 'vaj psavel']);
+      expect(nameKeys('ჯავახიშვილის ქ.')).toEqual(['javakisvil']);
+      expect(PLACE_LOOKUP_VERSION).toBe(2);
     });
 
     it('hands on psycopg placeholders with every literal % doubled, and refuses kind words alone', () => {

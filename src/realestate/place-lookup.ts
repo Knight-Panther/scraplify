@@ -25,11 +25,18 @@ import { type BuiltSql, type Placeholders, toPsycopg } from './filter-builder.js
  *    "district" and რაიონი, which pick the official map (C6's two maps).
  *
  * What it cannot fold, aliases do: a stem Georgian shortens inside the word
- * (დიღომი, დიღმის), and English names ("Turtle Lake" for კუს ტბა).
+ * (დიღომი, დიღმის), and English names ("Turtle Lake" for კუს ტბა). A place
+ * whose name has ჟ also gets the key with ჟ written "j" (`nameKeys`): English
+ * writes ვაჟა as "Vaja" as often as "Vazha". Folding every j into z instead
+ * would merge ჯ with ჟ for everyone.
  */
 
-/** Bump when a rule here changes: stored keys are rebuilt from it, and Hermes reads it. */
-export const PLACE_LOOKUP_VERSION = 1;
+/**
+ * Bump when a rule here or the lookup's output changes: stored keys are
+ * rebuilt from it, and Hermes reads it. 2 (Phase 14C): ჟ also keyed as "j",
+ * and every row carries its city.
+ */
+export const PLACE_LOOKUP_VERSION = 2;
 
 /** Hermes's `_ROMAN`: Georgian's national romanization, letter for letter. */
 const GEORGIAN_LETTERS = 'აბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰ';
@@ -225,6 +232,14 @@ export function nameKey(text: string): string {
   return placeKeys(text).join(' ');
 }
 
+/** A place's name as every key it is stored under: `nameKey`, and the same with ჟ as "j" where it has one. */
+export function nameKeys(text: string): string[] {
+  const keys = new Set([nameKey(text)]);
+  if (text.includes('ჟ')) keys.add(nameKey(text.replaceAll('ჟ', 'j')));
+  keys.delete('');
+  return [...keys];
+}
+
 /**
  * The order a lookup lists matches of one kind in, as groups. ss.ge's areas
  * come first, since a bare name means what people mean by it ("Vake": the
@@ -299,7 +314,9 @@ select m.key, m.rank, m.match, m.source_id, m.level, m.ref, m.origin, m.code,
        official.name_en as official_name_en, m.official_basis, m.official_shares,
        top.code as official_top_code, top.name_ka as official_top_name_ka,
        top.name_en as official_top_name_en, top.listings as official_top_listings,
-       m.active_listings
+       m.active_listings,
+       city.ref as city_ref, city.name_ka as city_name_ka, city.name_en as city_name_en,
+       city.name_roman as city_name_roman
   from matched m
   left join realestate.public_places parent
     on parent.source_id = m.source_id and parent.level = m.parent_level and parent.ref = m.parent_ref
@@ -314,6 +331,23 @@ select m.key, m.rank, m.match, m.source_id, m.level, m.ref, m.origin, m.code,
      order by s.listings::integer desc, o.code
      limit 1
   ) top on true
+  left join realestate.public_places up2
+    on up2.source_id = parent.source_id and up2.level = parent.parent_level and up2.ref = parent.parent_ref
+  left join realestate.public_places up3
+    on up3.source_id = up2.source_id and up3.level = up2.parent_level and up3.ref = up2.parent_ref
+  left join lateral (
+    -- The nearest city up the chain: a street, a neighbourhood or a station is
+    -- at most three levels below one. A recursive walk cost 400 ms a lookup.
+    select c.ref, c.name_ka, c.name_en, c.name_roman
+      from (values (0, m.level, m.ref, m.name_ka, m.name_en, m.name_roman),
+                   (1, parent.level, parent.ref, parent.name_ka, parent.name_en, parent.name_roman),
+                   (2, up2.level, up2.ref, up2.name_ka, up2.name_en, up2.name_roman),
+                   (3, up3.level, up3.ref, up3.name_ka, up3.name_en, up3.name_roman))
+           as c(depth, level, ref, name_ka, name_en, name_roman)
+     where c.level = 'city'
+     order by c.depth
+     limit 1
+  ) city on true
  where m.rank <= $2
  order by m.key, m.rank`;
 }
@@ -339,7 +373,9 @@ function built(
  * each. Each row carries its parent's names, for a street or
  * station its official district's, and for an ss.ge area the official
  * district holding most of its located listings, so a reply can say how the
- * other map sees it. For a text that may name several places, use
+ * other map sees it. Each row also carries the city it is in (null for a
+ * municipality), so "Rustaveli, Batumi" can keep Batumi's street and say when
+ * a city has no street of that name. For a text that may name several places, use
  * `placeTextLookupSql`.
  *
  * Null when the words only name a kind of place ("street"). Like C1, it opens
