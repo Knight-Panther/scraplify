@@ -47,6 +47,29 @@ export type OfficialBasis = (typeof OFFICIAL_BASES)[number];
 export const POINT_STATUSES = ['unknown', 'known', 'none'] as const;
 export type PointStatus = (typeof POINT_STATUSES)[number];
 
+// Phase 14C, location quality.
+/** Where a street's location comes from: the median of its listings' poster-placed pins, or ss.ge's point. */
+export const STREET_LOCATION_SOURCES = ['pins', 'ss.ge'] as const;
+export type StreetLocationSource = (typeof STREET_LOCATION_SOURCES)[number];
+/** How exactly a listing is located, least to most. `house` is a located street and a house number. */
+export const LOCATION_PRECISIONS = [
+  'none',
+  'municipality',
+  'city',
+  'district',
+  'subdistrict',
+  'street',
+  'house',
+  'pin',
+] as const;
+export type LocationPrecision = (typeof LOCATION_PRECISIONS)[number];
+/** What a listing's official district rests on: its own trusted pin, its street's location, or its sub-district. */
+export const OFFICIAL_DISTRICT_BASES = ['pin', 'street', 'area'] as const;
+export type OfficialDistrictBasis = (typeof OFFICIAL_DISTRICT_BASES)[number];
+/** What a listing's metro distance is measured from. */
+export const METRO_BASES = ['pin', 'building', 'street'] as const;
+export type MetroBasis = (typeof METRO_BASES)[number];
+
 /**
  * ss.ge's `commercialRealEstateType` codes, stored as the number (like a
  * location ref) so a code added later is kept rather than dropped. 0 means

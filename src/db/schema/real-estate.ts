@@ -20,10 +20,14 @@ import {
   type CatalogueLevel,
   type Condition,
   DEAL_TYPES,
+  type LocationPrecision,
+  type MetroBasis,
   type OfficialBasis,
+  type OfficialDistrictBasis,
   type PlaceOrigin,
   type PointStatus,
   PROPERTY_TYPES,
+  type StreetLocationSource,
 } from '../../realestate/kinds.js';
 import { sources } from './sources.js';
 
@@ -249,6 +253,34 @@ export const realEstateListings = realEstate.table(
      */
     contentHash: text('content_hash').notNull(),
     search: tsvector('search').generatedAlwaysAs(LISTING_SEARCH_SQL),
+    /*
+     * Phase 14C, location quality (migration 0051). Derived every night by
+     * `refreshListingLocations` (src/realestate/location.ts) from the fields
+     * above and the place catalogue; outside the content hash, so a change
+     * here is never a change of the listing. The first eleven are public.
+     */
+    /** The official district (OSM ref) and what it rests on: the trusted pin, the street's location, or the sub-district. */
+    officialDistrictRef: integer('official_district_ref'),
+    officialDistrictBasis: text('official_district_basis').$type<OfficialDistrictBasis>(),
+    locationPrecision: text('location_precision').$type<LocationPrecision>(),
+    /** True when the pin or ss.ge's metro claim contradicts the street; the flags say which. */
+    locationUncertain: boolean('location_uncertain').notNull().default(false),
+    locationFlags: text('location_flags').array().notNull().default(sql`'{}'::text[]`),
+    /** Our metro, from the best location: the nearest station, its straight-line distance and ss.ge's minutes band. */
+    metroStation: text('metro_station'),
+    metroDistanceM: integer('metro_distance_m'),
+    metroMinutes: smallint('metro_minutes'),
+    metroBasis: text('metro_basis').$type<MetroBasis>(),
+    /** Every station within the farthest minutes band, by its code, with its distance in metres. */
+    metroNearby: jsonb('metro_nearby').$type<Record<string, number>>(),
+    /** `c<complex_ref>` or `s<street_ref>-<number><suffix>`: one building, for grouping (13E). */
+    buildingKey: text('building_key'),
+    /** `LOCATION_RULES_VERSION` the derived columns were worked out under; null until the first refresh. */
+    locationRules: smallint('location_rules'),
+    /** Private, like the pin: whether it is trusted, its distance to the street's location, and its official district. */
+    pinTrusted: boolean('pin_trusted'),
+    pinStreetM: integer('pin_street_m'),
+    pinOfficialDistrictRef: integer('pin_official_district_ref'),
   },
   (table) => [
     uniqueIndex('listings_source_key_idx').on(table.sourceId, table.sourceListingKey),
@@ -275,6 +307,15 @@ export const realEstateListings = realEstate.table(
     index('listings_street_idx')
       .on(table.sourceId, table.streetRef)
       .where(sql`${table.streetRef} is not null`),
+    check(
+      'listings_official_district_basis_check',
+      sql`${table.officialDistrictBasis} in ('pin', 'street', 'area')`,
+    ),
+    check(
+      'listings_location_precision_check',
+      sql`${table.locationPrecision} in ('none', 'municipality', 'city', 'district', 'subdistrict', 'street', 'house', 'pin')`,
+    ),
+    check('listings_metro_basis_check', sql`${table.metroBasis} in ('pin', 'building', 'street')`),
   ],
 );
 
@@ -335,6 +376,19 @@ export const realEstatePlaces = realEstate.table(
     officialShares: jsonb('official_shares').$type<OfficialShares>(),
     /** `name_ka` in Latin letters, for showing where there is no English name (`romanizedName`). */
     nameRoman: text('name_roman'),
+    // Phase 14C (migration 0051).
+    /**
+     * A street's location: the median of its active listings' poster-placed
+     * pins when there are enough, else ss.ge's point when those pins do not
+     * contradict it. Private: a median of a few pins can sit on one building.
+     */
+    locatedLatitude: numeric('located_latitude', { precision: 9, scale: 6 }),
+    locatedLongitude: numeric('located_longitude', { precision: 9, scale: 6 }),
+    locatedBasis: text('located_basis').$type<StreetLocationSource>(),
+    /** How many pins the median was taken over; 0 when the location is ss.ge's point. */
+    locatedPins: integer('located_pins'),
+    /** What a street's official district was worked out from: its listings' pins or ss.ge's point. Public. */
+    officialSource: text('official_source').$type<StreetLocationSource>(),
   },
   (table) => [
     primaryKey({ name: 'places_pk', columns: [table.sourceId, table.level, table.ref] }),
@@ -351,6 +405,8 @@ export const realEstatePlaces = realEstate.table(
     check('places_point_status_check', sql`${table.pointStatus} in ('unknown', 'known', 'none')`),
     check('places_origin_check', sql`${table.origin} in ('ss.ge', 'osm', 'owner')`),
     check('places_official_basis_check', sql`${table.officialBasis} in ('inside', 'border')`),
+    check('places_located_basis_check', sql`${table.locatedBasis} in ('pins', 'ss.ge')`),
+    check('places_official_source_check', sql`${table.officialSource} in ('pins', 'ss.ge')`),
   ],
 );
 
@@ -396,6 +452,9 @@ export const realEstatePublicPlaces = realEstate
     firstSeenAt: timestamp('first_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     lastSeenAt: timestamp('last_seen_at', { mode: 'string', withTimezone: true }).notNull(),
     nameRoman: text('name_roman'),
+    // Phase 14C: appended, so `create or replace` keeps the grant (migration 0051).
+    // Not the street's location, which is private.
+    officialSource: text('official_source').$type<StreetLocationSource>(),
   })
   .as(sql`
     select
@@ -419,7 +478,8 @@ export const realEstatePublicPlaces = realEstate
       ${realEstatePlaces.activeListings} as active_listings,
       ${realEstatePlaces.firstSeenAt} as first_seen_at,
       ${realEstatePlaces.lastSeenAt} as last_seen_at,
-      ${realEstatePlaces.nameRoman} as name_roman
+      ${realEstatePlaces.nameRoman} as name_roman,
+      ${realEstatePlaces.officialSource} as official_source
     from ${realEstatePlaces}
   `);
 
@@ -519,6 +579,20 @@ export const realEstatePublicListings = realEstate
     complexName: text('complex_name'),
     developerRef: integer('developer_ref'),
     developerName: text('developer_name'),
+    // Phase 14C: appended, so `create or replace` keeps the grant (migration 0051).
+    // Not the pin's trust, its distance to the street or its official district, which are private.
+    officialDistrictRef: integer('official_district_ref'),
+    officialDistrictBasis: text('official_district_basis').$type<OfficialDistrictBasis>(),
+    locationPrecision: text('location_precision').$type<LocationPrecision>(),
+    locationUncertain: boolean('location_uncertain').notNull(),
+    locationFlags: text('location_flags').array().notNull(),
+    metroStation: text('metro_station'),
+    metroDistanceM: integer('metro_distance_m'),
+    metroMinutes: smallint('metro_minutes'),
+    metroBasis: text('metro_basis').$type<MetroBasis>(),
+    metroNearby: jsonb('metro_nearby').$type<Record<string, number>>(),
+    buildingKey: text('building_key'),
+    locationRules: smallint('location_rules'),
   })
   .as(sql`
     select
@@ -583,7 +657,19 @@ export const realEstatePublicListings = realEstate
       ${realEstateListings.complexRef} as complex_ref,
       ${realEstateListings.complexName} as complex_name,
       ${realEstateListings.developerRef} as developer_ref,
-      ${realEstateListings.developerName} as developer_name
+      ${realEstateListings.developerName} as developer_name,
+      ${realEstateListings.officialDistrictRef} as official_district_ref,
+      ${realEstateListings.officialDistrictBasis} as official_district_basis,
+      ${realEstateListings.locationPrecision} as location_precision,
+      ${realEstateListings.locationUncertain} as location_uncertain,
+      ${realEstateListings.locationFlags} as location_flags,
+      ${realEstateListings.metroStation} as metro_station,
+      ${realEstateListings.metroDistanceM} as metro_distance_m,
+      ${realEstateListings.metroMinutes} as metro_minutes,
+      ${realEstateListings.metroBasis} as metro_basis,
+      ${realEstateListings.metroNearby} as metro_nearby,
+      ${realEstateListings.buildingKey} as building_key,
+      ${realEstateListings.locationRules} as location_rules
     from ${realEstateListings}
     where ${realEstateListings.status} = 'active'
   `);
