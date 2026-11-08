@@ -391,14 +391,14 @@ export const realEstatePlaces = realEstate.table(
     nameRoman: text('name_roman'),
     // Phase 14C (migration 0051).
     /**
-     * A street's location: the median of its active listings' poster-placed
-     * pins when there are enough, else ss.ge's point when those pins do not
-     * contradict it. Private: a median of a few pins can sit on one building.
+     * A street's location: the median of its active listings' distinct
+     * poster-placed pin positions when there are enough, else ss.ge's point.
+     * Private: a median of a few pins can sit on one building.
      */
     locatedLatitude: numeric('located_latitude', { precision: 9, scale: 6 }),
     locatedLongitude: numeric('located_longitude', { precision: 9, scale: 6 }),
     locatedBasis: text('located_basis').$type<StreetLocationSource>(),
-    /** How many pins the median was taken over; 0 when the location is ss.ge's point. */
+    /** How many distinct pin positions the median was taken over; 0 when the location is ss.ge's point. */
     locatedPins: integer('located_pins'),
     /** What a street's official district was worked out from: its listings' pins or ss.ge's point. Public. */
     officialSource: text('official_source').$type<StreetLocationSource>(),

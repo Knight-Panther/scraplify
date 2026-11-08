@@ -293,17 +293,17 @@ describe('the place catalogue (Phase 14B)', () => {
     await listing(sourceId, pinned('41.729500', '44.745500'));
     await listing(sourceId, pinned('41.730000', '44.746000'));
     // Vazha-Pshavela 507: three poster pins within 200 m of its point.
-    for (let i = 0; i < 3; i++) {
+    for (const longitude of ['44.762800', '44.763000', '44.763200']) {
       await listing(sourceId, {
         subdistrictRef: 3,
         subdistrictName: 'საბურთალო',
         streetRef: 507,
         streetName: 'ვაჟა-ფშაველას გამზ.',
-        ...pinned('41.725000', '44.763000'),
+        ...pinned('41.725000', longitude),
       });
     }
-    // Chavchavadze 502: two far poster pins are too few to locate it.
-    for (let i = 0; i < 2; i++) {
+    // Chavchavadze 502: one far flat posted three times is one position, too few to locate it.
+    for (let i = 0; i < 3; i++) {
       await listing(sourceId, {
         subdistrictRef: 3,
         subdistrictName: 'საბურთალო',

@@ -14,6 +14,7 @@ import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { isSsGeUrlAllowed, ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
 import { regroupListings } from '../realestate/grouping.js';
+import { refreshListingLocations } from '../realestate/location.js';
 import { syncPlaces } from '../realestate/places.js';
 import { refreshPlaceCatalogue } from '../realestate/places/catalogue.js';
 import { loadCuratedPlaces } from '../realestate/places/curated.js';
@@ -128,6 +129,7 @@ async function main(): Promise<void> {
     await updatePlaces();
     await takeTotals(crawlRun.id);
     await refreshCatalogue();
+    await locateListings();
   } catch (err) {
     if (err instanceof SsGeNoBaselineError) {
       logger.error({ sourceId: ssGeSource.id }, err.message);
@@ -204,8 +206,8 @@ async function takeTotals(crawlRunId: string): Promise<void> {
 /**
  * The place catalogue on both maps (Phase 14B, contract C6), from tonight's
  * tree: the official districts and stations, English names, each street
- * point's official district, the two maps' overlaps and the match keys. Last,
- * so it never delays the steps before it. Like the tree, a failure is logged
+ * point's official district, the two maps' overlaps and the match keys. After
+ * the totals, so it never delays them. Like the tree, a failure is logged
  * and leaves the exit code to the crawl; Hermes reads last night's catalogue.
  */
 async function refreshCatalogue(): Promise<void> {
@@ -229,6 +231,30 @@ async function refreshCatalogue(): Promise<void> {
     }
   } catch (err) {
     logger.error({ err }, 'ss.ge place catalogue refresh failed; last night’s stays');
+  }
+}
+
+/**
+ * Where each active listing is, judged (Phase 14C), from the streets the
+ * catalogue has just located. After the totals, which do not read it yet
+ * (C3's official-district level will, and moves them after this). Like the
+ * catalogue, a failure is logged and leaves the exit code to the crawl; each
+ * listing keeps last night's judgement, and a listing first seen tonight has
+ * none until the next run.
+ */
+async function locateListings(): Promise<void> {
+  const startedAtMs = Date.now();
+  try {
+    const result = await refreshListingLocations(db, {
+      sourceId: ssGeSource.id,
+      map: await loadOfficialMap(),
+    });
+    logger.info(
+      { ...result, durationMs: Date.now() - startedAtMs },
+      'ss.ge listing locations judged',
+    );
+  } catch (err) {
+    logger.error({ err }, 'ss.ge listing locations failed; last night’s stay');
   }
 }
 

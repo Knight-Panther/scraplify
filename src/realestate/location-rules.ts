@@ -11,9 +11,12 @@ import { type SQL, sql } from 'drizzle-orm';
 export const LOCATION_RULES_VERSION = 1;
 
 /**
- * A street is located by its own listings' pins when it has at least this
- * many candidates: half of a street's poster-placed pins sit within 84 m of
- * their median (2,764 pins on 276 streets, 2026-11-08).
+ * A street is located by its own listings' pins when they sit at this many
+ * distinct positions: half of a street's poster-placed pins sit within 84 m
+ * of their median (2,764 pins on 276 streets, 2026-11-08). Positions, not
+ * pins, and each position counts once in every median here: one flat
+ * reposted three times is one place, and on the first trial many "located"
+ * streets were exactly that.
  */
 export const STREET_LOCATION_MIN_PINS = 3;
 
@@ -41,6 +44,16 @@ export const METERS_PER_DEGREE = 111_195;
  * around their median (2026-11-08).
  */
 export const TRUSTED_PIN_STREET_METERS = 600;
+
+/**
+ * A street is a line, not a point: a pin further than that from its street's
+ * middle is still trusted when at least this many other distinct positions on
+ * the same street lie within the same distance of it. On the trial of
+ * 2026-11-08, 391 of 680 such pins had them (median 969 m from the middle,
+ * along Chavchavadze, Vazha-Pshavela and Kazbegi Avenues); the 289 without
+ * sat a median 1.75 km off.
+ */
+export const STREET_NEIGHBOUR_PINS = 2;
 
 /** On a street with no location, a candidate pin is trusted within this of its sub-district's pin median. */
 export const TRUSTED_PIN_AREA_METERS = 3_000;

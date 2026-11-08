@@ -14,6 +14,7 @@ import {
   median,
   metersApart,
   metroNear,
+  STREET_NEIGHBOUR_PINS,
   TRUSTED_PIN_AREA_METERS,
   TRUSTED_PIN_STREET_METERS,
   UNCERTAIN_FLAGS,
@@ -70,6 +71,38 @@ function metroColumns(metro: MetroNear | null) {
 
 const HEX = '0123456789abcdef';
 
+interface Point {
+  lat: number;
+  lng: number;
+}
+
+function positionKey(point: Point): string {
+  return `${point.lat},${point.lng}`;
+}
+
+/** Adds a point to its group's distinct positions; a null key is no group. */
+function addPosition<K>(groups: Map<K, Map<string, Point>>, key: K | null, point: Point): void {
+  if (key === null) return;
+  const positions = groups.get(key) ?? new Map<string, Point>();
+  positions.set(positionKey(point), { lat: point.lat, lng: point.lng });
+  groups.set(key, positions);
+}
+
+function medianPoint(positions: Map<string, Point>): Point {
+  const points = [...positions.values()];
+  return { lat: median(points.map((p) => p.lat)), lng: median(points.map((p) => p.lng)) };
+}
+
+/** Other distinct positions of the same street within `TRUSTED_PIN_STREET_METERS` of a pin. */
+function neighbours(positions: Map<string, Point> | undefined, pin: Point): number {
+  let near = 0;
+  for (const [key, other] of positions ?? []) {
+    if (key === positionKey(pin)) continue;
+    if (metersApart(pin.lat, pin.lng, other.lat, other.lng) <= TRUSTED_PIN_STREET_METERS) near++;
+  }
+  return near;
+}
+
 export async function refreshListingLocations(
   db: DatabaseOrTransaction,
   input: { sourceId: string; map: OfficialMap },
@@ -112,26 +145,24 @@ export async function refreshListingLocations(
   }>(judgedPinsSql(sourceId));
   const pins = pinRows.rows.map((row) => ({ ...row, lat: Number(row.lat), lng: Number(row.lng) }));
 
-  // Each sub-district's candidate-pin median, for streets with no location.
-  const bySubdistrict = new Map<number, { lat: number[]; lng: number[] }>();
+  // Distinct candidate positions per street and per sub-district: a flat
+  // reposted three times is one place, in every count and median below.
+  const streetPositions = new Map<number, Map<string, Point>>();
+  const areaPositions = new Map<number, Map<string, Point>>();
   for (const pin of pins) {
-    if (!pin.candidate || pin.subdistrict_ref === null) continue;
-    const group = bySubdistrict.get(pin.subdistrict_ref) ?? { lat: [], lng: [] };
-    group.lat.push(pin.lat);
-    group.lng.push(pin.lng);
-    bySubdistrict.set(pin.subdistrict_ref, group);
+    if (!pin.candidate) continue;
+    addPosition(streetPositions, pin.street_ref, pin);
+    addPosition(areaPositions, pin.subdistrict_ref, pin);
   }
-  const areaMedians = new Map<number, { lat: number; lng: number }>();
-  for (const [ref, group] of bySubdistrict) {
-    if (group.lat.length >= AREA_MEDIAN_MIN_PINS) {
-      areaMedians.set(ref, { lat: median(group.lat), lng: median(group.lng) });
-    }
+  const areaMedians = new Map<number, Point>();
+  for (const [ref, positions] of areaPositions) {
+    if (positions.size >= AREA_MEDIAN_MIN_PINS) areaMedians.set(ref, medianPoint(positions));
   }
 
   // Judge each pin.
   const judged: JudgedPin[] = [];
-  const buildings = new Map<string, { lat: number[]; lng: number[] }>();
-  const areaCounts = new Map<number, { trusted: number; byDistrict: Map<number, number> }>();
+  const buildings = new Map<string, Map<string, Point>>();
+  const trustedByArea = new Map<number, Map<string, number | null>>();
   for (const pin of pins) {
     const street = pin.street_ref === null ? undefined : streets.get(pin.street_ref);
     const streetM =
@@ -148,7 +179,9 @@ export async function refreshListingLocations(
       district = officialDistrictAt(map, pin.lat, pin.lng)?.district.ref ?? null;
       const area = pin.subdistrict_ref === null ? undefined : areaMedians.get(pin.subdistrict_ref);
       if (streetM !== null) {
-        trusted = streetM <= TRUSTED_PIN_STREET_METERS;
+        trusted =
+          streetM <= TRUSTED_PIN_STREET_METERS ||
+          neighbours(streetPositions.get(pin.street_ref as number), pin) >= STREET_NEIGHBOUR_PINS;
         if (!trusted) flags.push('pin_far_from_street');
       } else if (area !== undefined) {
         trusted = metersApart(pin.lat, pin.lng, area.lat, area.lng) <= TRUSTED_PIN_AREA_METERS;
@@ -165,35 +198,35 @@ export async function refreshListingLocations(
       ...metroColumns(trusted ? metroNear(stations, pin.lat, pin.lng) : null),
     });
     if (!trusted) continue;
-    const key = buildingKey({
-      complexRef: pin.complex_ref,
-      streetRef: pin.street_ref,
-      houseNumber: pin.house_number,
-      houseSuffix: pin.house_suffix,
-    });
-    if (key !== null) {
-      const building = buildings.get(key) ?? { lat: [], lng: [] };
-      building.lat.push(pin.lat);
-      building.lng.push(pin.lng);
-      buildings.set(key, building);
-    }
+    addPosition(
+      buildings,
+      buildingKey({
+        complexRef: pin.complex_ref,
+        streetRef: pin.street_ref,
+        houseNumber: pin.house_number,
+        houseSuffix: pin.house_suffix,
+      }),
+      pin,
+    );
     if (pin.subdistrict_ref !== null) {
-      const counts = areaCounts.get(pin.subdistrict_ref) ?? { trusted: 0, byDistrict: new Map() };
-      counts.trusted++;
-      if (district !== null)
-        counts.byDistrict.set(district, (counts.byDistrict.get(district) ?? 0) + 1);
-      areaCounts.set(pin.subdistrict_ref, counts);
+      const positions = trustedByArea.get(pin.subdistrict_ref) ?? new Map<string, number | null>();
+      positions.set(positionKey(pin), district);
+      trustedByArea.set(pin.subdistrict_ref, positions);
     }
   }
 
-  // A sub-district whose trusted pins lie almost all in one official district.
+  // A sub-district whose trusted positions lie almost all in one official district.
   const areas: { ref: number; district: number }[] = [];
-  for (const [ref, counts] of areaCounts) {
-    const [top] = [...counts.byDistrict].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  for (const [ref, positions] of trustedByArea) {
+    const byDistrict = new Map<number, number>();
+    for (const district of positions.values()) {
+      if (district !== null) byDistrict.set(district, (byDistrict.get(district) ?? 0) + 1);
+    }
+    const [top] = [...byDistrict].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
     if (
       top !== undefined &&
-      counts.trusted >= AREA_MIN_TRUSTED_PINS &&
-      top[1] >= AREA_MIN_SHARE * counts.trusted
+      positions.size >= AREA_MIN_TRUSTED_PINS &&
+      top[1] >= AREA_MIN_SHARE * positions.size
     ) {
       areas.push({ ref, district: top[0] });
     }
@@ -207,10 +240,10 @@ export async function refreshListingLocations(
     })),
   );
   const buildingsJson = JSON.stringify(
-    [...buildings].map(([key, building]) => ({
-      key,
-      ...metroColumns(metroNear(stations, median(building.lat), median(building.lng))),
-    })),
+    [...buildings].map(([key, building]) => {
+      const middle = medianPoint(building);
+      return { key, ...metroColumns(metroNear(stations, middle.lat, middle.lng)) };
+    }),
   );
   const areasJson = JSON.stringify(areas);
 

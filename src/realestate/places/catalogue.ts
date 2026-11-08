@@ -183,7 +183,7 @@ export async function refreshPlaceCatalogue(
     `);
 
     // 3. Each street's location (Phase 14C): the median of its listings'
-    //    candidate pins when it has enough, else ss.ge's point; and the
+    //    distinct candidate pin positions when it has enough, else ss.ge's point; and the
     //    official district that location is in.
     const streets = await tx.execute<{
       ref: number;
@@ -200,11 +200,13 @@ export async function refreshPlaceCatalogue(
       pin_lat: number | string | null;
       pin_lng: number | string | null;
     }>(sql`
-      with ${candidatePinsSql(sourceId)}, medians as (
+      with ${candidatePinsSql(sourceId)}, positions as (
+        select distinct street_ref, lat, lng from candidates where street_ref is not null
+      ), medians as (
         select street_ref, count(*)::integer as n,
                percentile_cont(0.5) within group (order by lat) as lat,
                percentile_cont(0.5) within group (order by lng) as lng
-          from candidates where street_ref is not null group by street_ref
+          from positions group by street_ref
       )
       select s.ref, s.latitude, s.longitude,
              s.located_latitude, s.located_longitude, s.located_basis, s.located_pins,

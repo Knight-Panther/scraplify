@@ -269,6 +269,31 @@ describe('refreshListingLocations (Phase 14C)', () => {
     expect(far?.pinOfficialDistrictRef).toBe(officialDistrictAt(map, 41.725, 44.79)?.district.ref);
   });
 
+  it('trusts a pin far from a long street’s middle when the street’s other pins run past it', async () => {
+    const sourceId = await newSource();
+    // Seven positions 250 m apart along Chavchavadze: 1.5 km of avenue.
+    for (let i = 0; i < 7; i++) {
+      await listing(sourceId, `line${i}`, pin(41.71, 44.75 + i * 0.003));
+    }
+    // 2.9 km off: one flat posted twice and a neighbour 25 m away. Two positions,
+    // each with one other near it: not enough, and the copies do not vouch for each other.
+    await listing(sourceId, 'repost0', pin(41.725, 44.79));
+    await listing(sourceId, 'repost1', pin(41.725, 44.79));
+    await listing(sourceId, 'repost2', pin(41.7252, 44.7902));
+    await refresh(sourceId);
+
+    const end = await located(sourceId, 'line0');
+    expect(end).toMatchObject({ pinTrusted: true, locationFlags: [], locationPrecision: 'pin' });
+    expect(end?.pinStreetM).toBeGreaterThan(800);
+    for (let i = 0; i < 3; i++) {
+      expect(await located(sourceId, `repost${i}`)).toMatchObject({
+        pinTrusted: false,
+        locationFlags: ['pin_far_from_street'],
+        locationUncertain: true,
+      });
+    }
+  });
+
   it('flags the map’s default and a broken pin, and ss.ge’s metro claim worked out from the default', async () => {
     const sourceId = await newSource();
     await city(sourceId);
