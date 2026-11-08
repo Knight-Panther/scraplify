@@ -60,7 +60,8 @@ $containerPath = "/tmp/$fileName"
 $hostPath = Join-Path $backupDirectory $fileName
 
 try {
-    Invoke-Checked 'pg_dump' { docker exec $Container pg_dump -U $DbUser -d $Database -Fc -f $containerPath }
+    # zstd like the host's nightly backup (deploy/backup-db.sh); the container's Postgres 17 reads and writes it.
+    Invoke-Checked 'pg_dump' { docker exec $Container pg_dump -U $DbUser -d $Database -Fc --compress=zstd:9 -f $containerPath }
     Invoke-Checked 'Archive validation (pg_restore --list)' { docker exec $Container pg_restore --list $containerPath | Out-Null }
     Invoke-Checked 'Copying the backup out of the container' { docker cp "${Container}:$containerPath" $hostPath }
 } finally {

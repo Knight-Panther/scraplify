@@ -23,7 +23,10 @@ file="$directory/xtelo-$(date -u +%Y%m%d-%H%M%S).dump"
 partial="$file.partial"
 trap 'rm -f "$partial"' EXIT
 
-pg_dump --dbname="$BACKUP_DATABASE_URL" --format=custom --file="$partial"
+# zstd at level 9 rather than pg_dump's default gzip. Measured on the host on
+# 2026-11-08: 162 MB became 125 MB in the same 35 seconds. Restoring needs
+# pg_restore 16 or newer, as the host and the PC's container have (17).
+pg_dump --dbname="$BACKUP_DATABASE_URL" --format=custom --compress=zstd:9 --file="$partial"
 # An archive pg_restore cannot list is not a backup.
 pg_restore --list "$partial" > /dev/null
 [ -s "$partial" ] || { echo "backup is empty" >&2; exit 1; }
@@ -47,12 +50,13 @@ done
 
 # Off-host size guard. The bucket's lifecycle rule expires copies by age
 # (RUNBOOK §6); this also keeps their total under BACKUP_REMOTE_MAX_BYTES
-# (default 8 GB, below R2's 10 GB-month free tier) should dumps ever grow that
-# large. It deletes the oldest first and never the newest, so the copy this
+# should dumps ever grow that large. The default is 7 GB: R2's free tier is
+# 10 GB-month for the whole account, and Hermes's own backup bucket shares it
+# (about 1.5 GB once full). It deletes the oldest first and never the newest, so the copy this
 # run made always survives. Dump names sort by time (xtelo-<utc>.dump), and
 # only those names are counted or deleted.
 if [ "$BACKUP_REMOTE" != none ]; then
-  max_bytes="${BACKUP_REMOTE_MAX_BYTES:-8000000000}"
+  max_bytes="${BACKUP_REMOTE_MAX_BYTES:-7000000000}"
   [[ "$max_bytes" =~ ^[1-9][0-9]*$ ]] || { echo "BACKUP_REMOTE_MAX_BYTES must be a positive whole number of bytes" >&2; exit 1; }
   # A failed listing fails the run (pipefail), rather than skipping the guard.
   listing="$(rclone lsf --files-only --format sp --separator ';' "$BACKUP_REMOTE" \
