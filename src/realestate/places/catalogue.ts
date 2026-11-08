@@ -29,6 +29,27 @@ export const TBILISI_CITY_REF = 95;
 /** Writes per statement. */
 const CHUNK = 2_000;
 
+/**
+ * ss.ge places some streets by a namesake: Titsian Tabidze St in Vake carries
+ * the point of Galaktion Tabidze St, 2.8 km away, on every one of its pages.
+ * On 2026-11-08, 67 of the 245 Tbilisi streets with 3 or more poster-placed
+ * pins had a point more than 1 km from those pins' median. A point its own
+ * street's listings contradict gives that street no official district
+ * (unknown, never a wrong one), and its listings count as not located. A
+ * street with fewer poster-placed pins is not checked here; Phase 14C
+ * calibrates the check.
+ */
+export const STREET_POINT_CHECK_PINS = 3;
+export const STREET_POINT_DISPUTE_METERS = 1_000;
+
+const METERS_PER_DEGREE = 111_195;
+
+/** Metres between two nearby points, on a local plane. */
+function metersApart(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const kx = METERS_PER_DEGREE * Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180);
+  return Math.hypot((lng1 - lng2) * kx, (lat1 - lat2) * METERS_PER_DEGREE);
+}
+
 /** What a refresh found and wrote. */
 export interface CatalogueRefresh {
   /** Official districts, stations and neighbourhoods held. */
@@ -41,6 +62,8 @@ export interface CatalogueRefresh {
   renamed: string[];
   /** Streets whose official district was set or changed. */
   streetsPlaced: number;
+  /** Streets left without an official district because their own listings' poster-placed pins contradict ss.ge's point. */
+  streetsDisputed: number;
   /** ss.ge districts and sub-districts whose overlaps changed. */
   sharesWritten: number;
   /** Places whose match keys or Latin name changed. */
@@ -166,21 +189,50 @@ export async function refreshPlaceCatalogue(
          and p.name_en is distinct from v.name_en
     `);
 
-    // 3. Each street point's official district.
+    // 3. Each street point's official district, unless the street's own
+    //    listings' poster-placed pins contradict the point.
     const streets = await tx.execute<{
       ref: number;
       latitude: string | null;
       longitude: string | null;
       official_district_ref: number | null;
       official_basis: string | null;
+      pins: number | string;
+      pin_lat: number | string | null;
+      pin_lng: number | string | null;
     }>(sql`
-      select ref, latitude, longitude, official_district_ref, official_basis
-        from ${realEstatePlaces}
-       where source_id = ${sourceId} and level = 'street'
+      with pins as (
+        select street_ref, count(*)::integer as n,
+               percentile_cont(0.5) within group (order by latitude::float8) as lat,
+               percentile_cont(0.5) within group (order by longitude::float8) as lng
+          from realestate.listings
+         where source_id = ${sourceId} and status = 'active' and pin_manual
+           and street_ref is not null and latitude is not null and longitude is not null
+         group by street_ref
+      )
+      select s.ref, s.latitude, s.longitude, s.official_district_ref, s.official_basis,
+             coalesce(pins.n, 0) as pins, pins.lat as pin_lat, pins.lng as pin_lng
+        from ${realEstatePlaces} s
+        left join pins on pins.street_ref = s.ref
+       where s.source_id = ${sourceId} and s.level = 'street'
     `);
+    let streetsDisputed = 0;
     const placed = streets.rows.flatMap((street) => {
+      const disputed =
+        street.latitude !== null &&
+        street.longitude !== null &&
+        street.pin_lat !== null &&
+        street.pin_lng !== null &&
+        Number(street.pins) >= STREET_POINT_CHECK_PINS &&
+        metersApart(
+          Number(street.latitude),
+          Number(street.longitude),
+          Number(street.pin_lat),
+          Number(street.pin_lng),
+        ) > STREET_POINT_DISPUTE_METERS;
+      if (disputed) streetsDisputed++;
       const place =
-        street.latitude === null || street.longitude === null
+        street.latitude === null || street.longitude === null || disputed
           ? null
           : officialDistrictAt(map, Number(street.latitude), Number(street.longitude));
       const ref = place?.district.ref ?? null;
@@ -326,6 +378,7 @@ export async function refreshPlaceCatalogue(
       named: englishNames.rowCount ?? 0,
       renamed: renamedRows.rows.map((row) => `${row.level} ${row.ref} is now ${row.name_ka}`),
       streetsPlaced: placed.length,
+      streetsDisputed,
       sharesWritten: shares.rowCount ?? 0,
       keysWritten: rekeyed.length,
     };

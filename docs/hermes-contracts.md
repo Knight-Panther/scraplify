@@ -249,7 +249,7 @@ Both are first-class and linked, and neither is renamed into the other (owner, 2
 | `match_keys` | What the lookup matches: every name's key. |
 | `parent_level`, `parent_ref` | The parent on the place's own map. A neighbourhood's parent is an ss.ge place. |
 | `latitude`, `longitude`, `point_status` | For a street: ss.ge's own point for the street, the same for every listing on it, and not anyone's home (`unknown`, `known`, or `none` where ss.ge has none). For a station: OSM's point. |
-| `official_district_ref`, `official_basis` | For a street with a known point and for a station: the official district the point is in. `inside` means further than 50 m from any border; `border` means within 50 m, where either side is possible. Null outside Tbilisi's districts. |
+| `official_district_ref`, `official_basis` | For a street with a known point and for a station: the official district the point is in. `inside` means further than 50 m from any border; `border` means within 50 m, where either side is possible. Null outside Tbilisi's districts, and null for a street whose own listings contradict ss.ge's point (see "Reading it"). |
 | `official_shares` | For ss.ge's Tbilisi districts and sub-districts: `{"listings": n, "located": m, "by_district": {"isani": k, …}}`. Of its active listings, `located` are on a street whose official district is known, and `by_district` counts them per official district `code`. Null elsewhere. |
 | `active_listings` | For ss.ge's places: the active listings that name it. For an official district: active listings on streets whose point is in it. For a station: active listings whose ss.ge metro list names it; that is ss.ge's own claim, from the poster's pin, and is not checked until Phase 14C. Zero for a neighbourhood. |
 | `first_seen_at`, `last_seen_at` | When the catalogue first and last held the place as it is. |
@@ -282,6 +282,8 @@ Each row is a place for one `key` (a name's key; the text lookup asks for severa
 ### Reading it
 
 - **Overlaps grow with the street points.** `official_shares` comes only from ss.ge's street points, 300 of which are read a night, busiest streets first. A listing's own pin is not used, because pins are often wrong until Phase 14C checks them. Read `located` against `listings` before quoting a share.
-- **Unknown is not "no".** A street with no known point has no official district yet. That says nothing about where it is.
+- **ss.ge's street points are sometimes wrong.** It places some streets by a namesake: Titsian Tabidze St in Vake carries Galaktion Tabidze St's point, 2.8 km away. When 3 or more of a street's active listings have a pin the poster placed, and their median is more than 1 km from ss.ge's point, the street gets no official district and its listings count as not located. On 2026-11-08 that was 67 of the 245 Tbilisi streets with enough such pins. A street with fewer is not checked yet; Phase 14C calibrates the check.
+- **Some busy streets have no point at all.** ss.ge sends none for Chavchavadze Ave, Tsintsadze St, Vazha-Pshavela Ave and Gelovani Ave, among others: about 15% of Tbilisi's listings on 2026-11-08.
+- **Unknown is not "no".** A street with no known point, or a disputed one, has no official district. That says nothing about where it is.
 - **Credit.** The official districts and stations come from OpenStreetMap (ODbL). Anything showing them to people credits "© OpenStreetMap contributors" (`docs/RIGHTS.md`, Map data).
 - **Not in it:** anything about a single listing. Pins, cadastral codes and ss.ge's per-listing metro lists stay private (C5).

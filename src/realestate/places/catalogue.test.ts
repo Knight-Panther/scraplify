@@ -280,6 +280,65 @@ describe('the place catalogue (Phase 14B)', () => {
     }
   });
 
+  it('gives no official district to a street whose own poster-placed pins contradict ss.ge’s point', async () => {
+    const sourceId = await newSource();
+    await city(sourceId);
+    const pinned = (latitude: string, longitude: string, pinManual: boolean) => ({
+      latitude,
+      longitude,
+      pinManual,
+    });
+    // Chavchavadze 501 (point in Vake): three poster pins agree on a spot 3.4 km away.
+    for (let i = 0; i < 3; i++) await listing(sourceId, pinned('41.725000', '44.730000', true));
+    // Vazha-Pshavela 507: three poster pins within 200 m of its point.
+    for (let i = 0; i < 3; i++) {
+      await listing(sourceId, {
+        subdistrictRef: 3,
+        subdistrictName: 'საბურთალო',
+        streetRef: 507,
+        streetName: 'ვაჟა-ფშაველას გამზ.',
+        ...pinned('41.725000', '44.763000', true),
+      });
+    }
+    // Chavchavadze 502: two far poster pins are too few to judge.
+    for (let i = 0; i < 2; i++) {
+      await listing(sourceId, {
+        subdistrictRef: 3,
+        subdistrictName: 'საბურთალო',
+        streetRef: 502,
+        ...pinned('41.700000', '44.800000', true),
+      });
+    }
+    // Abashidze 506: far pins that ss.ge set itself are no evidence.
+    for (let i = 0; i < 3; i++) {
+      await listing(sourceId, {
+        streetRef: 506,
+        streetName: 'აბაშიძის ქ.',
+        ...pinned('41.750000', '44.800000', false),
+      });
+    }
+
+    const result = await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+    expect(result.streetsDisputed).toBe(1);
+    expect(await row(sourceId, 'street', 501)).toMatchObject({
+      officialDistrictRef: null,
+      officialBasis: null,
+      pointStatus: 'known',
+    });
+    expect(await row(sourceId, 'street', 507)).toMatchObject({ officialDistrictRef: SABURTALO });
+    expect(await row(sourceId, 'street', 502)).toMatchObject({ officialDistrictRef: SABURTALO });
+    expect(await row(sourceId, 'street', 506)).toMatchObject({
+      officialDistrictRef: VAKE,
+      officialBasis: 'border',
+    });
+    // Vake: the five listings on 501 are not located; the four on 506 are.
+    expect((await row(sourceId, 'subdistrict', 47))?.officialShares).toEqual({
+      listings: 9,
+      located: 4,
+      by_district: { vake: 4 },
+    });
+  });
+
   it('counts how each ss.ge area overlaps the official districts, by its listings’ streets', async () => {
     const sourceId = await newSource();
     await city(sourceId);
