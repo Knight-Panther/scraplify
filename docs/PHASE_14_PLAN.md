@@ -8,14 +8,14 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 
 **Marks:** ✅ done · ⏳ under way, or scheduled · ❌ not started · ↪ moved or dropped, with where it went. Times are UTC (Tbilisi is UTC+4).
 
-## Where it stands (2026-11-07 19:30 UTC)
+## Where it stands (2026-11-08 14:00 UTC)
 
 | Sub-phase | State | Waits on | Next |
 |---|---|---|---|
-| **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80) | — | ⏳ the morning-after check on 2026-11-08, from the first run under 14A |
-| **14B** official map, English names, Hermes's place catalogue (C6) | ✅ built, CI green, PR #81, not merged | 14A's morning-after check | merge 2026-11-08; deploy once that day's run has ended (13:40–20:30) |
-| **14C** location quality | ❌ | 14B merged; two nights of 14A data | code 2026-11-08; thresholds 2026-11-09; deploy 2026-11-10 |
-| **14D** C1 v2 for Hermes | ❌ | 14C live; Hermes's answer about 14D | build from 2026-11-11 |
+| **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80); morning-after check passed 2026-11-08 | — | — |
+| **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82) | the first nightly refresh; the owner's look at Hermes's note | ⏳ the journal on 2026-11-09; the note to Hermes |
+| **14C** location quality | ❌ | two nights of 14A data; its design takes in the first night's findings (14C below) | design and code from 2026-11-09; deploy 2026-11-10 or 11 |
+| **14D** C1 v2 for Hermes | ❌ | 14C live; Hermes's answer about 14D | after 14C |
 
 ## What waits on what
 
@@ -130,7 +130,7 @@ Gates and evidence: STATUS, Phase 14A.
   - ✅ 1,894 streets in the tree, 677 with a point;
   - ✅ the public role sees the new columns and no private one.
 
-## 14B: the official map, names and Hermes's catalogue (C6) — ✅ built, CI green, PR #81 not merged
+## 14B: the official map, names and Hermes's catalogue (C6) — ✅ live since 2026-11-08
 
 Gates and evidence: STATUS, Phase 14B.
 
@@ -145,6 +145,7 @@ Gates and evidence: STATUS, Phase 14B.
 - ✅ **Keys:** `placeKeys` and `nameKey` (`src/realestate/place-lookup.ts`), with Hermes's `_ROMAN` and `_LOOSE` letter for letter; type words dropped, initials and district words kept.
   - Changed: their own Georgian ending rule, not CV matching's `tokenize`/`stem`, which strips the plural -ები and would split ბაგები from "Bagebi".
 - ✅ **The lookup:** `placeLookupSql` in both placeholder styles, and `PLACE_LOOKUP_VERSION` 1. Hermes imports it from `dist`, the way it calls C1.
+  - Changed 2026-11-08, at the deploy: ranking by level put the village ვაკე (one listing) before the Vake neighbourhood. It now ranks by group (ss.ge's areas, the official map, stations, streets), with the busiest first within each (PR #82).
   - Changed: an official district is also found by its name without the district word, in either language. That gives the two-maps rule from the lookup's order alone.
 - ✅ **Added after Hermes's review (2026-11-07):** the whole-text lookup (`placeTextLookupSql` and `resolvePlaceText`, by Hermes's N75 rule), `name_roman` on every place, and each area's top official district on its lookup row.
 - ✅ **`src/realestate/places/curated.json`:** English names and aliases for ss.ge's areas, with Hermes's `AREA_ALIASES`, `AREA_GROUPS` (Dighomi, four places) and `AREA_NEAREST` (Zgvisubani, an owner neighbourhood) ported in. Production has 53 Tbilisi sub-districts, not the plan's 51.
@@ -152,11 +153,11 @@ Gates and evidence: STATUS, Phase 14B.
 - ❌ **`npm run places:official-report`** (per sub-district, its shares and split streets): deferred, not dropped. The overlaps are already in the view, and a report is worth reading once street points cover the busy streets, about four nights after the deploy.
 - ✅ **C6:** the view `realestate.public_places`; `scraplify_public` reads the view only. Documented in `docs/hermes-contracts.md`, with the two-maps rule and the meanings.
 - ⏳ **Hermes switches its item 3b (its H2 area words) to C6 and deletes its alias tables:** asked in the combined note at the deploy.
-- ⏳ **Exit checks on production** (after the deploy):
-  - 5 Tbilisi districts, 53 sub-districts and about 1,800 streets on ss.ge's map, with 10 official districts and 22 stations;
-  - lookups: "Vake" gives the neighbourhood with Vake District beside it, "Chavchavadze" its streets, "dighomi" its four places, and "Medical University" the station;
-  - Avlabari's row has Old Tbilisi as its parent and Isani as its official overlap;
-  - the first nightly run's journal says `ss.ge place catalogue refreshed`.
+- **Exit checks on production** (2026-11-08; numbers in STATUS's 14B gate):
+  - ✅ 5 Tbilisi districts, 51 sub-districts and 1,430 streets (613 with a point) on ss.ge's map, with 10 official districts and 22 stations. Streets grow as the walks reach more listings;
+  - ✅ lookups: "Vake" gives the neighbourhood first with Vake District beside it (after the fix), "Chavchavadze" its streets, "dighomi" its four places, and "Medical University" the station;
+  - ✅ Avlabari's row has Old Tbilisi as its parent and Isani as its official overlap;
+  - ⏳ the first nightly run's journal says `ss.ge place catalogue refreshed` (2026-11-09).
 
 ## 14C: location quality — ❌ not started
 

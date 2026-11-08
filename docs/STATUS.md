@@ -1,6 +1,6 @@
 # scraplify — implementation status
 
-Last updated: 2026-11-07 (Phase 14B, the official map and Hermes's place catalogue (C6), built and tested on branch `phase-14b-official-map`, not merged; before that, Phase 14A, keeping the places ss.ge already sends, merged as `5006a19` (PR #80) and live since 16:43 UTC, stored rows backfilled, the day's totals retaken as rules version 3; its morning-after checks open; 13D's first nightly totals taken. Before that: 2026-11-06, Phase 13D, daily real-estate totals (contract C3), merged as `3925192` (PR #78) and live since 17:55 UTC, first day taken, Hermes told. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
+Last updated: 2026-11-08 (Phase 14A's morning-after check passed; Phase 14B, the official map and Hermes's place catalogue (C6), merged as `f81599a` (PR #81) and live since 13:43 UTC, with two fixes found on the first night's data: street points their own listings' pins contradict are held back, and a bare name gives the busiest ss.ge area first (PR #82, live 13:52 UTC). Before that, 2026-11-07: Phase 14A, keeping the places ss.ge already sends, merged as `5006a19` (PR #80) and live since 16:43 UTC, stored rows backfilled, the day's totals retaken as rules version 3; its morning-after checks open; 13D's first nightly totals taken. Before that: 2026-11-06, Phase 13D, daily real-estate totals (contract C3), merged as `3925192` (PR #78) and live since 17:55 UTC, first day taken, Hermes told. Before that: Phase 13B, the real-estate filter builder for Hermes (contract C1), merged as `873ceec` (PR #77), Hermes told; ss.ge results-page retry waits live as `3ce5634`. Before that: 2026-11-05, Phase 13A, the real-estate archive, merged as `6e48865` (PR #75) and live the same evening; its first deletions come with the run starting 2026-11-09 21:30 UTC. Before that: Phase 12C live as `2bdca5a`: each kind's "more filters" panel; Phase 12B, listing details, deployed just before it as `db6c115`, its first run started by hand; 12A had read all 18 new lists whole. Before that: 2026-11-04, Phase 12A live as `8c6ad35`: every ss.ge kind and deal. Before that: live as `989013e`: Phase 11D folds look-alike real-estate listings; Phase 11 complete; before that `85dbdca`: the landing page names ss.ge and a guard incident clears itself after a healthy run; Phases 11B, 11C and 11E merged and live since `bb2bcc0`: the Real estate tab on the public site with 133,229 ss.ge listings, the nightly ss.ge crawl on the host; results pages get three tries on every job board; Phase 11A real-estate foundation merged; Phase 10B landing crawler live as 0cfbf86; Phase 10A smart search live since 754a636; Phase 9 live: 9A–9C plus the dedupe grant hotfix deployed as 9cf5065; etenders.ge runs daily).
 
 This file is the **current-state index**: what is done, what is open, and what gates were waived. The full build records, review rounds, per-phase narratives and incident write-ups are kept verbatim in [`archive/status-history.md`](archive/status-history.md); read that when you need the evidence behind a line here, and not otherwise (it is ~700 KB). Finished plans and handoff documents are in [`archive/`](archive/README.md). Update this file in the same commit as any work that changes phase or exit-gate status (CLAUDE.md), and keep new entries short.
 
@@ -13,11 +13,11 @@ Every open item, what it waits on, and when it is next touched. Times are UTC (T
 |---|---|---|---|
 | ✅ | 14A, keep the places ss.ge sends | — | live since 2026-11-07 16:43 |
 | ✅ | 14A's morning-after check: passed (the 14A gate has the numbers) | — | done 2026-11-08 13:40 |
-| ⏳ | 14B, official map, English names, Hermes's place catalogue C6: built, CI green, PR #81 | 14A's morning-after check | merge 2026-11-08; deploy after that day's run, 13:40–20:30 |
-| ⏳ | Hermes: one line at 14B's merge, then every ask in one note at its deploy, shown to the owner first | 14B's merge and deploy | 2026-11-08 |
-| ⏳ | 14B after deploy: the nightly run refreshes the catalogue; the plan's production checks | 14B deployed | 2026-11-09 |
+| ✅ | 14B, official map, English names, Hermes's place catalogue C6 | — | live since 2026-11-08 13:43; lookup-order fix live 13:52 |
+| ⏳ | Hermes: the merge line sent; every ask in one note, shown to the owner first | the owner's look at the note | 2026-11-08 |
+| ⏳ | 14B after deploy: the first nightly run refreshes the catalogue | the run starting 2026-11-08 21:30 | 2026-11-09 |
 | ⏳ | Owner: one look at the English names in `src/realestate/places/curated.json` | — | any time, not blocking |
-| ❌ | 14C, location quality | 14B merged; two nights of 14A data | code 2026-11-08; thresholds 2026-11-09; deploy 2026-11-10; recheck about 2026-11-14 |
+| ❌ | 14C, location quality: the first night's findings change its design (`PHASE_14_PLAN.md`, 14C) | two nights of 14A data | design and code from 2026-11-09; thresholds after that night; deploy 2026-11-10 or 11; recheck about 2026-11-14 |
 | ❌ | 14D, C1 v2 for Hermes | 14C live; Hermes's answer about 14D | from 2026-11-11 |
 | ❌ | `places:official-report` | about four nights of street points after 14B's deploy | about 2026-11-12 |
 | ❌ | C3's official-district level | a stable month of 14C | December |
@@ -34,7 +34,7 @@ Every open item, what it waits on, and when it is next touched. Times are UTC (T
 | ❌ | Backlog: 7B supervised repair; the 1C remainder | — | "Upcoming" at the end |
 <!-- board:end -->
 
-## Current phase: Phase 14 — where a listing is: ss.ge's places, Tbilisi's official map, location quality (14A live 2026-11-07, its morning-after checks open; 14B built on its branch, not merged; 14C–14D not started)
+## Current phase: Phase 14 — where a listing is: ss.ge's places, Tbilisi's official map, location quality (14A live 2026-11-07 and its morning-after check passed; 14B live 2026-11-08, its first nightly refresh and Hermes's note open; 14C–14D not started)
 
 Owner decisions 2026-11-06, so Hermes can tell flats apart down to the street and building, knows Tbilisi's official districts, uses metro distance, and never repeats a place the data contradicts:
 
@@ -134,7 +134,7 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
         - it has no point at all for some of the busiest (about 15% of Tbilisi listings).
       - **The deploy script's own check was wrong.** A running oneshot unit is `activating`, which `systemctl is-active --quiet` reports as not running. 14B's script now reads `ActiveState`.
     - [x] Hermes told (2026-11-07, session `hermes-5a`): 14A live, the new columns, what `district_inferred` means, C3 rules version 3, what stays private, and that it still waits for 14B–14D.
-- **Phase 14B, the official map and Hermes's place catalogue (C6), built on branch `phase-14b-official-map` (2026-11-07), not merged:** migration `0050`.
+- **Phase 14B, the official map and Hermes's place catalogue (C6), merged 2026-11-08 as `f81599a` (PR #81, CI green), deployed 2026-11-08 13:43 UTC; the lookup-order fix merged as `0d9f7bc` (PR #82) and live since 13:52 UTC (backup copied off the host, migration `0050` and grants applied and checked):** migration `0050`.
   - **The official map:** `src/realestate/places/tbilisi.json`, fetched once from OpenStreetMap by `scripts/fetch-osm-places.mjs` (ODbL, `docs/RIGHTS.md`, Map data).
     - Tbilisi's 10 districts, with borders simplified to about 10 m (54 KB).
     - The 22 metro stations, matched to ss.ge's station codes. Station Square's two halls are one station, as on ss.ge.
@@ -201,12 +201,17 @@ Hermes waits for 14B–14D and builds nothing on C1 v1's places (owner, 2026-11-
     - [x] Merged after 14A's morning-after check: 2026-11-08 13:42 UTC as `f81599a` (PR #81, CI green on `f81d4ee`). Hermes told in one line at the merge (session `hermes-f5`).
     - [x] The street-point check (part 6) rehearsed under the host's roles too: the worker ran it, and a second run wrote nothing.
   - **14B exit gate, after deploy (RUNBOOK §3 step 8, "The place catalogue on both maps"):**
-    - [ ] Deployed after 14A's morning-after check, with the catalogue filled by hand and the RUNBOOK's checks.
-    - [ ] The first nightly run's journal says `ss.ge place catalogue refreshed`.
-    - [ ] The plan's checks on production:
-      - 5 Tbilisi districts, 53 sub-districts and about 1,800 streets on ss.ge's map, with 10 official districts and 22 stations;
-      - lookups: "Vake" gives the neighbourhood with Vake District beside it, "Chavchavadze" its streets, "dighomi" its four places, and "Medical University" the station;
-      - Avlabari's row has Old Tbilisi as its parent and Isani as its official overlap.
+    - [x] Deployed 2026-11-08 by a checked script (13:42–13:43 UTC as `f81599a`), after the ss.ge run had ended (13:39 UTC) and before the job pipelines.
+      - Backup copied off the host; `0050` and grants applied. `places` and `public_places` are owned by `scraplify_migration`. The worker has SELECT, INSERT and UPDATE on `places`, never DELETE. `scraplify_public` reads `public_places` (21 columns), not `places`, and still `public_listings` (62).
+      - Both sites ready; health check `ok` on every source, the matching bundle and the ss.ge proxy.
+      - The catalogue, filled by hand: 10 official districts, 22 stations, 80 English names on ss.ge's places (113 in all), 545 streets with an official district, 68 street points held back as contradicted, and overlaps on 5 districts and 51 sub-districts.
+      - The script's lookup step was stale (it passed one key where the lookup now takes a JSON list), so it stopped after the catalogue. It was run by hand and found a village ranked first for "Vake".
+      - The fix (PR #82) was deployed 13:51–13:52 UTC as `0d9f7bc` by the same script, with the lookup step corrected. It now stops unless a bare "Vake" is the neighbourhood first. A second refresh wrote nothing.
+    - [ ] The first nightly run's journal says `ss.ge place catalogue refreshed` (the run starting 2026-11-08 21:30 UTC).
+    - [x] The plan's checks on production (2026-11-08):
+      - **ss.ge's Tbilisi:** 5 districts, 51 sub-districts and 1,430 streets, 613 with a point. Streets grow as the walks reach more listings; the plan's "about 1,800" was ss.ge's whole list. With them, 10 official districts and 22 stations.
+      - **Lookups:** "Vake" gives the neighbourhood first, with Vake District beside it; "Vake district" gives the official district; "Chavchavadze" gives its streets (after Kutaisi's Chavchavadze settlement, an area); "dighomi" gives its four places; "Medical University" gives the station; "Avlabari" gives the sub-district and the station.
+      - **Avlabari:** its row has Old Tbilisi as its parent and Isani as its official overlap (706 of 3,797 listings located, all in Isani).
     - [ ] Hermes told: C6 and the lookup are in `dist` on the host. It switches its item 3b to them and deletes its alias tables.
     - [ ] The owner's one look at the English names in `curated.json`. They are data, so they can be corrected any time.
 - **Phase 14C, location quality:** not started. Its thresholds are set from two nights of 14A's data, then rechecked after a week (plan change 2026-11-07: each night brings thousands of pins beside their street points, and a changed threshold re-judges every listing overnight; `PHASE_14_PLAN.md`, 14C).
