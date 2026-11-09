@@ -8,13 +8,13 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 
 **Marks:** ✅ done · ⏳ under way, or scheduled · ❌ not started · ↪ moved or dropped, with where it went. Times are UTC (Tbilisi is UTC+4).
 
-## Where it stands (2026-11-09 14:25 UTC)
+## Where it stands (2026-11-09 14:35 UTC)
 
 | Sub-phase | State | Waits on | Next |
 |---|---|---|---|
 | **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80); morning-after check passed 2026-11-08 | — | — |
 | **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82); first nightly refresh passed 2026-11-09 13:39 | — | — |
-| **14C** location quality | ⏳ built on its branch (c1–c7, 2026-11-08); calibrated on night 1 against OpenStreetMap's street lines, which changed four rules; grants rehearsed under the host's roles; confirmed on night 2 with no rule changed (2026-11-09); CI green on PR #83; the deploy script and Hermes's note ready | 13A's first-deletion check | merge PR #83 on 2026-11-09; deploy 2026-11-10 after 13:40 |
+| **14C** location quality | ⏳ merged 2026-11-09 as `3ab7077` (PR #83), not deployed; built c1–c7 on 2026-11-08; calibrated on night 1 against OpenStreetMap's street lines, which changed four rules; grants rehearsed under the host's roles; confirmed on night 2 with no rule changed (2026-11-09); the deploy script and Hermes's note ready | 13A's first-deletion check | deploy 2026-11-10 after 13:40 |
 | **14D** C1 v2 for Hermes | ❌ | 14C live; Hermes's answer about 14D | after 14C |
 
 ## What waits on what
@@ -24,7 +24,7 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 - **14B's deploy** waits on the merge and on the ss.ge run having ended (its unit inactive), inside 13:30–20:30.
 - **Hermes's combined note** waits on 14B being deployed and the catalogue filled. Its five asks are under "Docs and coordination".
 - **14B's after-deploy checks** wait on the first nightly run on 14B (starting 2026-11-08 21:30), whose journal should say `ss.ge place catalogue refreshed`.
-- **14C's code** waits on nothing. It is built on a branch stacked on 14B's.
+- **14C's code** is merged (`3ab7077`, 2026-11-09).
 - **14C's thresholds** were calibrated on the first night's data against OpenStreetMap's street lines (2026-11-08). The second night's run (ended 2026-11-09 13:39) confirmed them, with no rule changed.
 - **14C's deploy** waits on 14B being live, the thresholds being set, and 13A's first-deletion check (the run starting 2026-11-09 21:30), so two first runs never share a night. That makes it 2026-11-10, after that run ends. It also carries changes merged to `main` outside this plan:
   - the `/real-estate` page fix (PR #84);
@@ -218,7 +218,7 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
   - `public_places` with `official_source` appended.
 - ✅ **Riding along, from Hermes's 14D list** (built on the branch, `1c4803b`): (a) the city on every lookup row, three parents up (a recursive walk cost 400 ms a lookup; three joins nothing); (e) a second key with ჟ as "j" for names that have one, so "Vaja" finds ვაჟა. `PLACE_LOOKUP_VERSION` 2.
 - ⏳ **Docs:** ✅ the new columns in `docs/hermes-contracts.md` (C5's 14C section, C6), updated for the calibrated rules; ✅ RUNBOOK §3 step 8 "Location quality"; ✅ 14C's gates in STATUS; ⏳ `prod-status`'s "listing locations" check, written and tried on the trial copy, added at the deploy (its columns do not exist on production before).
-- **Order:** code and tests on a branch, 2026-11-08 ✅; calibration on the first night against OpenStreetMap, 2026-11-08 ✅; grants rehearsal on a copy of production, 2026-11-08 ✅; confirmation on the second night, 2026-11-09 ✅, then the merge ⏳; deploy on 2026-11-10 after 13A's first-deletion check ⏳.
+- **Order:** code and tests on a branch, 2026-11-08 ✅; calibration on the first night against OpenStreetMap, 2026-11-08 ✅; grants rehearsal on a copy of production, 2026-11-08 ✅; confirmation on the second night and the merge (`3ab7077`), 2026-11-09 ✅; deploy on 2026-11-10 after 13A's first-deletion check ⏳.
 
 ## 14D: Hermes's contracts — ❌ not started
 
@@ -265,7 +265,7 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
 14A's and 14B's are done and recorded in their STATUS gates.
 
 - ✅ **14C, before the merge** (recorded in STATUS's 14C gate): the unit and database tests, including every rule the calibration changed; planted faults, each turning a test red (the first build's set, and seven more for the calibrated rules); the trial on a copy of production; the grants rehearsal under the host's roles. Changed: the Teimurazi St known case turned out to be a pin exactly on the map's default that its poster may not have placed (the page is unread), so it is never used; it carries no metro claim and its street has no location, so it is placed by its sub-district.
-- ⏳ **14C, still owed:** the merge (2026-11-09; the second night's confirmation is done); the deploy script's checks (2026-11-10); the morning after (2026-11-11); the thresholds on a week of data (about 2026-11-14).
+- ⏳ **14C, still owed:** the deploy script's checks (2026-11-10); the morning after (2026-11-11); the thresholds on a week of data (about 2026-11-14).
 - **14D:** both maps on their own (an Avlabari listing matches district Old Tbilisi and official district Isani, each separately); C1 v2's cases in `filter-cases.json`; the v1 fallback.
 - **Before each deploy:** a live trial into a disposable `scraplify_qa_*` database from the owner's PC, the deploy script inside 13:30–20:30, and `prod-status` the next morning.
 

@@ -30,6 +30,9 @@ if git diff --cached --name-only | grep -qx 'docs/STATUS.md'; then
   staged=$(git diff --cached --name-only)
   for plan in docs/PHASE_*_PLAN.md; do
     [ -f "$plan" ] || continue
+    # A plan saved for later says "Not started." in its first lines; nothing
+    # in STATUS moves its items yet, so it is left out until it starts.
+    head -n 8 "$plan" | grep -q 'Not started\.' && continue
     if ! printf '%s\n' "$staged" | grep -qx "$plan"; then
       echo "pre-commit: reminder — docs/STATUS.md changed but $plan did not." >&2
       echo "  If this commit moves one of its items, mark it there too (CLAUDE.md, \"Tracking\")." >&2
