@@ -27,13 +27,48 @@ describe('realestate.public_listings', () => {
       'cadastral_code',
       'description',
       'details_wanted_at',
+      // Phase 14C: what the pin says, judged.
+      'pin_trusted',
+      'pin_street_m',
+      'pin_official_district_ref',
+      'metro_distance_m',
     ];
     expect(shown.filter((name) => privateOnes.includes(name))).toEqual([]);
   });
 
+  it('shows no distance worked out from the pin: two or three of them would give the pin back', async () => {
+    const { rows } = await db.execute<{ name: string; type: string }>(sql`
+      select column_name as name, udt_name as type
+        from information_schema.columns
+       where table_schema = 'realestate' and table_name = 'public_listings'
+    `);
+    expect(rows.filter((row) => /distance|_m$|_meters$/.test(row.name))).toEqual([]);
+    // The stations nearby are codes only, never a code-to-metres map.
+    expect(rows.find((row) => row.name === 'metro_nearby')?.type).toBe('_text');
+    expect(rows.filter((row) => row.type === 'jsonb').map((row) => row.name)).toEqual([]);
+  });
+
+  it('shows the location of Phase 14C, appended after every column it had before', async () => {
+    const shown = await columns();
+    expect(shown.slice(-11)).toEqual([
+      'official_district_ref',
+      'official_district_basis',
+      'location_precision',
+      'location_uncertain',
+      'location_flags',
+      'metro_station',
+      'metro_minutes',
+      'metro_basis',
+      'metro_nearby',
+      'building_key',
+      'location_rules',
+    ]);
+    expect(shown).toHaveLength(73);
+  });
+
   it('shows the places of Phase 14A, appended after every column it had before', async () => {
     const shown = await columns();
-    expect(shown.slice(-10)).toEqual([
+    expect(shown.slice(-21, -11)).toEqual([
       'street_ref',
       'house_number',
       'house_suffix',
@@ -81,6 +116,8 @@ describe('realestate.public_places', () => {
       'first_seen_at',
       'last_seen_at',
       'name_roman',
+      // Phase 14C (migration 0051): appended. Not the street's own location, which is private.
+      'official_source',
     ]);
   });
 });

@@ -7,7 +7,13 @@ import {
   realEstatePlaces,
 } from '../../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../../db/test-support.js';
-import { placeLookupSql, placeTextLookupSql, resolvePlaceText } from '../place-lookup.js';
+import {
+  nameKeys,
+  PLACE_LOOKUP_VERSION,
+  placeLookupSql,
+  placeTextLookupSql,
+  resolvePlaceText,
+} from '../place-lookup.js';
 import { recordStreetPoint, syncPlaces } from '../places.js';
 import { matchKeys, refreshPlaceCatalogue } from './catalogue.js';
 import { type CuratedPlaces, loadCuratedPlaces } from './curated.js';
@@ -280,33 +286,36 @@ describe('the place catalogue (Phase 14B)', () => {
     }
   });
 
-  it('gives no official district to a street whose own poster-placed pins contradict ss.ge’s point', async () => {
-    const sourceId = await newSource();
-    await city(sourceId);
-    const pinned = (latitude: string, longitude: string, pinManual: boolean) => ({
-      latitude,
-      longitude,
-      pinManual,
-    });
-    // Chavchavadze 501 (point in Vake): three poster pins agree on a spot 3.4 km away.
-    for (let i = 0; i < 3; i++) await listing(sourceId, pinned('41.725000', '44.730000', true));
+  const pinned = (latitude: string, longitude: string, pinManual = true) => ({
+    latitude,
+    longitude,
+    pinManual,
+  });
+
+  /** Poster-placed pins on four of `city`'s streets: agreeing with ss.ge, contradicting it, one position, and ss.ge's own. */
+  async function streetPins(sourceId: string) {
+    // Chavchavadze 501 (point in Vake): three poster pins agree on a spot in Saburtalo, 2.7 km away.
+    await listing(sourceId, pinned('41.729000', '44.745000'));
+    await listing(sourceId, pinned('41.729500', '44.745500'));
+    await listing(sourceId, pinned('41.730000', '44.746000'));
     // Vazha-Pshavela 507: three poster pins within 200 m of its point.
-    for (let i = 0; i < 3; i++) {
+    for (const longitude of ['44.762800', '44.763000', '44.763200']) {
       await listing(sourceId, {
         subdistrictRef: 3,
         subdistrictName: 'საბურთალო',
         streetRef: 507,
         streetName: 'ვაჟა-ფშაველას გამზ.',
-        ...pinned('41.725000', '44.763000', true),
+        ...pinned('41.725000', longitude),
       });
     }
-    // Chavchavadze 502: two far poster pins are too few to judge.
-    for (let i = 0; i < 2; i++) {
+    // Chavchavadze 502: one flat posted three times is one position, 4 km from ss.ge's
+    // point; a single poster's pin still beats ss.ge's point (location-rules.ts).
+    for (let i = 0; i < 3; i++) {
       await listing(sourceId, {
         subdistrictRef: 3,
         subdistrictName: 'საბურთალო',
         streetRef: 502,
-        ...pinned('41.700000', '44.800000', true),
+        ...pinned('41.700000', '44.800000'),
       });
     }
     // Abashidze 506: far pins that ss.ge set itself are no evidence.
@@ -317,25 +326,175 @@ describe('the place catalogue (Phase 14B)', () => {
         ...pinned('41.750000', '44.800000', false),
       });
     }
+  }
+
+  it('locates a street by its own poster-placed pins, and its official district from them', async () => {
+    const sourceId = await newSource();
+    await city(sourceId);
+    await streetPins(sourceId);
 
     const result = await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
-    expect(result.streetsDisputed).toBe(1);
+    expect(result).toMatchObject({ streetsByPins: 3, streetsDisputed: 2 });
+    // Chavchavadze 501: the pins' median, in Saburtalo; ss.ge's point in Vake is kept, unused.
     expect(await row(sourceId, 'street', 501)).toMatchObject({
-      officialDistrictRef: null,
-      officialBasis: null,
+      locatedLatitude: '41.729500',
+      locatedLongitude: '44.745500',
+      locatedBasis: 'pins',
+      locatedPins: 3,
+      officialDistrictRef: SABURTALO,
+      officialBasis: 'inside',
+      officialSource: 'pins',
+      latitude: '41.709720',
       pointStatus: 'known',
     });
-    expect(await row(sourceId, 'street', 507)).toMatchObject({ officialDistrictRef: SABURTALO });
-    expect(await row(sourceId, 'street', 502)).toMatchObject({ officialDistrictRef: SABURTALO });
+    expect(await row(sourceId, 'street', 507)).toMatchObject({
+      locatedBasis: 'pins',
+      locatedPins: 3,
+      officialDistrictRef: SABURTALO,
+      officialSource: 'pins',
+    });
+    // One position is enough, and its official district is the pin's, not ss.ge's point's.
+    expect(await row(sourceId, 'street', 502)).toMatchObject({
+      locatedLatitude: '41.700000',
+      locatedLongitude: '44.800000',
+      locatedBasis: 'pins',
+      locatedPins: 1,
+      officialDistrictRef: officialDistrictAt(map, 41.7, 44.8)?.district.ref,
+      officialSource: 'pins',
+      latitude: '41.723860',
+    });
+    expect(officialDistrictAt(map, 41.7, 44.8)?.district.ref).not.toBe(SABURTALO);
+    // Pins ss.ge set itself are no evidence: located by ss.ge's point.
     expect(await row(sourceId, 'street', 506)).toMatchObject({
+      locatedBasis: 'ss.ge',
       officialDistrictRef: VAKE,
       officialBasis: 'border',
+      officialSource: 'ss.ge',
     });
-    // Vake: the five listings on 501 are not located; the four on 506 are.
+    // No point and no pins: not located. Batumi: located, outside the official map.
+    expect(await row(sourceId, 'street', 503)).toMatchObject({
+      locatedLatitude: null,
+      locatedBasis: null,
+      officialDistrictRef: null,
+      officialSource: null,
+    });
+    expect(await row(sourceId, 'street', 601)).toMatchObject({
+      locatedBasis: 'ss.ge',
+      officialDistrictRef: null,
+      officialSource: null,
+    });
+    // Vake: its five listings on 501 now count in Saburtalo, its four on 506 in Vake.
     expect((await row(sourceId, 'subdistrict', 47))?.officialShares).toEqual({
       listings: 9,
-      located: 4,
-      by_district: { vake: 4 },
+      located: 9,
+      by_district: { saburtalo: 5, vake: 4 },
+    });
+  });
+
+  it('locates a street only by pins a poster placed, on show, nowhere near the map’s default, and in its city', async () => {
+    const sourceId = await newSource();
+    await city(sourceId);
+    const kavtaradze = {
+      subdistrictRef: 3,
+      subdistrictName: 'საბურთალო',
+      streetRef: 503,
+      streetName: 'ქავთარაძის ქ.',
+    };
+    const isani = {
+      districtRef: 5,
+      districtName: 'ძველი თბილისი',
+      subdistrictRef: 21,
+      subdistrictName: 'ავლაბარი',
+      streetRef: 504,
+      streetName: 'მეტეხის ქ.',
+    };
+    // Kavtaradze 503 (no point): three good pins, and each kind of bad one.
+    await listing(sourceId, { ...kavtaradze, ...pinned('41.729000', '44.745000') });
+    await listing(sourceId, { ...kavtaradze, ...pinned('41.729500', '44.745500') });
+    await listing(sourceId, { ...kavtaradze, ...pinned('41.730000', '44.746000') });
+    // The map’s default, about 17 m off it.
+    await listing(sourceId, { ...kavtaradze, ...pinned('41.693900', '44.801700') });
+    // The latitude as the longitude.
+    await listing(sourceId, { ...kavtaradze, ...pinned('41.788200', '41.788200') });
+    // One exact pin on three streets: an agency's default.
+    for (const street of [kavtaradze, isani, { streetRef: 506, streetName: 'აბაშიძის ქ.' }]) {
+      await listing(sourceId, { ...street, ...pinned('41.715000', '44.790000') });
+    }
+    // A listing no longer on show.
+    await listing(sourceId, {
+      ...kavtaradze,
+      ...pinned('41.800000', '44.700000'),
+      status: 'gone',
+      goneAt: NOW,
+    });
+    // Metekhi 504: two good pins 28 m apart, and the same bad ones, which move nothing.
+    await listing(sourceId, { ...isani, ...pinned('41.690000', '44.823000') });
+    await listing(sourceId, { ...isani, ...pinned('41.690200', '44.823200') });
+    await listing(sourceId, { ...isani, ...pinned('41.693850', '44.801450') });
+    await listing(sourceId, { ...isani, ...pinned('44.823000', '41.690000') });
+
+    await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+    expect(await row(sourceId, 'street', 503)).toMatchObject({
+      locatedLatitude: '41.729500',
+      locatedLongitude: '44.745500',
+      locatedBasis: 'pins',
+      locatedPins: 3,
+      officialDistrictRef: SABURTALO,
+      officialSource: 'pins',
+    });
+    expect(await row(sourceId, 'street', 504)).toMatchObject({
+      locatedLatitude: '41.690100',
+      locatedLongitude: '44.823100',
+      locatedBasis: 'pins',
+      locatedPins: 2,
+      officialDistrictRef: ISANI,
+      officialSource: 'pins',
+    });
+  });
+
+  it('keeps ss.ge’s point for a street whose pins disagree among themselves, unless every one of them contradicts it', async () => {
+    const sourceId = await newSource();
+    await city(sourceId);
+    // Metekhi 504 (point in Isani): one pin 20 m from the point, one 2.2 km north of it.
+    // Neither is near their midpoint, so the pins do not locate it; one agrees with ss.ge.
+    const isani = {
+      districtRef: 5,
+      districtName: 'ძველი თბილისი',
+      subdistrictRef: 21,
+      subdistrictName: 'ავლაბარი',
+      streetRef: 504,
+      streetName: 'მეტეხის ქ.',
+    };
+    await listing(sourceId, { ...isani, ...pinned('41.690100', '44.823500') });
+    await listing(sourceId, { ...isani, ...pinned('41.710000', '44.823500') });
+    // Vazha-Pshavela 507: two pins 3.7 km apart, and both over 1.5 km from ss.ge's point.
+    const vazha = {
+      subdistrictRef: 3,
+      subdistrictName: 'საბურთალო',
+      streetRef: 507,
+      streetName: 'ვაჟა-ფშაველას გამზ.',
+    };
+    await listing(sourceId, { ...vazha, ...pinned('41.740000', '44.760000') });
+    await listing(sourceId, { ...vazha, ...pinned('41.710000', '44.740000') });
+
+    const result = await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+    expect(result).toMatchObject({ streetsByPins: 0, streetsDisputed: 1 });
+    expect(await row(sourceId, 'street', 504)).toMatchObject({
+      locatedLatitude: '41.689960',
+      locatedLongitude: '44.823320',
+      locatedBasis: 'ss.ge',
+      locatedPins: 0,
+      officialDistrictRef: ISANI,
+      officialSource: 'ss.ge',
+    });
+    // Unknown, never a point its own listings all contradict.
+    expect(await row(sourceId, 'street', 507)).toMatchObject({
+      locatedLatitude: null,
+      locatedBasis: null,
+      officialDistrictRef: null,
+      officialSource: null,
+      latitude: '41.723860',
+      pointStatus: 'known',
     });
   });
 
@@ -386,6 +545,7 @@ describe('the place catalogue (Phase 14B)', () => {
   it('writes nothing when nothing changed', async () => {
     const sourceId = await newSource();
     await city(sourceId);
+    await streetPins(sourceId);
     await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
     const before = await rows(sourceId);
     const second = await refreshPlaceCatalogue(db, { sourceId, at: LATER, map, curated });
@@ -482,6 +642,41 @@ describe('the place catalogue (Phase 14B)', () => {
         'metro_station',
         'street',
       ]);
+    });
+
+    it('says which city every place is in, and reads "Vaja" as ვაჟა (Hermes’s 14D points a and e)', async () => {
+      const sourceId = await newSource();
+      await city(sourceId);
+      await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+      const cities = async (words: string) => {
+        const built = placeLookupSql(words, { limit: 500 });
+        if (built === null) return [];
+        const result = await pool.query(built.sql, built.params);
+        return result.rows
+          .filter((r) => r.source_id === sourceId && r.match === 'exact')
+          .map((r) => [r.level, r.ref, r.city_ref, r.city_name_ka, r.city_name_en]);
+      };
+      // A Batumi street says Batumi; Tbilisi's say Tbilisi, from a street, a
+      // station two levels down, an official district and the city itself.
+      expect(await cities('Gorgiladze')).toEqual([['street', 601, 96, 'ბათუმი', 'Batumi']]);
+      expect((await cities('Chavchavadze')).map((row) => row.slice(2))).toEqual([
+        [95, 'თბილისი', 'Tbilisi'],
+        [95, 'თბილისი', 'Tbilisi'],
+      ]);
+      expect((await cities('Medical University'))[0]?.slice(2)).toEqual([95, 'თბილისი', 'Tbilisi']);
+      expect((await cities('Vake district'))[0]?.slice(2)).toEqual([95, 'თბილისი', 'Tbilisi']);
+      expect(await cities('Tbilisi')).toContainEqual(['city', 95, 95, 'თბილისი', 'Tbilisi']);
+      // "Vaja" for ვაჟა finds what "Vazha" does; ჯ is not folded into ჟ for anyone else.
+      const vaja = (await lookup(sourceId, 'Vaja Pshavela')).filter((m) => m.match === 'exact');
+      expect(vaja.map((m) => [m.level, m.ref])).toEqual(
+        (await lookup(sourceId, 'Vazha-Pshavela'))
+          .filter((m) => m.match === 'exact')
+          .map((m) => [m.level, m.ref]),
+      );
+      expect(vaja.map((m) => m.level)).toEqual(['metro_station', 'street']);
+      expect(nameKeys('ვაჟა-ფშაველას გამზ.')).toEqual(['vaz psavel', 'vaj psavel']);
+      expect(nameKeys('ჯავახიშვილის ქ.')).toEqual(['javakisvil']);
+      expect(PLACE_LOOKUP_VERSION).toBe(2);
     });
 
     it('hands on psycopg placeholders with every literal % doubled, and refuses kind words alone', () => {

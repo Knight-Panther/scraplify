@@ -652,6 +652,22 @@ describe('listing expiry', () => {
         ssMetro: { zzprivatestation: 5 },
         pinManual: true,
         cadastralCode: '01.14.12.005.017',
+        // Phase 14C: the public judgement is kept; the pin's, and the metro distance, are not.
+        officialDistrictRef: 11300449,
+        officialDistrictBasis: 'pin',
+        locationPrecision: 'pin',
+        locationUncertain: true,
+        locationFlags: ['house_number_junk', 'district_inferred'],
+        metroStation: 'medical_uni',
+        metroMinutes: 15,
+        metroBasis: 'pin',
+        metroNearby: ['medical_uni', 'tech_uni'],
+        buildingKey: 'c619',
+        locationRules: 1,
+        pinTrusted: true,
+        pinStreetM: 86420,
+        pinOfficialDistrictRef: 11300446,
+        metroDistanceM: 97531,
         sourceCreatedAt: at(-90),
         sourceUpdatedAt: at(-40),
         firstSeenAt: at(-60),
@@ -715,6 +731,17 @@ describe('listing expiry', () => {
         complexName: 'Comfort Hills',
         developerRef: 344,
         developerName: 'Comfort Hills',
+        officialDistrictRef: 11300449,
+        officialDistrictBasis: 'pin',
+        locationPrecision: 'pin',
+        locationUncertain: true,
+        locationFlags: ['house_number_junk', 'district_inferred'],
+        metroStation: 'medical_uni',
+        metroMinutes: 15,
+        metroBasis: 'pin',
+        metroNearby: ['medical_uni', 'tech_uni'],
+        buildingKey: 'c619',
+        locationRules: 1,
       });
       expect(instant(row?.detailsReadAt)).toBe(instant(at(-30)));
       expect(instant(row?.sourceCreatedAt)).toBe(instant(at(-90)));
@@ -733,6 +760,11 @@ describe('listing expiry', () => {
         'ss_metro',
         'pin_manual',
         'cadastral_code',
+        // Phase 14C: what the pin says, judged, and its distance to the metro.
+        'pin_trusted',
+        'pin_street_m',
+        'pin_official_district_ref',
+        'metro_distance_m',
       ];
       const columns = Object.values(getTableColumns(realEstateArchiveListings)).map((c) => c.name);
       expect(columns.filter((name) => leftOut.includes(name))).toEqual([]);
@@ -746,6 +778,9 @@ describe('listing expiry', () => {
         'example.invalid',
         'zzprivatestation',
         '01.14.12.005.017',
+        '86420',
+        '97531',
+        '11300446',
       ]) {
         expect(copied).not.toContain(leaked);
       }

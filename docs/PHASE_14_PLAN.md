@@ -8,13 +8,13 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 
 **Marks:** ✅ done · ⏳ under way, or scheduled · ❌ not started · ↪ moved or dropped, with where it went. Times are UTC (Tbilisi is UTC+4).
 
-## Where it stands (2026-11-08 14:00 UTC)
+## Where it stands (2026-11-09 14:25 UTC)
 
 | Sub-phase | State | Waits on | Next |
 |---|---|---|---|
 | **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80); morning-after check passed 2026-11-08 | — | — |
-| **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82) | the first nightly refresh; the owner's look at Hermes's note | ⏳ the journal on 2026-11-09; the note to Hermes |
-| **14C** location quality | ❌ | two nights of 14A data; its design takes in the first night's findings (14C below) | design and code from 2026-11-09; deploy 2026-11-10 or 11 |
+| **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82); first nightly refresh passed 2026-11-09 13:39 | — | — |
+| **14C** location quality | ⏳ built on its branch (c1–c7, 2026-11-08); calibrated on night 1 against OpenStreetMap's street lines, which changed four rules; grants rehearsed under the host's roles; confirmed on night 2 with no rule changed (2026-11-09); CI green on PR #83; the deploy script and Hermes's note ready | 13A's first-deletion check | merge PR #83 on 2026-11-09; deploy 2026-11-10 after 13:40 |
 | **14D** C1 v2 for Hermes | ❌ | 14C live; Hermes's answer about 14D | after 14C |
 
 ## What waits on what
@@ -25,8 +25,11 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 - **Hermes's combined note** waits on 14B being deployed and the catalogue filled. Its five asks are under "Docs and coordination".
 - **14B's after-deploy checks** wait on the first nightly run on 14B (starting 2026-11-08 21:30), whose journal should say `ss.ge place catalogue refreshed`.
 - **14C's code** waits on nothing. It is built on a branch stacked on 14B's.
-- **14C's thresholds** wait on two nights of 14A data: pins with `pin_manual` beside their street points, and `ss_metro` claims. The second night's run ends about 2026-11-09 13:40.
-- **14C's deploy** waits on 14B being live, the thresholds being set, and 13A's first-deletion check (the run starting 2026-11-09 21:30), so two first runs never share a night. That makes it 2026-11-10, after that run ends.
+- **14C's thresholds** were calibrated on the first night's data against OpenStreetMap's street lines (2026-11-08). The second night's run (ended 2026-11-09 13:39) confirmed them, with no rule changed.
+- **14C's deploy** waits on 14B being live, the thresholds being set, and 13A's first-deletion check (the run starting 2026-11-09 21:30), so two first runs never share a night. That makes it 2026-11-10, after that run ends. It also carries changes merged to `main` outside this plan:
+  - the `/real-estate` page fix (PR #84);
+  - zstd backups under a 7 GB cap, and a `robots.txt` that turns AI-training and SEO crawlers away (PR #86). After the deploy, check the live `robots.txt`; the first zstd backup runs 2026-11-11 at 09:00 UTC.
+  - `www.jobster.fun`'s redirect (PR #85) is already live: the Caddyfile was installed by hand.
 - **14C's threshold recheck** waits on a week of 14A data, about 2026-11-14. A changed threshold re-judges every listing overnight with no churn, because the raw evidence is kept and nothing derived is hashed.
 - **14D's build** waits on 14C's columns, which its filters read, and on Hermes's answer about what C6 lacks for 14D.
 - **14D's merge** waits on Hermes reviewing C1 v2's exact shape, as it reviewed C6.
@@ -99,7 +102,7 @@ Kept because 14C calibrates against it.
 | Building / complex | page | `complex_ref/name`, `developer_ref/name`, `cadastral_code`; derived `building_key` | complex and developer yes; cadastral **no** | ✅ kept (14A); ❌ `building_key` (14C) |
 | Pin | page | Keep, with `pin_manual` and the pin's official district. | **no**, never archived | ✅ pin and `pin_manual` (14A); ↪ the pin's official district moved from 14B to 14C |
 | **Street point** | page, one per street id | On the street's catalogue row (0/0 → "none"). | yes: ss.ge's point for a street, not a home | ✅ read (14A); its official district (14B) |
-| **Metro** | results row and page, worked out from ss.ge's pin | Raw claims private (`ss_metro`); public, checked `metro_station`, `metro_minutes`, `metro_distance_m`, `metro_basis`, `metro_nearby`. | checked only | ✅ raw claims (14A); ❌ checked (14C) |
+| **Metro** | results row and page, worked out from ss.ge's pin | Raw claims private (`ss_metro`); public, checked `metro_station`, `metro_minutes`, `metro_basis`, `metro_nearby` (codes only); `metro_distance_m` private. | checked only, without the distance | ✅ raw claims (14A); ❌ checked (14C) |
 | Repost group | results row | as is | as is | ✅ |
 | Apartment no., map POIs, house.ge link, mortgage rates | — | ignore | — | — |
 
@@ -157,11 +160,11 @@ Gates and evidence: STATUS, Phase 14B.
   - ✅ 5 Tbilisi districts, 51 sub-districts and 1,430 streets (613 with a point) on ss.ge's map, with 10 official districts and 22 stations. Streets grow as the walks reach more listings;
   - ✅ lookups: "Vake" gives the neighbourhood first with Vake District beside it (after the fix), "Chavchavadze" its streets, "dighomi" its four places, and "Medical University" the station;
   - ✅ Avlabari's row has Old Tbilisi as its parent and Isani as its official overlap;
-  - ⏳ the first nightly run's journal says `ss.ge place catalogue refreshed` (2026-11-09).
+  - ✅ the first nightly run's journal says `ss.ge place catalogue refreshed` (2026-11-09 13:39: official 10, stations 22; the run completed).
 
-## 14C: location quality — ⏳ redesigned 2026-11-08, building
+## 14C: location quality — ⏳ built on its branch 2026-11-08, calibrated on night 1; night 2's check, merge and deploy next
 
-- ❌ **Calibrate first**, read-only on production.
+- ⏳ **Calibrate first**, read-only on production. Night 1 done against ground truth (below, "Calibrated against OpenStreetMap's street lines"); night 2 confirms.
   - Changed 2026-11-07: on two nights of 14A data, not a week, then rechecked at a week. Each night brings thousands of pins with `pin_manual` beside their street points (see "Production on 2026-11-07" above). A week adds coverage, not a different spread, and a threshold change re-judges overnight.
   - Starting values: pin to street point 1,000 m; pin to sub-district centre 3,000 m; placeholder (41.6938, 44.8015) ± 50 m, or one pin on 3 or more street ids; metro minute edges for 5/10/15/20.
   - Known cases: the recon's 31 hand-checked listings were not kept by id. 14C builds its known cases from production while calibrating, including a Teimurazi St listing pinned on Liberty Square.
@@ -180,36 +183,42 @@ Gates and evidence: STATUS, Phase 14B.
 
 Changed: the plan placed listings by ss.ge's street point, with the pin checked against it. The first night shows that point is missing for some of the busiest streets and wrong for about a quarter of the checkable ones, while a street's own poster-placed pins agree closely. So 14C locates each street first, then judges each pin against that.
 
-- ❌ **A street's location**, in the catalogue refresh (`src/realestate/places/catalogue.ts`):
-  - the median of its active listings' candidate pins when there are 3 or more (basis `pins`); a candidate is poster-placed, inside Tbilisi's box, not the placeholder and not broken (latitude = longitude, or outside Georgia);
+- ⏳ **A street's location**, in the catalogue refresh (`src/realestate/places/catalogue.ts`), built on the branch, tests next:
+  - the median of its active listings' candidate pins when they sit at 3 or more distinct positions (basis `pins`). Changed (trial, 2026-11-08): positions, not pins, and each position counts once in every median, because 106 of 297 streets "located by pins" were one flat reposted three times; a candidate is poster-placed, not the placeholder, not one exact pin shared by 3 or more streets, and within 30 km of its city's pin median (`src/realestate/location-rules.ts`). Changed: not "inside Tbilisi's box" or "latitude = longitude", which would wrongly reject Batumi (near 41.64, 41.63); the distance to the city's own median catches the swapped pins in every city;
   - otherwise ss.ge's point when the pins don't contradict it (basis `ss.ge`);
   - otherwise none.
   - It is kept privately on `places` (`located_latitude`, `located_longitude`, `located_basis`, `located_pins`), not in `public_places`, because a median of three pins can sit on one building.
   - The street's official district comes from this location, so Chavchavadze Ave and the namesake streets get one. `public_places` gains `official_source` (`ss.ge` or `pins`), appended. It supersedes today's rule that leaves a contradicted street unplaced.
-- ❌ **A trusted pin:** a candidate within X of its street's location (start 600 m, between the 75th and 90th percentile above). On a street with no location, within Y of its sub-district's pin median (start 3,000 m). Anything else is untrusted, and kept privately so a threshold change judges it again.
-- ❌ **`src/realestate/location.ts`, `refreshListingLocations(db, {sourceId})`.** Set-based SQL, plus point-in-district in TypeScript for trusted pins only, a few thousand. It writes only rows whose derived values differ. It runs once at the end of each run, after the catalogue and before the totals (`src/cli/run-ss-ge-crawl.ts`: regroup, places, catalogue, locations, totals). The first run goes by hand, in chunks. Per active listing:
-  - ❌ **official district and its basis:** trusted pin (`pin`) → its street's location (`street`) → a sub-district with at least 20 trusted pins, 95% of them in one district (`area`) → none. The pin's own district stays private;
-  - ❌ **`location_precision`:** none < municipality < city < district < subdistrict < street < house < pin. `house` is a located street plus a house number;
-  - ❌ **`location_uncertain` (public) and `location_flags`:** `pin_placeholder`, `pin_broken`, `pin_far_from_street`, `pin_far_from_area`, `metro_from_untrusted_pin`, `district_mismatch`, `house_number_junk`, `district_inferred`, `municipality_inferred`. When uncertain, precision comes from the street only, and the pin and ss.ge's metro claims are ignored;
-  - ❌ **metro, ours, from the best location:** trusted pin → building point (median trusted pin of one `building_key`) → street location. It gives the nearest station, `metro_distance_m` in a straight line (rounded to 50 m), `metro_minutes` on ss.ge's 5/10/15/20 scale with edges calibrated from ss.ge's own claims on trusted pins, `metro_basis` and `metro_nearby`. ss.ge's raw claims stay private and are used only for that calibration;
-  - ❌ **`building_key`:** `c<complex_ref>`, or `s<street_ref>-<number><suffix>`, for 13E;
-  - ❌ **the municipality** copied to a settlement's unread listings;
-  - ❌ **`pin_street_m`**, private.
-- ❌ **Calibrate after the second night** (the run ending 2026-11-09 about 13:40 UTC), read-only:
-  - X and Y;
-  - the sub-district rule's 20 pins and 95%;
-  - the placeholder and broken-pin rules;
-  - the metro edges.
-  - The chosen numbers go in STATUS and the constants' comments, with their evidence.
-- ❌ **`LOCATION_RULES_VERSION`**, exported for Hermes.
-- ❌ **Migration** (the next free number):
+  - Changed (calibration against OpenStreetMap, 2026-11-08 evening): from 1 distinct position, not 3, when the positions agree on their median (one position, or at least 2 within 600 m of it); else ss.ge's point, unless every position lies more than 1 km from it, and then none. See "Calibrated against OpenStreetMap's street lines" below.
+- ⏳ **A trusted pin** (built on the branch, `src/realestate/location-rules.ts`): a candidate within X of its street's location (start 600 m, between the 75th and 90th percentile above), or with at least 2 other distinct positions of the same street within X. Changed (trial, 2026-11-08): a street is a line, not a point. On Chavchavadze Ave 102 of 122 pins sat more than 600 m from the street's middle (median 1.1 km) along a 3 km avenue; 391 of 680 such pins had two positions of their street within 600 m. On a street with no location, within Y of its sub-district's pin median (start 3,000 m). Anything else is untrusted, and kept privately so a threshold change judges it again.
+  - Changed (calibration against OpenStreetMap, 2026-11-08 evening): judged against its street only when the street is located by pins, never against ss.ge's point; otherwise against its sub-district within 5 km. One neighbour position within 600 m, not two.
+- ⏳ **`src/realestate/location.ts`, `refreshListingLocations(db, {sourceId, map})`**, built on the branch with its tests; wired into the run and the by-hand `npm run places:ss-ge` (c4). Set-based SQL, one statement per sixteenth of the listings, plus TypeScript for the poster-placed pins only (4,161 of 303,134 active listings on 2026-11-08). It writes only rows whose derived values differ. It runs once at the end of each run, after the catalogue (`src/cli/run-ss-ge-crawl.ts`: regroup, places, totals, catalogue, locations). Changed: after the totals, not before them, because the totals read none of it yet; C3's official-district level will move them. The first run goes by hand with `npm run places:ss-ge`; it chunks itself (16 statements).
+  - **Trial on production's data (2026-11-08, read-only copy of 303,134 active listings into a throwaway database):** the first judgement wrote every listing in 8.6 s, a second run nothing in 2.8 s. 2,724 of 3,527 poster pins trusted; 652 far from their street (346 on streets located by pins, 306 where only ss.ge's point exists, which is wrong for about a quarter of streets); 710 listings uncertain. 191 streets located by pins. Official district: by street 43,269, by area 39,066, by pin 2,399; 148,605 Tbilisi listings have none until more streets have points or pins. Precision: sub-district 212,427, city 36,818, house 26,361, street 24,661, pin 2,724. Per active listing:
+  - ⏳ **official district and its basis:** trusted pin (`pin`) → its street's location (`street`) → a sub-district with at least 10 distinct trusted positions, 95% of them in one district (`area`; 20 before the calibration) → none. The pin's own district stays private;
+  - ⏳ **`location_precision`:** none < municipality < city < district < subdistrict < street < house < pin. `house` is a located street plus a house number, and `street` a located street: a street with no location places a listing no better than its sub-district;
+  - ⏳ **`location_uncertain` (public) and `location_flags`:** `pin_placeholder` (the map's default, or one pin on 3 or more streets), `pin_broken`, `pin_far_from_street`, `pin_far_from_area`, `metro_from_untrusted_pin` (ss.ge claims a metro and the pin has any of those flags), `house_number_junk` (a digit typed, no house number read: "ოთახი25"; a bare "0" is no number), `district_inferred`. Uncertain means one of `pin_far_from_street`, `pin_far_from_area` or `metro_from_untrusted_pin`: a default or broken pin alone is ignored, not a doubt. An untrusted pin is never used, so precision comes from the street.
+    - Changed: no `district_mismatch`. With streets located by their own pins, and pins trusted only within 600 m of them, a trusted pin in another district than its street is a street crossing a border, not an error. `municipality_inferred` waits with the municipality copy (below). A pin ss.ge set itself is not judged: never trusted, never flagged;
+  - ⏳ **metro, ours, from the best location:** trusted pin → building point (median trusted pin of one `building_key`) → street location. It gives the nearest station, `metro_minutes` on ss.ge's 5/10/15/20 scale (straight-line edges 325, 625, 1,000 and 1,325 m, fitted on the first night: ss.ge's band for 86% of 8,009 station-and-pin pairs, the same nearest station for 97.5% of 1,663 listings, its band within one step for 99%), `metro_basis`, and `metro_nearby` as station codes. ss.ge's raw claims stay private and are used only for that calibration.
+    - Changed (privacy review, 2026-11-08): `metro_distance_m` (straight line, rounded to 50 m) is private, not public or archived, and `metro_nearby` holds codes without distances. Exact distances to two or three stations would give back the pin, which is private. The public metro is now as coarse as what ss.ge itself shows on a listing. A test holds `public_listings` to no distance column and no JSON column;
+  - ⏳ **`building_key`:** `c<complex_ref>`, or `s<street_ref>-<number><suffix>`, for 13E;
+  - ❌ **the municipality** copied to a settlement's unread listings, with `municipality_inferred`. Changed: deferred, not in 14C's first deploy (123 listings; it needs the page field learned per settlement);
+  - ⏳ **`pin_street_m`**, private, with `pin_trusted`, `pin_official_district_ref` (for every candidate pin, trusted or not) and `metro_distance_m`.
+- ✅ **Calibrated against OpenStreetMap's street lines on night 1** (2026-11-08 evening; the trial's copy of production, read-only). Changed: the plan calibrated against the pins' own spread, which cannot say whether a pin or a point is right. OSM's line for each Tbilisi street of the same name is ground truth: Tbilisi's named ways fetched once from Overpass (13,255 ways; ODbL; a calibration aid, never shipped), matched by `nameKeys` with ss.ge's bracketed qualifiers dropped, 1,225 of 1,430 streets matched.
+  - **Pins are good, ss.ge's points are not.** Of 2,868 poster-placed Tbilisi pins, 87% lie within 100 m of their street's line and 5% more than 300 m off. ss.ge's point is more than 500 m off its street for 29% of streets, 38% of those with no pin. A street's single pin position is off for 8%, the median of 6 or more for 6%. Where ss.ge's point and one position were more than 500 m apart, the pin lay on the street 60 times, the point 4 times.
+  - **The first build mostly flagged good pins:** 85% of its `pin_far_from_street` pins lay on their street, judged against a wrong point or a long street's middle. And scattered positions gave a median near none of them (13 of 191 pin-located streets, 1,088 listings).
+  - **Four rules changed** (constants and evidence in `src/realestate/location-rules.ts`; `LOCATION_RULES_VERSION` stays 1, never deployed): a street is located by its pins from 1 position when they agree, and ss.ge's point is dropped when they all contradict it; a pin is never judged against ss.ge's point; one neighbour position vouches; the sub-district check is 5 km; a sub-district places its listings from 10 positions.
+  - **Measured on night 1, first build → now:** Tbilisi listings placed by a point on their street 82.0% → 88.7% (placed off it 5,623 → 3,426; not placed 7,403 → 6,524); official district against the street's own OSM line, right 18,007 → 19,711 and wrong 2,191 → 1,550 listings; uncertain listings 710 → 235; flagged pins that lay on their street 478 → 126, while trusted pins off their street went 72 → 105.
+  - Kept: X 600 m (1 km traded 12 more wrong pins for 32 fewer false alarms); the placeholder rules (one pin within 50 m of the map's default; the 27 exact positions shared by 2 streets are mostly one street under two ids, such as ბაგრატიონის ქ. and ბაგრატიონის ქუჩა, so 3 streets stays); the broken rule (no Tbilisi pin between 20 and 50 km of the city's median, 8 beyond); and the metro edges (the best fit again).
+- ✅ **Confirmed on the second night** (2026-11-09, read-only, 301,922 active listings and 7,124 poster pins): no rule changed. Placed by a point on their street 88.7% → 87.5%; wrong official district by street 8.7% → 7.8%, by listing 7.3% → 8.6%, the rise being one area name ss.ge files as a street (Lisi Lake, 363 → 1,294 listings); uncertain listings the same 5.6% of pins; the metro edges the best fit again. The full numbers are in STATUS. For the recheck: Lisi Lake, and streets with two pin positions.
+- ✅ **`LOCATION_RULES_VERSION`** (1), exported, and stored on each listing as `location_rules`; a listing under an older version is judged again.
+- ✅ **Migration `0051`**, on the branch, applied only to throwaway databases (regenerated after the privacy review):
   - listings' derived columns;
   - `places`' private street location;
   - `public_listings` and the archive with the public derived columns appended, `recently_gone` re-issued;
   - `public_places` with `official_source` appended.
-- ❌ **Riding along, from Hermes's 14D list:** (a) the city on every lookup row; (e) "Vaja" as a Latin spelling of ვაჟა. Both are small and additive to C6.
-- ❌ **Docs:** the new columns in `docs/hermes-contracts.md`, a RUNBOOK §3 step 8 entry, `prod-status`, and 14C's gates in STATUS.
-- **Order:** code and tests on a branch from 2026-11-08; calibration after the 2026-11-09 run; a live trial; deploy on 2026-11-10 or 11-11, after 13A's first-deletion check.
+- ✅ **Riding along, from Hermes's 14D list** (built on the branch, `1c4803b`): (a) the city on every lookup row, three parents up (a recursive walk cost 400 ms a lookup; three joins nothing); (e) a second key with ჟ as "j" for names that have one, so "Vaja" finds ვაჟა. `PLACE_LOOKUP_VERSION` 2.
+- ⏳ **Docs:** ✅ the new columns in `docs/hermes-contracts.md` (C5's 14C section, C6), updated for the calibrated rules; ✅ RUNBOOK §3 step 8 "Location quality"; ✅ 14C's gates in STATUS; ⏳ `prod-status`'s "listing locations" check, written and tried on the trial copy, added at the deploy (its columns do not exist on production before).
+- **Order:** code and tests on a branch, 2026-11-08 ✅; calibration on the first night against OpenStreetMap, 2026-11-08 ✅; grants rehearsal on a copy of production, 2026-11-08 ✅; confirmation on the second night, 2026-11-09 ✅, then the merge ⏳; deploy on 2026-11-10 after 13A's first-deletion check ⏳.
 
 ## 14D: Hermes's contracts — ❌ not started
 
@@ -236,27 +245,27 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
 ## Docs and coordination
 
 - ✅ After approval, Hermes was told that 14A only adds columns and how the district fill works (at 14A's deploy, session `hermes-5a`).
-- ✅ STATUS has a Phase 14 section with a gate per sub-phase: 14A's and 14B's are written; 14C and 14D get theirs when they start.
+- ✅ STATUS has a Phase 14 section with a gate per sub-phase: 14A's, 14B's and 14C's are written; 14D gets its own when it starts.
 - ✅ RUNBOOK §3 step 8: "Places" (14A) and "The place catalogue on both maps" (14B).
 - ✅ Guideline: `pageProps.locations` marked gone, and places in §8.2.
 - ✅ `docs/hermes-contracts.md`: C5's new columns and C6. ❌ C1 v2 (14D).
 - ✅ `docs/RIGHTS.md`: OpenStreetMap's credit (ODbL).
 - ✅ `prod-status`: places by level, known street points, and the catalogue.
 - ✅ 13D's first nightly totals checked after the 2026-11-07 run.
-- ⏳ **Hermes, for 14B** (owner, 2026-11-07: no piecemeal; the protocol's one line per event): one line at the merge; at the deploy, the notice and every ask in one message, shown to the owner first. The exact text waits in the session handoff until it is sent. The asks:
+- ✅ **Hermes, for 14B** (owner, 2026-11-07: no piecemeal; the protocol's one line per event): one line at the merge; at the deploy, the notice and every ask in one message, shown to the owner first. Sent 2026-11-08 (session `hermes-f5`), with the owner's approval. The asks:
   1. add C6 to PLAN.md's contracts table;
   2. send H2's area words through `placeTextLookupSql` and `resolvePlaceText`, then delete `AREA_ALIASES`, `AREA_GROUPS`, `AREA_NEAREST`, the N75 splitter and whatever of `_ROMAN`/`_LOOSE` is left unused;
   3. show `name_en`, else `name_roman`; word the two maps from the rows; credit OpenStreetMap;
   4. 14A's coverage numbers from the morning-after check;
   5. anything C6 lacks for 14D.
+- ⏳ **Hermes, for 14C,** the same way: one line at the merge (2026-11-09), and at the deploy (2026-11-10) one note on C5's 14C columns, C6 v2 and what stays private, shown to the owner first. Both are drafted and wait in the session handoff. No new asks.
 
 ## Verification still owed
 
 14A's and 14B's are done and recorded in their STATUS gates.
 
-- **14C, unit tests:** the flag and precision rules on the known cases (Teimurazi St pinned on Liberty Square: uncertain, precision from the street, metro from the street); the metro distance edges; placeholder pins.
-- **14C, database tests:** the refresh leaves the hashed columns, `content_hash`, `details_*` and `last_seen_at` identical (snapshot before and after); a second refresh writes 0 rows; a street point arriving later, then a re-sighting, gives `unchanged`; the archive keeps the new columns and view parity holds; the public role reads the new public columns and no private one.
-- **14C, planted faults** that must turn tests red: the refresh writing the district; archive columns out of order; a private column added to the view.
+- ✅ **14C, before the merge** (recorded in STATUS's 14C gate): the unit and database tests, including every rule the calibration changed; planted faults, each turning a test red (the first build's set, and seven more for the calibrated rules); the trial on a copy of production; the grants rehearsal under the host's roles. Changed: the Teimurazi St known case turned out to be a pin exactly on the map's default that its poster may not have placed (the page is unread), so it is never used; it carries no metro claim and its street has no location, so it is placed by its sub-district.
+- ⏳ **14C, still owed:** the merge (2026-11-09; the second night's confirmation is done); the deploy script's checks (2026-11-10); the morning after (2026-11-11); the thresholds on a week of data (about 2026-11-14).
 - **14D:** both maps on their own (an Avlabari listing matches district Old Tbilisi and official district Isani, each separately); C1 v2's cases in `filter-cases.json`; the v1 fallback.
 - **Before each deploy:** a live trial into a disposable `scraplify_qa_*` database from the owner's PC, the deploy script inside 13:30–20:30, and `prod-status` the next morning.
 

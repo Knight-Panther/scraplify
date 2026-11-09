@@ -138,6 +138,23 @@ export const realEstateArchiveListings = realEstateArchive.table(
     complexName: text('complex_name'),
     developerRef: integer('developer_ref'),
     developerName: text('developer_name'),
+    /*
+     * Phase 14C (migration 0051), in the order the migration adds them: the
+     * public location columns as worked out the night before the listing left.
+     * Not the pin's trust, its distance to the street or to the metro, or its
+     * official district (private).
+     */
+    officialDistrictRef: integer('official_district_ref'),
+    officialDistrictBasis: text('official_district_basis'),
+    locationPrecision: text('location_precision'),
+    locationUncertain: boolean('location_uncertain').notNull().default(false),
+    locationFlags: text('location_flags').array().notNull().default(sql`'{}'::text[]`),
+    metroStation: text('metro_station'),
+    metroMinutes: smallint('metro_minutes'),
+    metroBasis: text('metro_basis'),
+    metroNearby: text('metro_nearby').array(),
+    buildingKey: text('building_key'),
+    locationRules: smallint('location_rules'),
   },
   (table) => [
     index('archive_listings_source_key_idx').on(table.sourceId, table.sourceListingKey),
