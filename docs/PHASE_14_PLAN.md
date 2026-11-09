@@ -13,7 +13,7 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 | Sub-phase | State | Waits on | Next |
 |---|---|---|---|
 | **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80); morning-after check passed 2026-11-08 | — | — |
-| **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82) | the first nightly refresh; the owner's look at Hermes's note | ⏳ the journal on 2026-11-09; the note to Hermes |
+| **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82); first nightly refresh passed 2026-11-09 13:39 | — | — |
 | **14C** location quality | ⏳ built on its branch (c1–c7, 2026-11-08); calibrated on night 1 against OpenStreetMap's street lines, which changed four rules; grants rehearsed under the host's roles; CI green on PR #83; the deploy script and Hermes's note ready | the second night's data, to confirm; 13A's first-deletion check | confirm 2026-11-09 after 13:40; merge PR #83; deploy 2026-11-10 after 13:40 |
 | **14D** C1 v2 for Hermes | ❌ | 14C live; Hermes's answer about 14D | after 14C |
 
@@ -160,7 +160,7 @@ Gates and evidence: STATUS, Phase 14B.
   - ✅ 5 Tbilisi districts, 51 sub-districts and 1,430 streets (613 with a point) on ss.ge's map, with 10 official districts and 22 stations. Streets grow as the walks reach more listings;
   - ✅ lookups: "Vake" gives the neighbourhood first with Vake District beside it (after the fix), "Chavchavadze" its streets, "dighomi" its four places, and "Medical University" the station;
   - ✅ Avlabari's row has Old Tbilisi as its parent and Isani as its official overlap;
-  - ⏳ the first nightly run's journal says `ss.ge place catalogue refreshed` (2026-11-09).
+  - ✅ the first nightly run's journal says `ss.ge place catalogue refreshed` (2026-11-09 13:39: official 10, stations 22; the run completed).
 
 ## 14C: location quality — ⏳ built on its branch 2026-11-08, calibrated on night 1; night 2's check, merge and deploy next
 
