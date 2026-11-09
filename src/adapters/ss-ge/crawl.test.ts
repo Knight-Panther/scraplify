@@ -1240,7 +1240,7 @@ describe('listsDueForFullRead', () => {
 });
 
 describe('runSsGeCrawl, listings past their expected end', () => {
-  // Past the 45 days a listing no business posted lives (none of these rows names one).
+  // Well past the 30 days a listing is expected to live.
   const PAST_ITS_LIFE = 46 * DAY_MS;
   const first = SS_GE_LISTS[0] as SsGeList;
   const detailRequests = (site: FakeSite) =>
@@ -1251,7 +1251,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   }
 
   it('asks the page of each, extends the live, marks the expired gone and rechecks a blank page soon', async () => {
-    // Ordered 46 days ago and still listed: its 45 days of life have passed,
+    // Ordered 46 days ago and still listed: its expected life has passed,
     // and only the listing's page says what happens next.
     const site = new FakeSite({
       [first.key]: [...rows(1_000, 3, PAST_ITS_LIFE), ...rows(1_100, 1)],

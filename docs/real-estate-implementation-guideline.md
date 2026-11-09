@@ -292,7 +292,7 @@ A listing's own page says what its results row does not: building status, condit
 4. Unknown is never "no": a filter on a detail matches only rows whose page was read (Phase 12C), and wording the vocabularies do not hold is unknown.
 5. Coordinates are kept and not shown; they stay out of the public view.
 
-**Measured while building (2026-10-12, `src/adapters/ss-ge/RECON_NOTES.md`):** the first 90–95% of each list is in strict order of order time, down to about 29 days. Rent lists then end with listings 30–45 days old; sale lists end with a block of business listings in no date order, up to 943 days old. Thirteen listings older than 30 days were checked, and all were live with an end 45 days after their order time. Rule 3's ordering exists for these.
+**Measured while building (2026-10-12, `src/adapters/ss-ge/RECON_NOTES.md`):** the first 90–95% of each list is in strict order of order time, down to about 29 days. Rent lists then end with listings 30–45 days old; sale lists end with a block of business listings in no date order, up to 943 days old. Thirteen listings older than 30 days were checked, and all were live with an end 45 days after their order time. Rule 3's ordering exists for these. Those are owners' own listings; a broker's ends after 30 days, and a results row cannot tell the two apart. From 2026-10-15 to 2026-11-09 the parser expected 45 days where a row names no business, against rule 1, and brokers' dead listings stayed on the tab for up to 17 days; it expects 30 for every listing again (`RECON_NOTES.md`, "Corrected 2026-11-09").
 
 ---
 

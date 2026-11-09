@@ -66,10 +66,12 @@ describe('parseResultsPage', () => {
     });
   });
 
-  // The first pass checked about 960 listings past their 30 days: of those
-  // posted by no business, 890 had an end exactly 45 days after their order
-  // time (2026-10-15). No agency listing outlived 30 days.
-  it('expects 45 days of life for a listing no business posted, and 30 for a business one', () => {
+  // A row that names no business is a broker's about nine times in ten, and a
+  // broker's listing ends after 30 days; only an owner's own runs 45
+  // (2026-11-09). Expecting 45 for all of them kept a broker's dead listing
+  // on the tab for 17 days, so 30 is expected whoever posted it, and an
+  // owner's listing still listed after that gets its real end from its page.
+  it('expects 30 days of life whoever posted the listing', () => {
     const lifeDays = (card: { sourceUpdatedAt: string; expectedEndAt: string | null }) =>
       (Date.parse(card.expectedEndAt ?? '') - Date.parse(card.sourceUpdatedAt)) / 86_400_000;
     const developerPage = parseResultsPage(fixture('results-flats-sale-last-page.html'), {
@@ -77,12 +79,11 @@ describe('parseResultsPage', () => {
       page: 2596,
     });
     const cards = [...first.cards, ...developerPage.cards];
-    const byPoster = new Map(cards.map((card) => [card.posterType, lifeDays(card)]));
-    expect(byPoster.get('unknown')).toBe(45);
-    expect(byPoster.get('agent')).toBe(30);
-    expect(byPoster.get('developer')).toBe(30);
+    expect(new Set(cards.map((card) => card.posterType))).toEqual(
+      new Set(['unknown', 'agent', 'developer']),
+    );
     for (const card of cards) {
-      expect(lifeDays(card)).toBe(card.posterType === 'unknown' ? 45 : 30);
+      expect(lifeDays(card)).toBe(30);
     }
   });
 

@@ -8,16 +8,25 @@ export const RESULTS_PAGE_SIZE = 16;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /**
- * How long a listing lives after its order time unless it is renewed. A
- * business's ends after 30 days (8 of 8 checked on detail pages, 2026-10-12;
- * in the first pass no agency listing outlived 30). One no business posted
- * ends after 45: 890 of about 960 such listings checked past their 30 days in
- * the first pass had exactly that (2026-10-15). Long-running exceptions
- * exist; the nightly detail check corrects those.
+ * How long a listing is expected to live after its order time unless it is
+ * renewed: 30 days, whoever posted it.
+ *
+ * A broker's or an agency's ends after 30 days and an owner's own after 45
+ * (pages read when the listing was 16 to 29 days old, 2026-11-09: 5,677 of
+ * 5,976 brokers' had 30, 245 of 263 owners' had 45). A results row cannot
+ * tell them apart: it names a business or names nobody, and nobody is a
+ * broker about nine times in ten. So the shorter life is expected for all.
+ * An owner's listing still listed after its 30 days is the first one a run
+ * asks its page about (`loadListingsDueForCheck`), and the page gives the
+ * real end; a longer guess is corrected by nothing until it runs out.
+ *
+ * From 2026-10-15 to 2026-11-09 a row naming nobody was given 45 days, on
+ * 890 of about 960 such listings checked past their 30 days having exactly
+ * that. Only an owner's listing reaches that check alive. It kept brokers'
+ * dead listings on the tab for up to 17 days: of 30 such listings asked on
+ * 2026-11-09, 23 had expired on ss.ge.
  */
-function listingLifeMs(posterType: ListingCard['posterType']): number {
-  return (posterType === 'unknown' ? 45 : 30) * DAY_MS;
-}
+const LISTING_LIFE_MS = 30 * DAY_MS;
 
 /**
  * The site's own codes (guideline §4.3; the cottage code from 288 sampled
@@ -321,7 +330,7 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
       typeof similarity === 'number' || typeof similarity === 'string' ? String(similarity) : null,
     sourceUpdatedAt,
     sourceCreatedAt: tbilisiWallClockToIso(row.createDate),
-    expectedEndAt: new Date(Date.parse(sourceUpdatedAt) + listingLifeMs(poster)).toISOString(),
+    expectedEndAt: new Date(Date.parse(sourceUpdatedAt) + LISTING_LIFE_MS).toISOString(),
   };
 }
 
