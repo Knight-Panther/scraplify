@@ -66,6 +66,18 @@ Until the first full pass says more, the parser keeps 30 days for every listing:
 
 **Confirmed by the first pass (2026-10-15, 1,036 listing pages checked):** of about 960 listings no business posted, checked once past their 30 days, 890 had an end exactly 45 days after their order time and most of the rest 38 to 44; five had ended. No agency listing came due past 30 days, which fits the rent lists' tails holding no business listings. Developers' listings ran longer (63 to 65 days here), and a check extends a listing at most 30 days ahead, so they are looked at monthly whatever the parser expects. `list.ts` now expects 45 days for a listing with no `userInfo` and 30 for an agency's or a developer's.
 
+**Corrected 2026-11-09: 30 days for every listing again.** The owner found two flats on the tab that ss.ge had ended 16 days before. The first pass's sample was of listings checked past their 30 days, and only an owner's own listing reaches that check alive.
+
+- **Who gets which life:** of the pages read when the listing was 16 to 29 days old, 5,677 of 5,976 brokers' had an end 30 days after the order time, and 245 of 263 owners' had 45 (`userEntityType` on the page).
+- **What a results row says:** a business (`userInfo`) or nothing. Nothing covers brokers and owners alike, about nine brokers to one owner. So 45 days for "nothing" kept a broker's dead listing on the tab for up to 17 days: its 15 extra days and the two days of grace.
+- **Measured on ss.ge the same day**, 42 listing pages from the operator PC:
+  - both reported flats read `Expired`;
+  - of 30 random listings shown on the tab, with no business named, past their 30 days, never confirmed by their page and not listed since, 23 read `Expired` and 7 were live, each an owner's with 45 days. Of 285,946 shown listings 11,396 fitted that description, so about 8,800 dead listings were on the tab;
+  - of 10 random listings seen in the last two nights, 9 were live and 1 page was blank.
+- **Why the checks did not catch them:** a full read had flagged both flats as missing on 2026-11-01, but the queue takes the longest-lived first, about 10,000 pages a night, and 10,804 flagged listings were waiting. Of that night's 10,112 checks, 4,807 were of listings seen in the week before and flagged since, and 95% of those had ended: brokers' listings at their 30 days, which the right expected end hides with no request at all.
+- **The fix:** `LISTING_LIFE_MS` in `list.ts` is 30 days for all, as guideline §9.3 rule 1 always said. An owner's listing still listed after its 30 days is the first a run asks (`loadListingsDueForCheck`), and its page gives the real end. Migration `0052` gives the stored guesses the same end, leaving alone any end a page has confirmed since the last renewal and any listing seen after its 30 days. Rehearsed on that morning's copy of production: 160,587 rows in 8 seconds, 6,444 fewer shown, both flats off the tab with ss.ge's own end dates, and a second run touches nothing. Of the 30 sampled, the 9 the next run would give up as lapsed were all dead.
+- **Also found, not fixed here:** since Phase 12B went live no page has been read for its details alone. The checks come first and take the whole night, so 54,964 new or changed listings were waiting on 2026-11-09. The fix removes about half of a night's checks; see whether the queue drains with 12B's first-week numbers.
+
 ## Trial run (2026-10-12, from the development machine)
 
 `--mode=sweep --max-pages=25 --max-detail-checks=15` into a throwaway database:
