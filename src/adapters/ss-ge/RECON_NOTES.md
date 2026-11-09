@@ -76,6 +76,7 @@ Until the first full pass says more, the parser keeps 30 days for every listing:
   - of 10 random listings seen in the last two nights, 9 were live and 1 page was blank.
 - **Why the checks did not catch them:** a full read had flagged both flats as missing on 2026-11-01, but the queue takes the longest-lived first, about 10,000 pages a night, and 10,804 flagged listings were waiting. Of that night's 10,112 checks, 4,807 were of listings seen in the week before and flagged since, and 95% of those had ended: brokers' listings at their 30 days, which the right expected end hides with no request at all.
 - **The fix:** `LISTING_LIFE_MS` in `list.ts` is 30 days for all, as guideline §9.3 rule 1 always said. An owner's listing still listed after its 30 days is the first a run asks (`loadListingsDueForCheck`), and its page gives the real end. Migration `0052` gives the stored guesses the same end, leaving alone any end a page has confirmed since the last renewal and any listing seen after its 30 days. Rehearsed on that morning's copy of production: 160,587 rows in 8 seconds, 6,444 fewer shown, both flats off the tab with ss.ge's own end dates, and a second run touches nothing. Of the 30 sampled, the 9 the next run would give up as lapsed were all dead.
+- **The lesson:** an expected end is a guess that nothing corrects until it runs out, so it must be the shortest life any poster of that kind gets; the page lengthens it. And a lifetime measured on listings that were still alive when checked says nothing about the ones that had already ended.
 - **Also found, not fixed here:** since Phase 12B went live no page has been read for its details alone. The checks come first and take the whole night, so 54,964 new or changed listings were waiting on 2026-11-09. The fix removes about half of a night's checks; see whether the queue drains with 12B's first-week numbers.
 
 ## Trial run (2026-10-12, from the development machine)
@@ -152,3 +153,16 @@ A nightly run into a disposable database with `--max-pages=60 --stop-after-hours
 - How many listings a night reach their expected end without being seen again, and what share of those is still live. That decides whether 1,000 checks a night is enough.
 - Whether an edit always moves a listing's `orderDate`.
 - Other end states than `Active` and `Expired`.
+
+## Measuring dead listings on the tab
+
+When someone finds a listing on the tab that ss.ge has ended, measure before changing a rule. It took 42 requests on 2026-11-09.
+
+1. **Read the listing's row** on the host (read-only, as `scraplify_backup`): `source_updated_at`, `expected_end_at`, `last_seen_at`, `verified_at`, `missed_at`, `poster_type`. A row seen once, never verified, flagged missed and close to its expected end is the 2026-11-09 case.
+2. **Draw two random samples** of shown listings, by `order by md5(source_listing_key || '<any salt>') limit 30`. "Shown" is `status = 'active'` and the later of `expected_end_at` and `last_seen_at` within two days (`src/realestate/filters.ts`).
+   - Suspects: the pattern the reported listing fits. On 2026-11-09: `poster_type = 'unknown'`, `verified_at is null`, `source_updated_at + interval '30 days' < now()` and `last_seen_at < source_updated_at + interval '30 days'`.
+   - Control: `last_seen_at > now() - interval '2 days'`.
+3. **Ask ss.ge** from the operator PC: `npm run build`, then `node scripts/ss-ge-ask-listings.mjs suspect=<ids> control=<ids>`. It uses the crawler's fetcher, spacing and parser, and writes nothing.
+4. **Size it:** the dead share of the suspects times how many shown listings fit the pattern.
+
+Two numbers to watch after any change to the expiry rules: how many flagged listings wait for a check (`missed_at is not null`, 10,804 on 2026-11-09), and how many pages wait to be read for their details (`details_wanted_at is not null and details_read_at is null`, 54,964).
