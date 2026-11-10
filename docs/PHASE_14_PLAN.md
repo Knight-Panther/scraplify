@@ -260,14 +260,14 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
   3. show `name_en`, else `name_roman`; word the two maps from the rows; credit OpenStreetMap;
   4. 14A's coverage numbers from the morning-after check;
   5. anything C6 lacks for 14D.
-- ⏳ **Hermes, for 14C,** the same way: one line at the merge (2026-11-09 ✅), and at the deploy (2026-11-10) one note on C5's 14C columns, C6 v2 and what stays private, shown to the owner first: filled from the deploy log, with the end-date correction and the page-fault fix as items 6 and 7. Both are drafted and wait in the session handoff. No new asks.
+- ✅ **Hermes, for 14C,** the same way: one line at the merge (2026-11-09 ✅), and at the deploy one note on C5's 14C columns, C6 v2 and what stays private, with the end-date correction and the page-fault fix as items 6 and 7: approved by the owner and sent 2026-11-10 16:00 UTC (session `hermes-83`). Both are drafted and wait in the session handoff. No new asks.
 
 ## Verification still owed
 
 14A's and 14B's are done and recorded in their STATUS gates.
 
 - ✅ **14C, before the merge** (recorded in STATUS's 14C gate): the unit and database tests, including every rule the calibration changed; planted faults, each turning a test red (the first build's set, and seven more for the calibrated rules); the trial on a copy of production; the grants rehearsal under the host's roles. Changed: the Teimurazi St known case turned out to be a pin exactly on the map's default that its poster may not have placed (the page is unread), so it is never used; it carries no metro claim and its street has no location, so it is placed by its sub-district.
-- ⏳ **14C, still owed:** the deploy script's checks (2026-11-10 ✅); the morning after (2026-11-11); the thresholds on a week of data (about 2026-11-14).
+- ⏳ **14C, still owed:** the deploy script's checks (2026-11-10 ✅); the morning after ✅ (Changed: checked the same evening on a short run started by hand, 170 listings written in 11 s; owner, 2026-11-10: do what is clocked now); the thresholds on a week of data (about 2026-11-14), which needs the week.
 - **14D:** both maps on their own (an Avlabari listing matches district Old Tbilisi and official district Isani, each separately); C1 v2's cases in `filter-cases.json`; the v1 fallback.
 - **Before each deploy:** a live trial into a disposable `scraplify_qa_*` database from the owner's PC, the deploy script inside 13:30–20:30, and `prod-status` the next morning.
 
