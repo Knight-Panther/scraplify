@@ -46,10 +46,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * were gone (27 of 30 agents' listings, 24 of 30 naming no business), and the
  * end we expect was the site's own to the second for 18 of 18 still running.
  * The grace showed about five dead listings for each live one it kept. A
- * listing that outlives its expected end (an owner's 45 days, a renewal not
- * yet seen) is back once the night's checks read its page or a list shows it
- * renewed. With no grace the last sighting no longer extends anything; the
- * condition keeps its shape, which is also what Hermes is handed (C1).
+ * listing that outlives its expected end (an owner's 45 days) stays on show
+ * while its list still shows it: each night's read of the list's end moves
+ * its expected end on (`upsertListing`, `SEEN_PAST_END_HOURS`). Here the last
+ * sighting extends nothing by itself; the condition keeps its shape, which is
+ * also what Hermes is handed (C1).
  */
 export const SHOWN_GRACE_DAYS = 0;
 /** The top choice of each count on ss.ge's panels, meaning that many or more. */

@@ -4,7 +4,7 @@ import { db } from '../db/client.js';
 import { realEstateListings, realEstatePriceChanges } from '../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import { type ListingDetails, recordListingDetails } from './details.js';
-import { type ListingCard, upsertListing } from './ingest.js';
+import { type ListingCard, SEEN_PAST_END_HOURS, upsertListing } from './ingest.js';
 
 const FIRST_SEEN = '2026-10-12T02:00:00.000Z';
 const SEEN_AGAIN = '2026-10-13T02:00:00.000Z';
@@ -52,6 +52,7 @@ function card(overrides: Partial<ListingCard> = {}): ListingCard {
     sourceUpdatedAt: '2026-10-11T12:00:00.000Z',
     sourceCreatedAt: '2026-10-01T09:00:00.000Z',
     expectedEndAt: '2026-11-10T12:00:00.000Z',
+    latestEndAt: null,
     ...overrides,
   };
 }
@@ -476,6 +477,128 @@ describe('upsertListing', () => {
     expect(outcome).toBe('reopened');
     const [row] = await rowsOf(sourceId);
     expect(row).toMatchObject({ status: 'active', goneAt: null, goneReason: null });
+  });
+
+  describe('a listing its list still shows past its expected end', () => {
+    // The card's order time is 2026-10-11 12:00, so its 30 days end on 11-10.
+    const HOUR_MS = 60 * 60 * 1000;
+    const PAST_ITS_END = '2026-11-12T02:00:00.000Z';
+    const NEXT_NIGHT = '2026-11-13T02:00:00.000Z';
+    /** An owner's 45 days, which the parser names where a row names no business. */
+    const LATEST_END = '2026-11-25T12:00:00.000Z';
+    const sixtyHoursAfter = (seenAt: string) => Date.parse(seenAt) + SEEN_PAST_END_HOURS * HOUR_MS;
+
+    it('stays on show for sixty hours after the sighting, and each sighting renews that', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+
+      const outcome = await upsertListing(db, { sourceId, card: card(), seenAt: PAST_ITS_END });
+
+      expect(SEEN_PAST_END_HOURS).toBe(60);
+      expect(outcome).toBe('unchanged');
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(
+        sixtyHoursAfter(PAST_ITS_END),
+      );
+
+      await upsertListing(db, { sourceId, card: card(), seenAt: NEXT_NIGHT });
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(sixtyHoursAfter(NEXT_NIGHT));
+    });
+
+    it('is left alone while it is within its expected life', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+
+      await upsertListing(db, { sourceId, card: card(), seenAt: '2026-11-09T02:00:00.000Z' });
+
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(
+        instant('2026-11-10T12:00:00.000Z'),
+      );
+    });
+
+    it('is never shown past the latest end its parser names, while that is ahead', async () => {
+      const sourceId = await newSource();
+      const owners = card({ posterType: 'unknown', latestEndAt: LATEST_END });
+      await upsertListing(db, { sourceId, card: owners, seenAt: FIRST_SEEN });
+
+      // Thirteen days before that end: the sixty hours are the nearer.
+      await upsertListing(db, { sourceId, card: owners, seenAt: PAST_ITS_END });
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(
+        sixtyHoursAfter(PAST_ITS_END),
+      );
+
+      // A day and a half before it: the end itself.
+      await upsertListing(db, { sourceId, card: owners, seenAt: '2026-11-24T02:00:00.000Z' });
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(instant(LATEST_END));
+    });
+
+    it('counts by the sighting alone once that latest end has passed too', async () => {
+      const sourceId = await newSource();
+      const owners = card({ posterType: 'unknown', latestEndAt: LATEST_END });
+      await upsertListing(db, { sourceId, card: owners, seenAt: FIRST_SEEN });
+      const stillListed = '2026-11-27T02:00:00.000Z';
+
+      await upsertListing(db, { sourceId, card: owners, seenAt: stillListed });
+
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(
+        sixtyHoursAfter(stillListed),
+      );
+    });
+
+    it('keeps the end its own page gave since it was ordered, while that is ahead', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+      // Its page, read on 11-11, said it runs to 11-13 12:00: nearer than sixty hours on.
+      const pageEnd = '2026-11-13T12:00:00.000Z';
+      await db
+        .update(realEstateListings)
+        .set({ expectedEndAt: pageEnd, verifiedAt: '2026-11-11T02:00:00.000Z' })
+        .where(eq(realEstateListings.sourceId, sourceId));
+
+      await upsertListing(db, { sourceId, card: card(), seenAt: PAST_ITS_END });
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(instant(pageEnd));
+
+      // Listed after that end as well: the page no longer holds, the sighting does.
+      const later = '2026-11-14T02:00:00.000Z';
+      await upsertListing(db, { sourceId, card: card(), seenAt: later });
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(sixtyHoursAfter(later));
+    });
+
+    it('does not take an end a page gave before the listing was renewed for confirmed', async () => {
+      const sourceId = await newSource();
+      await upsertListing(db, { sourceId, card: card(), seenAt: FIRST_SEEN });
+      // Read on 10-05, before the order time of 10-11: it says nothing about this run of the listing.
+      await db
+        .update(realEstateListings)
+        .set({ expectedEndAt: '2026-11-13T12:00:00.000Z', verifiedAt: '2026-10-05T02:00:00.000Z' })
+        .where(eq(realEstateListings.sourceId, sourceId));
+
+      await upsertListing(db, { sourceId, card: card(), seenAt: PAST_ITS_END });
+
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(
+        sixtyHoursAfter(PAST_ITS_END),
+      );
+    });
+
+    it('holds for a listing first seen that way, and for one renewed and already past its end again', async () => {
+      const sourceId = await newSource();
+
+      await upsertListing(db, { sourceId, card: card(), seenAt: PAST_ITS_END });
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(
+        sixtyHoursAfter(PAST_ITS_END),
+      );
+
+      // Renewed on 10-12, seen only on 11-13: a bump, and its new 30 days are over as well.
+      const outcome = await upsertListing(db, {
+        sourceId,
+        card: card({
+          sourceUpdatedAt: '2026-10-12T20:00:00.000Z',
+          expectedEndAt: '2026-11-11T20:00:00.000Z',
+        }),
+        seenAt: NEXT_NIGHT,
+      });
+      expect(outcome).toBe('bumped');
+      expect(instant((await rowsOf(sourceId))[0]?.expectedEndAt)).toBe(sixtyHoursAfter(NEXT_NIGHT));
+    });
   });
 
   it('is undone by the ordinary test-source cleanup, price changes included', async () => {

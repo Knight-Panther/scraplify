@@ -61,6 +61,58 @@ export interface ListingCard {
   sourceUpdatedAt: string;
   sourceCreatedAt: string | null;
   expectedEndAt: string | null;
+  /**
+   * The latest the source ends it unless it is renewed, where the parser can
+   * say (ss.ge: an owner's 45 days, for a row naming no business). It bounds
+   * how long a sighting past `expectedEndAt` keeps the listing on show
+   * (`endAfterSighting`). Null where nothing is known.
+   */
+  latestEndAt: string | null;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+/**
+ * How long a listing stays on show after a list showed it past its expected
+ * end: two and a half days, so a nightly read renews it and one night that
+ * fails does not hide it (the hour a list is reached moves by some hours from
+ * night to night). Gone from its list, it leaves the tab that much later at
+ * the latest.
+ */
+export const SEEN_PAST_END_HOURS = 60;
+
+/**
+ * The expected end to keep after one sighting on a list.
+ *
+ * Within its expected life (`card.expectedEndAt`) a sighting says nothing new
+ * and `stored` stands. Past it, the source still listing it is the evidence
+ * that it runs longer (an owner's 45 days where a broker's are 30, a business
+ * listing kept for years), and the only one a results row gives: it stays on
+ * show for `SEEN_PAST_END_HOURS` from the sighting, and never past
+ * `card.latestEndAt` while that is ahead. An end the listing's own page gave
+ * since it was last ordered is believed over that for as long as it is ahead.
+ * No sighting moves an end back.
+ */
+function endAfterSighting(input: {
+  card: Pick<ListingCard, 'sourceUpdatedAt' | 'expectedEndAt' | 'latestEndAt'>;
+  seenAt: string;
+  /** The end the row would keep otherwise. */
+  stored: string | null;
+  /** When the listing's own page last confirmed it live, if ever. */
+  verifiedAt: string | null;
+}): string | null {
+  const { card, seenAt, stored, verifiedAt } = input;
+  const seenMs = Date.parse(seenAt);
+  if (card.expectedEndAt === null || Date.parse(card.expectedEndAt) > seenMs) return stored;
+
+  const storedMs = stored === null ? Number.NEGATIVE_INFINITY : Date.parse(stored);
+  const confirmed =
+    verifiedAt !== null && Date.parse(verifiedAt) > Date.parse(card.sourceUpdatedAt);
+  if (confirmed && storedMs > seenMs) return stored;
+
+  let endMs = seenMs + SEEN_PAST_END_HOURS * HOUR_MS;
+  const latestMs = card.latestEndAt === null ? Number.NaN : Date.parse(card.latestEndAt);
+  if (latestMs > seenMs) endMs = Math.min(endMs, latestMs);
+  return endMs > storedMs ? new Date(endMs).toISOString() : stored;
 }
 
 /** A listing's price as a source states it, in both currencies and the one it was posted in. */
@@ -116,6 +168,7 @@ type MeaningfulFields = Omit<
   | 'sourceUpdatedAt'
   | 'sourceCreatedAt'
   | 'expectedEndAt'
+  | 'latestEndAt'
   // Phase 14A: kept current on every sighting, never a change (`rowExtrasOf`).
   | 'streetRef'
   | 'ssMetro'
@@ -258,6 +311,7 @@ export async function upsertListing(
         status: realEstateListings.status,
         sourceUpdatedAt: realEstateListings.sourceUpdatedAt,
         expectedEndAt: realEstateListings.expectedEndAt,
+        verifiedAt: realEstateListings.verifiedAt,
         dealType: realEstateListings.dealType,
         propertyType: realEstateListings.propertyType,
         rooms: realEstateListings.rooms,
@@ -299,7 +353,12 @@ export async function upsertListing(
         ...columnsOf(card, contentHash, filled.inferred),
         sourceUpdatedAt: card.sourceUpdatedAt,
         sourceCreatedAt: card.sourceCreatedAt,
-        expectedEndAt: card.expectedEndAt,
+        expectedEndAt: endAfterSighting({
+          card,
+          seenAt,
+          stored: card.expectedEndAt,
+          verifiedAt: null,
+        }),
         firstSeenAt: seenAt,
         lastSeenAt: seenAt,
         // Its own page is read once, from Phase 12B on (src/realestate/details.ts).
@@ -308,7 +367,7 @@ export async function upsertListing(
       return 'new';
     }
 
-    const { detailsReadAt, districtInferred, ...comparable } = existing;
+    const { detailsReadAt, districtInferred, verifiedAt, ...comparable } = existing;
     // The stored row filled by tonight's tree exactly as the row was, a
     // district filled in before taken out first: a sub-district moved to
     // another district, the source stating the district itself, or a legacy
@@ -334,6 +393,14 @@ export async function upsertListing(
     // written under an older definition of it are judged the same way.
     const contentChanged = listingContentHash(stored) !== contentHash;
     const bumped = Date.parse(card.sourceUpdatedAt) > Date.parse(existing.sourceUpdatedAt);
+    // A page read out of order must not move the listing back in time.
+    const sourceUpdatedAt = bumped ? card.sourceUpdatedAt : existing.sourceUpdatedAt;
+    const expectedEndAt = endAfterSighting({
+      card: { ...card, sourceUpdatedAt },
+      seenAt,
+      stored: bumped ? card.expectedEndAt : existing.expectedEndAt,
+      verifiedAt,
+    });
 
     if (!reopened && !contentChanged && !bumped) {
       const converted =
@@ -351,6 +418,7 @@ export async function upsertListing(
         .set({
           lastSeenAt: seenAt,
           missedAt: null,
+          expectedEndAt,
           ...rowExtrasOf(card),
           // The district as tonight's tree fills it, which compared the same.
           ...(parents === undefined
@@ -383,9 +451,8 @@ export async function upsertListing(
       .update(realEstateListings)
       .set({
         ...columnsOf(card, contentHash, filled.inferred),
-        // A page read out of order must not move the listing back in time.
-        sourceUpdatedAt: bumped ? card.sourceUpdatedAt : existing.sourceUpdatedAt,
-        expectedEndAt: bumped ? card.expectedEndAt : existing.expectedEndAt,
+        sourceUpdatedAt,
+        expectedEndAt,
         ...(card.sourceCreatedAt === null ? {} : { sourceCreatedAt: card.sourceCreatedAt }),
         lastSeenAt: seenAt,
         missedAt: null,

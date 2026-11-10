@@ -48,6 +48,7 @@ function card(priceUsd: number) {
     sourceUpdatedAt: '2026-10-11T12:00:00.000Z',
     sourceCreatedAt: null,
     expectedEndAt: null,
+    latestEndAt: null,
   };
 }
 

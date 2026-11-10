@@ -87,6 +87,25 @@ describe('parseResultsPage', () => {
     }
   });
 
+  // What a row seen on its list past those 30 days can still be: an owner's
+  // own, which ss.ge ends 45 days after its order time (of 52 live rows asked
+  // from the ends of three lists on 2026-11-10, 48 had exactly that and the
+  // other four less). A business's row has no such bound.
+  it('names 45 days as the latest end of a row naming no business, and none for a business', () => {
+    const developerPage = parseResultsPage(fixture('results-flats-sale-last-page.html'), {
+      ...FLATS_FOR_SALE,
+      page: 2596,
+    });
+    const cards = [...first.cards, ...developerPage.cards];
+    for (const card of cards) {
+      const latestDays =
+        card.latestEndAt === null
+          ? null
+          : (Date.parse(card.latestEndAt) - Date.parse(card.sourceUpdatedAt)) / 86_400_000;
+      expect(latestDays, card.posterType).toBe(card.posterType === 'unknown' ? 45 : null);
+    }
+  });
+
   it('calls a poster an agent only where the row says so, and never guesses an owner', () => {
     expect(first.cards[0]?.posterType).toBe('agent');
     expect(first.cards[1]?.posterType).toBe('unknown');

@@ -159,6 +159,15 @@ const MAX_PAGE_FAULTS_IN_A_ROW = 2;
  */
 const MAX_FAULTED_LISTS = 3;
 /**
+ * How much of a list a read of its end takes at most (`readListTail`): a
+ * quarter of its pages, and twenty for a short list. The rows past their 30
+ * days were the last 2 to 8% of the lists probed on 2026-11-10; a read still
+ * among them this far back is not on a list ordered that way, and says so in
+ * the run's notes instead of walking the whole list backwards.
+ */
+const TAIL_MAX_SHARE = 0.25;
+const TAIL_MIN_PAGES = 20;
+/**
  * A nightly run reads back to the last completed run's start and this much
  * further: listings renewed while that run was still walking sit just behind
  * where it began.
@@ -207,6 +216,8 @@ export interface SsGeListProgress {
   oldestSeenAt?: string;
   /** How many listings the site said the list could show, on the last page read. */
   total?: number;
+  /** Pages stored from the list's end, read backwards after the walk (`readListTail`). */
+  tailPages?: number;
 }
 
 export interface SsGeRunProgress {
@@ -346,6 +357,8 @@ interface RunState {
   pageFaults: string[];
   /** Each page passed over because it would not load (`MAX_SKIPPED_PAGES`). */
   skippedPages: string[];
+  /** Each list whose end was still old when its read stopped (`TAIL_MAX_SHARE`). */
+  tailsCutShort: string[];
   /** Why each page that would not load did not, by list and page: none is asked twice in a run. */
   unloadable: Map<string, string>;
   /** The site refused or would not answer: no further request is made in this run. */
@@ -624,6 +637,39 @@ async function resumePoint(
   return { page: at, read: null };
 }
 
+/** Stores every row of one results page and counts the page against the run. */
+async function storeRows(run: RunState, read: PageRead): Promise<void> {
+  for (const card of read.parsed.cards) {
+    let outcome: UpsertOutcome;
+    try {
+      outcome = await upsertListing(run.db, {
+        sourceId: ssGeSource.id,
+        card,
+        seenAt: read.fetchedAt,
+        parents: run.parents,
+      });
+    } catch (err) {
+      // One listing's bad value must not end the night: a hidden control
+      // character (2026-10-12) and an area of 100,000,000 m² (2026-10-26)
+      // each did. Each row has its own transaction, so nothing of it is
+      // kept, and the parser is where such a value gets fixed.
+      if (!isRefusedRowValue(err)) throw err;
+      logger.warn(
+        {
+          listing: card.sourceListingKey,
+          reason: err instanceof Error ? (err.cause ?? err).toString().slice(0, 200) : null,
+        },
+        'ss.ge crawl: the database refused a listing; skipped it',
+      );
+      continue;
+    }
+    run.counters[OUTCOME_COUNTER[outcome]]++;
+  }
+  run.counters.pageCount++;
+  run.counters.rowCount += read.parsed.cards.length;
+  run.pagesLeft--;
+}
+
 /** Walks one list from where its progress says, storing every row, until it ends or the run stops. */
 async function walkList(run: RunState, list: SsGeList, olderThanMs: number | null): Promise<void> {
   let state = run.progress.lists[list.key];
@@ -674,35 +720,7 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
     }
     pastEndSeen = false;
 
-    for (const card of read.parsed.cards) {
-      let outcome: UpsertOutcome;
-      try {
-        outcome = await upsertListing(run.db, {
-          sourceId: ssGeSource.id,
-          card,
-          seenAt: read.fetchedAt,
-          parents: run.parents,
-        });
-      } catch (err) {
-        // One listing's bad value must not end the night: a hidden control
-        // character (2026-10-12) and an area of 100,000,000 m² (2026-10-26)
-        // each did. Each row has its own transaction, so nothing of it is
-        // kept, and the parser is where such a value gets fixed.
-        if (!isRefusedRowValue(err)) throw err;
-        logger.warn(
-          {
-            listing: card.sourceListingKey,
-            reason: err instanceof Error ? (err.cause ?? err).toString().slice(0, 200) : null,
-          },
-          'ss.ge crawl: the database refused a listing; skipped it',
-        );
-        continue;
-      }
-      run.counters[OUTCOME_COUNTER[outcome]]++;
-    }
-    run.counters.pageCount++;
-    run.counters.rowCount += read.parsed.cards.length;
-    run.pagesLeft--;
+    await storeRows(run, read);
     state.lastPage = page;
     if (read.parsed.listTotal !== null) state.total = read.parsed.listTotal;
     const oldestMs = Math.min(
@@ -723,6 +741,69 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
     await saveRun(run);
     if (state.finished !== null) return;
     page++;
+  }
+}
+
+/**
+ * Reads the end of a list the nightly walk stopped early, from its last page
+ * backwards, storing every row, until a page holds no row past its expected
+ * end.
+ *
+ * A list is in the order of its listings' time left, to its very end (land
+ * for sale, flats for sale and flats for rent, 2026-11-10): rows 29 days old
+ * at 92 to 97% of the way, then 30 to 45 days, 45.0 on the last page. So the
+ * last pages are every listing that outlived its 30 days, sixteen to a
+ * request: of 54 rows asked there, 52 were live (the two others a blank page)
+ * and 48 ended exactly 45 days after their order time. `upsertListing` keeps
+ * each on show from the sighting; without it a live listing past its 30 days
+ * is hidden until its own page is asked, and a night has pages for a third of
+ * those asking.
+ *
+ * Backwards, because the last page is known from the list's size and where
+ * the 30 days begin is not. Rows shift while it reads (a new listing pushes
+ * every row one place down, an ended one pulls those below it up), so a few
+ * are read twice or missed in a night; `SEEN_PAST_END_HOURS` covers a row
+ * missed once. A page that will not load is passed over like any other
+ * (`passOverPage`); the list's own progress is left as the walk wrote it.
+ */
+async function readListTail(run: RunState, list: SsGeList): Promise<void> {
+  const state = run.progress.lists[list.key];
+  if (state?.finished !== 'caught-up' || state.total === undefined) return;
+  const lastPage = Math.ceil(state.total / RESULTS_PAGE_SIZE);
+  const mostPages = Math.max(TAIL_MIN_PAGES, Math.ceil(lastPage * TAIL_MAX_SHARE));
+  let asked = 0;
+  let faultsInARow = 0;
+  for (let page = lastPage; page > state.lastPage && run.stopReason === null; page--) {
+    if (run.pagesLeft <= 0) {
+      stop(run, 'page limit reached', false);
+      return;
+    }
+    if (asked >= mostPages) {
+      run.tailsCutShort.push(
+        `${list.key}: its end was still past its 30 days after ${asked} pages`,
+      );
+      logger.warn({ list: list.key, pages: asked }, 'ss.ge crawl: the end of a list was cut short');
+      return;
+    }
+    asked++;
+    const read = await readResultsPage(run, list, page);
+    if (read === null) return;
+    if ('fault' in read) {
+      if (!passOverPage(run, list, page, read.fault, ++faultsInARow)) return;
+      continue;
+    }
+    faultsInARow = 0;
+    // Past the end: the list has shrunk since the walk sized it, and its last page is further back.
+    if (read.parsed.pastEnd) continue;
+
+    await storeRows(run, read);
+    state.tailPages = (state.tailPages ?? 0) + 1;
+    await saveRun(run);
+    const seenMs = Date.parse(read.fetchedAt);
+    const pastTheirEnd = read.parsed.cards.filter(
+      (card) => card.expectedEndAt !== null && Date.parse(card.expectedEndAt) <= seenMs,
+    );
+    if (pastTheirEnd.length === 0) return;
   }
 }
 
@@ -870,7 +951,7 @@ function runNotes(run: RunState): string | null {
   if (run.stopReason !== null) reasons.push(run.stopReason);
   if (run.spent !== null && !reasons.some((reason) => reason.includes(run.spent as string)))
     reasons.push(run.spent);
-  reasons.push(...run.skippedPages);
+  reasons.push(...run.skippedPages, ...run.tailsCutShort);
   return reasons.length === 0 ? null : reasons.join('; ');
 }
 
@@ -1190,6 +1271,7 @@ export async function runSsGeCrawl(
     stopReason: null,
     pageFaults: [],
     skippedPages: [],
+    tailsCutShort: [],
     unloadable: new Map(),
     siteTrouble: false,
     parents: await loadDistrictParents(db, ssGeSource.id),
@@ -1211,6 +1293,13 @@ export async function runSsGeCrawl(
     for (const list of SS_GE_LISTS) {
       if (run.stopReason !== null) break;
       await walkList(run, list, deep.includes(list.key) ? null : olderThanMs);
+    }
+
+    // Then the end of each list the walk stopped early: the listings that
+    // outlived their 30 days, which only a list read to its end shows.
+    for (const list of SS_GE_LISTS) {
+      if (run.stopReason !== null) break;
+      await readListTail(run, list);
     }
 
     // A list read to its end in this run, from page 1 since the walk began:

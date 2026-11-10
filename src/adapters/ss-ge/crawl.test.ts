@@ -11,6 +11,7 @@ import { cleanupTestSource } from '../../db/test-support.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
 import { ProxyUnreachableError, withProxyRecovery } from '../../net/proxy-recovery.js';
 import { isSsGeUrlAllowed, ssGeSource } from '../../policies/ss-ge.js';
+import { loadListingsDueForCheck } from '../../realestate/expiry.js';
 import { syncPlaces } from '../../realestate/places.js';
 import {
   buildDetailUrl,
@@ -996,9 +997,11 @@ describe('runSsGeCrawl, nightly', () => {
     );
 
     expect(crawlRun).toMatchObject({ mode: 'nightly', status: 'completed', newCount: 20 });
-    // Page 2 still holds four new rows; page 3 is the first with none.
-    expect(site.resultsRequests(list('flat-sale'))).toEqual([1, 2, 3]);
-    expect(site.resultsRequests(list('flat-rent'))).toEqual([1]);
+    // Page 2 still holds four new rows; page 3 is the first with none. Then
+    // each list's last page, which holds nothing past its 30 days: its end
+    // needs no more (`readListTail`).
+    expect(site.resultsRequests(list('flat-sale'))).toEqual([1, 2, 3, 5]);
+    expect(site.resultsRequests(list('flat-rent'))).toEqual([1, 3]);
     expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({
       lastPage: 3,
       finished: 'caught-up',
@@ -1036,6 +1039,180 @@ describe('runSsGeCrawl, nightly', () => {
 
     expect(site.resultsRequests(list('flat-sale'))).toEqual([1, 2, 3]);
     expect(crawlRun.newCount).toBe(48);
+  });
+});
+
+describe('runSsGeCrawl, the ends of the lists', () => {
+  // A list is in date order to its very end (three lists probed 2026-11-10),
+  // so its last pages hold every listing that outlived its 30 days. Here:
+  // 40 rows two to three days old, then 36 ordered 31 days ago and more.
+  // Pages 1 and 2 are young, page 3 is half and half, pages 4 and 5 (a short one) are old.
+  const YOUNG = 2 * DAY_MS;
+  const OLD = 31 * DAY_MS;
+  const flatSale = list('flat-sale');
+  const agedList = () => [...rows(1_000, 40, YOUNG), ...rows(2_000, 36, OLD)];
+
+  async function baseline(site: FakeSite) {
+    await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock(NOW - DAY_MS) },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+    site.requested.length = 0;
+  }
+  /** A nightly run that reads only its first list whole, of one page. */
+  const nightly = (site: FakeSite, options: { maxPages?: number } = {}) =>
+    runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 1, ...options },
+    );
+  const endOf = async (id: number) =>
+    instant(
+      (await storedListings()).find((row) => row.sourceListingKey === String(id))?.expectedEndAt,
+    );
+
+  it('reads a list it stopped early from its last page back to the first page with nothing past its 30 days', async () => {
+    const site = new FakeSite({ 'flat-sale': agedList() });
+    await baseline(site);
+
+    const { crawlRun } = await nightly(site);
+
+    // Page 1 is the nightly walk; then the end, backwards; page 2 holds only young rows.
+    expect(site.resultsRequests(flatSale)).toEqual([1, 5, 4, 3, 2]);
+    expect(crawlRun.status).toBe('completed');
+    expect(crawlRun.notes).toBeNull();
+    expect(crawlRun.pageCount).toBe(SS_GE_LISTS.length + 4);
+    expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({
+      lastPage: 1,
+      finished: 'caught-up',
+      tailPages: 4,
+    });
+    // Seen tonight past its 30 days: on show for sixty hours from now, where
+    // the sweep of the day before had left it a day less.
+    expect(await endOf(2_035)).toBeGreaterThan(NOW + 59 * HOUR_MS);
+    expect(await endOf(2_035)).toBeLessThan(NOW + 61 * HOUR_MS);
+  });
+
+  it('does not read the end of a list it read whole that night, nor of one that fits its first page', async () => {
+    const first = SS_GE_LISTS[0] as SsGeList;
+    const site = new FakeSite({ [first.key]: agedList() });
+    await baseline(site);
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'nightly', maxDetailChecks: 0, deepPageBudget: 5 },
+    );
+
+    expect(site.resultsRequests(first)).toEqual([1, 2, 3, 4, 5]);
+    expect(site.resultsRequests(flatSale)).toEqual([1]);
+    expect(progressOf(crawlRun).lists[first.key]?.tailPages).toBeUndefined();
+    expect(progressOf(crawlRun).lists['flat-sale']?.tailPages).toBeUndefined();
+  });
+
+  it('reads no end in a sweep, which reads every list whole', async () => {
+    const site = new FakeSite({ 'flat-sale': agedList() });
+
+    await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+
+    expect(site.resultsRequests(flatSale)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('steps back when the page it took for the last is past the end', async () => {
+    const site = new FakeSite({ 'flat-sale': agedList() });
+    await baseline(site);
+    // Sixteen listings ended since the walk read page 1: page 5 is no more.
+    const gone = buildResultsUrl(flatSale, 5);
+    site.script(
+      gone,
+      ok(
+        gone,
+        page({
+          initialPage: 1,
+          initialTotalApplicationCount: 64,
+          applicationList: {
+            realStateItemModel: agedList()
+              .slice(0, 16)
+              .map((row) => rowJson(flatSale, row)),
+          },
+        }),
+      ),
+    );
+
+    const { crawlRun } = await nightly(site);
+
+    expect(site.resultsRequests(flatSale)).toEqual([1, 5, 4, 3, 2]);
+    expect(crawlRun.status).toBe('completed');
+    expect(progressOf(crawlRun).lists['flat-sale']?.tailPages).toBe(3);
+  });
+
+  it('passes over a page of the end that will not load, and says so', async () => {
+    const site = new FakeSite({ 'flat-sale': agedList() });
+    await baseline(site);
+    const broken = buildResultsUrl(flatSale, 4);
+    site.script(
+      broken,
+      status(broken, 500),
+      status(broken, 500),
+      status(broken, 500),
+      status(broken, 500),
+    );
+
+    const { crawlRun } = await nightly(site);
+
+    expect(site.resultsRequests(flatSale)).toEqual([1, 5, 4, 4, 4, 4, 3, 2]);
+    expect(crawlRun.status).toBe('completed');
+    expect(crawlRun.notes).toMatch(/flat-sale page 4 skipped/);
+  });
+
+  it('gives the end up for the night when two of its pages in a row will not load, and the run is partial', async () => {
+    const site = new FakeSite({ 'flat-sale': agedList() });
+    await baseline(site);
+    for (const broken of [buildResultsUrl(flatSale, 5), buildResultsUrl(flatSale, 4)]) {
+      site.script(
+        broken,
+        status(broken, 500),
+        status(broken, 500),
+        status(broken, 500),
+        status(broken, 500),
+      );
+    }
+
+    const { crawlRun } = await nightly(site);
+
+    expect(site.resultsRequests(flatSale)).toEqual([1, 5, 5, 5, 5, 4, 4, 4, 4]);
+    expect(crawlRun.status).toBe('partial');
+    // The wording Hermes reads as `pages_failed`.
+    expect(crawlRun.notes).toMatch(/flat-sale page 4 would not load after 4 tries/);
+    // The lists themselves were all read: the next night measures from this run.
+    expect(progressOf(crawlRun).lists['flat-sale']?.finished).toBe('caught-up');
+  });
+
+  it("counts the ends' pages against a trial's page limit", async () => {
+    const site = new FakeSite({ 'flat-sale': agedList() });
+    await baseline(site);
+
+    const { crawlRun } = await nightly(site, { maxPages: SS_GE_LISTS.length + 2 });
+
+    expect(site.resultsRequests(flatSale)).toEqual([1, 5, 4]);
+    expect(crawlRun).toMatchObject({ status: 'partial', notes: 'page limit reached' });
+  });
+
+  it('stops after a quarter of the list, twenty pages at least, when its rows never turn young, and says so', async () => {
+    // Thirty pages, all past their 30 days: not a list as ss.ge orders one.
+    const site = new FakeSite({ 'flat-sale': rows(3_000, 30 * 16, OLD) });
+    await baseline(site);
+    // One row renewed, so the nightly walk has a page to stop at.
+    site.lists['flat-sale'] = [...rows(5_000, 16, 8 * HOUR_MS), ...site.lists['flat-sale']];
+
+    const { crawlRun } = await nightly(site);
+
+    const asked = site.resultsRequests(flatSale);
+    expect(asked.slice(0, 2)).toEqual([1, 2]);
+    expect(asked.slice(2)).toEqual(Array.from({ length: 20 }, (_, index) => 31 - index));
+    expect(crawlRun.status).toBe('completed');
+    expect(crawlRun.notes).toMatch(/flat-sale: its end was still past its 30 days after 20 pages/);
   });
 });
 
@@ -1082,7 +1259,8 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     // Read past the rows the last run saw, to its short last page.
     expect(site.resultsRequests(list('land-daily'))).toEqual([1, 2, 3]);
     expect(site.resultsRequests(list('hotel-pledge'))).toEqual([1, 2, 3]);
-    expect(site.resultsRequests(list('cottage-pledge'))).toEqual([1]);
+    // Stopped at page 1, then its last page: nothing there is past its 30 days.
+    expect(site.resultsRequests(list('cottage-pledge'))).toEqual([1, 3]);
     expect(progressOf(first.crawlRun).lists['hotel-pledge']?.finished).toBe('end');
 
     site.requested.length = 0;
@@ -1092,7 +1270,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     );
     expect(progressOf(second.crawlRun).deep).toEqual(['cottage-pledge', 'commercial-pledge']);
     expect(site.resultsRequests(list('cottage-pledge'))).toEqual([1, 2, 3]);
-    expect(site.resultsRequests(list('land-daily'))).toEqual([1]);
+    expect(site.resultsRequests(list('land-daily'))).toEqual([1, 3]);
   });
 
   it('resumes a run whose progress names its one deep list the old way', async () => {
@@ -1117,7 +1295,7 @@ describe('runSsGeCrawl, resuming and full reads', () => {
     expect(crawlRun.status).toBe('completed');
     expect(progressOf(crawlRun).deep).toEqual(['cottage-rent']);
     expect(site.resultsRequests(list('cottage-rent'))).toEqual([1, 2, 3]);
-    expect(site.resultsRequests(list('cottage-sale'))).toEqual([1]);
+    expect(site.resultsRequests(list('cottage-sale'))).toEqual([1, 3]);
   });
 
   it('asks the page of a listing a full read no longer finds, in the same run', async () => {
@@ -1205,9 +1383,11 @@ describe('runSsGeCrawl, resuming and full reads', () => {
 
     expect(crawlRun.status).toBe('completed');
     expect(progressOf(crawlRun).walkStartedAt).toBe(progressOf(interrupted.crawlRun).walkStartedAt);
-    expect(site.resultsRequests(list('cottage-rent'))).toEqual([]);
-    expect(site.resultsRequests(list('cottage-sale'))).toEqual([]);
-    expect(site.resultsRequests(list('house-sale'))).toEqual([1]);
+    // A list the interrupted run had finished is not walked again; only its
+    // end is read, as every run does for a list it has not read whole.
+    expect(site.resultsRequests(list('cottage-rent'))).toEqual([3]);
+    expect(site.resultsRequests(list('cottage-sale'))).toEqual([3]);
+    expect(site.resultsRequests(list('house-sale'))).toEqual([1, 3]);
   });
 
   it('steps back when the list moved up past where an interrupted walk stopped', async () => {
@@ -1365,16 +1545,39 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     return (await storedListings()).find((row) => row.sourceListingKey === String(id));
   }
 
+  /**
+   * Listings a day past their expected end that no list shows any more: only
+   * their own pages can say what became of them.
+   */
+  async function pastTheirEnd(ids: number[], lastSeenAgoMs = 3 * DAY_MS) {
+    await ensureSsGeSourceSeeded(db);
+    const ago = (ms: number) => new Date(NOW - ms).toISOString();
+    await db.insert(realEstateListings).values(
+      ids.map((id) => ({
+        sourceId: ssGeSource.id,
+        sourceListingKey: String(id),
+        canonicalUrl: buildDetailUrl(String(id)),
+        dealType: 'sale' as const,
+        propertyType: 'flat' as const,
+        sourceUpdatedAt: ago(31 * DAY_MS),
+        expectedEndAt: ago(DAY_MS),
+        firstSeenAt: ago(31 * DAY_MS),
+        lastSeenAt: ago(lastSeenAgoMs),
+        contentHash: 'h',
+      })),
+    );
+  }
+
   it('asks the page of each, extends the live, marks the expired gone and rechecks a blank page soon', async () => {
-    // Ordered 46 days ago and still listed: its expected life has passed,
-    // and only the listing's page says what happens next.
-    const site = new FakeSite({
-      [first.key]: [...rows(1_000, 3, PAST_ITS_LIFE), ...rows(1_100, 1)],
-    });
+    // Their expected life has passed and no list shows them: only the
+    // listing's page says what happens next.
+    const site = new FakeSite({ [first.key]: rows(1_100, 1) });
+    await pastTheirEnd([1000, 1001]);
     site.details.set('1000', { status: 'Active', endsAt: NOW + 200 * DAY_MS });
     site.details.set('1001', { status: 'Expired' });
-    // 1002's page has no listing in it, though this run just saw it in its
-    // list: ss.ge does that to live listings now and then (Phase 12B).
+    // 1002's page has no listing in it, though a list showed it half a day
+    // ago: ss.ge does that to live listings now and then (Phase 12B).
+    await pastTheirEnd([1002], 12 * HOUR_MS);
 
     // Three pages: the checks, not the pages its new listings want read.
     const { crawlRun } = await runSsGeCrawl(
@@ -1399,8 +1602,31 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     expect(await stored(1100)).toMatchObject({ status: 'active', verifiedAt: null });
   });
 
-  it('checks no more listings than its budget', async () => {
+  it('asks no page of a listing its list still shows past its end: the sighting keeps it on show', async () => {
+    // Ordered 46 days ago and still listed. Until 2026-11-10 that put it first
+    // among the night's checks; the list showing it is the evidence now.
     const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+
+    expect(crawlRun.status).toBe('completed');
+    const listed = await stored(1000);
+    expect(instant(listed?.expectedEndAt)).toBeGreaterThan(NOW + 59 * HOUR_MS);
+    expect(instant(listed?.expectedEndAt)).toBeLessThan(NOW + 61 * HOUR_MS);
+    const due = await loadListingsDueForCheck(db, {
+      sourceId: ssGeSource.id,
+      asOf: new Date(NOW + HOUR_MS).toISOString(),
+      limit: 10,
+    });
+    expect(due).toEqual([]);
+  });
+
+  it('checks no more listings than its budget', async () => {
+    const site = new FakeSite();
+    await pastTheirEnd([1000, 1001, 1002]);
     for (const id of ['1000', '1001', '1002']) site.details.set(id, { status: 'Expired' });
 
     const { crawlRun } = await runSsGeCrawl(
@@ -1412,26 +1638,28 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     // Running out of budget is not a fault: the rest wait for the next night.
     expect(crawlRun).toMatchObject({ status: 'completed', goneCount: 2 });
     expect((await storedListings()).filter((row) => row.status === 'active')).toHaveLength(
-      1 + OTHER_LISTS,
+      1 + SS_GE_LISTS.length,
     );
   });
 
   it('still checks them when a trial stops at its page limit', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 2, PAST_ITS_LIFE) });
+    const site = new FakeSite();
+    await pastTheirEnd([1000, 1001]);
 
+    // Two listing pages: the checks, before the page the one new listing wants read.
     const { crawlRun } = await runSsGeCrawl(
       { db, httpFetcher: site, sleep: noWait, now: clock() },
-      { mode: 'sweep', maxPages: 1 },
+      { mode: 'sweep', maxPages: 1, maxDetailChecks: 2 },
     );
 
     expect(crawlRun.status).toBe('partial');
-    // Both still want their details read, and are not asked again: one page a run.
     expect(detailRequests(site).sort()).toEqual(['1000', '1001']);
   });
 
   it('still checks them, and deletes the long gone, after a list that would not load', async () => {
     // 2026-11-09: one such page cost the night its checks and 13A's first deletions.
-    const site = new FakeSite({ [first.key]: rows(1_000, 2, PAST_ITS_LIFE) });
+    const site = new FakeSite();
+    await pastTheirEnd([1000, 1001]);
     const faulted = buildResultsUrl(SS_GE_LISTS[1] as SsGeList, 1);
     site.script(
       faulted,
@@ -1470,7 +1698,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('checks none when the site refused the walk', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
+    const site = new FakeSite();
+    await pastTheirEnd([1000, 1001, 1002]);
     const refused = buildResultsUrl(SS_GE_LISTS[1] as SsGeList, 1);
     site.script(refused, status(refused, 403));
 
@@ -1540,7 +1769,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('stops checking when the site refuses a listing page', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
+    const site = new FakeSite();
+    await pastTheirEnd([1000, 1001, 1002]);
     for (const id of ['1000', '1001', '1002']) {
       site.script(buildDetailUrl(id), status(buildDetailUrl(id), 429, { 'retry-after': '600' }));
     }
@@ -1556,7 +1786,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('leaves alone a listing whose page fails, and carries on with the next', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 3, PAST_ITS_LIFE) });
+    const site = new FakeSite();
+    await pastTheirEnd([1000, 1001, 1002]);
     site.details.set('1000', { status: 'Expired' });
     site.script(buildDetailUrl('1001'), status(buildDetailUrl('1001'), 500));
     const challenge = ok(buildDetailUrl('1002'), '<html><body>Just a moment...</body></html>');
@@ -1577,7 +1808,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   });
 
   it('gives up checking after five listing pages in a row fail', async () => {
-    const site = new FakeSite({ [first.key]: rows(1_000, 8, PAST_ITS_LIFE) });
+    const site = new FakeSite();
+    await pastTheirEnd([1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007]);
     for (let id = 1_000; id < 1_008; id++) {
       site.script(buildDetailUrl(String(id)), status(buildDetailUrl(String(id)), 503));
     }

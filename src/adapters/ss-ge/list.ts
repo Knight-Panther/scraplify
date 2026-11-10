@@ -27,6 +27,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * 2026-11-09, 23 had expired on ss.ge.
  */
 const LISTING_LIFE_MS = 30 * DAY_MS;
+/**
+ * The longest a listing naming no business runs unless renewed: an owner's
+ * 45 days. A row its list still shows past its 30 days is kept on show by the
+ * sighting, and never past this (`ListingCard.latestEndAt`).
+ */
+const OWNER_LISTING_LIFE_MS = 45 * DAY_MS;
 
 /**
  * The site's own codes (guideline §4.3; the cottage code from 288 sampled
@@ -331,6 +337,10 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
     sourceUpdatedAt,
     sourceCreatedAt: tbilisiWallClockToIso(row.createDate),
     expectedEndAt: new Date(Date.parse(sourceUpdatedAt) + LISTING_LIFE_MS).toISOString(),
+    latestEndAt:
+      poster === 'unknown'
+        ? new Date(Date.parse(sourceUpdatedAt) + OWNER_LISTING_LIFE_MS).toISOString()
+        : null,
   };
 }
 
