@@ -8,14 +8,14 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 
 **Marks:** ✅ done · ⏳ under way, or scheduled · ❌ not started · ↪ moved or dropped, with where it went. Times are UTC (Tbilisi is UTC+4).
 
-## Where it stands (2026-11-09 14:35 UTC)
+## Where it stands (2026-11-10 17:00 UTC)
 
 | Sub-phase | State | Waits on | Next |
 |---|---|---|---|
 | **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80); morning-after check passed 2026-11-08 | — | — |
 | **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82); first nightly refresh passed 2026-11-09 13:39 | — | — |
-| **14C** location quality | ✅ live since 2026-11-10 15:34 UTC as `743c034` (`main`'s head); merged 2026-11-09 as `3ab7077` (PR #83); built c1–c7 on 2026-11-08; calibrated on night 1 against OpenStreetMap's street lines, which changed four rules; grants rehearsed under the host's roles; confirmed on night 2 with no rule changed (2026-11-09); judged by hand at the deploy, 302,073 listings in 71 s | — | morning after 2026-11-11; recheck about 2026-11-14 |
-| **14D** C1 v2 for Hermes | ❌ | 14C live; Hermes's answer about 14D | after 14C |
+| **14C** location quality | ✅ live since 2026-11-10 15:34 UTC as `743c034` (`main`'s head); merged 2026-11-09 as `3ab7077` (PR #83); built c1–c7 on 2026-11-08; calibrated on night 1 against OpenStreetMap's street lines, which changed four rules; grants rehearsed under the host's roles; confirmed on night 2 with no rule changed (2026-11-09); judged by hand at the deploy, 302,073 listings in 71 s; a run's own judgement checked the same evening on a short run by hand. The live release since 16:49 UTC is `32b6cfb` (the same plus PRs #90 and #91, below) | — | recheck about 2026-11-14 |
+| **14D** C1 v2 for Hermes | ❌ | — (14C is live; Hermes will review 14D's JSON before it merges) | from 2026-11-11, a fresh session |
 
 ## What waits on what
 
@@ -31,6 +31,8 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
   - the `/real-estate` page fix (PR #84);
   - the ss.ge listing-life fix (PR #87, merged as `123970e`), 30 days for every listing, with migration `0052`, which corrects about 160,600 stored end dates in the same `db:migrate` step (STATUS, open items). Deploy `main`'s head, not 14C's merge commit, and let the deploy script's migration check name `0052` too. The same statement was run on production by hand on 2026-11-09 at 15:16 UTC (7,149 fewer shown), so at the deploy `0052` touches only the listings stored or renewed since, and the extra lapsed listings, about 8,000, come in the run of 2026-11-09 21:30;
   - zstd backups under a 7 GB cap, and a `robots.txt` that turns AI-training and SEO crawlers away (PR #86). After the deploy, check the live `robots.txt`; the first zstd backup runs 2026-11-11 at 09:00 UTC.
+  - Changed 2026-11-10 (owner: do what is clocked now, wait for no timer): the housekeeping, 13A's first deletions and a run's own judgement were checked the same evening on a short run started by hand, the first zstd backup was taken by hand at 15:51, and the full night was started at 16:00.
+  - A second release the same evening, `32b6cfb`, live since 16:49 UTC with no migration, also outside this plan (STATUS, open items): the crawl passes over a results page that will not load (PR #91), and a listing leaves the tab at its expected end, with no two days of grace (PR #90; daily totals `rules_version` 4). The full run was stopped for it and restarted at 16:49; it ends about 08:50 on 2026-11-11.
   - `www.jobster.fun`'s redirect (PR #85) is already live: the Caddyfile was installed by hand.
 - **14C's threshold recheck** waits on a week of 14A data, about 2026-11-14. A changed threshold re-judges every listing overnight with no churn, because the raw evidence is kept and nothing derived is hashed.
 - **14D's build** waits on 14C's columns, which its filters read, and on Hermes's answer about what C6 lacks for 14D.
