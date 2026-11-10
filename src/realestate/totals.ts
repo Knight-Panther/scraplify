@@ -25,8 +25,12 @@ import { conditions, type RealEstateFilters, shownRows } from './filters.js';
  * district (`district_inferred`), about 1,200 more in the district cells.
  * 4 (2026-11-10): a listing counts only until its expected end, with no two
  * days of grace (`SHOWN_GRACE_DAYS`), about 8,000 fewer at once.
+ * 5 (2026-11-11): a listing its list still shows past its 30 days counts for
+ * as long as the list shows it (`SEEN_PAST_END_HOURS`, the nightly read of
+ * each list's end), where it was hidden until its own page was asked: the
+ * live listings among those version 4 dropped, and more like them.
  */
-export const TOTALS_RULES_VERSION = 4;
+export const TOTALS_RULES_VERSION = 5;
 /** A cell with fewer listings is not kept: one or two listings are no market, and most cells are villages. */
 export const TOTALS_MIN_LISTINGS = 5;
 

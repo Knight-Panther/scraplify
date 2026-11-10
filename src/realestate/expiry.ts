@@ -62,8 +62,10 @@ export type ListingCheck =
  * Active listings worth asking their own page about, in that order.
  *
  * First those past their expected end that the source still listed after
- * that date: the thirty-day rule plainly does not hold for them (company
- * listings run for years), and only their own page says when they end.
+ * that date: the thirty-day rule plainly does not hold for them. Since
+ * 2026-11-10 such a sighting keeps the listing on show by itself
+ * (`upsertListing`, `SEEN_PAST_END_HOURS`), so this is the listing a list
+ * showed and then stopped showing, asked before those nobody saw.
  * Then those a full read of their list missed (`markMissedListings`), the
  * longest-lived first: a dead one of those stays on the tab longest. Then
  * the rest past their end, most recently expired first: their checks mostly

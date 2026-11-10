@@ -37,7 +37,7 @@ Kinds: `bina` (flat), `kerdzo-saxli` (house), `agaraki` (summer cottage). Deals:
 
 ## How the lists are ordered (measured 2026-10-12, 84 requests)
 
-Ten depths of each list were sampled.
+Ten depths of each list were sampled. Measured again on 2026-11-10 ("The end of a list holds every listing past its 30 days", below): the sale lists no longer end with the business block.
 
 - **The first 90–95% of every list is in strict order of `orderDate`**, newest first, running from now to about 29 days old. Sixteen rows of one page span minutes near the top and a day or less in the middle.
 - **Rent lists then end with listings 30–45 days old**, none posted by a business.
@@ -176,3 +176,25 @@ The run of 2026-11-09 21:30 UTC ended `partial` at 21:39 with 49 requests. Flat-
 **What the crawl does (PR #89, then the skip):** a page that will not load after its four tries is passed over, and the walk goes on with the next page of its list; the run completes, its notes naming the page last. The rows on that page are not seen that night; those a full read then flags as missed are asked by their own pages. Page 1 is never passed over, nor a second page in a row, nor more than five pages in a run: that list is given up for the run (`partial`, the page named first, which Hermes reads as `pages_failed`) and resumed by the next, while the other lists, the checks, the details, the lapses and the deletions go on. Three lists given up end the walk. Leaving the list at the broken page, as PR #89 alone did, would have stopped that list at the same listing every night, and worse: a walk with a list left unread is resumed, not started again, so no other list would have been read either until the walk was a week old.
 
 **To look at one:** fetch the page before and after it (`curl --compressed` with the crawler's user agent from a Georgian connection) and look for `realStateItemModel`. If the neighbours load, it is a broken listing and needs nothing. If a night still ends early, read the run's notes: a refusal (403, 429, a slow-down header) or the proxy staying away is the site or the laptop, and still ends the run.
+
+## The end of a list holds every listing past its 30 days (2026-11-10)
+
+From the day the tab dropped its two days of grace, a live listing past its 30 days was hidden until its own page was asked, and a night has listing pages for about a third of those asking. The lists themselves answer it, sixteen listings to a request.
+
+**The order, measured again** (27 requests from the operator PC, eight depths of three lists). Land for sale (21,895 rows, 1,369 pages), flats for sale (47,098; 2,944) and flats for rent (47,501; 2,969) are in date order to their very end:
+
+| List | 50% deep | 80% | 92% | 95% | 97.5% | 99% | Last page |
+|---|---|---|---|---|---|---|---|
+| Land for sale | 15 days | 25 | 29 | 34 | 40 | 43 | 45.0 |
+| Flats for sale | 7 days | 20 | 27 | 29 | 31–33 | 40 | 45.0 |
+| Flats for rent | 8 days | 21 | 26 | 28 | 29 | 36–38 | 44.9 |
+
+Every row past the 30-day line names no business. The block of business listings "in no date order" that ended the sale lists on 2026-10-12 is no longer at the end: a page of developers' listings 34 days old sat 40% of the way down flats for sale, with ends a year and more ahead.
+
+**Is a row there alive?** 54 rows past their 30 days, from five pages of three lists, each asked by its own page: 52 live, 2 a blank page (which says nothing: trap 3, and guideline §9.3 rule 3). Of the 52, 48 had an end exactly 45 days after their order time. The other four had less (38 to 44.9 days) and ended with their neighbours on the page: their order time had moved (below). So a row its list still shows past its 30 days is live, and nearly always an owner's on its 45 days.
+
+**What the crawl does with it** (`readListTail` in `crawl.ts`, `endAfterSighting` in `src/realestate/ingest.ts`): after the walk, each list the run stopped early is read from its last page backwards until a page holds no row past its expected end. A row seen past its 30 days stays on show for sixty hours from the sighting, and never past its order time plus 45 days where it names no business. No listing page is asked for it. Guideline §9.2 and §9.3 rule 2 have the rules.
+
+**A list places a row by its real start, not by its order time.** A few rows on a page are much newer than their neighbours by `orderDate`. 31 pages of flats for sale and for rent between 10% and 95% deep held 10 such rows among 496 (2%); a thirty-second page, the developers' one, is left out. Asked by their own pages, all 10 ended where their neighbours do: seven (brokers' and agencies') 30.00 days after the page's median order time, three (owners') 45.00 days after it. Their own order time was 1.4 to 23 days later, so `orderDate` moves on some edit that does not renew the listing, and the list goes on ordering it by when its time began. For the seven, order time plus 30 days is 1.4 to 18 days too late (9 on average): the tab would show them dead that long, unless a full read of their list flags them missing first (guideline §9.3 rule 6) and their page is asked. Not acted on yet: the page's median order time would give such a row its real end, but the same bound would wrongly end a broker's row that sits among developers' long-running ones (one did, on that page 40% down flats for sale), so it needs the mixed pages sampled first.
+
+**Results pages fail more in ss.ge's evening.** In runs started between 16:00 and 17:00 UTC, 3.5 to 7.7% of results requests came back without their list (deep pages of houses for rent about one in eleven), against 0.1 to 0.3% at night. They load on the immediate retry, rarely only on the third try. So the fault of 2026-11-05 at 17:00 (flat-rent page 130, three tries with no waits) fits bad luck, not a broken listing, and a page passed over in a run started by hand in the evening may be chance: look at the next night before taking it for a broken listing.

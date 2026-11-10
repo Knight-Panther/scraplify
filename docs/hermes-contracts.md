@@ -6,7 +6,7 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 |---|---|---|
 | C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`) |
 | C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`); Phase 14A appends ten columns (`0049`) |
-| C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy, 4 from 2026-11-10 |
+| C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy, 4 from 2026-11-10, 5 with the list-end read (merged 2026-11-10, not yet live) |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
 | C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`, below) |
 | C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | v1, built on branch `phase-14b-official-map` (migration `0050`), not yet merged (Phase 14B) |
@@ -25,7 +25,7 @@ const built = realEstateWhere(filters, new Date().toISOString(), { placeholders:
 ### Input
 
 - **`filters`:** a JSON object with the keys of `RealEstateFilters` (`src/realestate/filters.ts`, each one documented there), except `limit` and `offset`, which you add as SQL of your own. The input is checked strictly. An unknown key, a misspelling, a value of the wrong kind or a choice that does not exist throws a `ZodError` whose issues name the key. Nothing is silently ignored.
-- **`now`:** an ISO 8601 instant with a zone. It decides which listings are still on show: those whose `expected_end_at` is after it. Until 2026-11-10 the tab kept a listing two more days; of 60 such listings asked on ss.ge that day, 51 were gone, so the grace went. This is the tab's rule changing, not the builder's input or output, so the version stays; C3's `rules_version` 4 records it.
+- **`now`:** an ISO 8601 instant with a zone. It decides which listings are still on show: those whose `expected_end_at` is after it. Until 2026-11-10 the tab kept a listing two more days; of 60 such listings asked on ss.ge that day, 51 were gone, so the grace went. This is the tab's rule changing, not the builder's input or output, so the version stays; C3's `rules_version` 4 records it. A listing that outlives its 30 days (an owner's 45) keeps a later `expected_end_at` for as long as its list shows it: each night the crawl reads every list's end and moves that date to sixty hours after the sighting, never past the order time plus 45 days where the row names no business (C3's `rules_version` 5). The rule you are handed does not change.
 - **`placeholders`:**
   - `postgres` (the default) writes `$1…$n`;
   - `psycopg` writes `%s` and doubles every literal `%`.
@@ -107,7 +107,7 @@ All figures are of the listings a statistic counts, by C1's own rules: `{ groupe
 | `price_usd_p25`, `price_usd_median`, `price_usd_p75` | the price in dollars |
 | `price_per_m2_usd_median`, `price_gel_median`, `price_per_m2_gel_median`, `area_m2_median` | medians. The per-m² ones are over listings with a known area: with no area, ss.ge's price per m² is the whole price. |
 | `taken_at`, `crawl_run_id` | when, and after which ss.ge run (null when taken by hand) |
-| `rules_version` | the rules the figures follow. It goes up when they change, so the change shows as a step and is not mistaken for a trend. 1 was the first take only (2026-11-06). 2 adds two things: a rent of $200 a m² or more is a typo, and the per-m² medians come only from listings with a known area. 3 (Phase 14A): ss.ge's oldest listings, filed with no district, count in their sub-district's district (`district_inferred`, C5), about 1,200 more listings in the district cells; the city, sub-district and `all` cells do not move. 4 (2026-11-10): a listing counts only until its expected end, with no two days of grace, about 8,000 fewer listings at once in every cell; it is now your own earlier live rule, `expected_end_at > now()`. |
+| `rules_version` | the rules the figures follow. It goes up when they change, so the change shows as a step and is not mistaken for a trend. 1 was the first take only (2026-11-06). 2 adds two things: a rent of $200 a m² or more is a typo, and the per-m² medians come only from listings with a known area. 3 (Phase 14A): ss.ge's oldest listings, filed with no district, count in their sub-district's district (`district_inferred`, C5), about 1,200 more listings in the district cells; the city, sub-district and `all` cells do not move. 4 (2026-11-10): a listing counts only until its expected end, with no two days of grace, about 8,000 fewer listings at once in every cell; it is now your own earlier live rule, `expected_end_at > now()`. 5 (the list-end read): a listing its list still shows past its 30 days counts while the list shows it, where it was hidden until its own page was asked; some thousands more listings at once, nearly all naming no business and 30 to 45 days old. |
 
 ### When
 
