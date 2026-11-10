@@ -132,6 +132,16 @@ export const PAGE_RETRY_WAITS_MS = [0, 60_000, 5 * 60_000] as const;
 /** Requests for one page before the run gives up on it. */
 const MAX_PAGE_ATTEMPTS = PAGE_RETRY_WAITS_MS.length + 1;
 /**
+ * Lists given up on in one run before the walk ends. One page that will not
+ * load is that list's trouble, and the list waits for the next run while the
+ * night goes on (2026-11-09: flat-daily page 9 came back without its list
+ * for six minutes, and the whole night ended there, before its checks, its
+ * lapses and 13A's first deletions). Three such lists in a night, each costing
+ * its six minutes of waiting, are the site in a bad way, so the walk ends,
+ * and what follows it has its own rules for a site that will not answer.
+ */
+const MAX_FAULTED_LISTS = 3;
+/**
  * A nightly run reads back to the last completed run's start and this much
  * further: listings renewed while that run was still walking sit just behind
  * where it began.
@@ -315,6 +325,8 @@ interface RunState {
   knownListings: ReadonlyMap<SsGeList['key'], number>;
   /** Why the run stopped short; null while it has not. */
   stopReason: string | null;
+  /** Each list given up on for the run because a page of it would not load (`MAX_FAULTED_LISTS`). */
+  pageFaults: string[];
   /** The site refused or would not answer: no further request is made in this run. */
   siteTrouble: boolean;
   /** Each sub-district's district, as the place tree held it when the run began (`upsertListing`). */
@@ -421,8 +433,10 @@ interface PageRead {
 }
 
 /**
- * One results page, asked for up to three times. Null means the run has
- * stopped: the page would not load, or the site refused.
+ * One results page, asked for up to four times. Null means the list is done
+ * for this run: its page would not load after the tries, so the list waits
+ * for the next run (`pageFaults`) while the walk goes on, or the run itself
+ * has stopped (the site refused, or the run's time or requests ran out).
  *
  * A page that carries no data, or no rows, counts as not loaded: the site
  * answers a page past the end with page 1, never with nothing, so an empty
@@ -481,11 +495,17 @@ async function readResultsPage(
     }
     noteFailure(run, url, reason, pageClues(fetched.body));
   }
-  stop(
-    run,
+  // The wording is read back as a fixed word for Hermes (`pages_failed`).
+  run.pageFaults.push(
     `${list.key} page ${page} would not load after ${MAX_PAGE_ATTEMPTS} tries (${reason})`,
-    true,
   );
+  logger.warn(
+    { list: list.key, page, reason },
+    'ss.ge crawl: a results page would not load; the list waits for the next run',
+  );
+  if (run.pageFaults.length >= MAX_FAULTED_LISTS) {
+    stop(run, `${MAX_FAULTED_LISTS} lists would not load`, false);
+  }
   return null;
 }
 
@@ -763,13 +783,22 @@ async function readWantedDetails(run: RunState): Promise<void> {
 }
 
 /**
- * The run's notes: why it stopped short, and also when its time or requests
- * ran out only after the lists were read. That run still completes: the
- * listing pages left over wait for the next one.
+ * The run's notes: each list given up on, then why the run stopped short, and
+ * also when its time or requests ran out only after the lists were read. That
+ * run still completes: the listing pages left over wait for the next one.
+ * The first is the one Hermes reads (`realEstateStopReason`).
  */
 function runNotes(run: RunState): string | null {
-  if (run.spent === null || (run.stopReason ?? '').includes(run.spent)) return run.stopReason;
-  return run.stopReason === null ? run.spent : `${run.stopReason}; ${run.spent}`;
+  const reasons = [...run.pageFaults];
+  if (run.stopReason !== null) reasons.push(run.stopReason);
+  if (run.spent !== null && !reasons.some((reason) => reason.includes(run.spent as string)))
+    reasons.push(run.spent);
+  return reasons.length === 0 ? null : reasons.join('; ');
+}
+
+/** Whether the run did all it set out to: every list read, and nothing stopped it. */
+function runStatus(run: RunState): 'completed' | 'partial' {
+  return run.stopReason === null && run.pageFaults.length === 0 ? 'completed' : 'partial';
 }
 
 /**
@@ -1078,6 +1107,7 @@ export async function runSsGeCrawl(
     spent: null,
     knownListings: knownListings(history),
     stopReason: null,
+    pageFaults: [],
     siteTrouble: false,
     parents: await loadDistrictParents(db, ssGeSource.id),
     placePointReadsLeft: options.maxPlacePointReads ?? PLACE_POINT_READS_PER_RUN,
@@ -1093,6 +1123,8 @@ export async function runSsGeCrawl(
       );
     }
 
+    // A list whose page would not load is left for the next run; the walk
+    // goes on with the next list (`MAX_FAULTED_LISTS`).
     for (const list of SS_GE_LISTS) {
       if (run.stopReason !== null) break;
       await walkList(run, list, deep.includes(list.key) ? null : olderThanMs);
@@ -1133,7 +1165,7 @@ export async function runSsGeCrawl(
 
     await saveRun(run, {
       finishedAt: now(),
-      status: run.stopReason === null ? 'completed' : 'partial',
+      status: runStatus(run),
       notes: runNotes(run),
     });
   } catch (err) {

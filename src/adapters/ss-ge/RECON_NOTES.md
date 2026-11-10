@@ -166,3 +166,9 @@ When someone finds a listing on the tab that ss.ge has ended, measure before cha
 4. **Size it:** the dead share of the suspects times how many shown listings fit the pattern.
 
 Two numbers to watch after any change to the expiry rules: how many flagged listings wait for a check (`missed_at is not null`, 10,804 on 2026-11-09), and how many pages wait to be read for their details (`details_wanted_at is not null and details_read_at is null`, 54,964).
+
+## One results page ended a whole night (2026-11-09)
+
+The run of 2026-11-09 21:30 UTC ended `partial` at 21:39 with 49 requests. Flat-daily page 9 came back four times over six minutes (the retry waits of `3ce5634`: at once, after a minute, after five) as a full 112 KB page with its title and no listing list; the same URL loaded fine the next afternoon from the PC and from the host through the proxy, 41 KB compressed. So ss.ge served a data-less page for at least six minutes, as it had for flat-rent page 130 on 2026-11-05 at 17:00. The crawl treated a page that would not load after its tries as the site refusing, which also cancels everything after the walk, so the night checked nothing, lapsed nothing and made 13A's first deletions wait: 37,634 listings past their end, 10,804 flagged missing and 3,904 gone 14+ days were waiting the next afternoon.
+
+Since the fix (branch `ss-ge-page-fault-continues`) such a page is that list's trouble alone: the list is left at its last stored page and resumed by the next run, the walk goes on with the next list, and the checks, the details, the lapses and the deletions follow; the run is `partial` and its notes name the page first (Hermes reads `pages_failed`). Three faulted lists in one run end the walk. If a night still ends early, read the run's notes: a refusal (403, 429, a slow-down header) or the proxy staying away is the site or the laptop, and still ends the run.

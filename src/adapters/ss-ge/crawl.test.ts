@@ -517,9 +517,14 @@ describe('runSsGeCrawl, sweep', () => {
     expect(await storedListings()).toHaveLength(40 + OTHER_LISTS);
   });
 
-  it('gives up on a page that fails four times, after waiting a minute and then five, and keeps what it had', async () => {
-    const site = new FakeSite({ 'flat-sale': rows(1_000, 40) });
-    const second = buildResultsUrl(list('flat-sale'), 2);
+  it('gives up on a page that fails four times, after waiting a minute and then five, keeps what it had and reads the other lists', async () => {
+    // ss.ge, 2026-11-09: flat-daily page 9 came back without its list for six
+    // minutes, and the whole night ended there: no other list, no checks, no
+    // lapses, no deletions. A list whose page will not load waits for the
+    // next run; the night goes on without it.
+    const faulted = SS_GE_LISTS[1] as SsGeList;
+    const site = new FakeSite({ [faulted.key]: rows(1_000, 40) });
+    const second = buildResultsUrl(faulted, 2);
     site.script(
       second,
       status(second, 500),
@@ -536,11 +541,40 @@ describe('runSsGeCrawl, sweep', () => {
 
     expect(waits).toEqual([60_000, 5 * 60_000]);
     expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 4 });
-    expect(crawlRun.notes).toMatch(/flat-sale page 2 would not load after 4 tries/);
-    expect(crawlRun.notes).toMatch(/flat-sale.*page 2/);
-    expect(progressOf(crawlRun).lists['flat-sale']).toMatchObject({ lastPage: 1, finished: null });
-    // Nothing after the page that would not load: a resumed sweep starts there.
-    expect(site.requested.at(-1)).toBe(second);
+    expect(crawlRun.notes).toBe(`${faulted.key} page 2 would not load after 4 tries (HTTP 500)`);
+    // A resumed walk starts at the page that would not load.
+    expect(progressOf(crawlRun).lists[faulted.key]).toMatchObject({ lastPage: 1, finished: null });
+    expect(site.resultsRequests(faulted)).toEqual([1, 2, 2, 2, 2]);
+    // Every other list was still read, to the last.
+    for (const other of SS_GE_LISTS) {
+      if (other.key === faulted.key) continue;
+      expect(progressOf(crawlRun).lists[other.key]?.finished, other.key).toBe('end');
+    }
+    expect(await storedListings()).toHaveLength(16 + OTHER_LISTS);
+  });
+
+  it('ends the walk once three lists would not load, and says so after them', async () => {
+    const site = new FakeSite();
+    const faulted = SS_GE_LISTS.slice(1, 4) as SsGeList[];
+    for (const list of faulted) {
+      const url = buildResultsUrl(list, 1);
+      site.script(url, status(url, 500), status(url, 500), status(url, 500), status(url, 500));
+    }
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 0 },
+    );
+
+    expect(crawlRun).toMatchObject({ status: 'partial', failedRequestCount: 12 });
+    expect(crawlRun.notes).toBe(
+      faulted
+        .map((list) => `${list.key} page 1 would not load after 4 tries (HTTP 500)`)
+        .concat('3 lists would not load')
+        .join('; '),
+    );
+    expect(progressOf(crawlRun).lists[SS_GE_LISTS[0]!.key]).toMatchObject({ finished: 'end' });
+    expect(site.resultsRequests(SS_GE_LISTS[4] as SsGeList)).toEqual([]);
   });
 
   it('waits a minute before the third try of a page that came back without its list, and carries on when it loads', async () => {
@@ -1312,6 +1346,46 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     expect(crawlRun.status).toBe('partial');
     // Both still want their details read, and are not asked again: one page a run.
     expect(detailRequests(site).sort()).toEqual(['1000', '1001']);
+  });
+
+  it('still checks them, and deletes the long gone, after a results page that would not load', async () => {
+    // 2026-11-09: one such page cost the night its checks and 13A's first deletions.
+    const site = new FakeSite({ [first.key]: rows(1_000, 2, PAST_ITS_LIFE) });
+    const faulted = buildResultsUrl(SS_GE_LISTS[1] as SsGeList, 1);
+    site.script(
+      faulted,
+      status(faulted, 500),
+      status(faulted, 500),
+      status(faulted, 500),
+      status(faulted, 500),
+    );
+    await ensureSsGeSourceSeeded(db);
+    await db.insert(realEstateListings).values({
+      sourceId: ssGeSource.id,
+      sourceListingKey: '7002',
+      canonicalUrl: buildDetailUrl('7002'),
+      dealType: 'sale',
+      propertyType: 'flat',
+      sourceUpdatedAt: new Date(NOW - 60 * DAY_MS).toISOString(),
+      expectedEndAt: new Date(NOW - 30 * DAY_MS).toISOString(),
+      firstSeenAt: new Date(NOW - 60 * DAY_MS).toISOString(),
+      lastSeenAt: new Date(NOW - 30 * DAY_MS).toISOString(),
+      contentHash: 'h',
+      status: 'gone',
+      goneAt: new Date(NOW - 15 * DAY_MS).toISOString(),
+      goneReason: 'expired',
+    });
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep' },
+    );
+
+    expect(crawlRun.status).toBe('partial');
+    expect(crawlRun.notes).toMatch(/page 1 would not load after 4 tries/);
+    // Both past their life were checked (the other lists' new listings had their pages read too).
+    expect(detailRequests(site)).toEqual(expect.arrayContaining(['1000', '1001']));
+    expect(await stored(7002)).toBeUndefined();
   });
 
   it('checks none when the site refused the walk', async () => {
