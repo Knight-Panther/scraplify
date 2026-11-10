@@ -132,13 +132,30 @@ export const PAGE_RETRY_WAITS_MS = [0, 60_000, 5 * 60_000] as const;
 /** Requests for one page before the run gives up on it. */
 const MAX_PAGE_ATTEMPTS = PAGE_RETRY_WAITS_MS.length + 1;
 /**
- * Lists given up on in one run before the walk ends. One page that will not
- * load is that list's trouble, and the list waits for the next run while the
- * night goes on (2026-11-09: flat-daily page 9 came back without its list
- * for six minutes, and the whole night ended there, before its checks, its
- * lapses and 13A's first deletions). Three such lists in a night, each costing
- * its six minutes of waiting, are the site in a bad way, so the walk ends,
- * and what follows it has its own rules for a site that will not answer.
+ * A page that will not load after its tries is passed over, and the walk goes
+ * on with the next page of its list. ss.ge serves such a page for as long as
+ * one listing on it breaks the site's own answer: flats for daily rent had
+ * one on page 9 on 2026-11-09 and on page 39 the next afternoon, pushed down
+ * by newer listings, with pages 38 and 40 loading. Treated as the site
+ * refusing, it ended the whole night; left as its list's end, it would stop
+ * that list at the same listing every night, and a walk with a list left
+ * unread is resumed, not started again, so no other list would be read either.
+ * The rows on a page passed over are not seen that night: what a full read
+ * then flags as missed is asked by its own page (`markMissedListings`).
+ *
+ * Two such pages in a row, or more than this many in one run, are not one
+ * broken listing: the list is given up for the run and waits for the next.
+ * So is a list whose page 1 will not load. A list's newest rows are there,
+ * a broken listing is pushed off it within the hour, and a site answering
+ * with its empty default answers page 1 that way: passing it over could end
+ * a list as read with none of it read.
+ */
+const MAX_SKIPPED_PAGES = 5;
+const MAX_PAGE_FAULTS_IN_A_ROW = 2;
+/**
+ * Lists given up on in one run before the walk ends. Three, each having cost
+ * its minutes of waiting, are the site in a bad way; what follows the walk has
+ * its own rules for a site that will not answer.
  */
 const MAX_FAULTED_LISTS = 3;
 /**
@@ -325,8 +342,12 @@ interface RunState {
   knownListings: ReadonlyMap<SsGeList['key'], number>;
   /** Why the run stopped short; null while it has not. */
   stopReason: string | null;
-  /** Each list given up on for the run because a page of it would not load (`MAX_FAULTED_LISTS`). */
+  /** Each list given up on for the run because its pages would not load (`MAX_FAULTED_LISTS`). */
   pageFaults: string[];
+  /** Each page passed over because it would not load (`MAX_SKIPPED_PAGES`). */
+  skippedPages: string[];
+  /** Why each page that would not load did not, by list and page: none is asked twice in a run. */
+  unloadable: Map<string, string>;
   /** The site refused or would not answer: no further request is made in this run. */
   siteTrouble: boolean;
   /** Each sub-district's district, as the place tree held it when the run began (`upsertListing`). */
@@ -432,11 +453,17 @@ interface PageRead {
   fetchedAt: string;
 }
 
+/** A results page that would not load after its tries, and why. */
+interface PageFault {
+  fault: string;
+}
+
 /**
- * One results page, asked for up to four times. Null means the list is done
- * for this run: its page would not load after the tries, so the list waits
- * for the next run (`pageFaults`) while the walk goes on, or the run itself
- * has stopped (the site refused, or the run's time or requests ran out).
+ * One results page, asked for up to four times. A fault means it would not
+ * load after the tries: the caller passes it over or gives its list up
+ * (`MAX_SKIPPED_PAGES`), and the page is not asked again in this run. Null
+ * means the run itself has stopped: the site refused, or the run's time or
+ * requests ran out.
  *
  * A page that carries no data, or no rows, counts as not loaded: the site
  * answers a page past the end with page 1, never with nothing, so an empty
@@ -452,7 +479,9 @@ async function readResultsPage(
   run: RunState,
   list: SsGeList,
   page: number,
-): Promise<PageRead | null> {
+): Promise<PageRead | PageFault | null> {
+  const known = run.unloadable.get(`${list.key}:${page}`);
+  if (known !== undefined) return { fault: known };
   const url = buildResultsUrl(list, page);
   let reason = '';
   for (let attempt = 1; attempt <= MAX_PAGE_ATTEMPTS; attempt++) {
@@ -495,6 +524,36 @@ async function readResultsPage(
     }
     noteFailure(run, url, reason, pageClues(fetched.body));
   }
+  run.unloadable.set(`${list.key}:${page}`, reason);
+  return { fault: reason };
+}
+
+/**
+ * What the walk does about a page that would not load: passes it over, or
+ * gives its list up for the run when the page before it would not load either
+ * or the run has passed over enough (`MAX_SKIPPED_PAGES`). Returns whether the
+ * walk of the list goes on.
+ */
+function passOverPage(
+  run: RunState,
+  list: SsGeList,
+  page: number,
+  reason: string,
+  faultsInARow: number,
+): boolean {
+  const tries = `it would not load after ${MAX_PAGE_ATTEMPTS} tries (${reason})`;
+  if (
+    page > 1 &&
+    faultsInARow < MAX_PAGE_FAULTS_IN_A_ROW &&
+    run.skippedPages.length < MAX_SKIPPED_PAGES
+  ) {
+    run.skippedPages.push(`${list.key} page ${page} skipped: ${tries}`);
+    logger.warn(
+      { list: list.key, page, reason },
+      'ss.ge crawl: a results page would not load; passed over',
+    );
+    return true;
+  }
   // The wording is read back as a fixed word for Hermes (`pages_failed`).
   run.pageFaults.push(
     `${list.key} page ${page} would not load after ${MAX_PAGE_ATTEMPTS} tries (${reason})`,
@@ -506,7 +565,7 @@ async function readResultsPage(
   if (run.pageFaults.length >= MAX_FAULTED_LISTS) {
     stop(run, `${MAX_FAULTED_LISTS} lists would not load`, false);
   }
-  return null;
+  return false;
 }
 
 /**
@@ -529,9 +588,11 @@ function isRefusedRowValue(err: unknown): boolean {
  * few pages back". So the page is checked against the oldest order time the
  * walk had stored: if every row on it is older, the walk steps back (20
  * pages, then 40, and so on) until it overlaps what it read. In the unordered
- * tail of a sale list the check passes at once, which is safe. Returns the
- * page to start from, with its read when that page was the one accepted, or
- * null when the run stopped.
+ * tail of a sale list the check passes at once, which is safe. A page that
+ * will not load cannot be checked against: the one before it is, once, and
+ * the walk passes the broken one over when it comes to it. Returns the page
+ * to start from, with its read when that page was the one accepted, or null
+ * when the run stopped.
  */
 async function resumePoint(
   run: RunState,
@@ -541,9 +602,17 @@ async function resumePoint(
 ): Promise<{ page: number; read: PageRead | null } | null> {
   let at = page;
   let step = RESUME_STEP_PAGES;
+  let steppedPastFault = false;
   for (let attempt = 0; attempt < MAX_RESUME_STEPS; attempt++) {
     const read = await readResultsPage(run, list, at);
     if (read === null) return null;
+    if ('fault' in read) {
+      // A second one, or page 1 itself: the walk starts here and decides.
+      if (steppedPastFault || at === 1) return { page: at, read: null };
+      steppedPastFault = true;
+      at -= 1;
+      continue;
+    }
     const newestMs = Math.max(
       Number.NEGATIVE_INFINITY,
       ...read.parsed.cards.map((card) => Date.parse(card.sourceUpdatedAt)),
@@ -575,14 +644,21 @@ async function walkList(run: RunState, list: SsGeList, olderThanMs: number | nul
     pending = resumed.read;
   }
   let pastEndSeen = false;
+  let faultsInARow = 0;
   while (run.stopReason === null) {
     if (run.pagesLeft <= 0) {
       stop(run, 'page limit reached', false);
       return;
     }
-    const read = pending ?? (await readResultsPage(run, list, page));
+    const read: PageRead | PageFault | null = pending ?? (await readResultsPage(run, list, page));
     pending = null;
     if (read === null) return;
+    if ('fault' in read) {
+      if (!passOverPage(run, list, page, read.fault, ++faultsInARow)) return;
+      page++;
+      continue;
+    }
+    faultsInARow = 0;
 
     if (read.parsed.pastEnd) {
       // The site answered with page 1: past the end of the list, and these
@@ -786,17 +862,22 @@ async function readWantedDetails(run: RunState): Promise<void> {
  * The run's notes: each list given up on, then why the run stopped short, and
  * also when its time or requests ran out only after the lists were read. That
  * run still completes: the listing pages left over wait for the next one.
- * The first is the one Hermes reads (`realEstateStopReason`).
+ * The first is the one Hermes reads (`realEstateStopReason`). Last, each page
+ * passed over, which stops nothing.
  */
 function runNotes(run: RunState): string | null {
   const reasons = [...run.pageFaults];
   if (run.stopReason !== null) reasons.push(run.stopReason);
   if (run.spent !== null && !reasons.some((reason) => reason.includes(run.spent as string)))
     reasons.push(run.spent);
+  reasons.push(...run.skippedPages);
   return reasons.length === 0 ? null : reasons.join('; ');
 }
 
-/** Whether the run did all it set out to: every list read, and nothing stopped it. */
+/**
+ * Whether the run did all it set out to: every list read, and nothing stopped
+ * it. A page passed over leaves its list read (`MAX_SKIPPED_PAGES`).
+ */
 function runStatus(run: RunState): 'completed' | 'partial' {
   return run.stopReason === null && run.pageFaults.length === 0 ? 'completed' : 'partial';
 }
@@ -1108,6 +1189,8 @@ export async function runSsGeCrawl(
     knownListings: knownListings(history),
     stopReason: null,
     pageFaults: [],
+    skippedPages: [],
+    unloadable: new Map(),
     siteTrouble: false,
     parents: await loadDistrictParents(db, ssGeSource.id),
     placePointReadsLeft: options.maxPlacePointReads ?? PLACE_POINT_READS_PER_RUN,
@@ -1123,8 +1206,8 @@ export async function runSsGeCrawl(
       );
     }
 
-    // A list whose page would not load is left for the next run; the walk
-    // goes on with the next list (`MAX_FAULTED_LISTS`).
+    // A page that would not load is passed over, and a list given up is left
+    // for the next run; either way the walk goes on (`MAX_SKIPPED_PAGES`).
     for (const list of SS_GE_LISTS) {
       if (run.stopReason !== null) break;
       await walkList(run, list, deep.includes(list.key) ? null : olderThanMs);
