@@ -60,6 +60,8 @@ missing key fails fast instead of hanging on a prompt.
    q "select level, count(*), count(*) filter (where active_listings > 0), count(*) filter (where point_status = 'known'), count(*) filter (where point_status = 'none'), max(last_seen_at) from realestate.places group by level order by level"
    echo "== place catalogue (official districts | stations | streets with an official district | streets with a known point | Tbilisi areas with overlaps | listings located in them)"
    q "select count(*) filter (where level = 'official_district'), count(*) filter (where level = 'metro_station'), count(*) filter (where level = 'street' and official_district_ref is not null), count(*) filter (where level = 'street' and point_status = 'known'), count(*) filter (where official_shares is not null), sum((official_shares->>'located')::int) filter (where level = 'district') || ' of ' || sum((official_shares->>'listings')::int) filter (where level = 'district') from realestate.places"
+   echo "== listing locations (Phase 14C: active judged of active | rules | uncertain | Tbilisi official district by pin | street | area | none | streets located by pins | by ss.ge's point)"
+   q "select count(*) filter (where location_rules is not null) || ' of ' || count(*), max(location_rules), count(*) filter (where location_uncertain), count(*) filter (where city_ref = 95 and official_district_basis = 'pin'), count(*) filter (where city_ref = 95 and official_district_basis = 'street'), count(*) filter (where city_ref = 95 and official_district_basis = 'area'), count(*) filter (where city_ref = 95 and official_district_basis is null), (select count(*) from realestate.places where level = 'street' and located_basis = 'pins'), (select count(*) from realestate.places where level = 'street' and located_basis = 'ss.ge') from realestate.listings where status = 'active'"
    EOF
    ```
 
@@ -75,7 +77,7 @@ missing key fails fast instead of hanging on a prompt.
    each. Rows: release (short sha), services, failed units, running jobs,
    next pipeline run, each source's last pipeline result and last crawl run,
    backup, health-check exit, unlinked listings, open parser incidents, disk
-   and memory, ss.ge tunnel and last ss.ge run, real-estate archive, daily totals, place tree, place catalogue, probe. Then one verdict line,
+   and memory, ss.ge tunnel and last ss.ge run, real-estate archive, daily totals, place tree, place catalogue, listing locations, probe. Then one verdict line,
    and a short "needs attention" list if anything is ⚠️ or ❌.
 
    How to read the signals:
@@ -127,6 +129,18 @@ missing key fails fast instead of hanging on a prompt.
      street points inside Tbilisi (Batumi's and other cities' points have
      none), and the located listings grow with them. An error that column
      `origin` does not exist means the release before Phase 14B.
+   - Listing locations (Phase 14C, contract C5) are judged right after the
+     catalogue in every ss.ge run (`ss.ge listing locations judged`). Every
+     active listing judged under the current `LOCATION_RULES_VERSION` is ✅.
+     While a run is going, the listings it has added wait for its last step,
+     so a few thousand unjudged then is normal; after a finished run, any
+     unjudged listing is ⚠️ (journal: `ss.ge listing locations failed`;
+     they keep the night before's judgement). Uncertain listings were 235 of
+     303,134 on the trial copy (2026-11-08): many times that is ⚠️, a sign a
+     rule or the street locations went wrong. The official district grows
+     from street and area as pins and street points arrive. An error that
+     column `location_rules` does not exist means the release before
+     Phase 14C.
 
 ## What this skill will not do
 
