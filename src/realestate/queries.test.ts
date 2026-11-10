@@ -75,27 +75,31 @@ describe('real-estate queries', () => {
   });
 
   describe('which listings are on show', () => {
-    it('shows an active listing until two days past its expected end', async () => {
+    it('shows an active listing until its expected end, with no days of grace', async () => {
+      // 2026-11-10: of 60 listings shown in their two days of grace, 51 were
+      // gone on ss.ge, and the end we expect is the site's own to the second.
       const sourceId = await newSource();
       const live = await listing(sourceId);
-      const inGrace = await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-10) });
-      await listing(sourceId, { expectedEndAt: at(-3), lastSeenAt: at(-10) });
+      const endsInAnHour = await listing(sourceId, { expectedEndAt: at(1 / 24) });
+      await listing(sourceId, { expectedEndAt: at(-1 / 24), lastSeenAt: at(-10) });
+      await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-10) });
       await listing(sourceId, { status: 'gone', goneAt: at(-1) });
 
-      expect((await find(sourceId)).sort()).toEqual([live, inGrace].sort());
+      expect((await find(sourceId)).sort()).toEqual([live, endsInAnHour].sort());
       expect(await countRealEstate(db, { sourceId }, NOW_ISO)).toBe(2);
     });
 
-    it('shows a listing the source listed lately, whatever its order time says', async () => {
+    it('does not show a listing past its expected end because a list showed it lately', async () => {
       const sourceId = await newSource();
-      // Ordered two years ago, on the site this morning (guideline §9.3, rule 2).
-      const longRunning = await listing(sourceId, {
+      // Ordered two years ago, on the site this morning. It is first among the
+      // night's checks, and its own page then states an end (guideline §9.3).
+      await listing(sourceId, {
         sourceUpdatedAt: at(-700),
         expectedEndAt: at(-670),
         lastSeenAt: at(-0.5),
       });
 
-      expect(await find(sourceId)).toEqual([longRunning]);
+      expect(await find(sourceId)).toEqual([]);
     });
 
     it('never returns the description', async () => {
@@ -802,7 +806,7 @@ describe('real-estate queries', () => {
       await listing(sourceId);
       await listing(sourceId, { subdistrictRef: 2, subdistrictName: 'ვაკე' });
       await listing(sourceId, { status: 'gone', subdistrictRef: 9, subdistrictName: 'დიდუბე' });
-      // Active, but past its expected end and unseen for longer than the grace.
+      // Active, but past its expected end.
       await listing(sourceId, {
         subdistrictRef: 9,
         subdistrictName: 'დიდუბე',

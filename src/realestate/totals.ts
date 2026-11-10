@@ -23,8 +23,10 @@ import { conditions, type RealEstateFilters, shownRows } from './filters.js';
  * m² come only from listings whose area is known. 3 (Phase 14A): the oldest
  * listings, which ss.ge files with no district, count in their sub-district's
  * district (`district_inferred`), about 1,200 more in the district cells.
+ * 4 (2026-11-10): a listing counts only until its expected end, with no two
+ * days of grace (`SHOWN_GRACE_DAYS`), about 8,000 fewer at once.
  */
-export const TOTALS_RULES_VERSION = 3;
+export const TOTALS_RULES_VERSION = 4;
 /** A cell with fewer listings is not kept: one or two listings are no market, and most cells are villages. */
 export const TOTALS_MIN_LISTINGS = 5;
 
