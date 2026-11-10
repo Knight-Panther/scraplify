@@ -39,8 +39,19 @@ import { listingSearchQuery } from './search.js';
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** A listing stays on show this long past the later of its expected end and its last sighting (guideline §9.3). */
-export const SHOWN_GRACE_DAYS = 2;
+/**
+ * How long a listing stays on show past its expected end: not at all
+ * (guideline §9.3). It was two days until 2026-11-10, when 8,112 listings
+ * were on the tab in those two days and ss.ge was asked about 60 of them: 51
+ * were gone (27 of 30 agents' listings, 24 of 30 naming no business), and the
+ * end we expect was the site's own to the second for 18 of 18 still running.
+ * The grace showed about five dead listings for each live one it kept. A
+ * listing that outlives its expected end (an owner's 45 days, a renewal not
+ * yet seen) is back once the night's checks read its page or a list shows it
+ * renewed. With no grace the last sighting no longer extends anything; the
+ * condition keeps its shape, which is also what Hermes is handed (C1).
+ */
+export const SHOWN_GRACE_DAYS = 0;
 /** The top choice of each count on ss.ge's panels, meaning that many or more. */
 export const ROOMS_TOP = 10;
 export const BATHROOMS_TOP = 5;
