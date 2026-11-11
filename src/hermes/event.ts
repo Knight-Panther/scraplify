@@ -153,6 +153,7 @@ export interface RealEstateRunFacts {
  * - `listings_failed`: several listing pages in a row would not load.
  * - `time_limit`: the run's 16 hours ran out with lists still unread (Phase 12B).
  * - `request_ceiling`: its 20,000 requests did (Phase 12B).
+ * - `page_limit`: it was given a page limit (`--max-pages`: a trial, a short run by hand) and reached it.
  * - `process_ended`: the process died and a later run settled the row.
  * - `error`: the run failed on anything else (the journal has the message).
  * - `other`: it ended partial for a reason this list does not know yet.
@@ -164,6 +165,7 @@ export const REAL_ESTATE_STOP_REASONS = [
   'listings_failed',
   'time_limit',
   'request_ceiling',
+  'page_limit',
   'process_ended',
   'error',
   'other',
@@ -423,6 +425,7 @@ export function realEstateStopReason(
   if (/page \d+ would not load after/.test(first)) return { reason: 'pages_failed', httpStatus };
   if (first === 'time limit reached') return { reason: 'time_limit', httpStatus: null };
   if (first === 'request ceiling reached') return { reason: 'request_ceiling', httpStatus: null };
+  if (first === 'page limit reached') return { reason: 'page_limit', httpStatus: null };
   if (first.startsWith('the process ended before the run did'))
     return { reason: 'process_ended', httpStatus: null };
   return { reason: status === 'failed' ? 'error' : 'other', httpStatus: null };

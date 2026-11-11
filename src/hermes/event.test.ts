@@ -533,6 +533,14 @@ describe('realEstateStopReason', () => {
     // Phase 12B: out of its 16 hours, or its 20,000 requests, while lists were unread.
     ['partial', 'time limit reached', 'time_limit', null],
     ['partial', 'request ceiling reached', 'request_ceiling', null],
+    // A trial or a run by hand stopped by its own `--max-pages` (2026-11-11): no fault.
+    ['partial', 'page limit reached', 'page_limit', null],
+    [
+      'partial',
+      'page limit reached; flat-daily page 41 skipped: it would not load after 4 tries (HTTP 500)',
+      'page_limit',
+      null,
+    ],
     [
       'partial',
       'house-sale page 9: the proxy http://127.0.0.1:18888 stayed unreachable (waited 600 min in this run)',

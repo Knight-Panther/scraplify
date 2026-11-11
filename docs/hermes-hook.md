@@ -323,3 +323,10 @@ Schema still 1. Two additions to the real-estate event:
 
 Hermes reads `counts` key by key and shows a `reason` it has no text for as the word itself, so
 neither breaks it before its side learns them.
+
+### A run stopped at its page limit (2026-11-11)
+
+Schema still 1. One more `reason` word: `page_limit`, for a run given `--max-pages` (a trial, or
+the short run by hand after a deploy) that reached it. It ends partial by design; until now it
+arrived as `other`, which Hermes could not tell from a reason the host does not know. Hermes asked
+for the word and reads it as "stopped at its page limit (a run by hand)".
