@@ -73,77 +73,67 @@ describe('listing expiry', () => {
   });
 
   describe('loadListingsDueForCheck', () => {
-    it('returns active listings whose expected end has passed, and no others', async () => {
+    it('returns the missed listings still on show and those seen after their end, and no others', async () => {
       const sourceId = await newSource();
-      const due = await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-5) });
+      // A full read of its list did not find it, and the tab still shows it.
+      const missedOnShow = await listing(sourceId, { expectedEndAt: at(5), missedAt: at(-1) });
+      // A list showed it after its end, and none has since.
+      const seenAfterItsEnd = await listing(sourceId, {
+        expectedEndAt: at(-2),
+        lastSeenAt: at(-1),
+      });
+      // Past its end and no list has shown it since: since every list's end
+      // is read each night (2026-11-11), a live one would have been seen.
+      // It lapses unasked (`markLapsedListingsGone`).
+      await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-5) });
+      // Missed, and already off the tab by its date: 4% of those were live
+      // on 2026-11-11, so it lapses unasked too.
+      await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-5), missedAt: at(-3) });
       await listing(sourceId, { expectedEndAt: at(1) });
       await listing(sourceId, { expectedEndAt: null });
-      await listing(sourceId, { expectedEndAt: at(-1), status: 'gone', goneAt: at(-1) });
+      await listing(sourceId, {
+        expectedEndAt: at(-2),
+        lastSeenAt: at(-1),
+        status: 'gone',
+        goneAt: at(-1),
+      });
       const elsewhere = await newSource();
-      await listing(elsewhere, { expectedEndAt: at(-1) });
+      await listing(elsewhere, { expectedEndAt: at(-2), lastSeenAt: at(-1) });
 
       const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
 
-      expect(found.map((row) => row.id)).toEqual([due]);
+      expect(found.map((row) => row.id).sort()).toEqual([missedOnShow, seenAfterItsEnd].sort());
       expect(found[0]?.sourceListingKey).toEqual(expect.any(String));
     });
 
-    it('puts first the listings the source still showed after their expected end', async () => {
+    it('asks first about the missed listings still on show, the longest-lived first', async () => {
       const sourceId = await newSource();
-      // Expired yesterday and not seen since: probably just gone.
-      const lapsedYesterday = await listing(sourceId, {
-        expectedEndAt: at(-1),
-        lastSeenAt: at(-3),
-      });
-      // Ordered two years ago and listed this morning: the thirty-day rule
-      // does not hold for it, and only its own page says when it ends.
+      // Ordered two years ago and listed after its end: only its own page
+      // says when it ends. It is off the tab already, so it waits.
       const longRunning = await listing(sourceId, {
         sourceUpdatedAt: at(-700),
         expectedEndAt: at(-670),
         lastSeenAt: at(-0.5),
       });
-
-      const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
-
-      expect(found.map((row) => row.id)).toEqual([longRunning, lapsedYesterday]);
-    });
-
-    it('asks about missed listings after the long-running ones, the longest-lived first', async () => {
-      const sourceId = await newSource();
-      const lapsedYesterday = await listing(sourceId, {
-        expectedEndAt: at(-1),
-        lastSeenAt: at(-3),
-      });
-      const longRunning = await listing(sourceId, {
-        sourceUpdatedAt: at(-700),
-        expectedEndAt: at(-670),
-        lastSeenAt: at(-0.5),
-      });
-      // Not due by its date, but a full read of its list did not find it.
+      // Not due by its date, but a full read of its list did not find it:
+      // 55% of those were still live on 2026-11-11, and the tab shows them.
       const missedEndingSoon = await listing(sourceId, { expectedEndAt: at(5), missedAt: at(-1) });
       const missedEndingLate = await listing(sourceId, { expectedEndAt: at(30), missedAt: at(-1) });
       await listing(sourceId, { expectedEndAt: at(20) });
 
       const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
 
-      expect(found.map((row) => row.id)).toEqual([
-        longRunning,
-        missedEndingLate,
-        missedEndingSoon,
-        lapsedYesterday,
-      ]);
+      expect(found.map((row) => row.id)).toEqual([missedEndingLate, missedEndingSoon, longRunning]);
     });
 
-    it('then takes the most recently expired first, up to the limit', async () => {
+    it('then takes the most recently expired of those seen after their end, up to the limit', async () => {
       const sourceId = await newSource();
-      const fourDays = await listing(sourceId, { expectedEndAt: at(-4), lastSeenAt: at(-9) });
-      const oneDay = await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-9) });
-      const twoDays = await listing(sourceId, { expectedEndAt: at(-2), lastSeenAt: at(-9) });
+      const fourDays = await listing(sourceId, { expectedEndAt: at(-4), lastSeenAt: at(-0.5) });
+      const oneDay = await listing(sourceId, { expectedEndAt: at(-1), lastSeenAt: at(-0.5) });
+      const twoDays = await listing(sourceId, { expectedEndAt: at(-2), lastSeenAt: at(-0.5) });
 
       const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 2 });
 
-      // A check on the night a listing lapses keeps it on show without a
-      // gap; one four days late does not, so the late ones wait.
       expect(found.map((row) => row.id)).toEqual([oneDay, twoDays]);
       expect(found.map((row) => row.id)).not.toContain(fourDays);
     });

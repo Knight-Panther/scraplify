@@ -1546,8 +1546,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
   }
 
   /**
-   * Listings a day past their expected end that no list shows any more: only
-   * their own pages can say what became of them.
+   * Listings a list showed a day after their expected end, that no list shows
+   * any more: only their own pages can say what became of them.
    */
   async function pastTheirEnd(ids: number[], lastSeenAgoMs = 3 * DAY_MS) {
     await ensureSsGeSourceSeeded(db);
@@ -1560,7 +1560,7 @@ describe('runSsGeCrawl, listings past their expected end', () => {
         dealType: 'sale' as const,
         propertyType: 'flat' as const,
         sourceUpdatedAt: ago(31 * DAY_MS),
-        expectedEndAt: ago(DAY_MS),
+        expectedEndAt: ago(lastSeenAgoMs + DAY_MS),
         firstSeenAt: ago(31 * DAY_MS),
         lastSeenAt: ago(lastSeenAgoMs),
         contentHash: 'h',
@@ -1622,6 +1622,37 @@ describe('runSsGeCrawl, listings past their expected end', () => {
       limit: 10,
     });
     expect(due).toEqual([]);
+  });
+
+  it('asks no page of a listing past its end that no list has shown since: it lapses', async () => {
+    // Every list's end is read each night (2026-11-11): one alive past its 30
+    // days is seen there. Its page goes to a listing the run reads for its
+    // details or its place instead.
+    const site = new FakeSite({ [first.key]: rows(1_100, 1) });
+    await ensureSsGeSourceSeeded(db);
+    const ago = (ms: number) => new Date(NOW - ms).toISOString();
+    await db.insert(realEstateListings).values({
+      sourceId: ssGeSource.id,
+      sourceListingKey: '1000',
+      canonicalUrl: buildDetailUrl('1000'),
+      dealType: 'sale',
+      propertyType: 'flat',
+      sourceUpdatedAt: ago(31 * DAY_MS),
+      expectedEndAt: ago(DAY_MS),
+      firstSeenAt: ago(31 * DAY_MS),
+      lastSeenAt: ago(3 * DAY_MS),
+      contentHash: 'h',
+    });
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 1 },
+    );
+
+    expect(detailRequests(site)).toHaveLength(1);
+    expect(detailRequests(site)).not.toContain('1000');
+    expect(crawlRun).toMatchObject({ status: 'completed', verifiedCount: 0, goneCount: 0 });
+    expect(await stored(1000)).toMatchObject({ status: 'active', verifiedAt: null });
   });
 
   it('checks no more listings than its budget', async () => {
