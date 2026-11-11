@@ -6,7 +6,7 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 |---|---|---|
 | C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`) |
 | C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`); Phase 14A appends ten columns (`0049`) |
-| C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy, 4 from 2026-11-10, 5 with the list-end read (merged 2026-11-10, not yet live) |
+| C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy, 4 from 2026-11-10, 5 from 2026-11-12 (the list-end read, live 2026-11-11 13:51 UTC) |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
 | C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`, below) |
 | C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | v1, built on branch `phase-14b-official-map` (migration `0050`), not yet merged (Phase 14B) |
