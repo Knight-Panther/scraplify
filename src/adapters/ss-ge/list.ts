@@ -16,9 +16,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * 5,976 brokers' had 30, 245 of 263 owners' had 45). A results row cannot
  * tell them apart: it names a business or names nobody, and nobody is a
  * broker about nine times in ten. So the shorter life is expected for all.
- * An owner's listing still listed after its 30 days is the first one a run
- * asks its page about (`loadListingsDueForCheck`), and the page gives the
- * real end; a longer guess is corrected by nothing until it runs out.
+ * An owner's listing still listed after its 30 days stays on show for as long
+ * as its list shows it (the nightly read of each list's end, and
+ * `latestEndAt` below); a longer guess is corrected by nothing until it runs
+ * out.
  *
  * From 2026-10-15 to 2026-11-09 a row naming nobody was given 45 days, on
  * 890 of about 960 such listings checked past their 30 days having exactly

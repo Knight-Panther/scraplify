@@ -3,6 +3,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  gt,
   isNotNull,
   lt,
   lte,
@@ -61,22 +62,29 @@ export type ListingCheck =
 /**
  * Active listings worth asking their own page about, in that order.
  *
- * First those past their expected end that the source still listed after
- * that date: the thirty-day rule plainly does not hold for them. Since
- * 2026-11-10 such a sighting keeps the listing on show by itself
- * (`upsertListing`, `SEEN_PAST_END_HOURS`), so this is the listing a list
- * showed and then stopped showing, asked before those nobody saw.
- * Then those a full read of their list missed (`markMissedListings`), the
- * longest-lived first: a dead one of those stays on the tab longest. Then
- * the rest past their end, most recently expired first: their checks mostly
- * confirm the end (about 98% did, 2026-10-19 to 10-21), the tab stops
- * showing them two days after it anyway, and when there are more than a
- * night's checks can cover, the oldest are the ones least worth the request.
+ * First those a full read of their list missed (`markMissedListings`) that
+ * the tab still shows, the longest-lived first: a dead one of those stays on
+ * show longest, and 55% of them were live on 2026-11-11. Then those past
+ * their expected end that a list showed after that date and none has since,
+ * most recently expired first.
+ *
+ * The rest past their end are not asked: they lapse a week later
+ * (`markLapsedListingsGone`), and the night's listing pages go to the
+ * details instead. Since 2026-11-11 every list's end is read each night, and
+ * that is where a listing alive past its 30 days is: of the owners' listings
+ * the checks found alive past them on 2026-11-11, the list ends showed 92.5%
+ * that night (889 of 961), and a sighting keeps a listing on show by itself
+ * (`upsertListing`, `SEEN_PAST_END_HOURS`). Agents' listings the lists no
+ * longer show were 2.7% live; ss.ge's own lists do not show them either.
  */
 export async function loadListingsDueForCheck(
   db: DatabaseOrTransaction,
   input: { sourceId: string; asOf: string; limit: number },
 ): Promise<DueListing[]> {
+  const missedOnShow = and(
+    isNotNull(realEstateListings.missedAt),
+    gt(realEstateListings.expectedEndAt, input.asOf),
+  );
   return db
     .select({ id: realEstateListings.id, sourceListingKey: realEstateListings.sourceListingKey })
     .from(realEstateListings)
@@ -85,18 +93,15 @@ export async function loadListingsDueForCheck(
         eq(realEstateListings.sourceId, input.sourceId),
         eq(realEstateListings.status, 'active'),
         or(
-          lte(realEstateListings.expectedEndAt, input.asOf),
-          isNotNull(realEstateListings.missedAt),
+          missedOnShow,
+          and(
+            lte(realEstateListings.expectedEndAt, input.asOf),
+            gt(realEstateListings.lastSeenAt, realEstateListings.expectedEndAt),
+          ),
         ),
       ),
     )
-    .orderBy(
-      desc(
-        sql`${realEstateListings.expectedEndAt} <= ${input.asOf} and ${realEstateListings.lastSeenAt} > ${realEstateListings.expectedEndAt}`,
-      ),
-      desc(sql`${realEstateListings.missedAt} is not null`),
-      desc(realEstateListings.expectedEndAt),
-    )
+    .orderBy(desc(sql`coalesce(${missedOnShow}, false)`), desc(realEstateListings.expectedEndAt))
     .limit(input.limit);
 }
 
