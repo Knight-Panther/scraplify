@@ -341,10 +341,17 @@ const one = placeLookupSql('Vake', { placeholders: 'psycopg', limit: 20 });
 const text = placeTextLookupSql('Vake Saburtalo', { placeholders: 'psycopg', limit: 20 });
 // run text.sql with text.params, then:
 const { parts } = resolvePlaceText(text.text, rows);
-// parts[i].segments[j] = { text, key, match, places }: the places each name in each part names, best first
+// parts[i].segments[j] = { text, key, kind, match, places }: the places each name in each part names, best first
 ```
 
-`PLACE_LOOKUP_VERSION` is 2 (Phase 14C). It goes up whenever the folding or the lookup's output changes. Version 2 adds the city to every row, and keys every name with ჟ a second time with ჟ written "j", so "Vaja Pshavela" finds what "Vazha-Pshavela" does. Every other j stays j: folding it into z would merge ჯ with ჟ. `limit` is per name, a whole number from 1 to 500; anything else is 50.
+`PLACE_LOOKUP_VERSION` is 3 (Phase 14D). It goes up whenever the folding or the lookup's output changes. `limit` is per name, a whole number from 1 to 500; anything else is 50. The SQL's parameters are the lookup's own business: run `sql` with `params` as they come.
+- **Version 2** adds the city to every row. It also keys every name with ჟ a second time with ჟ written "j", so "Vaja Pshavela" finds what "Vazha-Pshavela" does. Every other j stays j: folding it into z would merge ჯ with ჟ.
+- **Version 3** fixes the three gaps you found on 2026-11-12:
+  - **Initials.** A name ss.ge starts with initials ("ი.ჭავჭავაძის გამზ.", "ალ. ჭავჭავაძის ქ.") is also keyed without them. A full first name finds an initial, as an exact match. So "Chavchavadze Avenue", "Chavchavadze Ave", "ჭავჭავაძის გამზირი", "ჭავჭავაძის" and "Ilia Chavchavadze" all give Chavchavadze Avenue (street 19) first, and "Alexander Chavchavadze" gives Al. Chavchavadze St.
+  - **The order** follows `tier` (below). A name only the official map has among Tbilisi's areas gives the official district first: "Krtsanisi" is Krtsanisi District before the Gardabani village.
+  - **Kinds.** The kind of place the words ask for steers the order and comes back as `kind`.
+
+  Avtokarkhana is ss.ge's Kutaisi sub-district 68, "ავტოქარხნის დასახლება". Its genitive drops a letter, so "ავტოქარხანა" never met it. It now has the English name "Avtokarkhana settlement", which keys as "Avtokarkhana" does.
 
 ### The two maps
 
@@ -378,16 +385,30 @@ Both are first-class and linked, and neither is renamed into the other (owner, 2
 
 ### The lookup's answer
 
-Each row is a place for one `key` (a name's key; the text lookup asks for several), with its `rank` for that key and `match`.
-- **The city (version 2):** `city_ref`, `city_name_ka`, `city_name_en`, `city_name_roman`, the last four columns: the city the place is in, up to three parents up (a city is its own). Null for a municipality. Use it to keep Batumi's street for "Rustaveli, Batumi", and to say when a city has no place of that name.
+Each row is a place for one `key` (a name's key; the text lookup asks for several) and `kind`, with its `rank` for that key and kind, and `match`.
+- **The city (version 2):** `city_ref`, `city_name_ka`, `city_name_en`, `city_name_roman`: the city the place is in, up to three parents up (a city is its own). Null for a municipality. Use it to keep Batumi's street for "Rustaveli, Batumi", and to say when a city has no place of that name.
+- **`kind` and `tier` (version 3), the last two columns:**
+  - `kind` is what the words asked for: `street` when a street's word follows a name ("Chavchavadze Avenue", "ჭავჭავაძის გამზ."), `village` when a village's or settlement's word is there ("Gldani village", "სოფ. გლდანი"), else null. "ქ. ბათუმი" is not a street: ქ. before a name is the city. "St. Nicholas" is not one either.
+  - `tier` is the group the row ranked in (1–5, below). To take "what the name means", take the top row's tier.
 - **Names on the row:** the place's own, and its parent's (`parent_name_ka`, `parent_name_en`, `parent_name_roman`). For a street or station, its official district's (`official_name_ka`, `official_name_en`). For an ss.ge Tbilisi area, the official district holding most of its located listings: `official_top_code`, `official_top_name_ka`, `official_top_name_en` and `official_top_listings`, out of `official_shares.located`. That gives you "Avlabari: listed under Old Tbilisi; officially mostly in Isani (n of m located)" with no join.
-- **`match`:** `exact` when one of the place's names has the same key as the words, and `partial` when the words come in order inside a name ("dighomi" in "Didi Dighomi").
-- **Order (`rank`):** exact before partial. Then by group: ss.ge's areas (cities and villages, districts, sub-districts, the owner's neighbourhoods, municipalities), then the official map, then its stations, then streets. Within a group, the busiest comes first, so the Vake neighbourhood (21,367 listings) comes before the village called ვაკე (one listing).
+- **`match`:** `exact` when one of the place's names has the same key as the words, or a full first name stands for its initial (version 3); `partial` when the words come in order inside a name ("dighomi" in "Didi Dighomi").
+- **Order (`rank`, version 3):** exact before partial. Then by `tier`:
+  1. what the words ask for (`kind`): streets after a street's word; places named as a village or settlement after one of those words;
+  2. Tbilisi's ss.ge areas (the city, its districts, sub-districts and the owner's neighbourhoods), except one named as a village or settlement;
+  3. the official map;
+  4. its stations;
+  5. everything else: other towns and villages and their areas, municipalities, places named as a village or settlement, and streets.
+
+  Within a tier, the busiest comes first. So the Vake sub-district (22,764 listings) comes before the village called ვაკე (none). A bare "ჭავჭავაძის" gives the avenue (4,437) before Kutaisi's Chavchavadze settlement (174).
+
+  Version 2 put every ss.ge area before streets. That made Kutaisi's settlement the answer to "Chavchavadze", and Tbilisi's sub-district "სოფ. გლდანი" (Gldani village) come before Gldani District.
 - **The two-maps rule falls out of that order:**
-  - a bare name means ss.ge's place: "Vake" is the neighbourhood first, with Vake District beside it, also exact;
+  - a bare name means ss.ge's place: "Vake" is the sub-district first, with Vake District beside it, also exact;
   - "Vake district", "ვაკის რაიონი" and "vakis raioni" are the official district first;
-  - a name only the official map has, such as "Krtsanisi", gives the official district first.
+  - a name only the official map has among Tbilisi's areas gives the official district first: "Krtsanisi" is Krtsanisi District, then the street კრწანისის ქ. (1,068), then the Gardabani village კრწანისი (154);
+  - "Gldani" is the Gldani sub-district, then Gldani District, then the sub-district "სოფ. გლდანი". "Gldani village" gives that sub-district first.
   - Word the difference from the rows: "Avlabari: listed under Old Tbilisi; officially in Isani".
+- **Your `choose`:** it takes the rows of the top row's level. For "Gldani", that still includes "სოფ. გლდანი", a sub-district two tiers down. Take the top row's level *and tier* instead, and your own "village out when an area has the name" rule can go.
 - **Groups:** "Dighomi" is exact for its four ss.ge areas, as your `AREA_GROUPS` had it.
 - **Several places can share a name.** Chavchavadze Avenue is several street ids in different sub-districts, so a lookup can give several exact rows. Choose among them with the person's other words, such as the city (`city_ref`).
 
@@ -400,7 +421,8 @@ Each row is a place for one `key` (a name's key; the text lookup asks for severa
 - **A hyphen keeps one word:** "vake-saburtalo" is the district.
 - **Words that name nothing alone join:** "Old Tbilisi", "Didi Dighomi" and "Lisi Lake" are one place each.
 - **A single word with no whole-name match** keeps its partial matches. A word naming nothing comes back with `match` null and no places.
-- **Held by a test:** scraplify's `src/realestate/places/catalogue.test.ts` holds your six cases, plus "ვაკეში, საბურთალოზე" and "Chavchavadze Avenue".
+- **The kind a run asks for** goes with it: "Chavchavadze Avenue" is one name asking for a street.
+- **Held by a test:** scraplify's `src/realestate/places/catalogue.test.ts` holds your six cases, plus "ვაკეში, საბურთალოზე", "Chavchavadze Avenue", "Ilia Chavchavadze" and "Chavchavadze Avenue, Gldani village". Version 3's cases are there too: your four phrasings of street 19, "Krtsanisi", "Gldani" and "Vake".
 
 ### Reading it
 

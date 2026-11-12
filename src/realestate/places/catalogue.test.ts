@@ -742,16 +742,160 @@ describe('the place catalogue (Phase 14B)', () => {
       expect(vaja.map((m) => m.level)).toEqual(['metro_station', 'street']);
       expect(nameKeys('ვაჟა-ფშაველას გამზ.')).toEqual(['vaz psavel', 'vaj psavel']);
       expect(nameKeys('ჯავახიშვილის ქ.')).toEqual(['javakisvil']);
-      expect(PLACE_LOOKUP_VERSION).toBe(2);
+      expect(PLACE_LOOKUP_VERSION).toBe(3);
     });
 
     it('hands on psycopg placeholders with every literal % doubled, and refuses kind words alone', () => {
       const built = placeLookupSql('Vake', { placeholders: 'psycopg' });
       expect(built?.sql).toContain("like ('%% ' || q.key || ' %%')");
       expect(built?.sql).not.toMatch(/\$\d/);
-      expect(built?.params).toEqual([JSON.stringify(['vak']), 50]);
+      expect(built?.params).toEqual([JSON.stringify([{ key: 'vak', kind: null, alts: [] }]), 50]);
       expect(placeLookupSql('street')).toBeNull();
     });
+
+    /** Production's shapes on 2026-11-12, with fewer listings and the same order of size. */
+    async function namesakes(sourceId: string) {
+      const many = async (count: number, overrides: Partial<NewRealEstateListingRow>) => {
+        for (let i = 0; i < count; i++) await listing(sourceId, overrides);
+      };
+      // Chavchavadze Avenue as ss.ge writes it (street 19, 4,437 listings), and its namesakes.
+      await many(4, { streetRef: 19, streetName: 'ი.ჭავჭავაძის გამზ.' });
+      await many(1, {
+        districtRef: 5,
+        districtName: 'ძველი თბილისი',
+        subdistrictRef: 51,
+        subdistrictName: 'მთაწმინდა',
+        streetRef: 957,
+        streetName: 'ალ. ჭავჭავაძის ქ.',
+      });
+      await many(1, {
+        cityRef: 96,
+        cityName: 'ბათუმი',
+        districtRef: 8,
+        districtName: 'ბათუმის უბნები',
+        subdistrictRef: 64,
+        subdistrictName: 'ძველი ბათუმის უბანი',
+        streetRef: 2498,
+        streetName: 'ჭავჭავაძის ქ.',
+      });
+      // Kutaisi's Chavchavadze settlement (174 listings): busier than two of the streets.
+      await many(2, {
+        cityRef: 97,
+        cityName: 'ქუთაისი',
+        districtRef: 9,
+        districtName: 'ქუთაისის უბნები',
+        subdistrictRef: 87,
+        subdistrictName: 'ჭავჭავაძის დასახლება',
+        streetRef: null,
+        streetName: null,
+      });
+      // Gldani, and Tbilisi's sub-district called Gldani village: here the busier of the two.
+      const gldani = {
+        districtRef: 2,
+        districtName: 'გლდანი-ნაძალადევი',
+        streetRef: null,
+        streetName: null,
+      };
+      await many(1, { ...gldani, subdistrictRef: 33, subdistrictName: 'გლდანი' });
+      await many(3, { ...gldani, subdistrictRef: 43, subdistrictName: 'სოფ. გლდანი' });
+      // Krtsanisi: a village in Gardabani, and a street in Tbilisi.
+      await many(2, {
+        cityRef: 3031,
+        cityName: 'კრწანისი',
+        districtRef: null,
+        districtName: null,
+        subdistrictRef: null,
+        subdistrictName: null,
+        streetRef: null,
+        streetName: null,
+      });
+      await many(3, {
+        districtRef: 4,
+        districtName: 'ისანი-სამგორი',
+        subdistrictRef: 14,
+        subdistrictName: 'ორთაჭალა',
+        streetRef: 331,
+        streetName: 'კრწანისის ქ.',
+      });
+      await syncPlaces(db, { sourceId, at: NOW });
+      await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+    }
+
+    /** The exact rows for some words, best first, as level:ref (an official district as "official"). */
+    async function exactRows(sourceId: string, words: string) {
+      const built = placeLookupSql(words, { limit: 500 });
+      if (built === null) return [];
+      const result = await pool.query(built.sql, built.params);
+      return result.rows
+        .filter((r) => r.source_id === sourceId && r.match === 'exact')
+        .map((r) => (r.level === 'official_district' ? 'official' : `${r.level}:${r.ref}`));
+    }
+
+    it('finds Chavchavadze Avenue by every phrasing Hermes tried, and by initials (version 3)', async () => {
+      const sourceId = await newSource();
+      await namesakes(sourceId);
+      expect((await row(sourceId, 'street', 19))?.matchKeys).toEqual(['cavcavaz', 'i cavcavaz']);
+      for (const words of [
+        'Chavchavadze Avenue',
+        'Chavchavadze Ave',
+        'ჭავჭავაძის გამზირი',
+        'ჭავჭავაძის',
+        'chavchavadze',
+        'Ilia Chavchavadze',
+        'ილია ჭავჭავაძის გამზირი',
+        'I. Chavchavadze',
+      ]) {
+        expect((await exactRows(sourceId, words))[0], words).toBe('street:19');
+      }
+      expect((await exactRows(sourceId, 'Alexander Chavchavadze'))[0]).toBe('street:957');
+      // A street word puts streets first; without one, after Tbilisi's areas,
+      // the official map and the stations, the busiest comes first, so the
+      // avenue comes before Kutaisi's settlement and the settlement before two
+      // quieter streets.
+      expect(await exactRows(sourceId, 'Chavchavadze Avenue')).toEqual([
+        'street:19',
+        'street:957',
+        'street:2498',
+        'subdistrict:87',
+      ]);
+      expect(await exactRows(sourceId, 'ჭავჭავაძის')).toEqual([
+        'street:19',
+        'subdistrict:87',
+        'street:957',
+        'street:2498',
+      ]);
+      // A settlement word puts places named as one first.
+      expect((await exactRows(sourceId, 'Chavchavadze settlement'))[0]).toBe('subdistrict:87');
+    }, 20_000);
+
+    it('orders Tbilisi’s areas, the official map, then the rest by listings (version 3)', async () => {
+      const sourceId = await newSource();
+      await namesakes(sourceId);
+      // Gldani village is a Tbilisi sub-district, but named as a village: after Gldani District.
+      expect(await exactRows(sourceId, 'Gldani')).toEqual([
+        'subdistrict:33',
+        'official',
+        'subdistrict:43',
+      ]);
+      expect((await exactRows(sourceId, 'Gldani village'))[0]).toBe('subdistrict:43');
+      expect((await exactRows(sourceId, 'სოფ. გლდანი'))[0]).toBe('subdistrict:43');
+      // A name the official map has and ss.ge's Tbilisi areas do not: the district first.
+      expect(await exactRows(sourceId, 'Krtsanisi')).toEqual([
+        'official',
+        'street:331',
+        'city:3031',
+      ]);
+      // Each row says which tier it ranked in and what the words asked for.
+      const built = placeLookupSql('Gldani village', { limit: 500 });
+      const rows = (await pool.query(built?.sql ?? '', built?.params)).rows.filter(
+        (r) => r.source_id === sourceId && r.match === 'exact',
+      );
+      expect(rows.map((r) => [r.level, r.kind, Number(r.tier)])).toEqual([
+        ['subdistrict', 'village', 1],
+        ['subdistrict', 'village', 2],
+        ['official_district', 'village', 3],
+      ]);
+    }, 20_000);
 
     it('carries the official district holding most of an area’s located listings, by name', async () => {
       const sourceId = await newSource();
@@ -826,6 +970,26 @@ describe('the place catalogue (Phase 14B)', () => {
       ]);
       // A street, with its kind word, is one name.
       expect(await places(sourceId, 'Chavchavadze Avenue')).toEqual([['street:501']]);
+    });
+
+    it('reads a first name before an initial-named street as one name (version 3)', async () => {
+      const sourceId = await newSource();
+      await listing(sourceId, { streetRef: 19, streetName: 'ი.ჭავჭავაძის გამზ.' });
+      await listing(sourceId, {
+        districtRef: 2,
+        districtName: 'გლდანი-ნაძალადევი',
+        subdistrictRef: 43,
+        subdistrictName: 'სოფ. გლდანი',
+        streetRef: null,
+        streetName: null,
+      });
+      await syncPlaces(db, { sourceId, at: NOW });
+      await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+      expect(await places(sourceId, 'Ilia Chavchavadze')).toEqual([['street:19']]);
+      expect(await places(sourceId, 'Chavchavadze Avenue, Gldani village')).toEqual([
+        ['street:19'],
+        ['subdistrict:43'],
+      ]);
     });
   });
 
