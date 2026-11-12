@@ -67,16 +67,14 @@ describe('the filter builder (contract C1)', () => {
 
   beforeAll(async () => {
     sourceId = await createTestSource();
-    await db
-      .insert(realEstatePlaces)
-      .values(
-        CASES.places.map((place) => ({
-          ...place,
-          sourceId,
-          firstSeenAt: at(-1),
-          lastSeenAt: at(0),
-        })),
-      );
+    await db.insert(realEstatePlaces).values(
+      CASES.places.map((place) => ({
+        ...place,
+        sourceId,
+        firstSeenAt: at(-1),
+        lastSeenAt: at(0),
+      })),
+    );
     for (const [key, fields] of Object.entries(CASES.listings)) {
       const [row] = await db
         .insert(realEstateListings)
