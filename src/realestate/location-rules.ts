@@ -14,8 +14,9 @@ import { type SQL, sql } from 'drizzle-orm';
  * the raw evidence (pins, ss.ge's claims) is kept, and nothing derived is
  * hashed, so it costs no churn.
  *
- * Version 2 (Phase 14D) changes no rule: it adds each nearby station's band
- * (`metro_nearby_minutes`), so every listing gets one.
+ * Version 2 (Phase 14D) adds each nearby station's band
+ * (`metro_nearby_minutes`), and keeps a street's location within reach of
+ * its sub-district (`STREET_AREA_METERS`).
  */
 export const LOCATION_RULES_VERSION = 2;
 
