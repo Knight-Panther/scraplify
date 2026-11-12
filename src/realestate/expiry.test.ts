@@ -126,6 +126,52 @@ describe('listing expiry', () => {
       expect(found.map((row) => row.id)).toEqual([missedEndingLate, missedEndingSoon, longRunning]);
     });
 
+    it('then asks about those past their end whose look-alike is still on show', async () => {
+      const sourceId = await newSource();
+      // A flat list shows one listing of each look-alike group: a live one
+      // folded behind its twin is on no list. Of those past their end with a
+      // look-alike still on show, 9.8% were live on 2026-11-11; with none on
+      // show, none were.
+      await listing(sourceId, { similarityGroup: 's1', expectedEndAt: at(10) });
+      const foldedBySimilarity = await listing(sourceId, {
+        similarityGroup: 's1',
+        expectedEndAt: at(-1),
+        lastSeenAt: at(-5),
+      });
+      await listing(sourceId, { groupKey: 'g1', expectedEndAt: at(10) });
+      const foldedByRepost = await listing(sourceId, {
+        groupKey: 'g1',
+        expectedEndAt: at(-3),
+        lastSeenAt: at(-5),
+      });
+      // Its look-alikes are all past their end, or gone.
+      await listing(sourceId, { similarityGroup: 's2', expectedEndAt: at(-1), lastSeenAt: at(-5) });
+      await listing(sourceId, { similarityGroup: 's2', expectedEndAt: at(-2), lastSeenAt: at(-5) });
+      await listing(sourceId, {
+        groupKey: 'g2',
+        expectedEndAt: at(10),
+        status: 'gone',
+        goneAt: at(-1),
+      });
+      await listing(sourceId, { groupKey: 'g2', expectedEndAt: at(-1), lastSeenAt: at(-5) });
+      // Another source's look-alike says nothing about this one.
+      const elsewhere = await newSource();
+      await listing(elsewhere, { similarityGroup: 's3', expectedEndAt: at(10) });
+      await listing(sourceId, { similarityGroup: 's3', expectedEndAt: at(-1), lastSeenAt: at(-5) });
+      const seenAfterItsEnd = await listing(sourceId, {
+        expectedEndAt: at(-4),
+        lastSeenAt: at(-0.5),
+      });
+
+      const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
+
+      expect(found.map((row) => row.id)).toEqual([
+        seenAfterItsEnd,
+        foldedBySimilarity,
+        foldedByRepost,
+      ]);
+    });
+
     it('then takes the most recently expired of those seen after their end, up to the limit', async () => {
       const sourceId = await newSource();
       const fourDays = await listing(sourceId, { expectedEndAt: at(-4), lastSeenAt: at(-0.5) });

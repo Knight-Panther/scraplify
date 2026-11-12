@@ -66,7 +66,12 @@ export type ListingCheck =
  * the tab still shows, the longest-lived first: a dead one of those stays on
  * show longest, and 55% of them were live on 2026-11-11. Then those past
  * their expected end that a list showed after that date and none has since,
- * most recently expired first.
+ * most recently expired first. Then those past their end with a look-alike
+ * (the same `group_key` or `similarity_group`) still on show: a flat list
+ * shows one listing of each group, so a live one folded behind its twin is on
+ * no list. 9.8% of those were live on 2026-11-11 (89 of 909 asked), and 89 of
+ * the 99 live flats past their end that no list showed; with no look-alike
+ * on show, 0.3%.
  *
  * The rest past their end are not asked: they lapse a week later
  * (`markLapsedListingsGone`), and the night's listing pages go to the
@@ -85,6 +90,16 @@ export async function loadListingsDueForCheck(
     isNotNull(realEstateListings.missedAt),
     gt(realEstateListings.expectedEndAt, input.asOf),
   );
+  const seenAfterItsEnd = gt(realEstateListings.lastSeenAt, realEstateListings.expectedEndAt);
+  // Not correlated, so each is one hashed set however long the queue.
+  const onShowIn = (column: 'group_key' | 'similarity_group') => sql`(
+    select ${sql.identifier(column)} from ${realEstateListings}
+     where source_id = ${input.sourceId} and status = 'active'
+       and expected_end_at > ${input.asOf} and ${sql.identifier(column)} is not null)`;
+  const lookAlikeOnShow = or(
+    sql`${realEstateListings.groupKey} in ${onShowIn('group_key')}`,
+    sql`${realEstateListings.similarityGroup} in ${onShowIn('similarity_group')}`,
+  );
   return db
     .select({ id: realEstateListings.id, sourceListingKey: realEstateListings.sourceListingKey })
     .from(realEstateListings)
@@ -96,12 +111,16 @@ export async function loadListingsDueForCheck(
           missedOnShow,
           and(
             lte(realEstateListings.expectedEndAt, input.asOf),
-            gt(realEstateListings.lastSeenAt, realEstateListings.expectedEndAt),
+            or(seenAfterItsEnd, lookAlikeOnShow),
           ),
         ),
       ),
     )
-    .orderBy(desc(sql`coalesce(${missedOnShow}, false)`), desc(realEstateListings.expectedEndAt))
+    .orderBy(
+      desc(sql`coalesce(${missedOnShow}, false)`),
+      desc(sql`coalesce(${seenAfterItsEnd}, false)`),
+      desc(realEstateListings.expectedEndAt),
+    )
     .limit(input.limit);
 }
 
