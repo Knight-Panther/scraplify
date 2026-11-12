@@ -15,7 +15,7 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 | **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80); morning-after check passed 2026-11-08 | — | — |
 | **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82); first nightly refresh passed 2026-11-09 13:39 | — | — |
 | **14C** location quality | ✅ live since 2026-11-10 15:34 UTC as `743c034` (`main`'s head); merged 2026-11-09 as `3ab7077` (PR #83); built c1–c7 on 2026-11-08; calibrated on night 1 against OpenStreetMap's street lines, which changed four rules; grants rehearsed under the host's roles; confirmed on night 2 with no rule changed (2026-11-09); judged by hand at the deploy, 302,073 listings in 71 s; a run's own judgement checked the same evening on a short run by hand. The live release since 16:49 UTC is `32b6cfb` (the same plus PRs #90 and #91, below) | — | recheck about 2026-11-14 |
-| **14D** C1 v2 for Hermes | ⏳ built on branch `phase-14d-c1-v2` 2026-11-12 | Hermes's review of the JSON | the review, then the merge |
+| **14D** C1 v2 for Hermes | ⏳ built 2026-11-12 (PR #102), reviewed by Hermes the same day | the merge; the deploy outside the crawl | deploy when run `4eac056d` ends, about 2026-11-13 04:30 |
 
 ## What waits on what
 
@@ -226,12 +226,12 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
 - ✅ **Docs:** ✅ the new columns in `docs/hermes-contracts.md` (C5's 14C section, C6), updated for the calibrated rules; ✅ RUNBOOK §3 step 8 "Location quality"; ✅ 14C's gates in STATUS; ✅ `prod-status`'s "listing locations" check, written and tried on the trial copy, added at the deploy (2026-11-10).
 - **Order:** code and tests on a branch, 2026-11-08 ✅; calibration on the first night against OpenStreetMap, 2026-11-08 ✅; grants rehearsal on a copy of production, 2026-11-08 ✅; confirmation on the second night and the merge (`3ab7077`), 2026-11-09 ✅; deploy 2026-11-10 15:34 UTC as `743c034` ✅ (Changed: not after 13A's first-deletion check, which last night's page fault had prevented; 13A's deletions come with the run of 2026-11-10 21:35 instead).
 
-## 14D: Hermes's contracts — ⏳ built 2026-11-12, Hermes's review owed
+## 14D: Hermes's contracts — ⏳ built and reviewed 2026-11-12, the deploy owed
 
 - ⏳ **Agree first**, in Hermes's `.git/xtelo-speed/PLAN.md`:
   - ✅ C6 and the bare-name rule: in the joint plan's contracts table since 2026-11-08 (Hermes added the row). Its switch of H2's area words waits for the owner's go;
-  - ⏳ the meanings of precision, flags and basis ("unknown" is not "no"; basis `street` means approximate): written in `docs/hermes-contracts.md`, "C1 v2", for Hermes's review;
-  - ⏳ C1 v2's exact JSON, with a v1 fallback: the same section, for Hermes's review. Changed: built first and reviewed before the merge, as Hermes offered on 2026-11-10, rather than agreed in the joint plan before building;
+  - ✅ the meanings of precision, flags and basis ("unknown" is not "no"; basis `street` means approximate): written in `docs/hermes-contracts.md`, "C1 v2"; Hermes reviewed them 2026-11-12;
+  - ✅ C1 v2's exact JSON, with a v1 fallback: the same section; Hermes reviewed it 2026-11-12, yes to the input, the place column with the estimate, and the fallback. Changed: built first and reviewed before the merge, as Hermes offered on 2026-11-10, rather than agreed in the joint plan before building;
   - ❌ C3's official level only after a stable month.
 - ✅ **C1 v2** (`FILTER_BUILDER_VERSION` 2; `src/realestate/filters.ts`, `filter-builder.ts`, `filter-cases.json`), built on branch `phase-14d-c1-v2` 2026-11-12, with migration `0053` (below):
   - `places` levels gain street, official_district and municipality. Changed: also `metro_station` and `neighbourhood` (item c below), and not one line each: the official map, stations and neighbourhoods are read from C6 inside the SQL, since the tab imports the same rules and cannot read files;
@@ -273,7 +273,7 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
 
 - ✅ **14C, before the merge** (recorded in STATUS's 14C gate): the unit and database tests, including every rule the calibration changed; planted faults, each turning a test red (the first build's set, and seven more for the calibrated rules); the trial on a copy of production; the grants rehearsal under the host's roles. Changed: the Teimurazi St known case turned out to be a pin exactly on the map's default that its poster may not have placed (the page is unread), so it is never used; it carries no metro claim and its street has no location, so it is placed by its sub-district.
 - ⏳ **14C, still owed:** the deploy script's checks (2026-11-10 ✅); the morning after ✅ (Changed: checked the same evening on a short run started by hand, 170 listings written in 11 s; owner, 2026-11-10: do what is clocked now); the thresholds on a week of data (about 2026-11-14), which needs the week.
-- **14D:** ✅ both maps on their own (an Avlabari listing matches district Old Tbilisi and official district Isani, each separately: a shared case); ✅ C1 v2's cases in `filter-cases.json` (34, 15 new; twelve planted faults each red); ✅ `0053` and the judgement under rules 2 on `scraplify_qa_tail`; ✅ the v1 fallback (every v1 case unchanged in meaning); ❌ Hermes's review.
+- **14D:** ✅ both maps on their own (an Avlabari listing matches district Old Tbilisi and official district Isani, each separately: a shared case); ✅ C1 v2's cases in `filter-cases.json` (34, 15 new; twelve planted faults each red); ✅ `0053` and the judgement under rules 2 on `scraplify_qa_tail` and on a copy of production; ✅ the v1 fallback (every v1 case unchanged in meaning); ✅ Hermes's review (2026-11-12).
 - **Before each deploy:** a live trial into a disposable `scraplify_qa_*` database from the owner's PC, the deploy script inside 13:30–20:30, and `prod-status` the next morning.
 
 ## Risks and how each is contained
