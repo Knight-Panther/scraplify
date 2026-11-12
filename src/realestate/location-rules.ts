@@ -13,8 +13,11 @@ import { type SQL, sql } from 'drizzle-orm';
  * `LOCATION_RULES_VERSION`, and the next refresh judges every listing again:
  * the raw evidence (pins, ss.ge's claims) is kept, and nothing derived is
  * hashed, so it costs no churn.
+ *
+ * Version 2 (Phase 14D) changes no rule: it adds each nearby station's band
+ * (`metro_nearby_minutes`), so every listing gets one.
  */
-export const LOCATION_RULES_VERSION = 1;
+export const LOCATION_RULES_VERSION = 2;
 
 /**
  * A street is located by its own listings' pins from this many distinct
@@ -144,6 +147,8 @@ export interface MetroNear {
   minutes: number | null;
   distanceM: number | null;
   nearby: string[];
+  /** Each of `nearby`'s bands, in the same order (Phase 14D). */
+  nearbyMinutes: number[];
 }
 
 export function metroNear(
@@ -160,13 +165,14 @@ export function metroNear(
     .sort((a, b) => a.meters - b.meters || a.code.localeCompare(b.code));
   const nearest = near[0];
   return nearest === undefined
-    ? { station: null, minutes: null, distanceM: null, nearby: [] }
+    ? { station: null, minutes: null, distanceM: null, nearby: [], nearbyMinutes: [] }
     : {
         station: nearest.code,
         minutes: metroMinutes(nearest.meters),
         distanceM:
           Math.round(nearest.meters / METRO_DISTANCE_STEP_METERS) * METRO_DISTANCE_STEP_METERS,
         nearby: near.map((station) => station.code),
+        nearbyMinutes: near.map((station) => metroMinutes(station.meters) as number),
       };
 }
 

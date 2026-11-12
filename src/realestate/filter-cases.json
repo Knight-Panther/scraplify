@@ -252,7 +252,8 @@
       "metroStation": "c1_avlabari",
       "metroMinutes": 5,
       "metroBasis": "pin",
-      "metroNearby": ["c1_avlabari", "c1_isani"]
+      "metroNearby": ["c1_avlabari", "c1_isani"],
+      "metroNearbyMinutes": [5, 10]
     },
     "avl-uncertain": {
       "dealType": "daily",
@@ -273,7 +274,8 @@
       "metroStation": "c1_isani",
       "metroMinutes": 15,
       "metroBasis": "street",
-      "metroNearby": ["c1_isani", "c1_avlabari"]
+      "metroNearby": ["c1_isani", "c1_avlabari"],
+      "metroNearbyMinutes": [15, 15]
     },
     "avl-unlocated": {
       "dealType": "daily",
@@ -301,7 +303,8 @@
       "metroStation": "c1_isani",
       "metroMinutes": 20,
       "metroBasis": "pin",
-      "metroNearby": ["c1_isani"]
+      "metroNearby": ["c1_isani"],
+      "metroNearbyMinutes": [20]
     },
     "ort-krtsanisi": {
       "dealType": "daily",
@@ -319,7 +322,8 @@
       "officialDistrictBasis": "street",
       "locationPrecision": "house",
       "metroBasis": "street",
-      "metroNearby": []
+      "metroNearby": [],
+      "metroNearbyMinutes": []
     },
     "ort-unlocated": {
       "dealType": "daily",
@@ -757,22 +761,33 @@
       "unknown": ["avl-unlocated"]
     },
     {
-      "name": "metro: a station within a band; one that is not the nearest is unknown when the nearest is within it",
+      "name": "metro: a named station within a band, by its own band, nearest or not",
       "filters": {
         "metro": {
           "maxMinutes": 15,
           "stations": ["c1_avlabari"]
         }
       },
-      "expected": ["avl-pin"],
-      "unknown": ["avl-uncertain", "avl-unlocated"]
+      "expected": ["avl-pin", "avl-uncertain"],
+      "unknown": ["avl-unlocated"]
     },
     {
-      "name": "metro: a station within a band; one past the nearest's band is known not to be",
+      "name": "metro: a named station further than the band is known not to be",
       "filters": {
         "metro": {
           "maxMinutes": 10,
           "stations": ["c1_avlabari"]
+        }
+      },
+      "expected": ["avl-pin"],
+      "unknown": ["avl-unlocated"]
+    },
+    {
+      "name": "metro: a named station that is not the nearest, within the band",
+      "filters": {
+        "metro": {
+          "maxMinutes": 10,
+          "stations": ["c1_isani"]
         }
       },
       "expected": ["avl-pin"],

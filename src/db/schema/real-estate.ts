@@ -294,6 +294,12 @@ export const realEstateListings = realEstate.table(
     pinOfficialDistrictRef: integer('pin_official_district_ref'),
     /** Straight-line metres from the best location to `metro_station`, rounded to 50; private (see `metro_station`). */
     metroDistanceM: integer('metro_distance_m'),
+    /**
+     * Phase 14D (migration 0053): each of `metro_nearby`'s bands (5/10/15/20),
+     * in the same order. Public: ss.ge's own results row shows every nearby
+     * station with its minutes, so this is no finer than ss.ge shows.
+     */
+    metroNearbyMinutes: smallint('metro_nearby_minutes').array(),
   },
   (table) => [
     uniqueIndex('listings_source_key_idx').on(table.sourceId, table.sourceListingKey),
@@ -605,6 +611,8 @@ export const realEstatePublicListings = realEstate
     metroNearby: text('metro_nearby').array(),
     buildingKey: text('building_key'),
     locationRules: smallint('location_rules'),
+    // Phase 14D: appended, so `create or replace` keeps the grant (migration 0053).
+    metroNearbyMinutes: smallint('metro_nearby_minutes').array(),
   })
   .as(sql`
     select
@@ -680,7 +688,8 @@ export const realEstatePublicListings = realEstate
       ${realEstateListings.metroBasis} as metro_basis,
       ${realEstateListings.metroNearby} as metro_nearby,
       ${realEstateListings.buildingKey} as building_key,
-      ${realEstateListings.locationRules} as location_rules
+      ${realEstateListings.locationRules} as location_rules,
+      ${realEstateListings.metroNearbyMinutes} as metro_nearby_minutes
     from ${realEstateListings}
     where ${realEstateListings.status} = 'active'
   `);

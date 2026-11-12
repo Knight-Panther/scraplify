@@ -155,6 +155,8 @@ export const realEstateArchiveListings = realEstateArchive.table(
     metroNearby: text('metro_nearby').array(),
     buildingKey: text('building_key'),
     locationRules: smallint('location_rules'),
+    /* Phase 14D (migration 0053): each nearby station's band, in `metro_nearby`'s order. */
+    metroNearbyMinutes: smallint('metro_nearby_minutes').array(),
   },
   (table) => [
     index('archive_listings_source_key_idx').on(table.sourceId, table.sourceListingKey),

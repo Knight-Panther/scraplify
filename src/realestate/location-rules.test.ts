@@ -30,6 +30,8 @@ describe('metroNear', () => {
       minutes: 10,
       distanceM: 400,
       nearby: ['medical_uni', 'tech_uni'],
+      // Technical University is 1,291 m off: the last band.
+      nearbyMinutes: [10, 20],
     });
   });
 
@@ -39,6 +41,7 @@ describe('metroNear', () => {
       minutes: null,
       distanceM: null,
       nearby: [],
+      nearbyMinutes: [],
     });
   });
 });

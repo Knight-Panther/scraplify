@@ -103,6 +103,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
         metroMinutes: realEstateListings.metroMinutes,
         metroBasis: realEstateListings.metroBasis,
         metroNearby: realEstateListings.metroNearby,
+        metroNearbyMinutes: realEstateListings.metroNearbyMinutes,
         metroDistanceM: realEstateListings.metroDistanceM,
         buildingKey: realEstateListings.buildingKey,
         locationRules: realEstateListings.locationRules,
@@ -230,6 +231,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
       metroMinutes: 5,
       metroBasis: 'pin',
       metroNearby: ['medical_uni', 'tech_uni'],
+      metroNearbyMinutes: [5, 20],
       metroDistanceM: 50,
       buildingKey: 's507-30',
       locationRules: LOCATION_RULES_VERSION,
@@ -247,6 +249,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
       metroBasis: 'pin',
       metroStation: null,
       metroNearby: [],
+      metroNearbyMinutes: [],
     });
   });
 
@@ -390,6 +393,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
       metroBasis: null,
       metroStation: null,
       metroNearby: null,
+      metroNearbyMinutes: null,
       pinTrusted: false,
     });
   });
@@ -418,6 +422,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
       metroStation: 'medical_uni',
       metroMinutes: 5,
       metroNearby: ['medical_uni', 'tech_uni'],
+      metroNearbyMinutes: [5, 20],
       metroDistanceM: 50,
       buildingKey: 's507-12',
     });
@@ -457,6 +462,7 @@ describe('refreshListingLocations (Phase 14C)', () => {
       metroBasis: 'street',
       metroStation: null,
       metroNearby: [],
+      metroNearbyMinutes: [],
     });
     // A gone listing keeps what it had.
     expect(await located(sourceId, 'h1-gone')).toMatchObject({

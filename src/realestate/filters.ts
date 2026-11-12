@@ -392,32 +392,21 @@ function nearMetro(metro: RealEstateMetro): SQL | undefined {
   const maxMinutes = metro.maxMinutes ?? METRO_MINUTES_TOP;
   const stations = metro.stations ?? [];
   if (stations.length === 0) return lte(listings.metroMinutes, maxMinutes);
-  // Every station within the last band is in `metro_nearby`; only the nearest's band is public.
+  // Every station within the last band is in `metro_nearby`.
   if (maxMinutes >= METRO_MINUTES_TOP) return arrayOverlaps(listings.metroNearby, stations);
-  return and(inArray(listings.metroStation, stations), lte(listings.metroMinutes, maxMinutes));
+  // Each station's own band, nearest or not: `metro_nearby_minutes` is in `metro_nearby`'s order.
+  return sql`exists (select 1 from unnest(${listings.metroNearby}, ${listings.metroNearbyMinutes}) as station(code, minutes)
+    where station.code in (${sql.join(
+      stations.map((code) => sql`${code}`),
+      sql`, `,
+    )}) and station.minutes <= ${maxMinutes})`;
 }
 
-/**
- * Might be near the metro, though the listing's location does not say: not
- * located, in a sub-district where a located listing is; or near one of the
- * stations, but not as its nearest, so only known to be no closer than the
- * nearest's band and within 20 minutes.
- */
+/** Might be near the metro, though the listing's location does not say: not located, in a sub-district where a located listing is. */
 function unknownNearMetro(metro: RealEstateMetro): SQL | undefined {
-  const maxMinutes = metro.maxMinutes ?? METRO_MINUTES_TOP;
-  const stations = metro.stations ?? [];
-  return or(
-    and(
-      isNull(listings.metroBasis),
-      inArray(listings.subdistrictRef, subdistrictsWhere(nearMetro(metro))),
-    ),
-    stations.length > 0 && maxMinutes < METRO_MINUTES_TOP
-      ? and(
-          arrayOverlaps(listings.metroNearby, stations),
-          sql`not (${inArray(listings.metroStation, stations)})`,
-          lte(listings.metroMinutes, maxMinutes),
-        )
-      : undefined,
+  return and(
+    isNull(listings.metroBasis),
+    inArray(listings.subdistrictRef, subdistrictsWhere(nearMetro(metro))),
   );
 }
 
