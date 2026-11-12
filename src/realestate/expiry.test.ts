@@ -126,6 +126,66 @@ describe('listing expiry', () => {
       expect(found.map((row) => row.id)).toEqual([missedEndingLate, missedEndingSoon, longRunning]);
     });
 
+    it('next asks about one on show whose order time moved in its first life, once that life ran out unseen', async () => {
+      const sourceId = await newSource();
+      const missedOnShow = await listing(sourceId, { expectedEndAt: at(5), missedAt: at(-1) });
+      const seenAfterItsEnd = await listing(sourceId, {
+        expectedEndAt: at(-2),
+        lastSeenAt: at(-1),
+      });
+      // Created 35 days ago and its order time moved 15 days later. About one
+      // such move in ten does not renew the listing (2026-11-12), and then it
+      // ended 30 days after its creation; a full read never flags it while a
+      // look-alike is listed, so it would stay on show until its order time
+      // plus 30, as its group's leader. Its page says which.
+      const movedUnseen = await listing(sourceId, {
+        sourceCreatedAt: at(-35),
+        sourceUpdatedAt: at(-20),
+        expectedEndAt: at(10),
+        lastSeenAt: at(-20),
+      });
+      // A renewal: the order time moved 29 days or more after creation.
+      await listing(sourceId, {
+        sourceCreatedAt: at(-50),
+        sourceUpdatedAt: at(-19),
+        expectedEndAt: at(11),
+        lastSeenAt: at(-19),
+      });
+      // Its first 30 days are not over.
+      await listing(sourceId, {
+        sourceCreatedAt: at(-25),
+        sourceUpdatedAt: at(-20),
+        expectedEndAt: at(10),
+        lastSeenAt: at(-20),
+      });
+      // A list showed it after its first 30 days.
+      await listing(sourceId, {
+        sourceCreatedAt: at(-35),
+        sourceUpdatedAt: at(-20),
+        expectedEndAt: at(10),
+        lastSeenAt: at(-2),
+      });
+      // Its page was read after the move.
+      await listing(sourceId, {
+        sourceCreatedAt: at(-35),
+        sourceUpdatedAt: at(-20),
+        expectedEndAt: at(10),
+        lastSeenAt: at(-20),
+        verifiedAt: at(-3),
+      });
+      // Off the tab already: it lapses unasked.
+      await listing(sourceId, {
+        sourceCreatedAt: at(-60),
+        sourceUpdatedAt: at(-40),
+        expectedEndAt: at(-10),
+        lastSeenAt: at(-40),
+      });
+
+      const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
+
+      expect(found.map((row) => row.id)).toEqual([missedOnShow, movedUnseen, seenAfterItsEnd]);
+    });
+
     it('then asks about those past their end whose look-alike is still on show', async () => {
       const sourceId = await newSource();
       // A flat list shows one listing of each look-alike group: a live one
