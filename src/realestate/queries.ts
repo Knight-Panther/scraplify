@@ -1,6 +1,6 @@
 import { and, inArray, isNotNull, type SQL, sql } from 'drizzle-orm';
 import { realEstatePublicListings as listings } from '../db/schema/index.js';
-import type { DatabaseOrTransaction } from '../db/types.js';
+import type { Database, DatabaseOrTransaction } from '../db/types.js';
 import {
   conditions,
   isGrouped,
@@ -29,7 +29,7 @@ export {
  */
 
 const MAX_LIMIT = 500;
-/** Counting stops here; the page says "10,000+" above it. */
+/** A capped count stops one past here; the tab says "10,000+" when its exact count took too long. */
 export const COUNT_CEILING = 10_000;
 
 export interface RealEstateRow {
@@ -141,16 +141,24 @@ export async function searchRealEstate(
 
 /**
  * How many listings match, counted no further than one past `ceiling`: a
- * result of `ceiling + 1` means "more than that". An exact count of a broad
- * filter would read most of the table for a number nobody acts on.
+ * result of `ceiling + 1` means "more than that". `null` counts them all,
+ * which for a broad filter reads most of the view; the tab does that only
+ * through `countExactly`, under a time limit.
  */
 export async function countRealEstate(
   db: DatabaseOrTransaction,
   filters: RealEstateFilters,
   now: string,
-  ceiling: number = COUNT_CEILING,
+  ceiling: number | null = COUNT_CEILING,
 ): Promise<number> {
   // Grouped, it counts the rows the page would show: one per group.
+  if (ceiling === null) {
+    const [row] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(listings)
+      .where(shownRows(filters, now));
+    return row?.total ?? 0;
+  }
   const capped = db
     .select({ id: listings.id })
     .from(listings)
@@ -159,6 +167,75 @@ export async function countRealEstate(
     .as('capped');
   const [row] = await db.select({ total: sql<number>`count(*)::int` }).from(capped);
   return row?.total ?? 0;
+}
+
+/**
+ * How long the tab's exact count may take before it settles for "10,000+".
+ * Measured on the host as `scraplify_public` (2026-11-12): every filter tried
+ * took 0.1–1.2 s, against 0.4–1.4 s for the capped count (the look-alike fold
+ * costs the same either way), but a search for a word most listings carry
+ * (ბინა, 78,880 groups) took 4.1 s.
+ */
+export const EXACT_COUNT_TIMEOUT_MS = 3_000;
+
+/** Postgres's `query_canceled`, which a `statement_timeout` raises. */
+const QUERY_CANCELED = '57014';
+
+function isQueryCanceled(err: unknown): boolean {
+  const code = (candidate: unknown) =>
+    typeof candidate === 'object' && candidate !== null
+      ? (candidate as { code?: unknown }).code
+      : undefined;
+  // drizzle wraps pg's DatabaseError in a DrizzleQueryError (src/db/ingest.ts).
+  return (
+    code(err) === QUERY_CANCELED || (err instanceof Error && code(err.cause) === QUERY_CANCELED)
+  );
+}
+
+/**
+ * `load`'s answer, read in its own read-only transaction whose statements
+ * may each take `timeoutMs` at most; null when one took longer. Takes the
+ * pool, never a transaction, so the limit cannot outlive this call.
+ */
+export async function withinTimeout<T>(
+  db: Database,
+  timeoutMs: number,
+  load: (tx: DatabaseOrTransaction) => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await db.transaction(
+      async (tx) => {
+        const limit = String(Math.max(1, Math.round(timeoutMs)));
+        await tx.execute(sql`select set_config('statement_timeout', ${limit}, true)`);
+        return load(tx);
+      },
+      { accessMode: 'read only' },
+    );
+  } catch (err) {
+    if (isQueryCanceled(err)) return null;
+    throw err;
+  }
+}
+
+/** A count, and whether it is exact or stopped one past `COUNT_CEILING`. */
+export interface Counted<T> {
+  value: T;
+  exact: boolean;
+}
+
+/**
+ * The tab's counts: exact when counting takes no longer than `timeoutMs`,
+ * else counted no further than one past `COUNT_CEILING`, with `exact` false
+ * so the page says "10,000+".
+ */
+export async function countExactly<T>(
+  db: Database,
+  exact: (tx: DatabaseOrTransaction) => Promise<T>,
+  capped: () => Promise<T>,
+  timeoutMs: number = EXACT_COUNT_TIMEOUT_MS,
+): Promise<Counted<T>> {
+  const value = await withinTimeout(db, timeoutMs, exact);
+  return value === null ? { value: await capped(), exact: false } : { value, exact: true };
 }
 
 export interface DetailsCoverage {
@@ -171,17 +248,24 @@ export interface DetailsCoverage {
 /**
  * How many listings a listing-page filter could judge: those matching every
  * other filter, and how many of them have their page read. Listings, never
- * look-alike groups; each counted no further than one past `ceiling`, as
- * `countRealEstate` is.
+ * look-alike groups; each counted no further than one past `ceiling` (all of
+ * them when it is null), as `countRealEstate` is.
  */
 export async function detailsCoverage(
   db: DatabaseOrTransaction,
   filters: RealEstateFilters,
   now: string,
-  ceiling: number = COUNT_CEILING,
+  ceiling: number | null = COUNT_CEILING,
 ): Promise<DetailsCoverage> {
   const others = conditions(withoutDetailFilters(filters), now);
   const capped = async (where: SQL | undefined) => {
+    if (ceiling === null) {
+      const [row] = await db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(listings)
+        .where(where);
+      return row?.total ?? 0;
+    }
     const rows = db
       .select({ id: listings.id })
       .from(listings)
