@@ -1,15 +1,17 @@
 import { eq, sql } from 'drizzle-orm';
 import { realEstatePlaces } from '../../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../../db/types.js';
-import { nameKey, nameKeys, romanizedName } from '../place-lookup.js';
 import {
+  AREA_MEDIAN_MIN_PINS,
   candidatePinsSql,
   metersApart,
   metersSql,
+  STREET_AREA_METERS,
   STREET_LOCATION_MIN_PINS,
   STREET_LOCATION_SUPPORT,
   TRUSTED_PIN_STREET_METERS,
 } from '../location-rules.js';
+import { nameKey, nameKeys, romanizedName } from '../place-lookup.js';
 import type { CuratedPlaces } from './curated.js';
 import { type OfficialMap, officialDistrictAt } from './official.js';
 
@@ -65,6 +67,8 @@ export interface CatalogueRefresh {
   streetsByPins: number;
   /** Streets whose own pins contradict ss.ge's point for them (namesakes): located by the pins, or, when the pins disagree among themselves too, not at all. */
   streetsDisputed: number;
+  /** Streets whose pins or ss.ge point lie further from their sub-district's pin median than a pin may (namesakes picked by mistake): no location from them. */
+  streetsFarFromArea: number;
   /** ss.ge districts and sub-districts whose overlaps changed. */
   sharesWritten: number;
   /** Places whose match keys or Latin name changed. */
@@ -192,7 +196,8 @@ export async function refreshPlaceCatalogue(
 
     // 3. Each street's location (Phase 14C): the median of its listings'
     //    distinct candidate pin positions when they agree on it, else
-    //    ss.ge's point unless those positions all contradict it; and the
+    //    ss.ge's point unless those positions all contradict it; either only
+    //    within reach of its sub-district's pin median (Phase 14D); and the
     //    official district that location is in.
     const streets = await tx.execute<{
       ref: number;
@@ -210,6 +215,8 @@ export async function refreshPlaceCatalogue(
       pin_lng: number | string | null;
       near_median: number | string;
       near_point: number | string;
+      area_lat: number | string | null;
+      area_lng: number | string | null;
     }>(sql`
       with ${candidatePinsSql(sourceId)}, positions as (
         select distinct street_ref, lat, lng from candidates where street_ref is not null
@@ -233,30 +240,54 @@ export async function refreshPlaceCatalogue(
           join ${realEstatePlaces} s
             on s.source_id = ${sourceId} and s.level = 'street' and s.ref = p.street_ref
          group by p.street_ref
+      ), area_positions as (
+        select distinct subdistrict_ref, lat, lng from candidates where subdistrict_ref is not null
+      ), areas as (
+        -- A sub-district's pin median, as location.ts takes it for a pin.
+        select subdistrict_ref,
+               percentile_cont(0.5) within group (order by lat) as lat,
+               percentile_cont(0.5) within group (order by lng) as lng
+          from area_positions group by subdistrict_ref
+        having count(*) >= ${AREA_MEDIAN_MIN_PINS}
       )
       select s.ref, s.latitude, s.longitude,
              s.located_latitude, s.located_longitude, s.located_basis, s.located_pins,
              s.official_district_ref, s.official_basis, s.official_source,
              coalesce(m.n, 0) as pins, m.lat as pin_lat, m.lng as pin_lng,
-             coalesce(a.near_median, 0) as near_median, coalesce(a.near_point, 0) as near_point
+             coalesce(a.near_median, 0) as near_median, coalesce(a.near_point, 0) as near_point,
+             ar.lat as area_lat, ar.lng as area_lng
         from ${realEstatePlaces} s
         left join medians m on m.street_ref = s.ref
         left join agreement a on a.street_ref = s.ref
+        left join areas ar on s.parent_level = 'subdistrict' and ar.subdistrict_ref = s.parent_ref
        where s.source_id = ${sourceId} and s.level = 'street'
     `);
     let streetsByPins = 0;
     let streetsDisputed = 0;
+    let streetsFarFromArea = 0;
     const placed = streets.rows.flatMap((street) => {
       const ssge =
         street.latitude === null || street.longitude === null
           ? null
           : { lat: Number(street.latitude), lng: Number(street.longitude) };
+      const area =
+        street.area_lat === null || street.area_lng === null
+          ? null
+          : { lat: Number(street.area_lat), lng: Number(street.area_lng) };
+      // A namesake picked by mistake lands far from the street's own sub-district.
+      const inReach = (point: { lat: number; lng: number }) =>
+        area === null ||
+        metersApart(point.lat, point.lng, area.lat, area.lng) <= STREET_AREA_METERS;
       const positions = Number(street.pins);
-      const byPins =
+      const pinsAgree =
         positions >= STREET_LOCATION_MIN_PINS &&
         street.pin_lat !== null &&
         street.pin_lng !== null &&
         Number(street.near_median) >= Math.min(STREET_LOCATION_SUPPORT, positions);
+      const pinsInReach =
+        pinsAgree && inReach({ lat: Number(street.pin_lat), lng: Number(street.pin_lng) });
+      if (pinsAgree && !pinsInReach) streetsFarFromArea++;
+      const byPins = pinsInReach;
       let location: { lat: number; lng: number; basis: 'pins' | 'ss.ge'; pins: number } | null =
         null;
       if (byPins) {
@@ -276,7 +307,9 @@ export async function refreshPlaceCatalogue(
       } else if (ssge !== null) {
         // Pins that disagree among themselves can still all contradict ss.ge's point.
         if (positions > 0 && Number(street.near_point) === 0) streetsDisputed++;
-        else location = { ...ssge, basis: 'ss.ge', pins: 0 };
+        else if (!inReach(ssge)) {
+          if (!pinsAgree) streetsFarFromArea++;
+        } else location = { ...ssge, basis: 'ss.ge', pins: 0 };
       }
       const place = location === null ? null : officialDistrictAt(map, location.lat, location.lng);
       const next = {
@@ -443,6 +476,7 @@ export async function refreshPlaceCatalogue(
       streetsPlaced: placed.length,
       streetsByPins,
       streetsDisputed,
+      streetsFarFromArea,
       sharesWritten: shares.rowCount ?? 0,
       keysWritten: rekeyed.length,
     };

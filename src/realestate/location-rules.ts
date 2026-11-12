@@ -90,6 +90,22 @@ export const TRUSTED_PIN_AREA_METERS = 5_000;
 export const AREA_MEDIAN_MIN_PINS = 3;
 
 /**
+ * A street's location, from its pins or ss.ge's point, must lie within this
+ * of its sub-district's pin median, as a pin must (Phase 14D, 2026-11-12).
+ * ss.ge's street ids repeat names across the city, and a poster can pick the
+ * wrong namesake: ტარიელის ქ. under Didi Dighomi was located by three agreeing
+ * pins on central Tarieli St, 10 km away, and its 115 listings showed
+ * Rustaveli's metro. Against OSM's lines on production (791 Tbilisi streets
+ * checkable), 44 streets sat on a namesake, all more than 1.5 km from their
+ * area: 5 km drops 34 of them (1,724 listings) and 10 streets OSM shows on
+ * their own line (857 listings); 3 km would drop 42 and 27 (5,544, among
+ * them University St and Gelovani Ave in the wide Saburtalo). Losing a
+ * street's location costs precision; keeping a namesake states a wrong
+ * district and metro.
+ */
+export const STREET_AREA_METERS = TRUSTED_PIN_AREA_METERS;
+
+/**
  * A sub-district gives its listings an official district (basis `area`) when
  * at least this many of its distinct trusted positions lie in official
  * districts, and this share of them in one (below 20 positions, all of them).
