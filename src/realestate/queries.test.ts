@@ -815,6 +815,69 @@ describe('real-estate queries', () => {
       expect(await countRealEstate(db, { sourceId, grouped: true }, NOW_ISO, 1)).toBe(2);
     });
 
+    it('counts groups directly to exactly the rows the page shows, whatever the filters', async () => {
+      const sourceId = await newSource();
+      const read = { detailsReadAt: at(-0.5) };
+      // g1: only its dearer members match a price floor, only one names ბინა,
+      // and only one had its page read as renovated.
+      await listing(sourceId, { groupKey: 'g1' });
+      await listing(sourceId, {
+        groupKey: 'g1',
+        priceUsd: '250000.00',
+        description: 'ბინა ვაკეში',
+      });
+      await listing(sourceId, {
+        groupKey: 'g1',
+        priceUsd: '300000.00',
+        ...read,
+        condition: 'renovated',
+      });
+      // g2: one member on show, one past its end; g3 only gone.
+      await listing(sourceId, { groupKey: 'g2', priceUsd: '400000.00' });
+      await listing(sourceId, { groupKey: 'g2', expectedEndAt: at(-1), lastSeenAt: at(-10) });
+      await listing(sourceId, { groupKey: 'g3', status: 'gone', goneAt: at(-1) });
+      // In no group.
+      await listing(sourceId, { priceUsd: '90000.00' });
+      await listing(sourceId, {
+        priceUsd: '500000.00',
+        description: 'ახალი ბინა',
+        ...read,
+        condition: 'renovated',
+      });
+
+      const cases: RealEstateFilters[] = [
+        { sourceId, grouped: true },
+        { sourceId, grouped: true, sort: 'price-desc' },
+        { sourceId, grouped: true, currency: 'usd', priceMin: 260_000 },
+        { sourceId, grouped: true, currency: 'usd', priceMax: 260_000 },
+        { sourceId, grouped: true, text: 'ბინა' },
+        { sourceId, grouped: true, conditions: ['renovated'] },
+        { sourceId, grouped: true, currency: 'usd', priceMin: 1_000_000 },
+        { sourceId },
+        { sourceId, groupKey: 'g1' },
+      ];
+      const counted = [];
+      for (const filters of cases) {
+        const shown = (await searchRealEstate(db, { ...filters, limit: 500 }, NOW_ISO)).length;
+        counted.push([
+          await countRealEstate(db, filters, NOW_ISO, null),
+          await countRealEstate(db, filters, NOW_ISO, 1_000_000),
+          shown,
+        ]);
+      }
+      expect(counted).toEqual([
+        [4, 4, 4],
+        [4, 4, 4],
+        [3, 3, 3],
+        [2, 2, 2],
+        [2, 2, 2],
+        [2, 2, 2],
+        [0, 0, 0],
+        [6, 6, 6],
+        [3, 3, 3],
+      ]);
+    });
+
     it('counts exactly within the time limit, and settles for the capped count past it', async () => {
       const sourceId = await newSource();
       for (let index = 0; index < 5; index++) await listing(sourceId);
