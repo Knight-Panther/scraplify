@@ -1,6 +1,7 @@
 import {
   and,
   arrayContains,
+  arrayOverlaps,
   asc,
   type Column,
   desc,
@@ -17,15 +18,20 @@ import {
   sql,
 } from 'drizzle-orm';
 import { QueryBuilder } from 'drizzle-orm/pg-core';
-import { realEstatePublicListings as listings } from '../db/schema/index.js';
-import type {
-  AmenityKey,
-  BuildingStatus,
-  Condition,
-  DealType,
-  FloorType,
-  Project,
-  PropertyType,
+import {
+  realEstatePublicPlaces as catalogue,
+  realEstatePublicListings as listings,
+} from '../db/schema/index.js';
+import {
+  type AmenityKey,
+  type BuildingStatus,
+  type Condition,
+  type DealType,
+  type FloorType,
+  LOCATION_PRECISIONS,
+  type LocationPrecision,
+  type Project,
+  type PropertyType,
 } from './kinds.js';
 import { implausibleValuesOf } from './plausibility.js';
 import { listingSearchQuery } from './search.js';
@@ -60,10 +66,43 @@ export const BALCONIES_TOP = 5;
 
 export type RealEstateSort = 'newest' | 'price-asc' | 'price-desc' | 'ppm2-asc' | 'area-desc';
 
-/** A place at one level of ss.ge's location tree, by its ref. */
+/**
+ * The levels a place filter takes, as C6 (`realestate.public_places`) names
+ * them: ss.ge's map, then the official map, its stations and the owner's
+ * neighbourhoods. A C6 row's `level` and `ref` go in as they are.
+ */
+export const PLACE_FILTER_LEVELS = [
+  'city',
+  'district',
+  'subdistrict',
+  'street',
+  'municipality',
+  'official_district',
+  'metro_station',
+  'neighbourhood',
+] as const;
+export type PlaceFilterLevel = (typeof PLACE_FILTER_LEVELS)[number];
+
+/** A place on either map, by its level and ref in C6. */
 export interface RealEstatePlace {
-  level: 'city' | 'district' | 'subdistrict';
+  level: PlaceFilterLevel;
   ref: number;
+}
+
+/** ss.ge's walking bands, in minutes (`METRO_MINUTE_EDGES`); a station further than the last is not near. */
+export const METRO_MINUTE_BANDS = [5, 10, 15, 20] as const;
+export type MetroMinutes = (typeof METRO_MINUTE_BANDS)[number];
+const METRO_MINUTES_TOP = 20;
+
+/**
+ * Near the metro, by our checked metro (C5's `metro_station`, `metro_minutes`,
+ * `metro_nearby`), never ss.ge's claim.
+ */
+export interface RealEstateMetro {
+  /** At most this band to the station; 20, the last band, when absent. */
+  maxMinutes?: MetroMinutes;
+  /** Any of these stations, by ss.ge's code (C6's `metro_station` `code`); any station when absent or empty. */
+  stations?: string[];
 }
 
 export interface RealEstateFilters {
@@ -82,8 +121,22 @@ export interface RealEstateFilters {
    * In any of these places, each at its own level ("Vake or Vera"). Empty
    * narrows nothing. The tab asks for one place at a time with the refs
    * above; Hermes, whose questions name several, uses this.
+   *
+   * On the official map (Phase 14D): an `official_district` matches a listing
+   * whose own official district is known to be it, and a `metro_station` one
+   * within 20 minutes of it; a listing whose location does not say is never
+   * matched, and `locationUnknown` counts it. A `municipality` matches the
+   * listings that name it and the settlements C6 knows to be in it. A
+   * `neighbourhood` is not an ss.ge place, so it matches the ss.ge place its
+   * listings are under (C6's `parent_level`, `parent_ref`).
    */
   places?: RealEstatePlace[];
+  /** Near the metro (Phase 14D); unknown never matches, and `locationUnknown` counts it. */
+  metro?: RealEstateMetro;
+  /** Located at least this exactly (C5's `location_precision`, `LOCATION_PRECISIONS`). */
+  minPrecision?: LocationPrecision;
+  /** Leaves out listings whose pin, or ss.ge's metro claim, contradicts the rest (C5's `location_uncertain`). */
+  excludeUncertain?: boolean;
   /** The currency the price bounds are in, and the one price sorts use. */
   currency?: 'usd' | 'gel';
   priceMin?: number;
@@ -210,15 +263,201 @@ const between = (column: Column, min: number | undefined, max: number | undefine
     max === undefined ? undefined : lte(column, max),
   );
 
-const PLACE_COLUMNS = {
-  city: listings.cityRef,
-  district: listings.districtRef,
-  subdistrict: listings.subdistrictRef,
-} as const;
+/*
+ * The official map, its stations and the owner's neighbourhoods are read from
+ * C6 (`realestate.public_places`) by subqueries that do not depend on the
+ * listing, so Postgres works each out once per query. They are not narrowed
+ * to the listing's source: these rows come from committed files and are the
+ * same under every source that has them (only ss.ge does).
+ */
+
+/** C6's places at one level, by ref: one column of them. */
+const catalogueRefs = (
+  column: typeof catalogue.code | typeof catalogue.parentRef | typeof catalogue.ref,
+  where: SQL | undefined,
+) => queryBuilder.select({ value: column }).from(catalogue).where(where);
+
+/** A station's code (ss.ge's, the one C5's metro columns hold), as an array, empty when the ref is no station. */
+const stationCodes = (ref: number) =>
+  sql`array(${catalogueRefs(catalogue.code, and(eq(catalogue.level, 'metro_station'), eq(catalogue.ref, ref)))})`;
+
+/** The settlements C6 knows to be in a municipality (learned from listing pages). */
+const settlementsOf = (municipalityRef: number) =>
+  catalogueRefs(
+    catalogue.ref,
+    and(
+      eq(catalogue.level, 'city'),
+      eq(catalogue.parentLevel, 'municipality'),
+      eq(catalogue.parentRef, municipalityRef),
+    ),
+  );
+
+/** A neighbourhood's ss.ge place, when it is at this level. */
+const neighbourhoodParent = (ref: number, level: 'city' | 'district' | 'subdistrict') =>
+  catalogueRefs(
+    catalogue.parentRef,
+    and(
+      eq(catalogue.level, 'neighbourhood'),
+      eq(catalogue.ref, ref),
+      eq(catalogue.parentLevel, level),
+    ),
+  );
+
+/** In one place, as far as the listing's location says. Null, never true, where it does not. */
+function inPlace(place: RealEstatePlace): SQL {
+  switch (place.level) {
+    case 'city':
+      return eq(listings.cityRef, place.ref);
+    case 'district':
+      return eq(listings.districtRef, place.ref);
+    case 'subdistrict':
+      return eq(listings.subdistrictRef, place.ref);
+    case 'street':
+      return eq(listings.streetRef, place.ref);
+    case 'municipality':
+      return or(
+        eq(listings.municipalityRef, place.ref),
+        inArray(listings.cityRef, settlementsOf(place.ref)),
+      ) as SQL;
+    case 'official_district':
+      return eq(listings.officialDistrictRef, place.ref);
+    case 'metro_station':
+      return sql`${listings.metroNearby} && ${stationCodes(place.ref)}`;
+    case 'neighbourhood':
+      return or(
+        inArray(listings.subdistrictRef, neighbourhoodParent(place.ref, 'subdistrict')),
+        inArray(listings.districtRef, neighbourhoodParent(place.ref, 'district')),
+        inArray(listings.cityRef, neighbourhoodParent(place.ref, 'city')),
+      ) as SQL;
+  }
+}
 
 function inAnyPlace(places: readonly RealEstatePlace[] | undefined) {
   if (places === undefined || places.length === 0) return undefined;
-  return or(...places.map((place) => eq(PLACE_COLUMNS[place.level], place.ref)));
+  return or(...places.map(inPlace));
+}
+
+/** The sub-districts where a listing's location matches `known`: where a listing nobody located might match too. */
+const subdistrictsWhere = (known: SQL | undefined) =>
+  queryBuilder.select({ value: listings.subdistrictRef }).from(listings).where(known);
+
+/**
+ * The ss.ge areas C6 sees overlapping an official district: some of their
+ * located listings are in it (`official_shares`), at one level.
+ */
+const areasOverlapping = (officialRef: number, level: 'district' | 'subdistrict') =>
+  catalogueRefs(
+    catalogue.ref,
+    and(
+      eq(catalogue.level, level),
+      sql`(${catalogue.officialShares} -> 'by_district') ?| ${sql`array(${catalogueRefs(
+        catalogue.code,
+        and(eq(catalogue.level, 'official_district'), eq(catalogue.ref, officialRef)),
+      )})`}`,
+    ),
+  );
+
+/**
+ * A listing that might be in this place, though its location does not say:
+ * for an official district, no official district known, in an ss.ge area
+ * overlapping it; for a station, not located, in a sub-district where a
+ * located listing is near it. Undefined for a place a listing always names
+ * or never can.
+ */
+function unknownInPlace(place: RealEstatePlace): SQL | undefined {
+  switch (place.level) {
+    case 'official_district':
+      return and(
+        isNull(listings.officialDistrictRef),
+        or(
+          inArray(listings.subdistrictRef, areasOverlapping(place.ref, 'subdistrict')),
+          and(
+            isNull(listings.subdistrictRef),
+            inArray(listings.districtRef, areasOverlapping(place.ref, 'district')),
+          ),
+        ),
+      );
+    case 'metro_station':
+      return and(
+        isNull(listings.metroBasis),
+        inArray(listings.subdistrictRef, subdistrictsWhere(inPlace(place))),
+      );
+    default:
+      return undefined;
+  }
+}
+
+/** Near the metro, as far as the listing's checked metro says. */
+function nearMetro(metro: RealEstateMetro): SQL | undefined {
+  const maxMinutes = metro.maxMinutes ?? METRO_MINUTES_TOP;
+  const stations = metro.stations ?? [];
+  if (stations.length === 0) return lte(listings.metroMinutes, maxMinutes);
+  // Every station within the last band is in `metro_nearby`; only the nearest's band is public.
+  if (maxMinutes >= METRO_MINUTES_TOP) return arrayOverlaps(listings.metroNearby, stations);
+  return and(inArray(listings.metroStation, stations), lte(listings.metroMinutes, maxMinutes));
+}
+
+/**
+ * Might be near the metro, though the listing's location does not say: not
+ * located, in a sub-district where a located listing is; or near one of the
+ * stations, but not as its nearest, so only known to be no closer than the
+ * nearest's band and within 20 minutes.
+ */
+function unknownNearMetro(metro: RealEstateMetro): SQL | undefined {
+  const maxMinutes = metro.maxMinutes ?? METRO_MINUTES_TOP;
+  const stations = metro.stations ?? [];
+  return or(
+    and(
+      isNull(listings.metroBasis),
+      inArray(listings.subdistrictRef, subdistrictsWhere(nearMetro(metro))),
+    ),
+    stations.length > 0 && maxMinutes < METRO_MINUTES_TOP
+      ? and(
+          arrayOverlaps(listings.metroNearby, stations),
+          sql`not (${inArray(listings.metroStation, stations)})`,
+          lte(listings.metroMinutes, maxMinutes),
+        )
+      : undefined,
+  );
+}
+
+/** At least this exact. */
+const atLeast = (precision: LocationPrecision) =>
+  inArray(
+    listings.locationPrecision,
+    LOCATION_PRECISIONS.slice(LOCATION_PRECISIONS.indexOf(precision)),
+  );
+
+/** Whether a location filter is set that a listing's location may not answer: an official district, a station, or `metro`. */
+export function hasUnknowableLocationFilter(filters: RealEstateFilters): boolean {
+  return (
+    filters.metro !== undefined ||
+    (filters.places ?? []).some((place) => unknownInPlace(place) !== undefined)
+  );
+}
+
+/**
+ * The listings the location filters might hold though their location does not
+ * say (Phase 14D): every other filter holds, each location filter matches or
+ * cannot be told, and not all of them are known to match. Listings, never
+ * look-alike groups. Undefined without such a filter (`hasUnknowableLocationFilter`).
+ */
+export function locationUnknown(filters: RealEstateFilters, now: string): SQL | undefined {
+  if (!hasUnknowableLocationFilter(filters)) return undefined;
+  const others: RealEstateFilters = { ...filters };
+  delete others.places;
+  delete others.metro;
+  const places = filters.places ?? [];
+  const inPlaces = inAnyPlace(places);
+  const nearStation = filters.metro === undefined ? undefined : nearMetro(filters.metro);
+  const known = [inPlaces, nearStation].filter((match) => match !== undefined);
+  return and(
+    conditions(others, now),
+    inPlaces === undefined ? undefined : or(inPlaces, ...places.map(unknownInPlace)),
+    filters.metro === undefined ? undefined : or(nearStation, unknownNearMetro(filters.metro)),
+    // A comparison with an unknown value is null, which is not a match.
+    sql`not (${and(...known.map((match) => sql`coalesce(${match}, false)`))})`,
+  );
 }
 
 /** A poster's typo in the price or area (`src/realestate/plausibility.ts`). */
@@ -260,6 +499,9 @@ export function conditions(filters: RealEstateFilters, now: string): SQL | undef
       ? undefined
       : eq(listings.subdistrictRef, filters.subdistrictRef),
     inAnyPlace(filters.places),
+    filters.metro === undefined ? undefined : nearMetro(filters.metro),
+    filters.minPrecision === undefined ? undefined : atLeast(filters.minPrecision),
+    filters.excludeUncertain === true ? eq(listings.locationUncertain, false) : undefined,
     // A bound on a missing price or area is false, so those listings drop out.
     filters.priceMin === undefined ? undefined : gte(price, String(filters.priceMin)),
     filters.priceMax === undefined ? undefined : lte(price, String(filters.priceMax)),

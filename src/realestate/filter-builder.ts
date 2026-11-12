@@ -5,8 +5,12 @@ import {
   conditions,
   hasDetailFilter,
   implausibleValues,
+  locationUnknown,
+  METRO_MINUTE_BANDS,
   ordering,
+  PLACE_FILTER_LEVELS,
   type RealEstateFilters,
+  type RealEstatePlace,
   shownRows,
   withoutDetailFilters,
 } from './filters.js';
@@ -16,6 +20,7 @@ import {
   CONDITIONS,
   DEAL_TYPES,
   FLOOR_TYPES,
+  LOCATION_PRECISIONS,
   PROJECTS,
   PROPERTY_TYPES,
 } from './kinds.js';
@@ -30,7 +35,7 @@ import {
  * Raised whenever the input, its meaning or the output changes, new filters
  * included, so a reader can tell what this build understands.
  */
-export const FILTER_BUILDER_VERSION = 1;
+export const FILTER_BUILDER_VERSION = 2;
 
 const instant = z.iso.datetime({ offset: true });
 const counts = z.array(z.number().int().min(0)).max(50);
@@ -55,12 +60,23 @@ const filtersSchema = z.strictObject({
   places: z
     .array(
       z.strictObject({
-        level: z.enum(['city', 'district', 'subdistrict']),
+        level: z.enum(PLACE_FILTER_LEVELS),
         ref: z.number().int(),
       }),
     )
     .max(200)
     .optional(),
+  metro: z
+    .strictObject({
+      maxMinutes: z.union(METRO_MINUTE_BANDS.map((band) => z.literal(band))).optional(),
+      stations: z
+        .array(z.string().regex(/^[a-z0-9_]{1,40}$/))
+        .max(50)
+        .optional(),
+    })
+    .optional(),
+  minPrecision: z.enum(LOCATION_PRECISIONS).optional(),
+  excludeUncertain: z.boolean().optional(),
   currency: z.enum(['usd', 'gel']).optional(),
   priceMin: bound.optional(),
   priceMax: bound.optional(),
@@ -141,7 +157,78 @@ export interface RealEstateFilterSql {
   coverage: BuiltSql | null;
   /** True for a price or area no real listing has (`plausibility.ts`). A boolean expression; no parameters. */
   implausible: string;
+  /**
+   * Version 2. With a filter on an official district, a station or `metro`:
+   * the listings those filters might hold though their location does not say,
+   * matching every other filter, never folded. The bot says "at least N, and
+   * M more whose location is unknown". Otherwise null.
+   */
+  locationCoverage: BuiltSql | null;
+  /**
+   * Version 2. The places in `places` matched as the ss.ge place their
+   * listings are under, since ss.ge does not have them: neighbourhoods. The
+   * C6 row's `parent_*` names say which.
+   */
+  widenedPlaces: RealEstatePlace[];
+  /**
+   * Version 2. A select-list entry, one jsonb column `place`: the listing's
+   * place on both maps with names (`PLACE_COLUMN`). No parameters.
+   */
+  placeColumn: string;
 }
+
+/** One ss.ge place of the listing's, with its names, from C6. */
+const ssGePlace = (
+  level: string,
+  refColumn: string,
+) => `(select jsonb_build_object('ref', p.ref, 'ka', p.name_ka, 'en', p.name_en, 'roman', p.name_roman)
+       from realestate.public_places p
+      where p.source_id = "public_listings"."source_id" and p.level = '${level}'
+        and p.ref = "public_listings"."${refColumn}")`;
+
+/**
+ * Contract C1 v2: a select-list entry naming the listing's place on both maps,
+ * so a reply can say "Avlabari: Old Tbilisi on ss.ge, officially Isani"
+ * without mapping anything (Hermes's ask, 2026-11-07). One jsonb column,
+ * `place`, every key present and null when unknown:
+ * - `city`, `district`, `subdistrict`, `street`: ss.ge's place, `{ref, ka, en, roman}`;
+ * - `official`: the listing's own official district (C5), `{ref, code, ka, en, basis}`;
+ * - `area_official`: how the official map sees the listing's ss.ge area, the
+ *   official district holding most of its located listings (C6's
+ *   `official_shares`), `{level, ref, code, ka, en, listings, located}`;
+ * - `metro`: the nearest station by our checked metro, `{code, ka, en, minutes, basis}`.
+ * Over `realestate.public_listings` with no alias, like `where`. Each part is
+ * a lookup by key; Postgres works it out for the rows a page returns.
+ */
+export const PLACE_COLUMN = `jsonb_build_object(
+  'city', ${ssGePlace('city', 'city_ref')},
+  'district', ${ssGePlace('district', 'district_ref')},
+  'subdistrict', ${ssGePlace('subdistrict', 'subdistrict_ref')},
+  'street', ${ssGePlace('street', 'street_ref')},
+  'official', (select jsonb_build_object('ref', o.ref, 'code', o.code, 'ka', o.name_ka, 'en', o.name_en,
+                                         'basis', "public_listings"."official_district_basis")
+       from realestate.public_places o
+      where o.source_id = "public_listings"."source_id" and o.level = 'official_district'
+        and o.ref = "public_listings"."official_district_ref"),
+  'area_official', (select jsonb_build_object('level', a.level, 'ref', a.ref, 'code', o.code, 'ka', o.name_ka,
+                                              'en', o.name_en, 'listings', s.listings::integer,
+                                              'located', (a.official_shares ->> 'located')::integer)
+       from realestate.public_places a
+      cross join lateral jsonb_each_text(a.official_shares -> 'by_district') as s(code, listings)
+       join realestate.public_places o
+         on o.source_id = a.source_id and o.level = 'official_district' and o.code = s.code
+      where a.source_id = "public_listings"."source_id"
+        and a.level = case when "public_listings"."subdistrict_ref" is null then 'district' else 'subdistrict' end
+        and a.ref = coalesce("public_listings"."subdistrict_ref", "public_listings"."district_ref")
+      order by s.listings::integer desc, o.code
+      limit 1),
+  'metro', (select jsonb_build_object('code', m.code, 'ka', m.name_ka, 'en', m.name_en,
+                                      'minutes', "public_listings"."metro_minutes",
+                                      'basis', "public_listings"."metro_basis")
+       from realestate.public_places m
+      where m.source_id = "public_listings"."source_id" and m.level = 'metro_station'
+        and m.code = "public_listings"."metro_station")
+) as place`;
 
 const dialect = new PgDialect();
 
@@ -196,5 +283,11 @@ export function realEstateWhere(
       ? compile(conditions(withoutDetailFilters(filters), asOf), placeholders)
       : null,
     implausible: compileStatic(implausibleValues),
+    locationCoverage: (() => {
+      const unknown = locationUnknown(filters, asOf);
+      return unknown === undefined ? null : compile(unknown, placeholders);
+    })(),
+    widenedPlaces: (filters.places ?? []).filter((place) => place.level === 'neighbourhood'),
+    placeColumn: PLACE_COLUMN,
   };
 }

@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
 import { db, pool } from '../db/client.js';
-import { type NewRealEstateListingRow, realEstateListings } from '../db/schema/index.js';
+import {
+  type NewRealEstateListingRow,
+  realEstateListings,
+  realEstatePlaces,
+} from '../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import {
   type BuiltSql,
@@ -16,6 +20,7 @@ import { detailsCoverage, searchRealEstate } from './queries.js';
 interface CaseFile {
   version: number;
   now: string;
+  places: Omit<typeof realEstatePlaces.$inferInsert, 'sourceId' | 'firstSeenAt' | 'lastSeenAt'>[];
   listings: Record<string, Record<string, unknown>>;
   cases: {
     name: string;
@@ -23,7 +28,9 @@ interface CaseFile {
     expected: string[];
     ordered?: boolean;
     coverage?: { total: number; read: number };
+    unknown?: string[];
   }[];
+  placeColumn: { listing: string; place: Record<string, unknown> };
 }
 
 const CASES: CaseFile = JSON.parse(
@@ -60,6 +67,16 @@ describe('the filter builder (contract C1)', () => {
 
   beforeAll(async () => {
     sourceId = await createTestSource();
+    await db
+      .insert(realEstatePlaces)
+      .values(
+        CASES.places.map((place) => ({
+          ...place,
+          sourceId,
+          firstSeenAt: at(-1),
+          lastSeenAt: at(0),
+        })),
+      );
     for (const [key, fields] of Object.entries(CASES.listings)) {
       const [row] = await db
         .insert(realEstateListings)
@@ -150,13 +167,45 @@ describe('the filter builder (contract C1)', () => {
       );
     });
 
+    it('lists the listings the location filters might hold though their location does not say', async () => {
+      const { locationCoverage } = realEstateWhere(filters(), CASES.now);
+      if (testCase.unknown === undefined) {
+        expect(locationCoverage).toBeNull();
+        return;
+      }
+      if (locationCoverage === null) throw new Error('expected a location coverage condition');
+      expect((await run(locationCoverage)).sort()).toEqual([...testCase.unknown].sort());
+    });
+
     it('writes the same SQL with psycopg’s placeholders', () => {
       const postgres = realEstateWhere(filters(), CASES.now);
       const psycopg = realEstateWhere(filters(), CASES.now, { placeholders: 'psycopg' });
       expect(psycopg.where.params).toEqual(postgres.where.params);
       expect(psycopg.where.sql).toBe(postgres.where.sql.replace(/\$\d+/g, '%s'));
       expect(psycopg.where.sql.split('%s').length - 1).toBe(psycopg.where.params.length);
+      expect(psycopg.locationCoverage?.params).toEqual(postgres.locationCoverage?.params);
+      expect(psycopg.locationCoverage?.sql).toBe(
+        postgres.locationCoverage?.sql.replace(/\$\d+/g, '%s'),
+      );
     });
+  });
+
+  it('names a listing’s place on both maps in the column it hands on', async () => {
+    const { where, placeColumn } = realEstateWhere({ sourceId }, CASES.now);
+    const id = [...keyOf].find(([, key]) => key === CASES.placeColumn.listing)?.[0];
+    const { rows } = await pool.query<{ place: unknown }>(
+      `select ${placeColumn} from realestate.public_listings where ${where.sql} and id = $${where.params.length + 1}`,
+      [...where.params, id],
+    );
+    expect(rows).toEqual([{ place: CASES.placeColumn.place }]);
+  });
+
+  it('says which places it matched as the ss.ge place holding them', () => {
+    const places = [
+      { level: 'neighbourhood', ref: 990031 },
+      { level: 'subdistrict', ref: 990021 },
+    ];
+    expect(realEstateWhere({ places }, CASES.now).widenedPlaces).toEqual([places[0]]);
   });
 
   it('marks the typo prices with the expression it hands on', async () => {
@@ -184,7 +233,11 @@ describe('the filter builder (contract C1)', () => {
       ['a count as text', { roomsIn: '3' }, 'roomsIn'],
       ['a deal ss.ge does not have', { dealType: 'buy' }, 'dealType'],
       ['a condition by its Georgian label', { conditions: ['გარემონტებული'] }, 'conditions'],
-      ['a place level that is not one', { places: [{ level: 'street', ref: 1 }] }, 'places'],
+      ['a place level that is not one', { places: [{ level: 'country', ref: 1 }] }, 'places'],
+      ['a metro band ss.ge does not have', { metro: { maxMinutes: 12 } }, 'maxMinutes'],
+      ['a station by its name, not its code', { metro: { stations: ['Rustaveli'] } }, 'stations'],
+      ['a metro key that is not one', { metro: { station: 'rustaveli' } }, 'metro'],
+      ['a precision that is not one', { minPrecision: 'exact' }, 'minPrecision'],
       ['a date without a zone', { updatedSince: '2026-11-01' }, 'updatedSince'],
       ['a price that is not a number', { priceMin: Number.NaN }, 'priceMin'],
     ])('%s', (_label, input, key) => {
