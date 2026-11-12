@@ -57,6 +57,7 @@ interface JudgedPin {
   metro_minutes: number | null;
   metro_distance: number | null;
   metro_nearby: string[] | null;
+  metro_nearby_minutes: number[] | null;
 }
 
 /** A metro answer flattened for SQL, with the key it is joined on. */
@@ -66,6 +67,7 @@ function metroColumns(metro: MetroNear | null) {
     metro_minutes: metro?.minutes ?? null,
     metro_distance: metro?.distanceM ?? null,
     metro_nearby: metro?.nearby ?? null,
+    metro_nearby_minutes: metro?.nearbyMinutes ?? null,
   };
 }
 
@@ -261,14 +263,17 @@ export async function refreshListingLocations(
       with p as (
         select * from jsonb_to_recordset(${pinsJson}::jsonb) as p(
           id uuid, trusted boolean, street_m integer, district integer, flags text[],
-          metro_station text, metro_minutes smallint, metro_distance integer, metro_nearby text[])
+          metro_station text, metro_minutes smallint, metro_distance integer, metro_nearby text[],
+          metro_nearby_minutes smallint[])
       ), s as (
         select * from jsonb_to_recordset(${streetsJson}::jsonb) as s(
           ref integer, district integer,
-          metro_station text, metro_minutes smallint, metro_distance integer, metro_nearby text[])
+          metro_station text, metro_minutes smallint, metro_distance integer, metro_nearby text[],
+          metro_nearby_minutes smallint[])
       ), b as (
         select * from jsonb_to_recordset(${buildingsJson}::jsonb) as b(
-          key text, metro_station text, metro_minutes smallint, metro_distance integer, metro_nearby text[])
+          key text, metro_station text, metro_minutes smallint, metro_distance integer, metro_nearby text[],
+          metro_nearby_minutes smallint[])
       ), a as (
         select * from jsonb_to_recordset(${areasJson}::jsonb) as a(ref integer, district integer)
       ), l as (
@@ -309,6 +314,8 @@ export async function refreshListingLocations(
                     else s.metro_distance end as metro_distance_m,
                case when p.trusted then p.metro_nearby when b.key is not null then b.metro_nearby
                     else s.metro_nearby end as metro_nearby,
+               case when p.trusted then p.metro_nearby_minutes when b.key is not null then b.metro_nearby_minutes
+                    else s.metro_nearby_minutes end as metro_nearby_minutes,
                case when l.latitude is null then null else coalesce(p.trusted, false) end as pin_trusted,
                p.street_m as pin_street_m,
                p.district as pin_official_district_ref
@@ -332,6 +339,7 @@ export async function refreshListingLocations(
              metro_minutes = e.metro_minutes,
              metro_basis = e.metro_basis,
              metro_nearby = e.metro_nearby,
+             metro_nearby_minutes = e.metro_nearby_minutes,
              building_key = e.building_key,
              location_rules = ${LOCATION_RULES_VERSION},
              pin_trusted = e.pin_trusted,
@@ -342,12 +350,12 @@ export async function refreshListingLocations(
        where t.id = e.id
          and (t.official_district_ref, t.official_district_basis, t.location_precision,
               t.location_uncertain, t.location_flags, t.metro_station, t.metro_minutes,
-              t.metro_basis, t.metro_nearby, t.building_key, t.location_rules, t.pin_trusted,
+              t.metro_basis, t.metro_nearby, t.metro_nearby_minutes, t.building_key, t.location_rules, t.pin_trusted,
               t.pin_street_m, t.pin_official_district_ref, t.metro_distance_m)
              is distinct from
              (e.official_district_ref, e.official_district_basis, e.location_precision,
               e.location_uncertain, e.location_flags, e.metro_station, e.metro_minutes,
-              e.metro_basis, e.metro_nearby, e.building_key, ${LOCATION_RULES_VERSION}::smallint,
+              e.metro_basis, e.metro_nearby, e.metro_nearby_minutes, e.building_key, ${LOCATION_RULES_VERSION}::smallint,
               e.pin_trusted, e.pin_street_m, e.pin_official_district_ref, e.metro_distance_m)
     `);
     written += result.rowCount ?? 0;

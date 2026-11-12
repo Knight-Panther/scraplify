@@ -391,6 +391,72 @@ describe('the place catalogue (Phase 14B)', () => {
     });
   });
 
+  it('locates no street further from its own sub-district than a pin may be: a namesake picked by mistake (Phase 14D)', async () => {
+    const sourceId = await newSource();
+    await city(sourceId);
+    await streetPins(sourceId);
+    const didiDighomi = {
+      districtRef: 3,
+      districtName: 'ვაკე-საბურთალო',
+      subdistrictRef: 45,
+      subdistrictName: 'დიდი დიღომი',
+    };
+    // Didi Dighomi's own pins, seven positions on another of its streets: most of its
+    // positions, as on production (182 there), so a few misfiled ones cannot move its median.
+    for (const longitude of [
+      '44.754',
+      '44.755',
+      '44.756',
+      '44.757',
+      '44.758',
+      '44.759',
+      '44.760',
+    ]) {
+      await listing(sourceId, {
+        ...didiDighomi,
+        streetRef: 510,
+        streetName: 'პეტრიწის ქ.',
+        ...pinned('41.780000', longitude),
+      });
+    }
+    // Tarieli St 509, ss.ge's Didi Dighomi one (its point there), pinned by posters on
+    // central Tarieli St, 10 km away: three agreeing positions, none near ss.ge's point.
+    for (const latitude of ['41.700000', '41.700300', '41.700600']) {
+      await listing(sourceId, {
+        ...didiDighomi,
+        streetRef: 509,
+        streetName: 'ტარიელის ქ.',
+        ...pinned(latitude, '44.789800'),
+      });
+    }
+    // Makashvili St 511: no pins, and ss.ge's point is the central namesake's.
+    await listing(sourceId, { ...didiDighomi, streetRef: 511, streetName: 'მაყაშვილის ქ.' });
+    await syncPlaces(db, { sourceId, at: NOW });
+    await point(sourceId, 509, { latitude: 41.787434, longitude: 44.752464 });
+    await point(sourceId, 511, { latitude: 41.702915, longitude: 44.787082 });
+
+    const result = await refreshPlaceCatalogue(db, { sourceId, at: NOW, map, curated });
+    // 509's pins are too far to locate it, and they contradict ss.ge's point; 511's point is too far.
+    expect(result).toMatchObject({ streetsByPins: 4, streetsFarFromArea: 2 });
+    for (const ref of [509, 511]) {
+      expect(await row(sourceId, 'street', ref)).toMatchObject({
+        locatedLatitude: null,
+        locatedBasis: null,
+        officialDistrictRef: null,
+        officialSource: null,
+      });
+    }
+    // Didi Dighomi's own street, and every street of the fixture within reach, keep theirs.
+    expect(await row(sourceId, 'street', 510)).toMatchObject({
+      locatedBasis: 'pins',
+      locatedPins: 7,
+    });
+    expect(await row(sourceId, 'street', 502)).toMatchObject({
+      locatedBasis: 'pins',
+      locatedPins: 1,
+    });
+  });
+
   it('locates a street only by pins a poster placed, on show, nowhere near the map’s default, and in its city', async () => {
     const sourceId = await newSource();
     await city(sourceId);

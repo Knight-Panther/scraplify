@@ -15,7 +15,7 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 | **14A** keep what ss.ge already sends | ✅ live since 2026-11-07 16:43 (`5006a19`, PR #80); morning-after check passed 2026-11-08 | — | — |
 | **14B** official map, English names, Hermes's place catalogue (C6) | ✅ live since 2026-11-08 13:43 (`f81599a`, PR #81), lookup-order fix since 13:52 (`0d9f7bc`, PR #82); first nightly refresh passed 2026-11-09 13:39 | — | — |
 | **14C** location quality | ✅ live since 2026-11-10 15:34 UTC as `743c034` (`main`'s head); merged 2026-11-09 as `3ab7077` (PR #83); built c1–c7 on 2026-11-08; calibrated on night 1 against OpenStreetMap's street lines, which changed four rules; grants rehearsed under the host's roles; confirmed on night 2 with no rule changed (2026-11-09); judged by hand at the deploy, 302,073 listings in 71 s; a run's own judgement checked the same evening on a short run by hand. The live release since 16:49 UTC is `32b6cfb` (the same plus PRs #90 and #91, below) | — | recheck about 2026-11-14 |
-| **14D** C1 v2 for Hermes | ❌ | — (14C is live; Hermes will review 14D's JSON before it merges) | from 2026-11-11, a fresh session |
+| **14D** C1 v2 for Hermes | ⏳ built 2026-11-12 (PR #102), reviewed by Hermes the same day | the merge; the deploy outside the crawl | deploy when run `4eac056d` ends, about 2026-11-13 04:30 |
 
 ## What waits on what
 
@@ -226,19 +226,20 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
 - ✅ **Docs:** ✅ the new columns in `docs/hermes-contracts.md` (C5's 14C section, C6), updated for the calibrated rules; ✅ RUNBOOK §3 step 8 "Location quality"; ✅ 14C's gates in STATUS; ✅ `prod-status`'s "listing locations" check, written and tried on the trial copy, added at the deploy (2026-11-10).
 - **Order:** code and tests on a branch, 2026-11-08 ✅; calibration on the first night against OpenStreetMap, 2026-11-08 ✅; grants rehearsal on a copy of production, 2026-11-08 ✅; confirmation on the second night and the merge (`3ab7077`), 2026-11-09 ✅; deploy 2026-11-10 15:34 UTC as `743c034` ✅ (Changed: not after 13A's first-deletion check, which last night's page fault had prevented; 13A's deletions come with the run of 2026-11-10 21:35 instead).
 
-## 14D: Hermes's contracts — ❌ not started
+## 14D: Hermes's contracts — ⏳ built and reviewed 2026-11-12, the deploy owed
 
 - ⏳ **Agree first**, in Hermes's `.git/xtelo-speed/PLAN.md`:
   - ✅ C6 and the bare-name rule: in the joint plan's contracts table since 2026-11-08 (Hermes added the row). Its switch of H2's area words waits for the owner's go;
-  - ❌ the meanings of precision, flags and basis ("unknown" is not "no"; basis `street` means approximate);
-  - ❌ C1 v2's exact JSON, with a v1 fallback;
+  - ✅ the meanings of precision, flags and basis ("unknown" is not "no"; basis `street` means approximate): written in `docs/hermes-contracts.md`, "C1 v2"; Hermes reviewed them 2026-11-12;
+  - ✅ C1 v2's exact JSON, with a v1 fallback: the same section; Hermes reviewed it 2026-11-12, yes to the input, the place column with the estimate, and the fallback. Changed: built first and reviewed before the merge, as Hermes offered on 2026-11-10, rather than agreed in the joint plan before building;
   - ❌ C3's official level only after a stable month.
-- ❌ **C1 v2** (`FILTER_BUILDER_VERSION` 2; `src/realestate/filters.ts`, `filter-builder.ts`, `filter-cases.json`):
-  - `places` levels gain street, official_district and municipality (one line each in `PLACE_COLUMNS`);
-  - `metro {maxMinutes, stations?}`, `minPrecision`, `excludeUncertain`;
-  - output `locationCoverage`; unknown never matches, as with today's detail filters;
-  - Hermes's ask (2026-11-07): each result row carries its place on both maps and how the other map sees it, from C6's overlaps, so the bot says "Avlabari: Old Tbilisi on ss.ge, officially Isani" without mapping anything itself.
-- ❌ **What Hermes said C6 still lacks for 14D (2026-11-08, checked against `dist` at `0d9f7bc`)**, all for 14D:
+- ✅ **C1 v2** (`FILTER_BUILDER_VERSION` 2; `src/realestate/filters.ts`, `filter-builder.ts`, `filter-cases.json`), built on branch `phase-14d-c1-v2` 2026-11-12, with migration `0053` (below):
+  - `places` levels gain street, official_district and municipality. Changed: also `metro_station` and `neighbourhood` (item c below), and not one line each: the official map, stations and neighbourhoods are read from C6 inside the SQL, since the tab imports the same rules and cannot read files;
+  - `metro {maxMinutes, stations?}`, `minPrecision`, `excludeUncertain`. Changed: `maxMinutes` takes only ss.ge's bands. Changed again 2026-11-12 (the owner flagged it): the first build judged a named station only when it was the listing's nearest, since only the nearest's band was public, which found 93% of the true matches at 10 minutes and 68% at 15 on production. Migration `0053` adds `metro_nearby_minutes`, each nearby station's band, public as ss.ge's own results row shows them, and `LOCATION_RULES_VERSION` 2 fills it with no rule changed. So 14D is no longer migration-free: its deploy applies `0053` and judges every listing by hand, outside the crawl;
+  - output `locationCoverage`; unknown never matches, as with today's detail filters. Changed: it lists the listings that might match, rather than counts, so the reader counts them as it counts `coverage`;
+  - Hermes's ask (2026-11-07): each result row carries its place on both maps and how the other map sees it, from C6's overlaps, so the bot says "Avlabari: Old Tbilisi on ss.ge, officially Isani" without mapping anything itself. Built as `placeColumn`, one jsonb `place` per row: the listing's own official district and its area's, with names; a production row says exactly that.
+- ✅ **A street is located only near its own sub-district** (Changed 2026-11-12: added to 14D, from 14C's recheck). Checking C1 v2's unknown counts found namesake streets: posters pick the wrong one of two same-named ss.ge streets, so a street under Didi Dighomi sat on central Tarieli St, 10 km away. A street's location must lie within 5 km of its sub-district's pin median, as a pin must (`STREET_AREA_METERS`), calibrated against OSM's lines (34 of 44 namesakes dropped, 10 streets on their own line lost). It rides `LOCATION_RULES_VERSION` 2 with the metro bands: one re-judgement. Trial on a copy of production: 75 streets dropped (4,432 listings), and 17,700 more listings placed by area.
+- ✅ **What Hermes said C6 still lacks for 14D (2026-11-08, checked against `dist` at `0d9f7bc`)**, all for 14D: (a) and (e) shipped with 14C (lookup v2), (b) was already there, (c) and (d) are C1 v2:
   - (a) **A city on every lookup row.** Rows carry only the direct parent, so "Rustaveli, Batumi" can't pick Batumi's street without walking the chain. Add `city_ref` and the city's names to each lookup row, or a city filter on both lookups.
   - (b) **Streets outside Tbilisi.** Answered: C6 already holds them (Batumi 257, Kutaisi 133, Rustavi 74 on 2026-11-08, growing nightly). What's missing is (a), so the bot can say "no street of that name in Batumi" instead of matching across cities.
   - (c) **C1 v2 takes a C6 row's (level, ref) as it is,** at every level: official_district (OSM ref), metro_station (1–22) and neighbourhood. A neighbourhood applies its parent, and the coverage says so.
@@ -272,7 +273,7 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
 
 - ✅ **14C, before the merge** (recorded in STATUS's 14C gate): the unit and database tests, including every rule the calibration changed; planted faults, each turning a test red (the first build's set, and seven more for the calibrated rules); the trial on a copy of production; the grants rehearsal under the host's roles. Changed: the Teimurazi St known case turned out to be a pin exactly on the map's default that its poster may not have placed (the page is unread), so it is never used; it carries no metro claim and its street has no location, so it is placed by its sub-district.
 - ⏳ **14C, still owed:** the deploy script's checks (2026-11-10 ✅); the morning after ✅ (Changed: checked the same evening on a short run started by hand, 170 listings written in 11 s; owner, 2026-11-10: do what is clocked now); the thresholds on a week of data (about 2026-11-14), which needs the week.
-- **14D:** both maps on their own (an Avlabari listing matches district Old Tbilisi and official district Isani, each separately); C1 v2's cases in `filter-cases.json`; the v1 fallback.
+- **14D:** ✅ both maps on their own (an Avlabari listing matches district Old Tbilisi and official district Isani, each separately: a shared case); ✅ C1 v2's cases in `filter-cases.json` (34, 15 new; twelve planted faults each red); ✅ `0053` and the judgement under rules 2 on `scraplify_qa_tail` and on a copy of production; ✅ the v1 fallback (every v1 case unchanged in meaning); ✅ Hermes's review (2026-11-12).
 - **Before each deploy:** a live trial into a disposable `scraplify_qa_*` database from the owner's PC, the deploy script inside 13:30–20:30, and `prod-status` the next morning.
 
 ## Risks and how each is contained

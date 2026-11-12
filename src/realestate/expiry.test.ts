@@ -760,6 +760,7 @@ describe('listing expiry', () => {
         metroNearby: ['medical_uni', 'tech_uni'],
         buildingKey: 'c619',
         locationRules: 1,
+        metroNearbyMinutes: [15, 20],
         pinTrusted: true,
         pinStreetM: 86420,
         pinOfficialDistrictRef: 11300446,
@@ -838,6 +839,7 @@ describe('listing expiry', () => {
         metroNearby: ['medical_uni', 'tech_uni'],
         buildingKey: 'c619',
         locationRules: 1,
+        metroNearbyMinutes: [15, 20],
       });
       expect(instant(row?.detailsReadAt)).toBe(instant(at(-30)));
       expect(instant(row?.sourceCreatedAt)).toBe(instant(at(-90)));

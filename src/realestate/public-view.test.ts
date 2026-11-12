@@ -45,12 +45,18 @@ describe('realestate.public_listings', () => {
     expect(rows.filter((row) => /distance|_m$|_meters$/.test(row.name))).toEqual([]);
     // The stations nearby are codes only, never a code-to-metres map.
     expect(rows.find((row) => row.name === 'metro_nearby')?.type).toBe('_text');
+    // Their bands (Phase 14D) are minutes on ss.ge's scale, never metres: no finer than ss.ge's own card.
+    expect(rows.find((row) => row.name === 'metro_nearby_minutes')?.type).toBe('_int2');
     expect(rows.filter((row) => row.type === 'jsonb').map((row) => row.name)).toEqual([]);
+  });
+
+  it('shows the metro bands of Phase 14D last, appended after every column it had before', async () => {
+    expect((await columns()).at(-1)).toBe('metro_nearby_minutes');
   });
 
   it('shows the location of Phase 14C, appended after every column it had before', async () => {
     const shown = await columns();
-    expect(shown.slice(-11)).toEqual([
+    expect(shown.slice(-12, -1)).toEqual([
       'official_district_ref',
       'official_district_basis',
       'location_precision',
@@ -63,12 +69,12 @@ describe('realestate.public_listings', () => {
       'building_key',
       'location_rules',
     ]);
-    expect(shown).toHaveLength(73);
+    expect(shown).toHaveLength(74);
   });
 
   it('shows the places of Phase 14A, appended after every column it had before', async () => {
     const shown = await columns();
-    expect(shown.slice(-21, -11)).toEqual([
+    expect(shown.slice(-22, -12)).toEqual([
       'street_ref',
       'house_number',
       'house_suffix',
