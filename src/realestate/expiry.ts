@@ -64,7 +64,14 @@ export type ListingCheck =
  *
  * First those a full read of their list missed (`markMissedListings`) that
  * the tab still shows, the longest-lived first: a dead one of those stays on
- * show longest, and 55% of them were live on 2026-11-11. Then those past
+ * show longest, and 55% of them were live on 2026-11-11. Then those on show
+ * whose order time moved less than 29 days after their creation, an edit
+ * rather than a renewal, once 30 days from creation have passed with no list
+ * showing them and no page read since the move: about one agent's such move
+ * in ten does not renew the listing (2026-11-12), which then ends 30 days
+ * after its creation, and a full read never flags it while a look-alike is
+ * listed, so it would stay on show, often as its group's leader, until its
+ * order time plus 30. Of 50 such rows asked, 9 were dead. Then those past
  * their expected end that a list showed after that date and none has since,
  * most recently expired first. Then those past their end with a look-alike
  * (the same `group_key` or `similarity_group`) still on show: a flat list
@@ -90,6 +97,16 @@ export async function loadListingsDueForCheck(
     isNotNull(realEstateListings.missedAt),
     gt(realEstateListings.expectedEndAt, input.asOf),
   );
+  // Its order time moved within its first life, by an edit rather than a
+  // renewal, that life is over, and neither a list nor its page has said
+  // since whether the move renewed it.
+  const movedUnseen = sql`(${realEstateListings.expectedEndAt} > ${input.asOf}
+    and ${realEstateListings.sourceUpdatedAt} > ${realEstateListings.sourceCreatedAt}
+    and ${realEstateListings.sourceUpdatedAt} < ${realEstateListings.sourceCreatedAt} + interval '29 days'
+    and ${realEstateListings.sourceCreatedAt} + interval '30 days' < ${input.asOf}
+    and ${realEstateListings.lastSeenAt} < ${realEstateListings.sourceCreatedAt} + interval '30 days'
+    and (${realEstateListings.verifiedAt} is null
+      or ${realEstateListings.verifiedAt} < ${realEstateListings.sourceUpdatedAt}))`;
   const seenAfterItsEnd = gt(realEstateListings.lastSeenAt, realEstateListings.expectedEndAt);
   // Not correlated, so each is one hashed set however long the queue.
   const onShowIn = (column: 'group_key' | 'similarity_group') => sql`(
@@ -109,6 +126,7 @@ export async function loadListingsDueForCheck(
         eq(realEstateListings.status, 'active'),
         or(
           missedOnShow,
+          movedUnseen,
           and(
             lte(realEstateListings.expectedEndAt, input.asOf),
             or(seenAfterItsEnd, lookAlikeOnShow),
@@ -118,6 +136,7 @@ export async function loadListingsDueForCheck(
     )
     .orderBy(
       desc(sql`coalesce(${missedOnShow}, false)`),
+      desc(sql`coalesce(${movedUnseen}, false)`),
       desc(sql`coalesce(${seenAfterItsEnd}, false)`),
       desc(realEstateListings.expectedEndAt),
     )
