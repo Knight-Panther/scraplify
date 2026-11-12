@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  askedKind,
+  initialForms,
   looseWord,
   nameKey,
+  nameKeys,
   placeKeys,
   placeLookupSql,
   placeTextLookupSql,
@@ -134,6 +137,66 @@ describe('placeKeys', () => {
   });
 });
 
+describe('initials (version 3)', () => {
+  it('keys a name that starts with initials without them too', () => {
+    // ss.ge's Chavchavadze Avenue (street 19, 4,437 listings on 2026-11-12) and two namesakes.
+    expect(nameKeys('ი.ჭავჭავაძის გამზ.')).toEqual(['i cavcavaz', 'cavcavaz']);
+    expect(nameKeys('ალ. ჭავჭავაძის ქ.')).toEqual(['al cavcavaz', 'cavcavaz']);
+    expect(nameKeys('ზ.ჭავჭავაძის ქ.')).toEqual(['z cavcavaz', 'cavcavaz']);
+    expect(nameKeys('I. Chavchavadze Avenue')).toEqual(['i cavcavaz', 'cavcavaz']);
+    expect(nameKeys('წმ. ნინოს ქ.')).toEqual([nameKey('წმ. ნინოს ქ.'), nameKey('ნინოს ქ.')]);
+    // A kind word in that place is left out anyway: one key.
+    expect(nameKeys('სოფ. გლდანი')).toEqual(['gldan']);
+    expect(nameKeys('ჭავჭავაძის გამზ.')).toEqual(['cavcavaz']);
+    // Initials and ჟ together.
+    expect(nameKeys('ა.ჟორდანიას ქ.')).toEqual(['a zordani', 'a jordani', 'zordani', 'jordani']);
+  });
+
+  it('lets a first name find an initial, exactly', () => {
+    expect(initialForms(nameKey('Ilia Chavchavadze'))).toEqual(['i cavcavaz', 'il cavcavaz']);
+    expect(initialForms(nameKey('Alexander Chavchavadze'))).toEqual(['a cavcavaz', 'al cavcavaz']);
+    // Only a first word of three letters or more, and only before another word.
+    expect(initialForms('cavcavaz')).toEqual([]);
+    expect(initialForms('i cavcavaz')).toEqual([]);
+    expect(initialForms('11 mart')).toEqual([]);
+    const built = placeLookupSql('Ilia Chavchavadze');
+    expect(JSON.parse(String(built?.params[0]))).toEqual([
+      { key: 'ili cavcavaz', kind: null, alts: ['i cavcavaz', 'il cavcavaz'] },
+    ]);
+  });
+});
+
+describe('askedKind', () => {
+  it('reads a street word after a name as a street, a village word anywhere as a village', () => {
+    for (const words of [
+      'Chavchavadze Avenue',
+      'Chavchavadze Ave',
+      'ჭავჭავაძის გამზირი',
+      'ჭავჭავაძის გამზ.',
+      'Kazbegi st.',
+    ]) {
+      expect(askedKind(words), words).toBe('street');
+    }
+    for (const words of ['Gldani village', 'სოფ. გლდანი', 'კონიაკის დას.', 'Africa settlement']) {
+      expect(askedKind(words), words).toBe('village');
+    }
+    // ქ. before a name is the city; St. before one is a saint; quarter asks for nothing.
+    for (const words of [
+      'ჭავჭავაძის',
+      'Vake',
+      'ქ. ბათუმი',
+      'St. Nicholas',
+      'Khimshiashvili Quarter',
+    ]) {
+      expect(askedKind(words), words).toBeNull();
+    }
+    expect(placeLookupSql('Chavchavadze Avenue')).toMatchObject({
+      key: 'cavcavaz',
+      kind: 'street',
+    });
+  });
+});
+
 describe('romanizedName', () => {
   it('writes a Georgian name in Latin letters by the national system, each word capitalized', () => {
     expect(romanizedName('ჭავჭავაძის გამზ.')).toBe('Chavchavadzis Gamz.');
@@ -168,23 +231,35 @@ describe('splitPlaceText', () => {
   it('keys every run of up to four words, and no run of kind words alone', () => {
     const split = splitPlaceText('Vake Saburtalo street');
     expect(Object.fromEntries(split.runs)).toEqual({
-      '0:0:1': 'vak',
-      '0:0:2': 'vak saburtal',
-      '0:0:3': 'vak saburtal',
-      '0:1:2': 'saburtal',
-      '0:1:3': 'saburtal',
+      '0:0:1': { key: 'vak', kind: null },
+      '0:0:2': { key: 'vak saburtal', kind: null },
+      '0:0:3': { key: 'vak saburtal', kind: 'street' },
+      '0:1:2': { key: 'saburtal', kind: null },
+      '0:1:3': { key: 'saburtal', kind: 'street' },
     });
     // A hyphen keeps one word, so "vake-saburtalo" is a single run.
     expect(Object.fromEntries(splitPlaceText('vake-saburtalo').runs)).toEqual({
-      '0:0:1': 'vak saburtal',
+      '0:0:1': { key: 'vak saburtal', kind: null },
     });
   });
 
-  it('builds one query for every key, with the per-name limit, or none for kind words alone', () => {
+  it('builds one query for every key and kind, with the per-name limit, or none for kind words alone', () => {
     const built = placeTextLookupSql('Vake, Saburtalo', { placeholders: 'psycopg', limit: 5 });
-    expect(built?.params).toEqual([JSON.stringify(['vak', 'saburtal']), 5]);
+    expect(built?.params).toEqual([
+      JSON.stringify([
+        { key: 'vak', kind: null, alts: [] },
+        { key: 'saburtal', kind: null, alts: [] },
+      ]),
+      5,
+    ]);
     expect(built?.sql).not.toMatch(/\$\d/);
     expect(placeTextLookupSql('street; ave')).toBeNull();
+    // "Chavchavadze" and "Chavchavadze Avenue" share a key, not a kind: two names.
+    const avenue = placeTextLookupSql('Chavchavadze Avenue');
+    expect(JSON.parse(String(avenue?.params[0]))).toEqual([
+      { key: 'cavcavaz', kind: null, alts: [] },
+      { key: 'cavcavaz', kind: 'street', alts: [] },
+    ]);
   });
 
   it('takes only a whole number as the limit', () => {

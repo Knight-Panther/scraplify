@@ -198,6 +198,13 @@
       "ref": 91,
       "nameKa": "პივზაოდის უბანი",
       "nameEn": "Pivzavodi Quarter"
+    },
+
+    {
+      "level": "subdistrict",
+      "ref": 68,
+      "nameKa": "ავტოქარხნის დასახლება",
+      "nameEn": "Avtokarkhana settlement"
     }
   ],
   "neighbourhoods": [

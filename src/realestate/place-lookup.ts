@@ -28,15 +28,21 @@ import { type BuiltSql, type Placeholders, toPsycopg } from './filter-builder.js
  * (დიღომი, დიღმის), and English names ("Turtle Lake" for კუს ტბა). A place
  * whose name has ჟ also gets the key with ჟ written "j" (`nameKeys`): English
  * writes ვაჟა as "Vaja" as often as "Vazha". Folding every j into z instead
- * would merge ჯ with ჟ for everyone.
+ * would merge ჯ with ჟ for everyone. A place whose name starts with initials
+ * ("ი.ჭავჭავაძის გამზ.") also gets the key without them, and a person's full
+ * first name finds an initial (`initialForms`): "Chavchavadze Avenue" and
+ * "Ilia Chavchavadze" both find ss.ge's "ი.ჭავჭავაძის გამზ.".
  */
 
 /**
  * Bump when a rule here or the lookup's output changes: stored keys are
  * rebuilt from it, and Hermes reads it. 2 (Phase 14C): ჟ also keyed as "j",
- * and every row carries its city.
+ * and every row carries its city. 3 (Phase 14D): names keyed without their
+ * initials and a first name matching an initial; the order by `tier`
+ * (`lookupSql`), with the kind of place the words ask for; rows carry `kind`
+ * and `tier`.
  */
-export const PLACE_LOOKUP_VERSION = 2;
+export const PLACE_LOOKUP_VERSION = 3;
 
 /** Hermes's `_ROMAN`: Georgian's national romanization, letter for letter. */
 const GEORGIAN_LETTERS = 'აბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰ';
@@ -123,9 +129,11 @@ function wordKey(word: string): string {
 /**
  * Words that only name a kind of place, as ss.ge abbreviates them, in full,
  * and in English. Their keys come from the same steps, so a spelling that
- * folds to one of them is left out too.
+ * folds to one of them is left out too. They are left out of every key, and
+ * two kinds still steer the order (`askedKind`).
  */
-const KIND_WORDS = [
+/** A kind of street: after a name, the words ask for a street ("Chavchavadze Avenue"). */
+const STREET_KIND_WORDS = [
   // Georgian, as ss.ge writes them and in full.
   'ქ',
   'ქუჩა',
@@ -149,21 +157,6 @@ const KIND_WORDS = [
   'ხეივ',
   'ხეივანი',
   'ხეივნის',
-  'კვ',
-  'კვარტ',
-  'კვარტალი',
-  'კვარტლის',
-  'კვარტლები',
-  'მიკრორაიონი',
-  'დას',
-  'დასახლება',
-  'დასახლების',
-  'სოფ',
-  'სოფელი',
-  'სოფლის',
-  'დაბა',
-  'ქალაქი',
-  'ქალაქის',
   'სანაპ',
   'სანაპირო',
   'სანაპიროს',
@@ -172,9 +165,6 @@ const KIND_WORDS = [
   'აღმართის',
   'ბულ',
   'ბულვარი',
-  'უბანი',
-  'უბნის',
-  'უბნები',
   // English.
   'st',
   'str',
@@ -194,11 +184,37 @@ const KIND_WORDS = [
   'sq',
   'square',
   'embankment',
+] as const;
+
+/** A village or settlement: anywhere in the words, they ask for a place named as one ("Gldani village"). */
+const VILLAGE_KIND_WORDS = [
+  'სოფ',
+  'სოფელი',
+  'სოფლის',
+  'დას',
+  'დასახლება',
+  'დასახლების',
+  'დაბა',
+  'village',
+  'settlement',
+] as const;
+
+/** Other kinds, which ask for nothing in particular. */
+const OTHER_KIND_WORDS = [
+  'კვ',
+  'კვარტ',
+  'კვარტალი',
+  'კვარტლის',
+  'კვარტლები',
+  'მიკრორაიონი',
+  'ქალაქი',
+  'ქალაქის',
+  'უბანი',
+  'უბნის',
+  'უბნები',
   'quarter',
   'quarters',
   'microdistrict',
-  'settlement',
-  'village',
   'city',
 ] as const;
 
@@ -220,7 +236,15 @@ function keysOf(text: string): string[] {
   return words.map((word) => wordKey(word)).filter((key) => key !== '');
 }
 
-const KIND_KEYS: ReadonlySet<string> = new Set(KIND_WORDS.flatMap((word) => keysOf(word)));
+const keysOfWords = (words: readonly string[]): ReadonlySet<string> =>
+  new Set(words.flatMap((word) => keysOf(word)));
+const STREET_KIND_KEYS = keysOfWords(STREET_KIND_WORDS);
+const VILLAGE_KIND_KEYS = keysOfWords(VILLAGE_KIND_WORDS);
+const KIND_KEYS: ReadonlySet<string> = new Set([
+  ...STREET_KIND_KEYS,
+  ...VILLAGE_KIND_KEYS,
+  ...keysOfWords(OTHER_KIND_WORDS),
+]);
 
 /** A place name's matching keys, one per word, in order. Empty when it only names a kind of place. */
 export function placeKeys(text: string): string[] {
@@ -232,31 +256,80 @@ export function nameKey(text: string): string {
   return placeKeys(text).join(' ');
 }
 
-/** A place's name as every key it is stored under: `nameKey`, and the same with ჟ as "j" where it has one. */
+/**
+ * Initials or a short title before a name, as ss.ge writes them: "ი.", "ალ. ",
+ * "ზ.", "გრ.", "ძმ." (brothers), "წმ." (saint). A kind word in that place
+ * ("სოფ. გლდანი") is left out of the key anyway.
+ */
+const LEADING_INITIALS = /^\s*(?:\p{L}{1,3}\.\s*)+/u;
+
+/**
+ * A place's name as every key it is stored under: `nameKey`; the same with ჟ
+ * as "j" where it has one; and the same without its leading initials, so
+ * "ი.ჭავჭავაძის გამზ." is found by "Chavchavadze" (version 3).
+ */
 export function nameKeys(text: string): string[] {
-  const keys = new Set([nameKey(text)]);
-  if (text.includes('ჟ')) keys.add(nameKey(text.replaceAll('ჟ', 'j')));
+  const forms = [text];
+  const bare = text.replace(LEADING_INITIALS, '');
+  if (bare !== text) forms.push(bare);
+  const keys = new Set<string>();
+  for (const form of forms) {
+    keys.add(nameKey(form));
+    if (form.includes('ჟ')) keys.add(nameKey(form.replaceAll('ჟ', 'j')));
+  }
   keys.delete('');
   return [...keys];
 }
 
-/**
- * The order a lookup lists matches of one kind in, as groups. ss.ge's areas
- * come first, since a bare name means what people mean by it ("Vake": the
- * neighbourhood); then the official map; then its stations; then streets.
- * Within a group the busiest comes first: production has a village called
- * ვაკე with one listing (city 572, 2026-11-08), and the neighbourhood with
- * 21,367 must still come before it.
- */
-export const LOOKUP_LEVEL_GROUPS = [
-  ['city', 'district', 'subdistrict', 'neighbourhood', 'municipality'],
-  ['official_district'],
-  ['metro_station'],
-  ['street'],
-] as const;
+/** The kind of place a person's words ask for. */
+export type AskedKind = 'street' | 'village';
 
-/** Every level a lookup returns, in group order. */
-export const LOOKUP_LEVEL_ORDER: readonly string[] = LOOKUP_LEVEL_GROUPS.flat();
+/**
+ * What kind of place the words ask for: `street` when a street's kind word
+ * follows a name ("Chavchavadze Avenue", "ჭავჭავაძის გამზ."; not "ქ. ბათუმი",
+ * where ქ. is the city, nor "St. Nicholas"), `village` when a village's or a
+ * settlement's word is there ("Gldani village", "სოფ. გლდანი"), else null.
+ */
+export function askedKind(text: string): AskedKind | null {
+  const keys = keysOf(text);
+  const afterName = (at: number) => keys.slice(0, at).some((key) => !KIND_KEYS.has(key));
+  if (keys.some((key, at) => STREET_KIND_KEYS.has(key) && afterName(at))) return 'street';
+  if (keys.some((key) => VILLAGE_KIND_KEYS.has(key))) return 'village';
+  return null;
+}
+
+/**
+ * A key's forms with its first word cut to an initial, which only an exact
+ * name matches: "ili cavcavaz" (Ilia Chavchavadze) is also "i cavcavaz",
+ * ss.ge's "ი.ჭავჭავაძის", and "aleksandr cavcavaz" is also "al cavcavaz".
+ * Only a first word of three letters or more, followed by another word.
+ */
+export function initialForms(key: string): string[] {
+  const [first, ...rest] = key.split(' ');
+  if (first === undefined || rest.length === 0 || !/^\p{L}{3,}$/u.test(first)) return [];
+  return [first.slice(0, 1), first.slice(0, 2)].map((initial) => [initial, ...rest].join(' '));
+}
+
+/** One name a lookup asks for: its key, and the kind of place its words ask for. */
+export interface PlaceTerm {
+  key: string;
+  kind: AskedKind | null;
+}
+
+/** Every level a lookup returns, in the order that breaks a tie of tier and listings. */
+export const LOOKUP_LEVEL_ORDER: readonly string[] = [
+  'city',
+  'district',
+  'subdistrict',
+  'neighbourhood',
+  'municipality',
+  'official_district',
+  'metro_station',
+  'street',
+];
+
+/** ss.ge's names of a village or settlement, as a Postgres pattern on `name_ka`. */
+const VILLAGE_NAME_PATTERN = `(^|[^ა-ჰ])(${VILLAGE_KIND_WORDS.filter((word) => GEORGIAN.test(word)).join('|')})([^ა-ჰ]|$)`;
 
 /** At most this many matches per name; the default is 50. */
 const LOOKUP_LIMIT_MAX = 500;
@@ -283,43 +356,103 @@ export function romanizedName(text: string): string {
   );
 }
 
-/** The SQL behind both lookups: for each key in `$1` (a JSON array), its places, at most `$2` each. */
+/**
+ * The SQL behind both lookups: for each name in `$1` (a JSON array of
+ * `{key, kind, alts}`), its places, at most `$2` each.
+ *
+ * The order (`rank`): exact before partial, then by `tier`, then the busiest:
+ * 1. what the words ask for (`askedKind`): streets after a street's word,
+ *    places named as a village or settlement after one of those words;
+ * 2. Tbilisi's ss.ge areas (the city, its districts, sub-districts and the
+ *    owner's neighbourhoods), but not one named as a village or settlement:
+ *    a bare name means what people in Tbilisi mean by it ("Vake": the
+ *    sub-district);
+ * 3. the official map ("Krtsanisi": the district, before the village);
+ * 4. its stations;
+ * 5. everything else, the busiest first: other towns and villages, their
+ *    areas, municipalities, places named as a village or settlement ("სოფ.
+ *    გლდანი" after Gldani District), and streets. So a bare "ჭავჭავაძის" is
+ *    the avenue with 4,437 listings before Kutaisi's settlement with 174
+ *    (2026-11-12).
+ */
 function lookupSql(): string {
   const levels = LOOKUP_LEVEL_ORDER.map((level) => `'${level}'`).join(', ');
-  const group = `case ${LOOKUP_LEVEL_GROUPS.map(
-    (members, i) =>
-      `when p.level in (${members.map((level) => `'${level}'`).join(', ')}) then ${i + 1}`,
-  ).join(' ')} end`;
-  return `with q as (select distinct key from jsonb_array_elements_text($1::jsonb) as k(key)),
-matched as (
-  select q.key, p.*,
-         case when q.key = any(p.match_keys) then 'exact' else 'partial' end as match,
-         row_number() over (
-           partition by q.key
-           order by (q.key = any(p.match_keys)) desc, ${group}, p.active_listings desc,
-                    array_position(array[${levels}], p.level), p.ref
-         ) as rank
+  return `with q as (
+  select distinct t.key, t.kind, coalesce(t.alts, '{}') as alts
+    from jsonb_to_recordset($1::jsonb) as t(key text, kind text, alts text[])
+),
+hits as (
+  select q.key, q.kind, p.*,
+         (q.key = any(p.match_keys) or p.match_keys && q.alts) as exact,
+         (p.level <> 'street' and p.name_ka ~ '${VILLAGE_NAME_PATTERN}') as village_named
     from q
     join realestate.public_places p
       on p.match_keys @> array[q.key]
+      or p.match_keys && q.alts
       or exists (select 1 from unnest(p.match_keys) as m(key)
                   where (' ' || m.key || ' ') like ('% ' || q.key || ' %'))
+),
+placed as (
+  select h.*, parent.name_ka as parent_name_ka, parent.name_en as parent_name_en,
+         parent.name_roman as parent_name_roman,
+         city.ref as city_ref, city.name_ka as city_name_ka, city.name_en as city_name_en,
+         city.name_roman as city_name_roman
+    from hits h
+    left join realestate.public_places parent
+      on parent.source_id = h.source_id and parent.level = h.parent_level and parent.ref = h.parent_ref
+    left join realestate.public_places up2
+      on up2.source_id = parent.source_id and up2.level = parent.parent_level and up2.ref = parent.parent_ref
+    left join realestate.public_places up3
+      on up3.source_id = up2.source_id and up3.level = up2.parent_level and up3.ref = up2.parent_ref
+    left join lateral (
+      -- The nearest city up the chain: a street, a neighbourhood or a station is
+      -- at most three levels below one. A recursive walk cost 400 ms a lookup.
+      select c.ref, c.name_ka, c.name_en, c.name_roman
+        from (values (0, h.level, h.ref, h.name_ka, h.name_en, h.name_roman),
+                     (1, parent.level, parent.ref, parent.name_ka, parent.name_en, parent.name_roman),
+                     (2, up2.level, up2.ref, up2.name_ka, up2.name_en, up2.name_roman),
+                     (3, up3.level, up3.ref, up3.name_ka, up3.name_en, up3.name_roman))
+             as c(depth, level, ref, name_ka, name_en, name_roman)
+       where c.level = 'city'
+       order by c.depth
+       limit 1
+    ) city on true
+),
+tiered as (
+  select pl.*,
+         case
+           when pl.kind = 'street' and pl.level = 'street' then 1
+           when pl.kind = 'village' and pl.village_named then 1
+           when pl.level in ('city', 'district', 'subdistrict', 'neighbourhood')
+                and pl.city_name_ka = 'თბილისი' and not pl.village_named then 2
+           when pl.level = 'official_district' then 3
+           when pl.level = 'metro_station' then 4
+           else 5
+         end as tier
+    from placed pl
+),
+ranked as (
+  select t.*,
+         row_number() over (
+           partition by t.key, t.kind
+           order by t.exact desc, t.tier, t.active_listings desc,
+                    array_position(array[${levels}], t.level), t.ref
+         ) as rank
+    from tiered t
 )
-select m.key, m.rank, m.match, m.source_id, m.level, m.ref, m.origin, m.code,
+select m.key, m.rank, case when m.exact then 'exact' else 'partial' end as match,
+       m.source_id, m.level, m.ref, m.origin, m.code,
        m.name_ka, m.name_en, m.name_roman,
-       m.parent_level, m.parent_ref, parent.name_ka as parent_name_ka,
-       parent.name_en as parent_name_en, parent.name_roman as parent_name_roman,
+       m.parent_level, m.parent_ref, m.parent_name_ka, m.parent_name_en, m.parent_name_roman,
        m.latitude, m.longitude, m.point_status,
        m.official_district_ref, official.name_ka as official_name_ka,
        official.name_en as official_name_en, m.official_basis, m.official_shares,
        top.code as official_top_code, top.name_ka as official_top_name_ka,
        top.name_en as official_top_name_en, top.listings as official_top_listings,
        m.active_listings,
-       city.ref as city_ref, city.name_ka as city_name_ka, city.name_en as city_name_en,
-       city.name_roman as city_name_roman
-  from matched m
-  left join realestate.public_places parent
-    on parent.source_id = m.source_id and parent.level = m.parent_level and parent.ref = m.parent_ref
+       m.city_ref, m.city_name_ka, m.city_name_en, m.city_name_roman,
+       m.kind, m.tier
+  from ranked m
   left join realestate.public_places official
     on official.source_id = m.source_id and official.level = 'official_district'
    and official.ref = m.official_district_ref
@@ -331,46 +464,33 @@ select m.key, m.rank, m.match, m.source_id, m.level, m.ref, m.origin, m.code,
      order by s.listings::integer desc, o.code
      limit 1
   ) top on true
-  left join realestate.public_places up2
-    on up2.source_id = parent.source_id and up2.level = parent.parent_level and up2.ref = parent.parent_ref
-  left join realestate.public_places up3
-    on up3.source_id = up2.source_id and up3.level = up2.parent_level and up3.ref = up2.parent_ref
-  left join lateral (
-    -- The nearest city up the chain: a street, a neighbourhood or a station is
-    -- at most three levels below one. A recursive walk cost 400 ms a lookup.
-    select c.ref, c.name_ka, c.name_en, c.name_roman
-      from (values (0, m.level, m.ref, m.name_ka, m.name_en, m.name_roman),
-                   (1, parent.level, parent.ref, parent.name_ka, parent.name_en, parent.name_roman),
-                   (2, up2.level, up2.ref, up2.name_ka, up2.name_en, up2.name_roman),
-                   (3, up3.level, up3.ref, up3.name_ka, up3.name_en, up3.name_roman))
-           as c(depth, level, ref, name_ka, name_en, name_roman)
-     where c.level = 'city'
-     order by c.depth
-     limit 1
-  ) city on true
  where m.rank <= $2
- order by m.key, m.rank`;
+ order by m.key, m.kind nulls first, m.rank`;
 }
 
 function built(
-  keys: readonly string[],
+  terms: readonly PlaceTerm[],
   options: { placeholders?: Placeholders; limit?: number },
 ): BuiltSql {
   const asked = Number.isFinite(options.limit)
     ? Math.trunc(options.limit as number)
     : LOOKUP_LIMIT_DEFAULT;
   const limit = Math.min(Math.max(asked, 1), LOOKUP_LIMIT_MAX);
-  const numbered: BuiltSql = { sql: lookupSql(), params: [JSON.stringify(keys), limit] };
+  const names = terms.map((term) => ({ ...term, alts: initialForms(term.key) }));
+  const numbered: BuiltSql = { sql: lookupSql(), params: [JSON.stringify(names), limit] };
   return options.placeholders === 'psycopg' ? toPsycopg(numbered) : numbered;
 }
+
+/** One term per name a text asks for, by key and kind. */
+const termId = (key: string, kind: unknown): string => `${key}\t${kind ?? ''}`;
 
 /**
  * The places one name names, on both maps, over `realestate.public_places`
  * (C6). A place matches `exact` when one of its names has the same key, and
  * `partial` when the words come in order inside one ("dighomi" in "Didi
- * Dighomi"). Rows come by `rank`: exact first, then by `LOOKUP_LEVEL_GROUPS`
- * (ss.ge's areas, the official map, stations, streets), the busiest first in
- * each. Each row carries its parent's names, for a street or
+ * Dighomi"); a first name matching an initial is exact. Rows come by `rank`:
+ * exact first, then by `tier` (`lookupSql`), the busiest first in each. Each
+ * row carries its parent's names, for a street or
  * station its official district's, and for an ss.ge area the official
  * district holding most of its located listings, so a reply can say how the
  * other map sees it. Each row also carries the city it is in (null for a
@@ -384,10 +504,11 @@ function built(
 export function placeLookupSql(
   text: string,
   options: { placeholders?: Placeholders; limit?: number } = {},
-): (BuiltSql & { key: string }) | null {
+): (BuiltSql & PlaceTerm) | null {
   const key = nameKey(text);
   if (key === '') return null;
-  return { ...built([key], options), key };
+  const kind = askedKind(text);
+  return { ...built([{ key, kind }], options), key, kind };
 }
 
 /** The most words one place name is taken to have. */
@@ -399,8 +520,8 @@ const MAX_PART_WORDS = 12;
 /** A text as people write several places: parts split on "/", "," or ";", each a run of words split on spaces. */
 export interface PlaceText {
   parts: { text: string; words: string[] }[];
-  /** The key of each run of up to `MAX_NAME_WORDS` words, by "part:start:end". */
-  runs: ReadonlyMap<string, string>;
+  /** The key and asked kind of each run of up to `MAX_NAME_WORDS` words, by "part:start:end". */
+  runs: ReadonlyMap<string, PlaceTerm>;
 }
 
 export function splitPlaceText(text: string): PlaceText {
@@ -411,12 +532,13 @@ export function splitPlaceText(text: string): PlaceText {
     .filter((part) => part !== '')
     .slice(0, MAX_PARTS)
     .map((part) => ({ text: part, words: part.split(/\s+/u).slice(0, MAX_PART_WORDS) }));
-  const runs = new Map<string, string>();
+  const runs = new Map<string, PlaceTerm>();
   parts.forEach((part, at) => {
     for (let start = 0; start < part.words.length; start++) {
       for (let end = start + 1; end <= Math.min(part.words.length, start + MAX_NAME_WORDS); end++) {
-        const key = nameKey(part.words.slice(start, end).join(' '));
-        if (key !== '') runs.set(`${at}:${start}:${end}`, key);
+        const words = part.words.slice(start, end).join(' ');
+        const key = nameKey(words);
+        if (key !== '') runs.set(`${at}:${start}:${end}`, { key, kind: askedKind(words) });
       }
     }
   });
@@ -433,14 +555,17 @@ export function placeTextLookupSql(
   options: { placeholders?: Placeholders; limit?: number } = {},
 ): (BuiltSql & { text: PlaceText }) | null {
   const split = splitPlaceText(text);
-  const keys = [...new Set(split.runs.values())];
-  if (keys.length === 0) return null;
-  return { ...built(keys, options), text: split };
+  const terms = new Map<string, PlaceTerm>();
+  for (const term of split.runs.values()) terms.set(termId(term.key, term.kind), term);
+  if (terms.size === 0) return null;
+  return { ...built([...terms.values()], options), text: split };
 }
 
 /** A row of either lookup's answer, as the database returns it. */
 export interface PlaceLookupRow {
   key: string;
+  /** The kind of place the words asked for (version 3). */
+  kind?: AskedKind | null;
   rank: number | string;
   match: 'exact' | 'partial';
   level: string;
@@ -452,6 +577,8 @@ export interface PlaceTextSegment {
   /** The words as typed. */
   text: string;
   key: string;
+  /** The kind of place the words ask for (`askedKind`). */
+  kind: AskedKind | null;
   /** `partial` only for a single word no place has as a whole name; null when nothing matched. */
   match: 'exact' | 'partial' | null;
   places: PlaceLookupRow[];
@@ -475,15 +602,17 @@ export function resolvePlaceText(
   text: PlaceText,
   rows: readonly PlaceLookupRow[],
 ): { parts: { text: string; segments: PlaceTextSegment[] }[] } {
-  const byKey = new Map<string, PlaceLookupRow[]>();
+  const byTerm = new Map<string, PlaceLookupRow[]>();
   for (const row of [...rows].sort((a, b) => Number(a.rank) - Number(b.rank))) {
-    const list = byKey.get(row.key);
-    if (list === undefined) byKey.set(row.key, [row]);
+    const id = termId(row.key, row.kind);
+    const list = byTerm.get(id);
+    if (list === undefined) byTerm.set(id, [row]);
     else list.push(row);
   }
-  const exact = (key: string) => (byKey.get(key) ?? []).filter((row) => row.match === 'exact');
-  const namesAPlace = (key: string | undefined) =>
-    key !== undefined && exact(key).some((row) => AREA_LEVELS.has(row.level));
+  const all = (term: PlaceTerm) => byTerm.get(termId(term.key, term.kind)) ?? [];
+  const exact = (term: PlaceTerm) => all(term).filter((row) => row.match === 'exact');
+  const namesAPlace = (term: PlaceTerm | undefined) =>
+    term !== undefined && exact(term).some((row) => AREA_LEVELS.has(row.level));
 
   return {
     parts: text.parts.map((part, at) => {
@@ -493,19 +622,20 @@ export function resolvePlaceText(
       while (start < part.words.length) {
         let end = Math.min(part.words.length, start + MAX_NAME_WORDS);
         for (; end > start + 1; end--) {
-          const key = run(start, end);
-          if (key === undefined || exact(key).length === 0) continue;
+          const term = run(start, end);
+          if (term === undefined || exact(term).length === 0) continue;
           const words = Array.from({ length: end - start }, (_, i) => start + i);
           if (words.every((word) => namesAPlace(run(word, word + 1)))) continue;
           break;
         }
-        const key = run(start, end);
-        if (key !== undefined) {
-          const hits = exact(key);
-          const places = hits.length > 0 ? hits : (byKey.get(key) ?? []);
+        const term = run(start, end);
+        if (term !== undefined) {
+          const hits = exact(term);
+          const places = hits.length > 0 ? hits : all(term);
           segments.push({
             text: part.words.slice(start, end).join(' '),
-            key,
+            key: term.key,
+            kind: term.kind,
             match: hits.length > 0 ? 'exact' : places.length > 0 ? 'partial' : null,
             places,
           });
