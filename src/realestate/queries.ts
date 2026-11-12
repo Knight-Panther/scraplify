@@ -153,10 +153,16 @@ export async function countRealEstate(
 ): Promise<number> {
   // Grouped, it counts the rows the page would show: one per group.
   if (ceiling === null) {
-    const [row] = await db
-      .select({ total: sql<number>`count(*)::int` })
-      .from(listings)
-      .where(shownRows(filters, now));
+    // Without choosing each group's leader, which ranks every match and
+    // took most of the time: a group's leader is its first match
+    // (`groupLeaderIds`), so the page shows one row for each group with a
+    // match, beside every ungrouped match. The same number, in half the
+    // time or less (on the host, 2026-11-12: ბინა 2.9 s → 1.4 s, the
+    // unfiltered tab 1.3 s → 0.6 s).
+    const total = isGrouped(filters)
+      ? sql<number>`(count(*) filter (where ${listings.groupKey} is null) + count(distinct ${listings.groupKey}))::int`
+      : sql<number>`count(*)::int`;
+    const [row] = await db.select({ total }).from(listings).where(conditions(filters, now));
     return row?.total ?? 0;
   }
   const capped = db
@@ -170,11 +176,11 @@ export async function countRealEstate(
 }
 
 /**
- * How long the tab's exact count may take before it settles for "10,000+".
- * Measured on the host as `scraplify_public` (2026-11-12): every filter tried
- * took 0.1–1.2 s, against 0.4–1.4 s for the capped count (the look-alike fold
- * costs the same either way), but a search for a word most listings carry
- * (ბინა, 78,880 groups) took 4.1 s.
+ * How long the tab's exact count may take before it settles for "10,000+":
+ * a safety net. Measured on the host as `scraplify_public` (2026-11-12),
+ * counting groups directly: 0.3–0.8 s for every filter tried, and 1.4 s for a
+ * search on a word most listings carry (ბინა, 78,773 groups), as long as the
+ * old capped count took to say "10,000+".
  */
 export const EXACT_COUNT_TIMEOUT_MS = 3_000;
 
