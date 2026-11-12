@@ -4,12 +4,12 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 
 | Contract | What | State |
 |---|---|---|
-| C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`) |
+| C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`); v2 (Phase 14D: places on both maps, the metro, location quality) built on branch `phase-14d-c1-v2`, for Hermes's review before it merges |
 | C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`); Phase 14A appends ten columns (`0049`) |
 | C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy, 4 from 2026-11-10, 5 from 2026-11-12 (the list-end read, live 2026-11-11 13:51 UTC) |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
 | C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`, below) |
-| C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | v1, built on branch `phase-14b-official-map` (migration `0050`), not yet merged (Phase 14B) |
+| C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | live since 2026-11-08 (`f81599a`, migration `0050`, Phase 14B); lookup v2 and `official_source` live since 2026-11-10 (`743c034`, migration `0051`, Phase 14C) |
 
 ## C1: the real-estate filter builder (v1)
 
@@ -57,7 +57,7 @@ Values:
   - `places: [{ "level": "subdistrict", "ref": 1 }, { "level": "district", "ref": 7 }]` means any of these. The levels are `city`, `district` and `subdistrict`.
   - The refs are the view's `city_ref`, `district_ref` and `subdistrict_ref`, with the Georgian names beside them.
   - Street names go in `text`, which searches the words of the street, city, sub-district and description.
-  - From Phase 14A's deploy, a district also matches the listings whose district was filled from their sub-district (`district_inferred`, C5), about 1,200 of ss.ge's oldest. Streets, official districts and metro come as filters in C1 v2 (Phase 14D).
+  - From Phase 14A's deploy, a district also matches the listings whose district was filled from their sub-district (`district_inferred`, C5), about 1,200 of ss.ge's oldest. Streets, municipalities, official districts, stations and the metro are filters from C1 v2 (below).
 - **Not in v1: municipality.** ss.ge gives it only on a listing's own page, and only 123 of 293,355 live listings had it on 2026-11-06. Name a municipality's towns and villages through `places` instead.
 - **What it replaces in Hermes's current query:**
   - its own live rule (`expected_end_at > now()`);
@@ -77,6 +77,87 @@ Values:
 - **Cases:** `src/realestate/filter-cases.json` holds fixture listings and 19 cases, each with the listings it must return (some in order) and its coverage counts. scraplify's `src/realestate/filter-builder.test.ts` runs every case two ways, through the SQL handed on and through the tab's own query, and both must match the file.
 - **Hermes's side:** its suite has no database. It can check that every case compiles with `psycopg` placeholders and that the file's version is the one it was written for. Its live test can `EXPLAIN` each case, read-only, on the host.
 - **Checked on 2026-11-06:** every case returned its listings, in order where asked, through psycopg 3.3.6 on the fixture.
+
+## C1 v2: places on both maps, the metro and location quality (Phase 14D)
+
+`FILTER_BUILDER_VERSION` 2. Every v1 input is taken as before and means what it meant. Version 2 adds filters on C5's Phase 14C columns and C6's places, and three output fields. It reads C6 (`realestate.public_places`) inside the SQL, which `scraplify_public` already may. No migration comes with it.
+
+### The rule for every location filter
+
+**Unknown never matches, and is counted.** A listing whose location does not say whether it is in an official district, or near a station, is left out of `where`. `locationCoverage` lists those that might be. So the bot says "at least 4,922, and 14,488 more whose location is not known well enough" rather than a figure that reads as complete. This is the rule the listing-page filters (12B) already follow, with their own `coverage`.
+
+### Input, added
+
+- **`places` takes every level of C6.** Pass a C6 row's `level` and `ref` as they are. `places` stays "any of these".
+
+  | Level | Matches | Unknown |
+  |---|---|---|
+  | `city`, `district`, `subdistrict` | as in v1 | — |
+  | `street` | `street_ref`, ss.ge's street id (one street in one sub-district) | — |
+  | `municipality` | `municipality_ref` (only on a read page), or a settlement C6 places under it (its `city` row's parent). On 2026-11-12 C6 knew the municipality of 139 of 1,261 settlements, learned from listing pages. A settlement not yet placed is not matched: name it as a `city`. | — |
+  | `official_district` | the listing's own `official_district_ref` (C5): by its trusted pin, its street's location or its sub-district | no official district, in an ss.ge sub-district whose `official_shares` count a located listing in it (in a district, for a listing with no sub-district) |
+  | `metro_station` | the station is in `metro_nearby`: within 20 minutes' walk, nearest or not | not located (`metro_basis` null), in a sub-district where a located listing is near it |
+  | `neighbourhood` | the ss.ge place its listings are under (C6's `parent_level`, `parent_ref`): Zgvisubani is all of Tbilisi Sea. It comes back in `widenedPlaces`, so the bot can say so. | — |
+
+  A listing another place in the list holds is a match, never unknown.
+- **`metro`: `{ "maxMinutes": 10, "stations": ["rustaveli"] }`**, by our checked metro (C5), never ss.ge's claim.
+  - `maxMinutes` is one of ss.ge's bands, 5, 10, 15 or 20, and 20 when absent. Any other number is refused: round the person's "12 minutes" yourself.
+  - `stations` are ss.ge's codes (C6's `metro_station` `code`, the values of C5's `metro_station`). Absent or empty means any station.
+  - No stations: the nearest station is within `maxMinutes`.
+  - Stations, with `maxMinutes` 20: any of them is in `metro_nearby`.
+  - Stations, under 20: the nearest station is one of them, within the band. Only the nearest station's band is public (C5, "Coarse on purpose"). So a listing near one of them that is not its nearest is unknown when its nearest is within the band, and known not to be when its nearest is beyond it, since the other station is no closer.
+  - Unknown also: not located, in a sub-district where a located listing matches.
+  - Located and further than 20 minutes from every station is known: no.
+- **`minPrecision`**: one of `none`, `municipality`, `city`, `district`, `subdistrict`, `street`, `house`, `pin` (C5's `location_precision`); that or more exact.
+- **`excludeUncertain: true`**: leaves out listings with `location_uncertain`.
+- **Refused**, like every bad input: a level that is not one, a band that is not one, a station by its name ("Rustaveli") instead of its code, an unknown key inside `metro`, a precision that is not one.
+
+### Output, added
+
+| Field | What |
+|---|---|
+| `locationCoverage` | `{ sql, params }` with a filter on an `official_district`, a `metro_station` or `metro`; otherwise `null`. The listings matching every other filter that the location filters might hold though their location does not say: each location filter matches or cannot be told, and not all are known to match. Never folded into look-alike groups, like `coverage`. |
+| `widenedPlaces` | The input's places matched as the ss.ge place holding them: its neighbourhoods. Empty otherwise. |
+| `placeColumn` | A select-list entry with no parameters: one jsonb column, `place`, the listing's place on both maps with names (below). |
+
+### Using it
+
+- **The unknown count:** `select count(*) from realestate.public_listings where <locationCoverage>`. Word it as "at least N", then "M more whose location is not known well enough to say".
+- **Both maps on a row:** `select id, …, <placeColumn> from realestate.public_listings where <where> order by <orderBy> limit %s`. Every key is present, `null` when unknown:
+
+  ```json
+  {
+    "city": {"ref": 95, "ka": "თბილისი", "en": "Tbilisi", "roman": "Tbilisi"},
+    "district": {"ref": 5, "ka": "ძველი თბილისი", "en": "Old Tbilisi", "roman": "Dzveli Tbilisi"},
+    "subdistrict": {"ref": 21, "ka": "ავლაბარი", "en": "Avlabari", "roman": "Avlabari"},
+    "street": {"ref": 851, "ka": "თელავის ქ.", "en": null, "roman": "Telavis K."},
+    "official": {"ref": 13438808, "code": "isani", "ka": "ისნის რაიონი", "en": "Isani District", "basis": "street"},
+    "area_official": {"level": "subdistrict", "ref": 21, "code": "isani", "ka": "ისნის რაიონი", "en": "Isani District", "listings": 2450, "located": 2502},
+    "metro": {"code": "samasi_aragveli", "ka": "300 არაგველი", "en": "300 Aragveli", "minutes": 10, "basis": "street"}
+  }
+  ```
+
+  A row from production, 2026-11-12. `city`, `district`, `subdistrict` and `street` are ss.ge's map. `official` is the listing's own official district (C5), and `area_official` how the official map sees its ss.ge area: the official district holding most of the area's located listings (C6's `official_shares`), with `listings` of `located`. `metro` is the nearest station by our checked metro. Show `en`, else `roman`. That gives "Avlabari: listed under Old Tbilisi on ss.ge; officially Isani" with no mapping of your own.
+  Each part is a lookup by key, worked out for the rows a page returns: a page of 20 took 0.09 s on the host. It is for pages, not statistics.
+- **What a basis means**, so a reply never claims more than the data:
+  - `official.basis` `pin`: the poster's own pin, checked against its street (C5, "A trusted pin"); `street`: the street's location, so approximate along the street, and an avenue can cross a border; `area`: the sub-district lies 95% or more in one official district.
+  - `metro.basis` `pin`, `building` or `street`, in the same order of exactness. From a street, the minutes are the street's, give or take its length.
+  - `location_precision` `street` is a located street, `house` a located street and a house number, `pin` a trusted pin.
+  - `location_uncertain`: the pin, or ss.ge's metro from it, contradicts the rest. Such a listing is still placed by its street.
+- **Cost on the host, 2026-11-12** (`scraplify_public`, 286,000 listings on show):
+  - flats for rent in Isani District: 0.48 s, its `locationCoverage` 0.28 s;
+  - flats for sale in Vake District, grouped and typos out: 1.2 s, its `locationCoverage` 0.5 s;
+  - rents within 10 minutes of Rustaveli: 0.29 s, its `locationCoverage` 1.0 s;
+  - a neighbourhood, a municipality, or any metro within 5 minutes at house precision: 0.25 to 0.4 s.
+
+### Fallback and version
+
+- **A v1 reader** sends what it sent and gets what it got. It sees `version` 2 and three output fields it can ignore.
+- **A v2 reader** checks `version >= 2` at run time. On a clone still at 1 (the laptop's clone updates with Hermes's `deploy.sh`), a new filter is refused as an unknown key, never ignored. Fall back to v1's places and say what was left out.
+
+### Cases
+
+`src/realestate/filter-cases.json` is version 2, with 33 cases, 14 of them new. Its `places` holds the catalogue rows the new cases need, inserted beside the fixture listings. A case's `unknown` lists the listings `locationCoverage` must return, and a case without it expects `null`. `placeColumn` holds the `place` one listing must get. The new cases include the plan's "both maps on their own": an Avlabari listing matches ss.ge's district Old Tbilisi and official Isani, each separately. Twelve faults planted in the rules (an unknown listing counted as known, a station's band ignored, precision off by one, and so on) each turned a case red.
 
 ## C3: daily real-estate totals (v1, migration `0047`)
 
