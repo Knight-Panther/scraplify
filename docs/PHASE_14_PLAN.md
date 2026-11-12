@@ -37,7 +37,7 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 - **14C's threshold recheck** waits on a week of 14A data, about 2026-11-14. A changed threshold re-judges every listing overnight with no churn, because the raw evidence is kept and nothing derived is hashed.
 - **14D's build** waits on 14C's columns, which its filters read, and on Hermes's answer about what C6 lacks for 14D.
 - **14D's merge** waits on Hermes reviewing C1 v2's exact shape, as it reviewed C6.
-- **C6 lookup v3** waits on CI and its merge, and rides 14D's deploy (`main`'s head); its stored keys change at the next catalogue refresh (`places:ss-ge` by hand after the deploy).
+- **C6 lookup v3** is merged (`6e45313`, PR #103, 2026-11-12) and rides 14D's deploy (`main`'s head). The deploy's own `places-ss-ge` pass rebuilds the stored keys.
 - **`places:official-report`** waited on street points covering the busy streets; built 2026-11-12 (PR #96). Its findings go to 14C's recheck.
 - **C3's official-district level** waits on a stable month of 14C.
 - **13E, the building fingerprint** (outside this plan) waits on 14C's `building_key`.
@@ -246,7 +246,7 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
   - (c) **C1 v2 takes a C6 row's (level, ref) as it is,** at every level: official_district (OSM ref), metro_station (1–22) and neighbourhood. A neighbourhood applies its parent, and the coverage says so.
   - (d) **Unknown counts.** An official-district or metro filter also returns how many listings in the matching ss.ge areas have no known official district or no metro, so the bot says "at least N, M unknown". This is `locationCoverage`, made specific.
   - (e) **"Vaja Pshavela",** a common English spelling, keys to `vaj psavel` and misses the avenue (`vaz psavel`). Folding j into z would merge ჯ with ჟ, so it needs a Latin spelling variant or an alias. ვაჟა appears in 14 street names.
-- ⏳ **C6 place lookup v3** (Changed 2026-11-12: added to 14D, from Hermes running its 33 old area cases against live C6). Built on branch `phase-14d-c6-lookup-v3` the same day; waits on CI and the merge, then rides 14D's deploy, then `places:ss-ge` by hand so stored keys gain the initial-less form, then one line to Hermes:
+- ⏳ **C6 place lookup v3** (Changed 2026-11-12: added to 14D, from Hermes running its 33 old area cases against live C6). Merged the same day as `6e45313` (PR #103, CI green). It rides 14D's deploy, whose own `places-ss-ge` pass gives the stored keys their initial-less form; then a lookup check and one line to Hermes:
   - ✅ **initials:** a name starting with initials ("ი.ჭავჭავაძის გამზ.", street 19, about 6,000 listings) is also keyed without them, and a full first name finds an initial exactly ("Ilia Chavchavadze");
   - ✅ **order by tier:** what the words ask for (a street's word, a village's word), Tbilisi's areas not named as villages, the official map, stations, then everything else busiest first. "Krtsanisi" gives the district first, as C6's doc said. Changed: streets no longer come strictly after other towns' areas, so a bare "ჭავჭავაძის" is the avenue (4,437 listings) and not Kutaisi's Chavchavadze settlement (174);
   - ✅ rows carry `kind` and `tier`, so Hermes takes the top row's level and tier and drops its own village rule;
