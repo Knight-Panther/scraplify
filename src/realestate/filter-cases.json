@@ -288,6 +288,39 @@
       "subdistrictName": "ავლაბარი",
       "locationPrecision": "subdistrict"
     },
+    "avl-unlocated-2": {
+      "dealType": "daily",
+      "priceUsd": 60,
+      "priceGel": 162,
+      "pricePerM2Usd": 1,
+      "districtRef": 990005,
+      "districtName": "ძველი თბილისი",
+      "subdistrictRef": 990021,
+      "subdistrictName": "ავლაბარი",
+      "locationPrecision": "subdistrict"
+    },
+    "avl-unlocated-3": {
+      "dealType": "daily",
+      "priceUsd": 60,
+      "priceGel": 162,
+      "pricePerM2Usd": 1,
+      "districtRef": 990005,
+      "districtName": "ძველი თბილისი",
+      "subdistrictRef": 990021,
+      "subdistrictName": "ავლაბარი",
+      "locationPrecision": "subdistrict"
+    },
+    "avl-unlocated-4": {
+      "dealType": "daily",
+      "priceUsd": 60,
+      "priceGel": 162,
+      "pricePerM2Usd": 1,
+      "districtRef": 990005,
+      "districtName": "ძველი თბილისი",
+      "subdistrictRef": 990021,
+      "subdistrictName": "ავლაბარი",
+      "locationPrecision": "subdistrict"
+    },
     "avl-krtsanisi": {
       "dealType": "daily",
       "priceUsd": 60,
@@ -395,6 +428,9 @@
         "avl-pin",
         "avl-uncertain",
         "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
         "avl-krtsanisi",
         "ort-krtsanisi",
         "ort-unlocated",
@@ -489,6 +525,9 @@
         "avl-pin",
         "avl-uncertain",
         "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
         "avl-krtsanisi",
         "ort-krtsanisi",
         "ort-unlocated",
@@ -511,7 +550,7 @@
       },
       "expected": ["detail-renovated"],
       "coverage": {
-        "total": 20,
+        "total": 23,
         "read": 2
       }
     },
@@ -522,7 +561,7 @@
       },
       "expected": ["detail-renovated"],
       "coverage": {
-        "total": 20,
+        "total": 23,
         "read": 2
       }
     },
@@ -556,6 +595,9 @@
         "avl-pin",
         "avl-uncertain",
         "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
         "avl-krtsanisi",
         "ort-krtsanisi",
         "ort-unlocated",
@@ -582,6 +624,9 @@
         "avl-pin",
         "avl-uncertain",
         "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
         "avl-krtsanisi",
         "ort-krtsanisi",
         "ort-unlocated",
@@ -608,6 +653,9 @@
         "avl-pin",
         "avl-uncertain",
         "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
         "avl-krtsanisi",
         "ort-krtsanisi",
         "ort-unlocated",
@@ -635,6 +683,9 @@
         "avl-pin",
         "avl-uncertain",
         "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
         "avl-krtsanisi",
         "ort-krtsanisi",
         "ort-unlocated",
@@ -674,8 +725,8 @@
         ]
       },
       "expected": ["avl-pin", "avl-uncertain"],
-      "unknown": ["avl-unlocated"],
-      "likely": 1
+      "unknown": ["avl-unlocated", "avl-unlocated-2", "avl-unlocated-3", "avl-unlocated-4"],
+      "likely": 3
     },
     {
       "name": "both maps on their own: Avlabari is ss.ge's Old Tbilisi, and officially Isani",
@@ -691,6 +742,9 @@
         "avl-pin",
         "avl-uncertain",
         "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
         "avl-krtsanisi",
         "ort-krtsanisi",
         "ort-unlocated"
@@ -707,8 +761,14 @@
         ]
       },
       "expected": ["avl-krtsanisi", "ort-krtsanisi"],
-      "unknown": ["avl-unlocated", "ort-unlocated"],
-      "likely": 1
+      "unknown": [
+        "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
+        "ort-unlocated"
+      ],
+      "likely": 2
     },
     {
       "name": "places on both maps, any of them; a listing another place holds is not unknown",
@@ -725,8 +785,8 @@
         ]
       },
       "expected": ["avl-pin", "avl-uncertain", "ort-krtsanisi", "ort-unlocated"],
-      "unknown": ["avl-unlocated"],
-      "likely": 1
+      "unknown": ["avl-unlocated", "avl-unlocated-2", "avl-unlocated-3", "avl-unlocated-4"],
+      "likely": 3
     },
     {
       "name": "a street by its id",
@@ -751,8 +811,8 @@
         ]
       },
       "expected": ["avl-pin", "avl-uncertain"],
-      "unknown": ["avl-unlocated"],
-      "likely": 1
+      "unknown": ["avl-unlocated", "avl-unlocated-2", "avl-unlocated-3", "avl-unlocated-4"],
+      "likely": 3
     },
     {
       "name": "metro: the nearest station within a band; checked and further is not unknown",
@@ -762,8 +822,8 @@
         }
       },
       "expected": ["avl-pin"],
-      "unknown": ["avl-unlocated"],
-      "likely": 0
+      "unknown": ["avl-unlocated", "avl-unlocated-2", "avl-unlocated-3", "avl-unlocated-4"],
+      "likely": 1
     },
     {
       "name": "metro: a named station within a band, by its own band, nearest or not",
@@ -774,8 +834,8 @@
         }
       },
       "expected": ["avl-pin", "avl-uncertain"],
-      "unknown": ["avl-unlocated"],
-      "likely": 1
+      "unknown": ["avl-unlocated", "avl-unlocated-2", "avl-unlocated-3", "avl-unlocated-4"],
+      "likely": 3
     },
     {
       "name": "metro: a named station further than the band is known not to be",
@@ -786,8 +846,8 @@
         }
       },
       "expected": ["avl-pin"],
-      "unknown": ["avl-unlocated"],
-      "likely": 0
+      "unknown": ["avl-unlocated", "avl-unlocated-2", "avl-unlocated-3", "avl-unlocated-4"],
+      "likely": 1
     },
     {
       "name": "metro: a named station that is not the nearest, within the band",
@@ -798,8 +858,8 @@
         }
       },
       "expected": ["avl-pin"],
-      "unknown": ["avl-unlocated"],
-      "likely": 0
+      "unknown": ["avl-unlocated", "avl-unlocated-2", "avl-unlocated-3", "avl-unlocated-4"],
+      "likely": 1
     },
     {
       "name": "an official district and the metro together: unknown where either might hold and neither fails",
@@ -815,8 +875,8 @@
         }
       },
       "expected": ["avl-pin"],
-      "unknown": ["avl-unlocated"],
-      "likely": 0
+      "unknown": ["avl-unlocated", "avl-unlocated-2", "avl-unlocated-3", "avl-unlocated-4"],
+      "likely": 1
     },
     {
       "name": "located at least by a house number",
@@ -836,7 +896,16 @@
         ],
         "excludeUncertain": true
       },
-      "expected": ["avl-pin", "avl-unlocated", "avl-krtsanisi", "ort-krtsanisi", "ort-unlocated"]
+      "expected": [
+        "avl-pin",
+        "avl-unlocated",
+        "avl-unlocated-2",
+        "avl-unlocated-3",
+        "avl-unlocated-4",
+        "avl-krtsanisi",
+        "ort-krtsanisi",
+        "ort-unlocated"
+      ]
     },
     {
       "name": "a neighbourhood: the ss.ge place its listings are under",
