@@ -8,7 +8,7 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 | C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`); Phase 14A appends ten columns (`0049`) |
 | C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy, 4 from 2026-11-10, 5 from 2026-11-12 (the list-end read, live 2026-11-11 13:51 UTC) |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
-| C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`, below) |
+| C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`), Phase 14C eleven (`0051`), Phase 14D one (`0053`, on branch `phase-14d-c1-v2`), all below |
 | C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | live since 2026-11-08 (`f81599a`, migration `0050`, Phase 14B); lookup v2 and `official_source` live since 2026-11-10 (`743c034`, migration `0051`, Phase 14C) |
 
 ## C1: the real-estate filter builder (v1)
@@ -80,7 +80,7 @@ Values:
 
 ## C1 v2: places on both maps, the metro and location quality (Phase 14D)
 
-`FILTER_BUILDER_VERSION` 2. Every v1 input is taken as before and means what it meant. Version 2 adds filters on C5's Phase 14C columns and C6's places, and three output fields. It reads C6 (`realestate.public_places`) inside the SQL, which `scraplify_public` already may. No migration comes with it.
+`FILTER_BUILDER_VERSION` 2. Every v1 input is taken as before and means what it meant. Version 2 adds filters on C5's Phase 14C columns and C6's places, and three output fields. It reads C6 (`realestate.public_places`) inside the SQL, which `scraplify_public` already may. It comes with one column, `metro_nearby_minutes` (C5, Phase 14D, migration `0053`), which a named station's band needs.
 
 ### The rule for every location filter
 
@@ -96,7 +96,7 @@ Values:
   | `street` | `street_ref`, ss.ge's street id (one street in one sub-district) | — |
   | `municipality` | `municipality_ref` (only on a read page), or a settlement C6 places under it (its `city` row's parent). On 2026-11-12 C6 knew the municipality of 139 of 1,261 settlements, learned from listing pages. A settlement not yet placed is not matched: name it as a `city`. | — |
   | `official_district` | the listing's own `official_district_ref` (C5): by its trusted pin, its street's location or its sub-district | no official district, in an ss.ge sub-district whose `official_shares` count a located listing in it (in a district, for a listing with no sub-district) |
-  | `metro_station` | the station is in `metro_nearby`: within 20 minutes' walk, nearest or not | not located (`metro_basis` null), in a sub-district where a located listing is near it |
+  | `metro_station` | the station is in `metro_nearby`: within 20 minutes' walk, nearest or not. For a closer band, use `metro` | not located (`metro_basis` null), in a sub-district where a located listing is near it |
   | `neighbourhood` | the ss.ge place its listings are under (C6's `parent_level`, `parent_ref`): Zgvisubani is all of Tbilisi Sea. It comes back in `widenedPlaces`, so the bot can say so. | — |
 
   A listing another place in the list holds is a match, never unknown.
@@ -105,8 +105,8 @@ Values:
   - `stations` are ss.ge's codes (C6's `metro_station` `code`, the values of C5's `metro_station`). Absent or empty means any station.
   - No stations: the nearest station is within `maxMinutes`.
   - Stations, with `maxMinutes` 20: any of them is in `metro_nearby`.
-  - Stations, under 20: the nearest station is one of them, within the band. Only the nearest station's band is public (C5, "Coarse on purpose"). So a listing near one of them that is not its nearest is unknown when its nearest is within the band, and known not to be when its nearest is beyond it, since the other station is no closer.
-  - Unknown also: not located, in a sub-district where a located listing matches.
+  - Stations, under 20: one of them is within the band by its own band (`metro_nearby_minutes`), nearest or not. Changed before the merge (owner, 2026-11-12): the first build read only the nearest station's band, which found 97% of the true matches at 5 minutes, 93% at 10 and 68% at 15 (measured on production's located listings).
+  - Unknown: not located, in a sub-district where a located listing matches.
   - Located and further than 20 minutes from every station is known: no.
 - **`minPrecision`**: one of `none`, `municipality`, `city`, `district`, `subdistrict`, `street`, `house`, `pin` (C5's `location_precision`); that or more exact.
 - **`excludeUncertain: true`**: leaves out listings with `location_uncertain`.
@@ -147,17 +147,18 @@ Values:
 - **Cost on the host, 2026-11-12** (`scraplify_public`, 286,000 listings on show):
   - flats for rent in Isani District: 0.48 s, its `locationCoverage` 0.28 s;
   - flats for sale in Vake District, grouped and typos out: 1.2 s, its `locationCoverage` 0.5 s;
-  - rents within 10 minutes of Rustaveli: 0.29 s, its `locationCoverage` 1.0 s;
+  - rents within 10 minutes of Rustaveli: 0.29 s, its `locationCoverage` 1.0 s, measured on the first build, which read the nearest station's band; each station's own band is one more array read per listing;
   - a neighbourhood, a municipality, or any metro within 5 minutes at house precision: 0.25 to 0.4 s.
 
 ### Fallback and version
 
 - **A v1 reader** sends what it sent and gets what it got. It sees `version` 2 and three output fields it can ignore.
 - **A v2 reader** checks `version >= 2` at run time. On a clone still at 1 (the laptop's clone updates with Hermes's `deploy.sh`), a new filter is refused as an unknown key, never ignored. Fall back to v1's places and say what was left out.
+- **Deploy order:** migration `0053` and the by-hand judgement that fills `metro_nearby_minutes` go live on the host before your clone builds v2. Until a listing is judged under `location_rules` 2, its bands are null and a named station under 20 minutes never matches it.
 
 ### Cases
 
-`src/realestate/filter-cases.json` is version 2, with 33 cases, 14 of them new. Its `places` holds the catalogue rows the new cases need, inserted beside the fixture listings. A case's `unknown` lists the listings `locationCoverage` must return, and a case without it expects `null`. `placeColumn` holds the `place` one listing must get. The new cases include the plan's "both maps on their own": an Avlabari listing matches ss.ge's district Old Tbilisi and official Isani, each separately. Twelve faults planted in the rules (an unknown listing counted as known, a station's band ignored, precision off by one, and so on) each turned a case red.
+`src/realestate/filter-cases.json` is version 2, with 34 cases, 15 of them new. Its `places` holds the catalogue rows the new cases need, inserted beside the fixture listings. A case's `unknown` lists the listings `locationCoverage` must return, and a case without it expects `null`. `placeColumn` holds the `place` one listing must get. The new cases include the plan's "both maps on their own": an Avlabari listing matches ss.ge's district Old Tbilisi and official Isani, each separately. Twelve faults planted in the rules (an unknown listing counted as known, a named station read by the nearest's band, a band ignored, precision off by one, and so on) each turned a test red.
 
 ## C3: daily real-estate totals (v1, migration `0047`)
 
@@ -294,7 +295,7 @@ The first rows appear after the first nightly ss.ge run on the Phase 13A release
 | `location_flags` | Text array, empty when nothing is wrong. `pin_placeholder`: the map's default point, or one exact pin on 3 or more streets (an agency's default). `pin_broken`: more than 30 km from its city's pins, such as the latitude written as the longitude. `pin_far_from_street`, `pin_far_from_area`: see "Reading them". `metro_from_untrusted_pin`: ss.ge shows a metro for the listing, and the pin it was worked out from has one of those four flags. `house_number_junk`: the poster typed a number we could not read as a house number ("ოთახი25", "7ბ ბლოკი"; a bare "0" is no number). `district_inferred`: as C5's column. |
 | `metro_station`, `metro_minutes`, `metro_basis`, `metro_nearby` | Our metro, from the best location: `metro_basis` is `pin` (its trusted pin), `building` (other listings' trusted pins in the same building), or `street` (its street's location). `metro_station` is the nearest station's ss.ge code (C6's `metro_station` code), `metro_minutes` ss.ge's own walking band (5, 10, 15, 20), and `metro_nearby` the codes of every station within 20 minutes, nearest first. A set basis with a null station and an empty `metro_nearby` means checked, and no station within 20 minutes. All four null when the listing is not located. |
 | `building_key` | One building, for grouping: `c<complex_ref>`, else `s<street_ref>-<house number><letter>` (`s501-117დ`), else null. |
-| `location_rules` | The rules version the columns were worked out under (`LOCATION_RULES_VERSION` in `src/realestate/location-rules.ts`, now 1). A change re-judges every listing the same night. |
+| `location_rules` | The rules version the columns were worked out under (`LOCATION_RULES_VERSION` in `src/realestate/location-rules.ts`): 1 from Phase 14C, 2 from Phase 14D (no rule changed; it adds `metro_nearby_minutes`). A change re-judges every listing the same night. |
 
 ### Reading them
 
@@ -304,6 +305,17 @@ The first rows appear after the first nightly ss.ge run on the Phase 13A release
 - **Unknown is not "no".** On a copy of production on 2026-11-08, of about 233,000 active Tbilisi listings, 44,563 had their official district by street, 37,319 by area and 2,826 by pin. 148,631 had none yet. Precision was mostly `subdistrict` (210,270 of 303,134); 235 listings were uncertain. Both grow as ss.ge's street points are read (300 a night) and as page reads bring pins.
 - **Never a change.** Like Phase 14A's columns, none of them is in the content hash.
 - **Comparing over time:** group by `location_rules`. The thresholds are recalibrated on more nights of data, and a change of rules moves listings between bases.
+
+## C5: live listings, Phase 14D's column (migration `0053`)
+
+`realestate.public_listings` gains one column at its end, after `location_rules`, by `create or replace`. The archive and `recently_gone` gain it too, after `location_rules` (C2).
+
+| Column | What |
+|---|---|
+| `metro_nearby_minutes` | Each station's band in `metro_nearby`, in the same order: 5, 10, 15 or 20 minutes. Its first is `metro_minutes`; the rest never fall. Null where `metro_nearby` is. Worked out with the other location columns at the end of every run, under `location_rules` 2. |
+
+- **Why it is public:** ss.ge's own results row shows every nearby station with its minutes, so this is no finer than ss.ge shows on each listing. Distances stay private, as before.
+- **What it is for:** "within 10 minutes of Rustaveli" for a flat whose nearest station is another (C1 v2's `metro`).
 
 ## C6: places on both maps, and the place lookup (Phase 14B, migration `0050`; lookup v2 and `official_source` from Phase 14C, migration `0051`)
 
