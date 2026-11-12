@@ -449,6 +449,45 @@ export function locationUnknown(filters: RealEstateFilters, now: string): SQL | 
   );
 }
 
+/**
+ * How many of `locationUnknown`'s listings are likely to match: in each ss.ge
+ * sub-district, its unknown listings times the share of its listings whose
+ * location does tell that match. One located listing near a station must not
+ * make every unlocated listing of a large area count (2026-11-12: one Vake
+ * listing within 10 minutes of Rustaveli put all 5,566 unlocated Vake rentals
+ * among the 17,455 that might be; weighted, about 700 are likely). The shares
+ * are taken over every listing of the area, whatever the other filters, since
+ * where a listing is does not depend on its deal or kind. A statement with one
+ * row, `unknown` and `likely`; undefined without such a filter.
+ */
+export function locationEstimate(filters: RealEstateFilters, now: string): SQL | undefined {
+  const unknown = locationUnknown(filters, now);
+  if (unknown === undefined) return undefined;
+  const places = filters.places ?? [];
+  const inPlaces = inAnyPlace(places);
+  const placesUnknown = or(...places.map(unknownInPlace));
+  const nearStation = filters.metro === undefined ? undefined : nearMetro(filters.metro);
+  const metroUnknown = filters.metro === undefined ? undefined : unknownNearMetro(filters.metro);
+  const isTrue = (condition: SQL | undefined) =>
+    condition === undefined ? undefined : sql`coalesce(${condition}, false)`;
+  // Told: the location says whether it matches, either way.
+  const told = (match: SQL | undefined, notSaid: SQL | undefined) =>
+    match === undefined ? undefined : or(isTrue(match), sql`not ${isTrue(notSaid) ?? sql`false`}`);
+  const area = listings.subdistrictRef;
+  return sql`with unknown as (
+    select ${area} as area, count(*) as listings
+      from ${listings} where ${unknown} group by 1
+  ), told as (
+    select ${area} as area,
+           count(*) filter (where ${and(isTrue(inPlaces), isTrue(nearStation))}) as matching,
+           count(*) filter (where ${and(told(inPlaces, placesUnknown), told(nearStation, metroUnknown))}) as told
+      from ${listings} where ${area} in (select area from unknown) group by 1
+  )
+  select coalesce(sum(unknown.listings), 0)::integer as unknown,
+         coalesce(round(sum(unknown.listings * told.matching::numeric / nullif(told.told, 0))), 0)::integer as likely
+    from unknown left join told on told.area = unknown.area`;
+}
+
 /** A poster's typo in the price or area (`src/realestate/plausibility.ts`). */
 export const implausibleValues = implausibleValuesOf(listings);
 

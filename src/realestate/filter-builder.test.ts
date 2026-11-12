@@ -29,6 +29,7 @@ interface CaseFile {
     ordered?: boolean;
     coverage?: { total: number; read: number };
     unknown?: string[];
+    likely?: number;
   }[];
   placeColumn: { listing: string; place: Record<string, unknown> };
 }
@@ -173,6 +174,17 @@ describe('the filter builder (contract C1)', () => {
       }
       if (locationCoverage === null) throw new Error('expected a location coverage condition');
       expect((await run(locationCoverage)).sort()).toEqual([...testCase.unknown].sort());
+    });
+
+    it('estimates how many of them are likely to match, from each area it can tell', async () => {
+      const { locationEstimate } = realEstateWhere(filters(), CASES.now);
+      if (testCase.unknown === undefined) {
+        expect(locationEstimate).toBeNull();
+        return;
+      }
+      if (locationEstimate === null) throw new Error('expected a location estimate');
+      const { rows } = await pool.query(locationEstimate.sql, locationEstimate.params);
+      expect(rows).toEqual([{ unknown: testCase.unknown.length, likely: testCase.likely }]);
     });
 
     it('writes the same SQL with psycopg’s placeholders', () => {

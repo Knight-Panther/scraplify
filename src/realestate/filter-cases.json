@@ -1,5 +1,5 @@
 {
-  "about": "Contract C1's shared cases (docs/hermes-contracts.md). Each case is filters as the builder takes them (filter-builder.ts) and the fixture listings it must return at `now`. Fixture listings are a two-room flat for sale in Saburtalo, Tbilisi, unless they say otherwise; a number in an `...At` field is days from `now`; prices and areas are numbers. `ordered` cases list the listings in the order the SQL must return them. `coverage` is how many fixture listings match every filter but those on listing-page fields, and how many of those had their page read. Version 2 (Phase 14D): `places` is the catalogue (C6, `realestate.public_places`) the location cases need; a fixture listing's location columns (C5, Phase 14C) are null unless it says otherwise. `unknown` lists the listings `locationCoverage` must return, those the location filters might hold though their location does not say; a case without it expects `locationCoverage` to be null. `placeColumn` is what the `place` column must hold for one listing.",
+  "about": "Contract C1's shared cases (docs/hermes-contracts.md). Each case is filters as the builder takes them (filter-builder.ts) and the fixture listings it must return at `now`. Fixture listings are a two-room flat for sale in Saburtalo, Tbilisi, unless they say otherwise; a number in an `...At` field is days from `now`; prices and areas are numbers. `ordered` cases list the listings in the order the SQL must return them. `coverage` is how many fixture listings match every filter but those on listing-page fields, and how many of those had their page read. Version 2 (Phase 14D): `places` is the catalogue (C6, `realestate.public_places`) the location cases need; a fixture listing's location columns (C5, Phase 14C) are null unless it says otherwise. `unknown` lists the listings `locationCoverage` must return, those the location filters might hold though their location does not say; a case without it expects `locationCoverage` to be null. `likely` is what `locationEstimate` must give as `likely`: each area's unknown listings times the share of its listings whose location tells that match, rounded once over the sum. `placeColumn` is what the `place` column must hold for one listing.",
   "version": 2,
   "now": "2026-11-06T12:00:00.000Z",
   "places": [
@@ -674,7 +674,8 @@
         ]
       },
       "expected": ["avl-pin", "avl-uncertain"],
-      "unknown": ["avl-unlocated"]
+      "unknown": ["avl-unlocated"],
+      "likely": 1
     },
     {
       "name": "both maps on their own: Avlabari is ss.ge's Old Tbilisi, and officially Isani",
@@ -706,7 +707,8 @@
         ]
       },
       "expected": ["avl-krtsanisi", "ort-krtsanisi"],
-      "unknown": ["avl-unlocated", "ort-unlocated"]
+      "unknown": ["avl-unlocated", "ort-unlocated"],
+      "likely": 1
     },
     {
       "name": "places on both maps, any of them; a listing another place holds is not unknown",
@@ -723,7 +725,8 @@
         ]
       },
       "expected": ["avl-pin", "avl-uncertain", "ort-krtsanisi", "ort-unlocated"],
-      "unknown": ["avl-unlocated"]
+      "unknown": ["avl-unlocated"],
+      "likely": 1
     },
     {
       "name": "a street by its id",
@@ -748,7 +751,8 @@
         ]
       },
       "expected": ["avl-pin", "avl-uncertain"],
-      "unknown": ["avl-unlocated"]
+      "unknown": ["avl-unlocated"],
+      "likely": 1
     },
     {
       "name": "metro: the nearest station within a band; checked and further is not unknown",
@@ -758,7 +762,8 @@
         }
       },
       "expected": ["avl-pin"],
-      "unknown": ["avl-unlocated"]
+      "unknown": ["avl-unlocated"],
+      "likely": 0
     },
     {
       "name": "metro: a named station within a band, by its own band, nearest or not",
@@ -769,7 +774,8 @@
         }
       },
       "expected": ["avl-pin", "avl-uncertain"],
-      "unknown": ["avl-unlocated"]
+      "unknown": ["avl-unlocated"],
+      "likely": 1
     },
     {
       "name": "metro: a named station further than the band is known not to be",
@@ -780,7 +786,8 @@
         }
       },
       "expected": ["avl-pin"],
-      "unknown": ["avl-unlocated"]
+      "unknown": ["avl-unlocated"],
+      "likely": 0
     },
     {
       "name": "metro: a named station that is not the nearest, within the band",
@@ -791,7 +798,8 @@
         }
       },
       "expected": ["avl-pin"],
-      "unknown": ["avl-unlocated"]
+      "unknown": ["avl-unlocated"],
+      "likely": 0
     },
     {
       "name": "an official district and the metro together: unknown where either might hold and neither fails",
@@ -807,7 +815,8 @@
         }
       },
       "expected": ["avl-pin"],
-      "unknown": ["avl-unlocated"]
+      "unknown": ["avl-unlocated"],
+      "likely": 0
     },
     {
       "name": "located at least by a house number",

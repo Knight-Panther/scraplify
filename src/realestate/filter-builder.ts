@@ -5,6 +5,7 @@ import {
   conditions,
   hasDetailFilter,
   implausibleValues,
+  locationEstimate,
   locationUnknown,
   METRO_MINUTE_BANDS,
   ordering,
@@ -165,6 +166,13 @@ export interface RealEstateFilterSql {
    */
   locationCoverage: BuiltSql | null;
   /**
+   * Version 2. With `locationCoverage`: a whole statement, one row, `unknown`
+   * (how many `locationCoverage` holds) and `likely` (how many of them are
+   * likely to match, weighting each ss.ge sub-district by the share of its
+   * located listings that match). Word it "and about `likely` more". Otherwise null.
+   */
+  locationEstimate: BuiltSql | null;
+  /**
    * Version 2. The places in `places` matched as the ss.ge place their
    * listings are under, since ss.ge does not have them: neighbourhoods. The
    * C6 row's `parent_*` names say which.
@@ -286,6 +294,10 @@ export function realEstateWhere(
     locationCoverage: (() => {
       const unknown = locationUnknown(filters, asOf);
       return unknown === undefined ? null : compile(unknown, placeholders);
+    })(),
+    locationEstimate: (() => {
+      const estimate = locationEstimate(filters, asOf);
+      return estimate === undefined ? null : compile(estimate, placeholders);
     })(),
     widenedPlaces: (filters.places ?? []).filter((place) => place.level === 'neighbourhood'),
     placeColumn: PLACE_COLUMN,
