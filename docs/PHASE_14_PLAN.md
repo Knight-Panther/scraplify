@@ -37,7 +37,7 @@ The approved plan for Phase 14, kept as a tracker. Every item shows whether it i
 - **14C's threshold recheck** waits on a week of 14A data, about 2026-11-14. A changed threshold re-judges every listing overnight with no churn, because the raw evidence is kept and nothing derived is hashed.
 - **14D's build** waits on 14C's columns, which its filters read, and on Hermes's answer about what C6 lacks for 14D.
 - **14D's merge** waits on Hermes reviewing C1 v2's exact shape, as it reviewed C6.
-- **`places:official-report`** waits on street points covering the busy streets, about four nights after 14B's deploy.
+- **`places:official-report`** waited on street points covering the busy streets; built 2026-11-12 (PR #96). Its findings go to 14C's recheck.
 - **C3's official-district level** waits on a stable month of 14C.
 - **13E, the building fingerprint** (outside this plan) waits on 14C's `building_key`.
 
@@ -157,7 +157,9 @@ Gates and evidence: STATUS, Phase 14B.
 - ✅ **Added after Hermes's review (2026-11-07):** the whole-text lookup (`placeTextLookupSql` and `resolvePlaceText`, by Hermes's N75 rule), `name_roman` on every place, and each area's top official district on its lookup row.
 - ✅ **`src/realestate/places/curated.json`:** English names and aliases for ss.ge's areas, with Hermes's `AREA_ALIASES`, `AREA_GROUPS` (Dighomi, four places) and `AREA_NEAREST` (Zgvisubani, an owner neighbourhood) ported in. Production has 53 Tbilisi sub-districts, not the plan's 51.
   - ⏳ The owner's one look. They are data, so not blocking.
-- ❌ **`npm run places:official-report`** (per sub-district, its shares and split streets): deferred, not dropped. The overlaps are already in the view, and a report is worth reading once street points cover the busy streets, about four nights after the deploy.
+- ✅ **`npm run places:official-report`** (per sub-district, its shares and split streets), built 2026-11-12 (PR #96, `src/realestate/places/official-report.ts`), four nights after the deploy. It counts the shares exactly as C6 does (a test holds them equal).
+  - Changed: besides the streets in another official district, it lists the streets whose trusted pins cross a border, and shows each street's pins from the sub-district's own listings beside all of Tbilisi's, so a placement resting on another area's listings stands out.
+  - First read on production (2026-11-12 13:03 UTC): 21,788 of 163,060 located Tbilisi listings are on a street in another official district than their sub-district's main one; 3,684 of them on a street placed by one pin position. 14C's recheck weighs those (STATUS's Board).
 - ✅ **C6:** the view `realestate.public_places`; `scraplify_public` reads the view only. Documented in `docs/hermes-contracts.md`, with the two-maps rule and the meanings.
 - ✅ **Hermes told** (2026-11-08): switch its item 3b (its H2 area words) to C6 and delete its alias tables, in the one note the owner approved. The switch itself is Hermes's work.
 - **Exit checks on production** (2026-11-08; numbers in STATUS's 14B gate):
