@@ -84,7 +84,9 @@ Values:
 
 ### The rule for every location filter
 
-**Unknown never matches, and is counted.** A listing whose location does not say whether it is in an official district, or near a station, is left out of `where`. `locationCoverage` lists those that might be. So the bot says "at least 4,922, and 14,488 more whose location is not known well enough" rather than a figure that reads as complete. This is the rule the listing-page filters (12B) already follow, with their own `coverage`.
+**Unknown never matches, and is estimated.** A listing whose location does not say whether it is in an official district, or near a station, is left out of `where`. `locationCoverage` lists those that might be, and `locationEstimate` says how many of them are likely to. So the bot says "4,920, and about 1,800 more likely among listings placed only by their neighbourhood" rather than a figure that reads as complete. This is the rule the listing-page filters (12B) already follow, with their own `coverage`.
+
+Quote the estimate, not `locationCoverage`'s count. The count is an upper bound: an ss.ge sub-district joins it when any one of its located listings matches, so a single Vake listing within 10 minutes of Rustaveli made all 5,566 unlocated Vake rentals "might be" (2026-11-12). The estimate weighs each sub-district by the share of its located listings that match.
 
 ### Input, added
 
@@ -117,12 +119,13 @@ Values:
 | Field | What |
 |---|---|
 | `locationCoverage` | `{ sql, params }` with a filter on an `official_district`, a `metro_station` or `metro`; otherwise `null`. The listings matching every other filter that the location filters might hold though their location does not say: each location filter matches or cannot be told, and not all are known to match. Never folded into look-alike groups, like `coverage`. |
+| `locationEstimate` | With `locationCoverage`: a whole statement, run as it is, giving one row: `unknown`, how many listings `locationCoverage` holds, and `likely`, how many of them are likely to match. For each ss.ge sub-district, its unknown listings times the share of its listings whose location does tell that match, taken over all of the area's listings whatever the other filters, since where a listing is does not depend on its deal or kind; rounded once over the sum. Otherwise `null`. |
 | `widenedPlaces` | The input's places matched as the ss.ge place holding them: its neighbourhoods. Empty otherwise. |
 | `placeColumn` | A select-list entry with no parameters: one jsonb column, `place`, the listing's place on both maps with names (below). |
 
 ### Using it
 
-- **The unknown count:** `select count(*) from realestate.public_listings where <locationCoverage>`. Word it as "at least N", then "M more whose location is not known well enough to say".
+- **The unknown count:** run `locationEstimate` with its parameters. Word it as "N", then "about `likely` more, among `unknown` placed only by their neighbourhood". To list the candidates, `select … from realestate.public_listings where <locationCoverage>`.
 - **Both maps on a row:** `select id, …, <placeColumn> from realestate.public_listings where <where> order by <orderBy> limit %s`. Every key is present, `null` when unknown:
 
   ```json
@@ -148,7 +151,8 @@ Values:
   - flats for rent in Isani District: 0.48 s, its `locationCoverage` 0.28 s;
   - flats for sale in Vake District, grouped and typos out: 1.2 s, its `locationCoverage` 0.5 s;
   - rents within 10 minutes of Rustaveli: 0.29 s, its `locationCoverage` 1.0 s, measured on the first build, which read the nearest station's band; each station's own band is one more array read per listing;
-  - a neighbourhood, a municipality, or any metro within 5 minutes at house precision: 0.25 to 0.4 s.
+  - a neighbourhood, a municipality, or any metro within 5 minutes at house precision: 0.25 to 0.4 s;
+  - `locationEstimate`: 1.2 to 3.7 s (Isani flats for rent: 4,920 matched, 14,523 unknown, 1,815 likely; rentals within 10 minutes of any metro: 34,743 matched, 36,636 unknown, 13,752 likely).
 
 ### Fallback and version
 
@@ -158,7 +162,7 @@ Values:
 
 ### Cases
 
-`src/realestate/filter-cases.json` is version 2, with 34 cases, 15 of them new. Its `places` holds the catalogue rows the new cases need, inserted beside the fixture listings. A case's `unknown` lists the listings `locationCoverage` must return, and a case without it expects `null`. `placeColumn` holds the `place` one listing must get. The new cases include the plan's "both maps on their own": an Avlabari listing matches ss.ge's district Old Tbilisi and official Isani, each separately. Twelve faults planted in the rules (an unknown listing counted as known, a named station read by the nearest's band, a band ignored, precision off by one, and so on) each turned a test red.
+`src/realestate/filter-cases.json` is version 2, with 34 cases, 15 of them new. Its `places` holds the catalogue rows the new cases need, inserted beside the fixture listings. A case's `unknown` lists the listings `locationCoverage` must return, and `likely` what `locationEstimate` must give; a case without them expects `null`. `placeColumn` holds the `place` one listing must get. The new cases include the plan's "both maps on their own": an Avlabari listing matches ss.ge's district Old Tbilisi and official Isani, each separately. Twelve faults planted in the rules (an unknown listing counted as known, a named station read by the nearest's band, a band ignored, precision off by one, and so on) each turned a test red.
 
 ## C3: daily real-estate totals (v1, migration `0047`)
 
