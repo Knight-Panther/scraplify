@@ -9,16 +9,19 @@ import {
 } from '../../../../src/realestate/kinds.js';
 import {
   COUNT_CEILING,
+  type Counted,
+  countExactly,
   countRealEstate,
   type DetailsCoverage,
   detailsCoverage,
   hasDetailFilter,
+  type RealEstateFilters,
   type RealEstateLocations,
   type RealEstateRow,
   realEstateLocations,
   searchRealEstate,
 } from '../../../../src/realestate/queries.js';
-import { cachedFor } from '../../../lib/cached.js';
+import { cachedByKey, cachedFor } from '../../../lib/cached.js';
 import { absoluteTime, count, relativeTime } from '../../../lib/format.js';
 import {
   AMENITY_LABELS,
@@ -39,6 +42,7 @@ import {
 } from '../../../lib/real-estate-panels.js';
 import {
   buildRealEstateHref,
+  countCacheKey,
   countValue,
   isFiltered,
   parseRealEstateQuery,
@@ -92,6 +96,49 @@ const locations = cachedFor(5 * 60_000, () =>
   realEstateLocations(db, {}, new Date().toISOString()),
 );
 
+/**
+ * The count above the results, and the details line's, exact (2026-11-12;
+ * they said "10,000+" before). An exact count of a broad filter takes up to
+ * about a second on the host, so one above the ceiling is kept ten minutes
+ * per filter set: the same for every visitor and changed only by the crawl.
+ * One at or under the ceiling is asked every time, as before, so a short
+ * list's count is never stale beside its rows. A count that outlasts its time
+ * limit falls back to "10,000+" and is kept too, so a slow search pays once.
+ */
+const COUNT_TTL_MS = 10 * 60_000;
+/** Filter sets held per surface process: bounded, since the filters come from visitors. */
+const COUNT_KEYS = 500;
+const counts = cachedByKey<Counted<number>>(
+  COUNT_TTL_MS,
+  COUNT_KEYS,
+  (c) => c.value > COUNT_CEILING,
+);
+const coverages = cachedByKey<Counted<DetailsCoverage>>(
+  COUNT_TTL_MS,
+  COUNT_KEYS,
+  (c) => c.value.total > COUNT_CEILING,
+);
+
+function countListings(filters: RealEstateFilters, now: string): Promise<Counted<number>> {
+  return counts(countCacheKey(filters, COUNT_TTL_MS), () =>
+    countExactly(
+      db,
+      (tx) => countRealEstate(tx, filters, now, null),
+      () => countRealEstate(db, filters, now),
+    ),
+  );
+}
+
+function countCoverage(filters: RealEstateFilters, now: string): Promise<Counted<DetailsCoverage>> {
+  return coverages(countCacheKey(filters, COUNT_TTL_MS), () =>
+    countExactly(
+      db,
+      (tx) => detailsCoverage(tx, filters, now, null),
+      () => detailsCoverage(db, filters, now),
+    ),
+  );
+}
+
 export default async function RealEstatePage({
   searchParams,
 }: {
@@ -104,12 +151,13 @@ export default async function RealEstatePage({
   const query = parseRealEstateQuery(raw, places, Date.parse(now));
 
   // The count, the rows and the details coverage do not wait for one another.
-  const [total, rows, coverage] = await Promise.all([
-    countRealEstate(db, query.filters, now),
+  const [counted, rows, coverage] = await Promise.all([
+    countListings(query.filters, now),
     fetchRows(query, query.show, now),
     // A filter on a listing's own page sees only listings whose page was read: say how many.
-    hasDetailFilter(query.filters) ? detailsCoverage(db, query.filters, now) : null,
+    hasDetailFilter(query.filters) ? countCoverage(query.filters, now) : null,
   ]);
+  const total = counted.value;
   const currency = query.filters.currency ?? 'usd';
 
   return (
@@ -129,7 +177,7 @@ export default async function RealEstatePage({
       {query.form.group === '' ? (
         <div className="mt-4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-sm">
           <p className="text-faint" aria-live="polite">
-            <span className="numeric">{upTo(total)}</span>
+            <span className="numeric">{upTo(counted)}</span>
             {query.form.view === 'all'
               ? total === 1
                 ? ' listing'
@@ -144,7 +192,7 @@ export default async function RealEstatePage({
         <GroupHeading query={query} total={total} />
       )}
 
-      {coverage === null || coverage.total === 0 ? null : <Coverage coverage={coverage} />}
+      {coverage === null || coverage.value.total === 0 ? null : <Coverage coverage={coverage} />}
 
       {rows.length === 0 ? (
         <EmptyState filtered={isFiltered(query)} />
@@ -152,26 +200,28 @@ export default async function RealEstatePage({
         <ResultsTable rows={rows} currency={currency} query={query} />
       )}
 
-      <ShowMore query={query} shown={rows.length} total={total} />
+      <ShowMore query={query} shown={rows.length} counted={counted} />
     </main>
   );
 }
 
-/** A count as the page writes it: past the ceiling, "10,000+". */
-function upTo(total: number): string {
-  return total > COUNT_CEILING ? `${count(COUNT_CEILING)}+` : count(total);
+/** A count as the page writes it: exact, or "10,000+" when counting took too long. */
+function upTo({ value, exact }: Counted<number>): string {
+  return !exact && value > COUNT_CEILING ? `${count(COUNT_CEILING)}+` : count(value);
 }
 
 /**
  * Under a filter on a listing's own page: how many of the listings matching
  * everything else had their page read, since only those can match it.
  */
-function Coverage({ coverage }: { coverage: DetailsCoverage }) {
+function Coverage({ coverage }: { coverage: Counted<DetailsCoverage> }) {
+  const { exact } = coverage;
   return (
     <p className="mt-1 max-w-[var(--measure)] text-sm text-faint">
-      Details read for <span className="numeric">{upTo(coverage.read)}</span> of{' '}
-      <span className="numeric">{upTo(coverage.total)}</span> matching listings. Filters on details
-      see only those.
+      Details read for{' '}
+      <span className="numeric">{upTo({ value: coverage.value.read, exact })}</span> of{' '}
+      <span className="numeric">{upTo({ value: coverage.value.total, exact })}</span> matching
+      listings. Filters on details see only those.
     </p>
   );
 }
@@ -1033,15 +1083,15 @@ function EmptyState({ filtered }: { filtered: boolean }) {
 function ShowMore({
   query,
   shown,
-  total,
+  counted,
 }: {
   query: RealEstateQuery;
   shown: number;
-  total: number;
+  counted: Counted<number>;
 }) {
-  const more = total - shown;
+  const more = counted.value - shown;
   if (more <= 0 || shown === 0) return null;
-  const totalText = upTo(total);
+  const totalText = upTo(counted);
 
   if (shown >= REAL_ESTATE_MAX_SHOWN) {
     return (

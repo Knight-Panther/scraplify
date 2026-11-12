@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RealEstateLocations } from '../../src/realestate/queries.js';
 import {
   buildRealEstateHref,
+  countCacheKey,
   isFiltered,
   parseRealEstateQuery,
   REAL_ESTATE_CHUNK,
@@ -445,5 +446,29 @@ describe('buildRealEstateHref', () => {
     expect(buildRealEstateHref(parse({ view: 'all' }), { view: '' })).toBe('/real-estate');
     const key = '6a546aed-492a-4cf2-9627-072e6fc768bf';
     expect(buildRealEstateHref(query, { group: key })).toBe(`/real-estate?deal=rent&group=${key}`);
+  });
+});
+
+describe('countCacheKey', () => {
+  const TEN_MINUTES = 10 * 60_000;
+
+  it('is one key for the same filters, whatever their order, sort or page', () => {
+    const a = parseRealEstateQuery({ deal: 'sale', kind: 'flat', sort: 'price-asc' }, PLACES, NOW);
+    const b = parseRealEstateQuery({ kind: 'flat', deal: 'sale', show: '300' }, PLACES, NOW);
+    expect(countCacheKey(a.filters, TEN_MINUTES)).toBe(countCacheKey(b.filters, TEN_MINUTES));
+    const c = parseRealEstateQuery({ deal: 'rent', kind: 'flat' }, PLACES, NOW);
+    expect(countCacheKey(c.filters, TEN_MINUTES)).not.toBe(countCacheKey(a.filters, TEN_MINUTES));
+  });
+
+  it('gives "updated within" asked moments apart one key, and a later window another', () => {
+    const at = (ms: number) =>
+      countCacheKey(parseRealEstateQuery({ since: '7' }, PLACES, ms).filters, TEN_MINUTES);
+    const start = Math.ceil(NOW / TEN_MINUTES) * TEN_MINUTES;
+    expect(at(start + 5)).toBe(at(start + 1_234));
+    expect(at(start + TEN_MINUTES)).not.toBe(at(start));
+    // A different choice is a different key.
+    expect(
+      countCacheKey(parseRealEstateQuery({ since: '1' }, PLACES, start).filters, TEN_MINUTES),
+    ).not.toBe(at(start));
   });
 });

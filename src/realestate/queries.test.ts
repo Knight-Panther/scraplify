@@ -1,14 +1,17 @@
+import { sql } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from '../db/client.js';
 import { type NewRealEstateListingRow, realEstateListings } from '../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import {
+  countExactly,
   countRealEstate,
   detailsCoverage,
   hasDetailFilter,
   type RealEstateFilters,
   realEstateLocations,
   searchRealEstate,
+  withinTimeout,
 } from './queries.js';
 import { listingSearchQuery } from './search.js';
 
@@ -411,6 +414,8 @@ describe('real-estate queries', () => {
       });
       // Counted no further than one past the ceiling, as countRealEstate is.
       expect(await detailsCoverage(db, filters, NOW_ISO, 1)).toEqual({ read: 2, total: 2 });
+      // Or every one.
+      expect(await detailsCoverage(db, filters, NOW_ISO, null)).toEqual({ read: 2, total: 3 });
     });
 
     it('returns each row’s building status and condition, or null when not known', async () => {
@@ -796,6 +801,69 @@ describe('real-estate queries', () => {
       expect(await countRealEstate(db, { sourceId }, NOW_ISO)).toBe(5);
       // One past the ceiling means "more than that".
       expect(await countRealEstate(db, { sourceId }, NOW_ISO, 3)).toBe(4);
+      // No ceiling: every one.
+      expect(await countRealEstate(db, { sourceId }, NOW_ISO, null)).toBe(5);
+    });
+
+    it('counts look-alike groups exactly, one per group, with no ceiling', async () => {
+      const sourceId = await newSource();
+      for (let index = 0; index < 3; index++) await listing(sourceId, { groupKey: 'g1' });
+      for (let index = 0; index < 2; index++) await listing(sourceId, { groupKey: 'g2' });
+      await listing(sourceId);
+
+      expect(await countRealEstate(db, { sourceId, grouped: true }, NOW_ISO, null)).toBe(3);
+      expect(await countRealEstate(db, { sourceId, grouped: true }, NOW_ISO, 1)).toBe(2);
+    });
+
+    it('counts exactly within the time limit, and settles for the capped count past it', async () => {
+      const sourceId = await newSource();
+      for (let index = 0; index < 5; index++) await listing(sourceId);
+
+      expect(
+        await countExactly(
+          db,
+          (tx) => countRealEstate(tx, { sourceId }, NOW_ISO, null),
+          () => countRealEstate(db, { sourceId }, NOW_ISO, 3),
+        ),
+      ).toEqual({ value: 5, exact: true });
+      // A count that outlasts the limit gives way to the capped one.
+      expect(
+        await countExactly(
+          db,
+          async (tx) => {
+            await tx.execute(sql`select pg_sleep(1)`);
+            return countRealEstate(tx, { sourceId }, NOW_ISO, null);
+          },
+          () => countRealEstate(db, { sourceId }, NOW_ISO, 3),
+          50,
+        ),
+      ).toEqual({ value: 4, exact: false });
+    });
+  });
+
+  describe('withinTimeout', () => {
+    it('answers within the limit, gives null past it, and lets every other error through', async () => {
+      const read = (tx: Parameters<Parameters<typeof withinTimeout>[2]>[0]) =>
+        tx.execute<{ n: number }>(sql`select 1 as n`).then((r) => r.rows[0]?.n);
+      expect(await withinTimeout(db, 1_000, read)).toBe(1);
+      expect(
+        await withinTimeout(db, 50, (tx) =>
+          tx.execute(sql`select pg_sleep(1)`).then(() => 'slept'),
+        ),
+      ).toBeNull();
+      await expect(
+        withinTimeout(db, 1_000, (tx) => tx.execute(sql`select * from no_such_table`)),
+      ).rejects.toThrow();
+    });
+
+    it('reads only, and leaves the pool’s statements without its limit', async () => {
+      await expect(
+        withinTimeout(db, 1_000, (tx) => tx.execute(sql`create temporary table t (n int)`)),
+      ).rejects.toThrow();
+      const after = await db.execute<{ limit: string }>(
+        sql`select current_setting('statement_timeout') as limit`,
+      );
+      expect(after.rows[0]?.limit).toBe('0');
     });
   });
 

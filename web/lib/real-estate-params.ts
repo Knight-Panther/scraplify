@@ -370,3 +370,19 @@ export function buildRealEstateHref(
   const search = params.toString();
   return search === '' ? '/real-estate' : `/real-estate?${search}`;
 }
+
+/**
+ * A filter set's key for the tab's cached counts: the parsed filters, without
+ * the order and paging no count depends on, and with "updated within" (an
+ * instant worked out from each request's clock) floored to `bucketMs`. So two
+ * visitors asking the same filters within one cache window share one count.
+ * Built from parsed, validated filters only, never from the raw address.
+ */
+export function countCacheKey(filters: RealEstateFilters, bucketMs: number): string {
+  const { sort: _sort, limit: _limit, offset: _offset, updatedSince, ...rest } = filters;
+  const key: Record<string, unknown> = { ...rest };
+  if (updatedSince !== undefined) {
+    key.updatedSince = Math.floor(Date.parse(updatedSince) / bucketMs);
+  }
+  return JSON.stringify(Object.entries(key).sort(([a], [b]) => a.localeCompare(b)));
+}
