@@ -215,6 +215,11 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
        - `scraplify_public` reads `select level, count(*) from realestate.public_places group by level` and is still refused `realestate.places`;
        - a lookup through the release's own code: `cd /opt/xtelo/current && node -e "import('./dist/realestate/place-lookup.js').then(m => console.log(m.placeLookupSql('Vake')))"`, its SQL run as `scraplify_public`, gives sub-district ვაკე first and Vake District beside it.
      - **From then on:** each nightly run refreshes the catalogue as its last step, after the totals (`ss.ge place catalogue refreshed` in its journal). A failure is logged and leaves the run's exit code alone; Hermes then reads the night before's. The overlaps grow with the street points, 300 a night.
+     - **The owner's once-over of the overlaps** (`npm run places:official-report`, from 2026-11-12): per ss.ge district and sub-district its official shares, counted as C6 counts them, and per sub-district the streets in another official district, the streets whose trusted pins cross a border, and what is not located yet. Markdown on stdout, `--json` for everything, `--streets=N` per list (default 15). It reads only, in one read-only snapshot, so it can run beside a crawl; about 5 s on production:
+
+       ```sh
+       sudo /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/places-official-report.js > /tmp/official-report.md
+       ```
      - **Rolling back** to the release before: the old code ignores the new columns, so the table can stay as it is. Narrowing the level checks again would need the catalogue's rows deleted first; there is no reason to.
    - **Location quality (Phase 14C, first deploy after merge only).** Migration `0051` adds where each listing is, judged (`docs/hermes-contracts.md`, C5's 14C columns, and C6):
      - on `listings`, eleven public columns (official district and basis, precision, uncertain and flags, our metro, building key, rules version) and four private ones (`pin_trusted`, `pin_street_m`, `pin_official_district_ref`, `metro_distance_m`); its three checks are `NOT VALID`, so nothing is scanned under the lock;
