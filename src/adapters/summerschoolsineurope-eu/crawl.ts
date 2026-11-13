@@ -18,6 +18,7 @@ import {
 import {
   type CrawlRunRow,
   crawlRuns,
+  resources,
   sourceListingRevisions,
   sourceListings,
   sources,
@@ -40,6 +41,8 @@ import {
   UrlNotAllowedError,
 } from '../../net/http-fetcher.js';
 import {
+  isListingFacetValueAllowed,
+  isSummerSchoolsEuUrlAllowed,
   LISTING_STATUS_PARAM,
   LISTING_STATUS_VALUE,
   summerSchoolsEuPolicy,
@@ -81,6 +84,12 @@ export const MISSING_STREAK_THRESHOLD = 3;
 const SITEMAP_OVERLAP_MS = 2 * 24 * 60 * 60 * 1000;
 /** After a 403 or a Cloudflare challenge the source rests this long; the next scheduled run is a day away. */
 const CHALLENGE_BACKOFF_MS = 6 * 60 * 60 * 1000;
+/**
+ * Kinsta's page cache keeps a page up to 2 h (`s-maxage=7200`), so a read
+ * that soon after a change may have been the old page: the sitemap trigger
+ * counts a read as this much earlier than it was.
+ */
+const PAGE_CACHE_MS = 2 * 60 * 60 * 1000;
 const TBILISI_OFFSET_MS = 4 * 60 * 60 * 1000;
 const OPEN_STATUSES = ['active', 'missing_suspected'] as const;
 
@@ -119,6 +128,8 @@ export interface SummerSchoolsRunStats {
   fetchedRefetchAll: number;
   stickyDeadlines: number;
   notFound: number;
+  /** Course pages not asked for because the policy refuses their URL. */
+  refusedUrls: number;
   startedClosed: number;
 }
 
@@ -227,7 +238,11 @@ async function fetchAndRecord(
     const rest = new Date(Date.parse(observedAt) + CHALLENGE_BACKOFF_MS).toISOString();
     backoffUntil = backoffUntil === null || backoffUntil < rest ? rest : backoffUntil;
   }
-  if (outcome === 'blocked' || outcome === 'retry' || backoffUntil !== null) control.stopped = true;
+  // The site blocking or slowing us stops the run. A URL this crawler would
+  // not send (outside the allow-list, or resolving to a private address)
+  // never reached the site: that is the one URL's failure, not a block.
+  const siteRefused = (outcome === 'blocked' || outcome === 'retry') && result !== null;
+  if (siteRefused || backoffUntil !== null) control.stopped = true;
   if (backoffUntil !== null) {
     await extendSourceBackoff(db, summerSchoolsEuSource.id, backoffUntil, attemptedAt);
   }
@@ -286,6 +301,7 @@ async function lastCompletedRunStartedAt(db: Database): Promise<string | null> {
 
 interface StoredFacts {
   deadlineRaw: string | null;
+  deadlineParsed: string | null;
   modifiedAt: string | null;
 }
 
@@ -300,6 +316,7 @@ async function loadStoredFacts(
     .select({
       sourceRecordId: sourceListings.sourceRecordId,
       deadlineRaw: sql<string | null>`(${sourceListingRevisions.deadlineDate} ->> 'raw')`,
+      deadlineParsed: sql<string | null>`(${sourceListingRevisions.deadlineDate} ->> 'parsed')`,
       modifiedAt: sql<
         string | null
       >`(${sourceListingRevisions.structuredAttributes} ->> 'modifiedAt')`,
@@ -317,11 +334,49 @@ async function loadStoredFacts(
     );
   for (const row of rows) {
     if (row.sourceRecordId !== null) {
-      facts.set(row.sourceRecordId, { deadlineRaw: row.deadlineRaw, modifiedAt: row.modifiedAt });
+      facts.set(row.sourceRecordId, {
+        deadlineRaw: row.deadlineRaw,
+        deadlineParsed: row.deadlineParsed,
+        modifiedAt: row.modifiedAt,
+      });
     }
   }
   return facts;
 }
+
+/**
+ * When each course page was last read successfully, by URL. A read that
+ * found nothing new writes no revision, so only this says the sitemap's
+ * newer date has been seen.
+ */
+async function loadLastReads(db: Database, urls: readonly string[]): Promise<Map<string, string>> {
+  const reads = new Map<string, string>();
+  if (urls.length === 0) return reads;
+  const rows = await db
+    .select({ url: resources.canonicalUrl, fetchedAt: resources.fetchedAt })
+    .from(resources)
+    .where(
+      and(
+        eq(resources.sourceId, summerSchoolsEuSource.id),
+        eq(resources.role, 'OPPORTUNITY'),
+        eq(resources.status, 'fetched'),
+        inArray(resources.canonicalUrl, [...urls]),
+      ),
+    );
+  for (const row of rows) {
+    if (row.fetchedAt !== null) reads.set(row.url, row.fetchedAt);
+  }
+  return reads;
+}
+
+/** The latest of some instants, as epoch milliseconds; null when none is known. */
+function latestMs(...instants: ReadonlyArray<number | null>): number | null {
+  const known = instants.filter((ms): ms is number => ms !== null && !Number.isNaN(ms));
+  return known.length === 0 ? null : Math.max(...known);
+}
+
+const msOf = (instant: string | null | undefined): number | null =>
+  instant == null ? null : Date.parse(instant);
 
 /**
  * Courses whose start date has passed close by that date, as `expired`
@@ -351,6 +406,8 @@ interface DetailJob {
   card: CourseCard;
   fingerprint: string;
   trigger: Trigger;
+  /** The stored deadline a vanished badge leaves behind, kept as it was resolved. */
+  carriedDeadline: string | null;
 }
 
 /**
@@ -428,6 +485,7 @@ export async function runSummerSchoolsCrawl(
     fetchedRefetchAll: 0,
     stickyDeadlines: 0,
     notFound: 0,
+    refusedUrls: 0,
     startedClosed: 0,
   };
 
@@ -440,14 +498,20 @@ export async function runSummerSchoolsCrawl(
     // 1. Membership: the covering walk.
     const read = async (filters: Filters): Promise<ParsedListingPage | null> => {
       if (control.stopped) return null;
-      const body = await fetchIndex(
-        db,
-        httpFetcher,
-        crawlRun.id,
-        listingUrl(filters),
-        now,
-        control,
-      );
+      const url = listingUrl(filters);
+      if (!isSummerSchoolsEuUrlAllowed(url)) {
+        // Never sent; counts as a failed request, so the walk is not complete.
+        await recordParserIncident(db, {
+          sourceId: summerSchoolsEuSource.id,
+          crawlRunId: crawlRun.id,
+          detectedAt: now(),
+          kind: 'other',
+          severity: 'warning',
+          evidence: { reason: 'url_not_allowed', url },
+        });
+        return null;
+      }
+      const body = await fetchIndex(db, httpFetcher, crawlRun.id, url, now, control);
       if (body === null) return null;
       try {
         return parseListingPage(body);
@@ -459,7 +523,7 @@ export async function runSummerSchoolsCrawl(
           kind: 'field_missing',
           severity: 'warning',
           evidence: {
-            url: listingUrl(filters),
+            url,
             error: parseError instanceof Error ? parseError.message : String(parseError),
           },
         });
@@ -469,7 +533,20 @@ export async function runSummerSchoolsCrawl(
     const walk = await coverListing(read, {
       capacity: PAGE_CAPACITY,
       maxRequests: options.maxListingRequests ?? DEFAULT_MAX_LISTING_REQUESTS,
+      // A value the policy would refuse is left out; its courses count as
+      // unseen unless another facet reaches them.
+      acceptValue: (_facet, value) => isListingFacetValueAllowed(value),
     });
+    for (const rejected of walk.rejectedValues) {
+      await recordParserIncident(db, {
+        sourceId: summerSchoolsEuSource.id,
+        crawlRunId: crawlRun.id,
+        detectedAt: now(),
+        kind: 'other',
+        severity: 'warning',
+        evidence: { reason: 'facet_value_not_allowed', ...rejected },
+      });
+    }
     stats.listingRequests = walk.requests;
     stats.resultSets = walk.resultSets;
     stats.resamples = walk.resamples;
@@ -514,14 +591,27 @@ export async function runSummerSchoolsCrawl(
     const postIds = cards.map((card) => card.postId);
     const known = await loadKnownListings(db, summerSchoolsEuSource.id, postIds);
     const stored = await loadStoredFacts(db, postIds);
+    const lastReads = await loadLastReads(
+      db,
+      cards.map((card) => card.url),
+    );
     const jobs: DetailJob[] = [];
     const seenWithoutWrite: CourseCard[] = [];
     for (const card of cards) {
       const facts = stored.get(card.postId);
-      // The badge most likely vanishes once its day passes: keep the stored one.
+      // A badge gone after its day most likely went with the day: keep the
+      // stored deadline as it was resolved. One gone before its day was
+      // withdrawn, and the course has no deadline now.
       let effective = card;
-      if (card.deadlineRaw === null && facts?.deadlineRaw != null) {
+      let carriedDeadline: string | null = null;
+      if (
+        card.deadlineRaw === null &&
+        facts?.deadlineRaw != null &&
+        facts.deadlineParsed != null &&
+        Date.parse(facts.deadlineParsed) <= Date.parse(startedAt)
+      ) {
         effective = { ...card, deadlineRaw: facts.deadlineRaw };
+        carriedDeadline = facts.deadlineParsed;
         stats.stickyDeadlines++;
       }
       const fingerprint = cardFingerprint(effective);
@@ -531,15 +621,21 @@ export async function runSummerSchoolsCrawl(
       let trigger: Trigger =
         options.refetch === 'all' ? 'all' : entry?.currentRevisionId == null ? 'new' : 'card';
       if (decision === 'skip') {
+        // The page changed after it was last read: its own date says which
+        // version is stored, and a read that found nothing new still counts.
         const lastmod = sitemapLastmod.get(card.url);
-        const readAt = facts?.modifiedAt ?? entry?.revisionFetchedAt ?? null;
-        if (lastmod !== undefined && readAt !== null && Date.parse(lastmod) > Date.parse(readAt)) {
+        const fetchedMs = latestMs(msOf(entry?.revisionFetchedAt), msOf(lastReads.get(card.url)));
+        const readMs = latestMs(
+          msOf(facts?.modifiedAt),
+          fetchedMs === null ? null : fetchedMs - PAGE_CACHE_MS,
+        );
+        if (lastmod !== undefined && readMs !== null && Date.parse(lastmod) > readMs) {
           decision = 'fetch';
           trigger = 'sitemap';
         }
       }
       if (decision === 'fetch') {
-        jobs.push({ card: effective, fingerprint, trigger });
+        jobs.push({ card: effective, fingerprint, trigger, carriedDeadline });
         continue;
       }
       if (decision === 'adopt') {
@@ -557,6 +653,22 @@ export async function runSummerSchoolsCrawl(
         continue;
       }
       const url = job.card.url;
+      if (!isSummerSchoolsEuUrlAllowed(url)) {
+        // A card linking to a page shape the policy does not know: that
+        // course fails alone, seen all the same, and the run goes on.
+        stats.refusedUrls++;
+        counts.failedCount++;
+        seenWithoutWrite.push(job.card);
+        await recordParserIncident(db, {
+          sourceId: summerSchoolsEuSource.id,
+          crawlRunId: crawlRun.id,
+          detectedAt: now(),
+          kind: 'other',
+          severity: 'warning',
+          evidence: { reason: 'url_not_allowed', url, sourceRecordId: job.card.postId },
+        });
+        continue;
+      }
       const identity = {
         sourceId: summerSchoolsEuSource.id,
         sourceRecordId: job.card.postId,
@@ -587,7 +699,11 @@ export async function runSummerSchoolsCrawl(
         content = parseCoursePage({
           html: result.body,
           expectedPostId: job.card.postId,
-          card: { deadlineRaw: job.card.deadlineRaw, online: job.card.online },
+          card: {
+            deadlineRaw: job.card.deadlineRaw,
+            online: job.card.online,
+            ...(job.carriedDeadline === null ? {} : { deadlineParsed: job.carriedDeadline }),
+          },
           disciplineSlugs,
           extractionMethod: 'http',
           provenance: {
@@ -669,6 +785,9 @@ export async function runSummerSchoolsCrawl(
     }
 
     // 5. Guards.
+    // A refused URL counts as failed against the pages asked for: many of
+    // them fail the run, and one alone on a quiet day does not (its incident
+    // says so, every run, until the policy learns its shape).
     const fetchedPages = stats.detailFetches;
     const quarantineOk =
       fetchedPages === 0 || counts.quarantinedCount / fetchedPages <= maxQuarantineRate;

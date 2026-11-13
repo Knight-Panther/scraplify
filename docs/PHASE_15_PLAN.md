@@ -182,7 +182,7 @@ Rules:
 1. `/sitemap_index.xml`, then the course sitemaps whose index `lastmod` is newer than the last completed run minus two days (all ten on a first run).
 2. `/courses/`, then `?_paged=2..N` from the pager in `FWP_JSON`. Three tries per page. Union by post id.
 3. A detail fetch when the id is new, the card fingerprint changed (title, school, place, when, credits, fee, language, deadline, online), the sitemap `lastmod` is newer than the stored `modifiedAt`, the listing is quarantined, or `--refetch=all`.
-4. End of run: `expireOverdueListings`; the adapter's `closeStartedCourses` (start date passed, no request); and, when the run completed with full coverage, `closeMissingListingsInTransaction` with a streak of 3.
+4. End of run: `expireOverdueListings`; the adapter's `expireStartedCourses` (start date passed, no request); and, when the run completed with full coverage, `closeMissingListingsInTransaction` with a streak of 3.
 
 - **Budget.** Daily about 60 to 85 requests, 16 to 23 minutes. First run about 593 requests, about 2.6 hours. Detail cap 700.
 
@@ -253,7 +253,7 @@ Changed (2026-11-13, recon measured again; `src/adapters/summerschoolsineurope-e
 - **Membership comes from a covering walk, not from paging.** The listing is shuffled on every page, and plain pages are cached up to 2 h each at their own moment, so all 53 pages gave only 403 of 625 courses. Filtered listings are uncached and complete when they hold 12 or fewer, and a facet takes several values as OR. The walk starts at `_course_status=future`, splits a result larger than one page by a facet (country, city, start month, duration, discipline), packs that facet's small values into OR-groups of up to 12, and asks each group's page 1; a result no facet splits is asked again until its distinct courses reach its `total_rows`. A run is full coverage only when every result set reached its own count, so closure after three complete walks stays (choice C), now with exact coverage. Replaces step 2 of the recipe and the `coverage` and `pageSize` guards below.
 - **The URL allow-list** takes `/courses/` only with `_course_status=future` and those five facets (slug values, comma-separated), and no `_paged`.
 - **Budget:** about 85 to 130 listing requests a day by estimate, plus the sitemaps and changed course pages; the trial measures it. The first run is about 750 requests, about 3.5 hours.
-- **The course page answers the recon questions too:** the registration deadline is on the card only; a started course can still be listed as "future", so `closeStartedCourses` matters; disciplines come from the pretitle, their slugs from the listing's facet; `datePublished` and `dateModified` from JSON-LD; Institution "N/A" seen once (Tbilisi).
+- **The course page answers the recon questions too:** the registration deadline is on the card only; a started course can still be listed as "future", so `expireStartedCourses` matters; disciplines come from the pretitle, their slugs from the listing's facet; `datePublished` and `dateModified` from JSON-LD; Institution "N/A" seen once (Tbilisi).
 
 Recon first (plain GETs, 15 s apart; allowed before 14C is live). Answers go into the adapter's `RECON_NOTES.md`:
 - Does the "Deadline" badge stay after its date passes?
@@ -264,7 +264,7 @@ Recon first (plain GETs, 15 s apart; allowed before 14C is live). Answers go int
 Add:
 - `src/policies/summerschoolsineurope-eu.ts` (+ test): `mayRepublishFullContent: false`; `termsUrl: null` with "not yet reviewed: the page renders in the browser"; dated evidence for the robots.txt read, the named AI bots it turns away, the REST 401 and the host test.
 - `src/adapters/summerschoolsineurope-eu/`: `listing.ts`, `sitemap.ts`, `detail.ts`, `dates.ts`, `money.ts`, `crawl.ts`, `RECON_NOTES.md`, `fixtures/`, tests. Model: `src/adapters/etenders-ge/`; for sitemaps `src/adapters/hr-ge/sitemap.ts`.
-- `src/cli/run-summerschoolsineurope-eu-crawl.ts` (the name `deploy/run-pipeline.sh` expects), `summerschoolsineurope-eu-options.ts` (+ test) with `--refetch`, `--max-pages`, `--max-detail-fetches`, `--sitemaps=all`; npm script `crawl:summerschoolsineurope-eu`.
+- `src/cli/run-summerschoolsineurope-eu-crawl.ts` (the name `deploy/run-pipeline.sh` expects), `summerschoolsineurope-eu-options.ts` (+ test) with `--refetch`, `--max-listing-requests`, `--max-detail-fetches`, `--sitemaps=all`; npm script `crawl:summerschoolsineurope-eu`.
 - `src/dedupe/programme-kind.ts` (+ test), with this source's fixed rule.
 
 Change:
@@ -272,7 +272,7 @@ Change:
 - `src/dedupe/tender-post.ts`, `src/dedupe/resolve-canonical.ts`.
 - `src/source-traits.ts` (+ test) and `src/matching/bundle/build.ts:93-99`: the rename to `NON_VACANCY_SOURCES`, with the new slug.
 - `scripts/run-crawl.ps1:5` (ValidateSet only; no local scheduled task).
-- `docs/RIGHTS.md`: a Sources row, and the verdict lines at :7, :22 and :74, saying that permission has not been asked and the terms are not reviewed.
+- `docs/RIGHTS.md`: a Sources row, and the verdict lines at :7, :22 and :74, saying that no permission is needed (owner, 2026-11-13) and the terms are not reviewed.
 - `docs/scraplify-concept.md`: a dated amendment for the two sources, the new kinds (§12.3), the excerpt exception and the Eurodesk session decision with its limits (§4.3).
 
 Fixtures (dated): listing pages 1, 2 and last with their `FWP_JSON`; the sitemap index and one course sitemap; details for a plain course, a GBP fee, "Interested?" with no external link, Institution "N/A", an early-bird line, an online course and the "28 June - 02 June" card.
@@ -505,7 +505,7 @@ npm run build && npm run typecheck && npm run lint
 DATABASE_URL=postgresql://scraplify:throwaway@127.0.0.1:5544/scraplify_qa_re npm test
 # trial database in container xtelo-re-test (dropping it later needs the owner's yes; the write guard asks)
 DATABASE_URL=<.../scraplify_qa_p15> npm run db:migrate
-DATABASE_URL=<.../scraplify_qa_p15> npm run crawl:summerschoolsineurope-eu -- --max-pages=2 --max-detail-fetches=10   # smoke
+DATABASE_URL=<.../scraplify_qa_p15> npm run crawl:summerschoolsineurope-eu -- --max-listing-requests=2 --max-detail-fetches=10   # smoke
 DATABASE_URL=<.../scraplify_qa_p15> npm run crawl:summerschoolsineurope-eu                                             # full, about 2.6 h
 DATABASE_URL=<.../scraplify_qa_p15> npm run crawl:eurodesk-eu
 DATABASE_URL=<.../scraplify_qa_p15> npm run dedupe -- --auto-link

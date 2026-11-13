@@ -58,4 +58,15 @@ describe('parseCourseSitemap', () => {
     ]);
     expect(() => parseCourseSitemap('<urlset></urlset>')).toThrow(SummerSchoolsSitemapParseError);
   });
+
+  it('reads a course page whose slug has underscores or percent-encoded letters, as the crawler may fetch it', () => {
+    const urls = [
+      'https://www.summerschoolsineurope.eu/course/summer_school-2027/',
+      'https://www.summerschoolsineurope.eu/course/%d0%bb%d0%b5%d1%82%d0%be/',
+      'https://www.summerschoolsineurope.eu/course/odd.slug/',
+      'https://www.summerschoolsineurope.eu/course/a-b/?p=1',
+    ];
+    const xml = `<urlset>${urls.map((url) => `<url><loc>${url}</loc></url>`).join('')}</urlset>`;
+    expect(parseCourseSitemap(xml).map((entry) => entry.url)).toEqual(urls.slice(0, 2));
+  });
 });

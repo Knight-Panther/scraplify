@@ -1,11 +1,18 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../../db/client.js';
 import { getSourceBackoffUntil } from '../../db/ingest.js';
-import { sourceListingRevisions, sourceListings } from '../../db/schema/index.js';
+import { parserIncidents, sourceListingRevisions, sourceListings } from '../../db/schema/index.js';
 import { cleanupTestSource } from '../../db/test-support.js';
-import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
-import { summerSchoolsEuSource } from '../../policies/summerschoolsineurope-eu.js';
+import {
+  type HttpFetcher,
+  type HttpFetchResult,
+  UrlNotAllowedError,
+} from '../../net/http-fetcher.js';
+import {
+  isSummerSchoolsEuUrlAllowed,
+  summerSchoolsEuSource,
+} from '../../policies/summerschoolsineurope-eu.js';
 import { listingUrl, runSummerSchoolsCrawl } from './crawl.js';
 
 // Every write goes to a disposable source: only the ids and slug change, so
@@ -42,6 +49,8 @@ const PLACES: Record<string, [string, string, string]> = {
   milan: ['italy', 'Italy', 'Milan'],
   tbilisi: ['georgia', 'Georgia', 'Tbilisi'],
   vienna: ['austria', 'Austria', 'Vienna'],
+  // A facet value the allow-list rejects (a space), as a future site change might bring.
+  'st petersburg': ['rus sia', 'Russia', 'St Petersburg'],
 };
 
 interface Course {
@@ -54,6 +63,8 @@ interface Course {
   fee: string;
   /** Sitemap lastmod and JSON-LD dateModified. */
   modified: string;
+  /** The course page's slug, when not `course-<id>`. */
+  slug?: string;
 }
 
 function course(id: number, city: keyof typeof PLACES, over: Partial<Course> = {}): Course {
@@ -70,7 +81,7 @@ function course(id: number, city: keyof typeof PLACES, over: Partial<Course> = {
   };
 }
 
-const slug = (c: Course) => `course-${c.id}`;
+const slug = (c: Course) => c.slug ?? `course-${c.id}`;
 const courseUrl = (c: Course) => `${BASE}/course/${slug(c)}/`;
 
 function facetMarkup(values: Map<string, { label: string; count: number }>): string {
@@ -116,11 +127,15 @@ class FakeSite implements HttpFetcher {
   readonly requested: string[] = [];
   /** Counted by the listing, never shown on a page (as a shuffle can do to an unlucky course). */
   readonly hidden = new Set<string>();
+  /** Course pages that redirect off the allow-list, a hop the real fetcher refuses. */
+  readonly redirectsOff = new Set<string>();
   challenge = false;
   private turn = 0;
   constructor(public courses: Course[]) {}
 
   async fetch(url: string): Promise<HttpFetchResult> {
+    // As the real fetcher does: a URL outside the policy is never sent.
+    if (!isSummerSchoolsEuUrlAllowed(url)) throw new UrlNotAllowedError(url);
     this.requested.push(url);
     if (this.challenge) {
       return {
@@ -136,7 +151,7 @@ class FakeSite implements HttpFetcher {
     if (parsed.pathname === '/sitemap_index.xml') {
       return ok(
         url,
-        `<sitemapindex><sitemap><loc>${BASE}/course-sitemap.xml</loc><lastmod>2026-11-13T09:00:00+00:00</lastmod></sitemap></sitemapindex>`,
+        `<sitemapindex><sitemap><loc>${BASE}/course-sitemap.xml</loc><lastmod>${this.newestChange}</lastmod></sitemap></sitemapindex>`,
       );
     }
     if (parsed.pathname === '/course-sitemap.xml') {
@@ -146,6 +161,9 @@ class FakeSite implements HttpFetcher {
       return ok(url, `<urlset>${urls}</urlset>`);
     }
     const found = this.courses.find((c) => parsed.pathname === `/course/${slug(c)}/`);
+    if (found !== undefined && this.redirectsOff.has(found.id)) {
+      throw new UrlNotAllowedError(`${BASE}/?p=${found.id}`);
+    }
     if (found !== undefined) return ok(url, detailHtml(found));
     return {
       status: 404,
@@ -157,6 +175,16 @@ class FakeSite implements HttpFetcher {
   }
 
   async close(): Promise<void> {}
+
+  /** The index dates a course sitemap by its newest entry, as Yoast does. */
+  private get newestChange(): string {
+    return (
+      this.courses
+        .map((c) => c.modified)
+        .sort()
+        .at(-1) ?? '2026-11-01T00:00:00+00:00'
+    );
+  }
 
   get detailRequests(): string[] {
     return this.requested.filter((url) => url.includes('/course/'));
@@ -330,26 +358,146 @@ describe('runSummerSchoolsCrawl', () => {
     });
   });
 
-  it('a vanished badge keeps the stored deadline', async () => {
+  it('a badge that vanishes after its day keeps the stored deadline, so the course stays expired', async () => {
     const courses = catalogue();
     (courses[0] as Course).deadline = '01 June';
     const site = new FakeSite(courses);
     await run(site, NOW);
     const stored = (await listing('1'))?.sourceDeadlineAt;
 
+    // Two days after 1 June 2027 the badge is gone from the card.
     (courses[0] as Course).deadline = null;
     const before = site.detailRequests.length;
-    await run(site, NOW + DAY_MS);
+    await run(site, Date.parse('2027-06-03T16:10:00.000Z'));
     expect(site.detailRequests.slice(before)).toEqual([]);
+    expect((await listing('1'))?.status).toBe('expired');
 
-    // A page change brings a fetch, and the deadline survives it.
-    (courses[0] as Course).modified = '2026-11-15T08:00:00+00:00';
-    await run(site, NOW + 2 * DAY_MS);
+    // A page change brings a fetch, and the deadline survives it as stored.
+    (courses[0] as Course).modified = '2027-06-04T08:00:00+00:00';
+    await run(site, Date.parse('2027-06-04T16:10:00.000Z'));
     expect((await revision('1'))?.deadlineDate).toEqual({
       raw: '01 June',
       parsed: '2027-06-01T19:59:59.000Z',
     });
     expect((await listing('1'))?.sourceDeadlineAt).toBe(stored);
+    expect((await listing('1'))?.status).toBe('expired');
+  });
+
+  it('a badge removed before its day drops the deadline, and the course stays open', async () => {
+    const courses = catalogue();
+    (courses[0] as Course).deadline = '01 June';
+    const site = new FakeSite(courses);
+    await run(site, NOW);
+
+    (courses[0] as Course).deadline = null;
+    await run(site, NOW + DAY_MS);
+    expect((await listing('1'))?.sourceDeadlineAt).toBeNull();
+    expect((await revision('1'))?.deadlineDate).toEqual({ raw: null, parsed: null });
+    expect((await listing('1'))?.status).toBe('active');
+  });
+
+  it('a page whose only change is its date is read once, not on every later run', async () => {
+    const courses = catalogue();
+    const site = new FakeSite(courses);
+    await run(site, NOW);
+
+    (courses[3] as Course).modified = '2026-11-14T08:00:00+00:00';
+    let before = site.detailRequests.length;
+    await run(site, NOW + DAY_MS);
+    expect(site.detailRequests.slice(before)).toEqual([courseUrl(courses[3] as Course)]);
+
+    before = site.detailRequests.length;
+    const third = await run(site, NOW + 2 * DAY_MS);
+    expect(site.detailRequests.slice(before)).toEqual([]);
+    expect(third.stats.fetchedSitemapChanged).toBe(0);
+  });
+
+  it('a page read within two hours of its change is read once more, as the page cache may have served the old one', async () => {
+    const courses = catalogue();
+    const site = new FakeSite(courses);
+    await run(site, NOW);
+
+    // Changed 40 minutes before the next run reads it.
+    (courses[3] as Course).modified = '2026-11-14T15:30:00+00:00';
+    const reads: string[][] = [];
+    for (let day = 1; day <= 3; day++) {
+      const before = site.detailRequests.length;
+      await run(site, NOW + day * DAY_MS);
+      reads.push(site.detailRequests.slice(before));
+    }
+    expect(reads).toEqual([
+      [courseUrl(courses[3] as Course)],
+      [courseUrl(courses[3] as Course)],
+      [],
+    ]);
+  });
+
+  it('a course page the policy rejects fails alone, with an incident, and the run goes on', async () => {
+    const courses = catalogue();
+    courses.push(course(31, 'pisa', { slug: 'odd.slug' }));
+    const site = new FakeSite(courses);
+    const { crawlRun, stats } = await run(site, NOW);
+
+    expect(crawlRun.status).toBe('completed');
+    expect(crawlRun.failedCount).toBe(1);
+    expect(stats.coursesSeen).toBe(31);
+    expect(stats.refusedUrls).toBe(1);
+    expect(site.detailRequests).toHaveLength(30);
+    expect((await listing('31'))?.currentRevisionId).toBeNull();
+    expect((await listing('30'))?.currentRevisionId).not.toBeNull();
+    const incidents = await db
+      .select()
+      .from(parserIncidents)
+      .where(eq(parserIncidents.sourceId, summerSchoolsEuSource.id));
+    expect(incidents.map((incident) => incident.evidence)).toContainEqual(
+      expect.objectContaining({ reason: 'url_not_allowed', url: `${BASE}/course/odd.slug/` }),
+    );
+  });
+
+  it('a course page that redirects off the allow-list fails alone, and the run goes on', async () => {
+    const site = new FakeSite(catalogue());
+    site.redirectsOff.add('5');
+    const { crawlRun } = await run(site, NOW);
+
+    expect(crawlRun.status).toBe('completed');
+    expect(crawlRun.failedCount).toBe(1);
+    expect(site.detailRequests).toHaveLength(30);
+    expect((await listing('5'))?.currentRevisionId).toBeNull();
+    expect((await listing('6'))?.currentRevisionId).not.toBeNull();
+  });
+
+  it('a facet value the policy rejects leaves its courses unseen, the run partial, and the rest read', async () => {
+    const courses = catalogue();
+    // Ten courses only the refused city and country values reach, beyond
+    // the root's page 1; forty in all, too many for the root to be asked again.
+    for (let n = 31; n <= 40; n++) courses.push(course(n, 'st petersburg'));
+    const site = new FakeSite(courses);
+    const { crawlRun, stats } = await run(site, NOW);
+
+    expect(crawlRun.status).toBe('partial');
+    expect(stats.rootTotal).toBe(40);
+    expect(stats.uncovered).toBeGreaterThan(0);
+    expect(stats.coursesSeen).toBe(40 - stats.uncovered);
+    const read = await db
+      .select({ id: sourceListings.sourceRecordId })
+      .from(sourceListings)
+      .where(
+        and(
+          eq(sourceListings.sourceId, summerSchoolsEuSource.id),
+          isNotNull(sourceListings.currentRevisionId),
+        ),
+      );
+    expect(read.map((row) => row.id)).toEqual(expect.arrayContaining(catalogue().map((c) => c.id)));
+    const incidents = await db
+      .select()
+      .from(parserIncidents)
+      .where(eq(parserIncidents.sourceId, summerSchoolsEuSource.id));
+    expect(incidents.map((incident) => incident.evidence)).toContainEqual(
+      expect.objectContaining({ reason: 'facet_value_not_allowed', value: 'st petersburg' }),
+    );
+    expect(incidents.map((incident) => incident.evidence)).toContainEqual(
+      expect.objectContaining({ reason: 'facet_value_not_allowed', value: 'rus sia' }),
+    );
   });
 
   it('a started course closes by date without a request, and stays closed while the site still lists it', async () => {

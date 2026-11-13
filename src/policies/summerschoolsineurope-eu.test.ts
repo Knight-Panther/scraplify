@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { etendersGeSource, hrGeSource, jobsGeSource, sourcePolicies, ssGeSource } from './index.js';
 import {
+  isListingFacetValueAllowed,
   isSummerSchoolsEuUrlAllowed,
   summerSchoolsEuPolicy,
   summerSchoolsEuSource,
@@ -83,6 +84,31 @@ describe('isSummerSchoolsEuUrlAllowed', () => {
     expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course/mindfulness/?p=1`)).toBe(false);
     expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course/a/b/`)).toBe(false);
     expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course/Upper-Case/`)).toBe(false);
+  });
+
+  it('allows the slug characters WordPress makes: underscores and percent-encoded letters', () => {
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course/summer_school-2027/`)).toBe(true);
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course/%d0%bb%d0%b5%d1%82%d0%be-2027/`)).toBe(true);
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course/%D0%BB%D0%B5/`)).toBe(true);
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course/odd.slug/`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course/bad%zz/`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/course//`)).toBe(false);
+  });
+
+  it('allows the facet values FacetWP makes (lower case, digits, dot, hyphen, underscore), nothing else', () => {
+    expect(isListingFacetValueAllowed('italy')).toBe(true);
+    expect(isListingFacetValueAllowed('01_january')).toBe(true);
+    expect(isListingFacetValueAllowed('short-0.5-1-week')).toBe(true);
+    expect(isListingFacetValueAllowed('d41d8cd98f00b204e9800998ecf8427e')).toBe(true);
+    expect(isListingFacetValueAllowed('st petersburg')).toBe(false);
+    expect(isListingFacetValueAllowed('Italy')).toBe(false);
+    expect(isListingFacetValueAllowed('a,b')).toBe(false);
+    expect(isListingFacetValueAllowed('')).toBe(false);
+    expect(
+      isSummerSchoolsEuUrlAllowed(
+        `${BASE}/courses/?_course_status=future&_course_duration=short-0.5-1-week`,
+      ),
+    ).toBe(true);
   });
 
   it('allows the sitemap index and the course sitemaps, no other sitemap', () => {

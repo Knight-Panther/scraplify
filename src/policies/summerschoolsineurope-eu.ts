@@ -67,7 +67,7 @@ export const summerSchoolsEuPolicy = SourcePolicySchema.parse({
     notes:
       "Disabled (§16). The organiser's registration link is stored as published and shown as a link; it is never fetched.",
   },
-  reviewDate: '2026-11-13T00:00:00Z',
+  reviewDate: '2026-11-13T12:00:00Z',
   evidence: [
     'https://www.summerschoolsineurope.eu/robots.txt (read 2026-11-09 and again 2026-11-13: `User-agent: *` with an empty Disallow and `Crawl-delay: 15`; GPTBot, ChatGPT-User, Google-Extended, ClaudeBot, PerplexityBot and CCBot are turned away by name, all AI-training or AI-assistant crawlers; this crawler is neither)',
     'https://www.summerschoolsineurope.eu/wp-json/wp/v2/course (2026-11-09: HTTP 401; not used)',
@@ -75,12 +75,17 @@ export const summerSchoolsEuPolicy = SourcePolicySchema.parse({
     'src/adapters/summerschoolsineurope-eu/RECON_NOTES.md (recon and fixture capture, 2026-11-13)',
   ],
   notes:
-    'Terms not reviewed yet: the terms and disclaimer pages render their text in the browser (2026-11-09), and no permission has been asked of the site (docs/RIGHTS.md). Only upcoming courses are taken (owner, 2026-11-09). Membership comes from the course listing, change detection from the course sitemaps; a course closes when it starts, when its registration deadline passes, or when it is missing from three complete walks in a row.',
+    'Terms not reviewed: the terms and disclaimer pages render their text in the browser (2026-11-09). No permission is needed from the site (owner, 2026-11-13; docs/RIGHTS.md). Only upcoming courses are taken (owner, 2026-11-09). Membership comes from the course listing, change detection from the course sitemaps; a course closes when it starts, when its registration deadline passes, or when it is missing from three complete walks in a row.',
   decisionOwner: 'project owner',
 });
 
 const LISTING_PATH = '/courses/';
-const DETAIL_PATH_RE = /^\/course\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/;
+/**
+ * A course page, `/course/<slug>/`, its slug as WordPress makes one: lower
+ * case letters, digits, `-` and `_`, and percent-encoded bytes for a letter
+ * it cannot spell in ASCII. The sitemap reader keeps to the same shape.
+ */
+export const COURSE_PAGE_PATH_RE = /^\/course\/(?:[a-z0-9_-]|%[0-9a-fA-F]{2})+\/$/;
 const SITEMAP_INDEX_PATH = '/sitemap_index.xml';
 const COURSE_SITEMAP_RE = /^\/course-sitemap(?:[1-9][0-9]?)?\.xml$/;
 
@@ -100,16 +105,26 @@ export const LISTING_SPLIT_FACETS = [
   'course_discipline',
 ] as const;
 export type ListingSplitFacet = (typeof LISTING_SPLIT_FACETS)[number];
-/** A FacetWP choice value as the site makes them: `italy`, `01_january`, `short-0-1-week`. */
-const FACET_VALUE_RE = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
+/**
+ * A FacetWP choice value as the site makes them (`italy`, `01_january`,
+ * `short-0-1-week`): FacetWP lower-cases a value and keeps letters, digits,
+ * `.`, `-` and `_`, and stores anything else as an MD5 hex digest, so a
+ * value never holds the comma that separates OR-ed values.
+ */
+const FACET_VALUE_RE = /^[a-z0-9._-]+$/;
 const MAX_FACET_VALUES = 100;
+
+/** Whether the covering walk may ask for this facet value (one value, not a list). */
+export function isListingFacetValueAllowed(value: string): boolean {
+  return FACET_VALUE_RE.test(value);
+}
 
 function facetValuesAllowed(raw: string): boolean {
   const values = raw.split(',');
   return (
     values.length >= 1 &&
     values.length <= MAX_FACET_VALUES &&
-    values.every((value) => FACET_VALUE_RE.test(value))
+    values.every(isListingFacetValueAllowed)
   );
 }
 
@@ -119,7 +134,7 @@ function facetValuesAllowed(raw: string): boolean {
  *     of the split facets (`_course_country`, `_course_city`,
  *     `_course_starting`, `_course_duration`, `_course_discipline`) holding a
  *     comma-separated list of slug values;
- *   - '/course/<slug>/' with no query (a lower-case slug, as the site makes them);
+ *   - '/course/<slug>/' with no query (a WordPress slug, `COURSE_PAGE_PATH_RE`);
  *   - '/sitemap_index.xml' and '/course-sitemap<n>.xml' with no query.
  * Everything else is rejected: other hosts, schemes and ports, the REST API,
  * the admin and login, paging, other facets and search, fragments.
@@ -148,7 +163,7 @@ export function isSummerSchoolsEuUrlAllowed(url: string): boolean {
   }
   if (parsed.search !== '') return false;
   return (
-    DETAIL_PATH_RE.test(parsed.pathname) ||
+    COURSE_PAGE_PATH_RE.test(parsed.pathname) ||
     parsed.pathname === SITEMAP_INDEX_PATH ||
     COURSE_SITEMAP_RE.test(parsed.pathname)
   );

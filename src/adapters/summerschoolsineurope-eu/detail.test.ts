@@ -110,6 +110,20 @@ describe('parseCoursePage', () => {
     });
   });
 
+  it('keeps a deadline carried from an earlier read as it was, without resolving its year again', () => {
+    const content = parse('detail-72548-card-deadline-only.html', '72548', {
+      card: {
+        deadlineRaw: '30 November',
+        deadlineParsed: '2025-11-30T19:59:59.000Z',
+        online: false,
+      },
+    });
+    expect(content.deadlineDate).toEqual({
+      raw: '30 November',
+      parsed: '2025-11-30T19:59:59.000Z',
+    });
+  });
+
   it("reads the site's own form, the school's link, fee options and an unknown discipline slug", () => {
     const content = parse('detail-63043-interested-form-fee-options.html', '63043', {
       disciplineSlugs: new Map(),

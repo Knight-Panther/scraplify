@@ -76,8 +76,12 @@ export interface ParseCoursePageInput {
   html: string;
   /** The card's post id; the page must be that post. */
   expectedPostId: string;
-  /** Facts only the listing card carries. */
-  card: { deadlineRaw: string | null; online: boolean };
+  /**
+   * Facts only the listing card carries. `deadlineParsed` is a deadline
+   * carried from an earlier read (a badge gone after its day), kept as it
+   * was instead of resolved again against dates that may have moved.
+   */
+  card: { deadlineRaw: string | null; online: boolean; deadlineParsed?: string };
   /** Discipline name → the listing facet's value, from the walk's `course_discipline` choices. */
   disciplineSlugs?: ReadonlyMap<string, string>;
   extractionMethod: SourceListingRevisionContent['extractionMethod'];
@@ -433,7 +437,9 @@ export function parseCoursePage(input: ParseCoursePageInput): SourceListingRevis
   const sourceCategories = disciplines.map((discipline) => discipline.name);
   const deadlineDate = {
     raw: input.card.deadlineRaw,
-    parsed: resolvedDeadline === null ? null : deadlineInstant(resolvedDeadline),
+    parsed:
+      input.card.deadlineParsed ??
+      (resolvedDeadline === null ? null : deadlineInstant(resolvedDeadline)),
   };
   const publishedDate = { raw: dates.published, parsed: instant(dates.published) };
   const { modifiedAt: _modifiedAt, ...meaningfulAttributes } = attributes;
