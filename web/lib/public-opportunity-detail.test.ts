@@ -70,6 +70,7 @@ describe('toPublicDetail', () => {
         'comparison',
         'crossPosted',
         'descriptions',
+        'excerpts',
         'extras',
         'grouped',
         'opportunityId',

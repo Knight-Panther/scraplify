@@ -71,7 +71,7 @@ export const metadata = { title: 'Opportunities · Xtelo' };
 const SORT_LABELS: Record<(typeof SORTS)[number], { label: string; hint: string }> = {
   recent: {
     label: 'newest first',
-    hint: 'By when the vacancy first appeared on any source — not by when this record was last touched.',
+    hint: 'By when it first appeared on any source — not by when this record was last touched.',
   },
   deadline: { label: 'closing soonest', hint: 'By the latest deadline any source states.' },
   title: { label: 'by title', hint: 'Alphabetical.' },
@@ -219,7 +219,8 @@ export default async function OpportunitiesPage({
                 Browse
               </h1>
               <p className="mt-2 max-w-[var(--measure)] text-sm text-faint">
-                One row per vacancy or tender, with every board that carries it.
+                One row per vacancy, tender, course or other opportunity, with every source that
+                carries it.
               </p>
             </div>
           }
@@ -526,8 +527,14 @@ function SourceLinks({ row }: { row: OpportunityRow }) {
             aria-label={`${row.title} on ${sourceLabel(source.sourceSlug)}${
               differs ? `, ${listingStatusLabel(source.status).short} on this board` : ''
             } (opens in a new tab)`}
-            title={differs ? listingStatusLabel(source.status).explanation : undefined}
-            className="numeric rounded-full border border-border-control px-2.5 py-1 text-xs text-muted hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+            // A long source name (summerschoolsineurope.eu) has no break
+            // point: it ends in an ellipsis inside its column, named in full here.
+            title={
+              differs
+                ? listingStatusLabel(source.status).explanation
+                : sourceLabel(source.sourceSlug)
+            }
+            className="numeric min-w-0 max-w-full truncate rounded-full border border-border-control px-2.5 py-1 text-xs text-muted hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
           >
             {sourceLabel(source.sourceSlug)}
             {differs && ` · ${listingStatusLabel(source.status).short}`}

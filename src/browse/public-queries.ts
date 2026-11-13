@@ -1,4 +1,4 @@
-import { type AnyColumn, and, eq, gte, inArray, lte, type SQL, sql } from 'drizzle-orm';
+import { type AnyColumn, and, eq, gte, inArray, lte, notInArray, type SQL, sql } from 'drizzle-orm';
 import {
   publicOpportunities,
   publicOpportunityMembers,
@@ -363,6 +363,14 @@ function publicOpportunityConditions(filters: SearchOpportunitiesFilters): SQL[]
       inArray(
         publicOpportunities.type,
         filters.types as unknown as (typeof publicOpportunities.type.enumValues)[number][],
+      ),
+    );
+  }
+  if (filters.excludeTypes !== undefined && filters.excludeTypes.length > 0) {
+    conditions.push(
+      notInArray(
+        publicOpportunities.type,
+        filters.excludeTypes as unknown as (typeof publicOpportunities.type.enumValues)[number][],
       ),
     );
   }

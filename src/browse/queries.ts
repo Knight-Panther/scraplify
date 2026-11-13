@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, notInArray, type SQL, sql } from 'drizzle-orm';
 import {
   crawlRuns,
   duplicateCandidates,
@@ -238,6 +238,12 @@ export interface SearchOpportunitiesFilters {
   statuses?: readonly string[] | undefined;
   /** §12.3 opportunity types (job, tender, …); omitted means every type. */
   types?: readonly string[] | undefined;
+  /**
+   * Types left out, after `types`: the landing page's count and newest panel
+   * pass the programme kinds, so its "open vacancies and tenders" stays true
+   * to its words (Phase 15B). Browse does not pass it.
+   */
+  excludeTypes?: readonly string[] | undefined;
   /** Has at least one LIVE member from this source. */
   sourceSlug?: string | undefined;
   /** Only clusters with more than one live member — the cross-posted ones. */
@@ -352,6 +358,14 @@ function opportunityConditions(filters: SearchOpportunitiesFilters): SQL[] {
   if (filters.types !== undefined && filters.types.length > 0) {
     conditions.push(
       inArray(opportunities.type, filters.types as unknown as typeof opportunities.type.enumValues),
+    );
+  }
+  if (filters.excludeTypes !== undefined && filters.excludeTypes.length > 0) {
+    conditions.push(
+      notInArray(
+        opportunities.type,
+        filters.excludeTypes as unknown as typeof opportunities.type.enumValues,
+      ),
     );
   }
   if (filters.sourceSlug !== undefined) {

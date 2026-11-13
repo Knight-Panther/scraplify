@@ -19,6 +19,10 @@ export const OpportunityType = z.enum([
   'grant',
   'event',
   'tender',
+  // Programme kinds a source declares (Phase 15B; src/dedupe/programme-kind.ts).
+  'internship',
+  'volunteering',
+  'competition',
 ]);
 export type OpportunityType = z.infer<typeof OpportunityType>;
 

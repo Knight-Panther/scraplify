@@ -23,7 +23,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. Order: 15A,
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
 | ✅ | **15A** | Summer-school crawler, typing by source, local trial | no | done 2026-11-13: trial passed, merged as `aa0d9f5` (PR #105) |
-| ❌ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | 15A |
+| ⏳ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | 15A (built ahead on a stacked branch, PR #106) |
 | ❌ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | 15B |
 | ❌ | **15D** | Eurodesk crawler (visitor session), local trial | no | 15B |
 | ❌ | **15E** | The bilingual Programmes tab, designed against both data sets | yes | 15C live, 15D's trial data |
@@ -322,6 +322,15 @@ Exit gate:
 
 Changed (2026-11-13): the migration is `0054`, not `0052`, since Phase 14 took `0052` and `0053` after this plan was written.
 
+Changed (2026-11-13, building; branch `phase-15b-kinds`, stacked on 15A as draft PR #106 while 15A's trial finishes):
+- **The Georgian labels show nowhere yet:** Browse and the detail pages are English-only and the landing page leaves the programme kinds out, so `kindLabel`'s Georgian first appears on 15E's bilingual tab (the owner's heads-up, confirmed).
+- **The landing page's links carry `type=job&type=tender`,** like its count and newest panel, so "See all N" opens N rows; Browse itself still lists every kind.
+- **Dates and fees in the source's words** (`whenRaw`, `fee.raw`), so `plainDate` and `plainDateRange` were not needed; the early-bird day uses the existing date cell.
+- **Format folds into Place** ("Online"): the source says only online or nothing, so a Format row would only ever read "Online".
+- **"Ongoing" / "not open yet" and a For-whom row wait for 15D,** whose Eurodesk data carries them; a course is always open and states no audience.
+- **The excerpt section ("In short") shows only where a source's full text is blank,** that is on public; the local screen keeps the full text.
+- **Found in browser QA:** the comparison heading says "What the source states" on a programme, and a long source name ends in an ellipsis inside Browse's Boards column instead of spilling out.
+
 Add:
 - `drizzle/migrations/0054_*.sql`: three `ALTER TYPE … ADD VALUE` lines and nothing else (precedents 0038, 0044). The migration-safety-reviewer agent reads it.
 - `web/lib/kind-labels.ts` (+ test): `kindLabel(type, locale)`.
@@ -353,9 +362,9 @@ Change:
 Tests: 'a job board cannot declare a kind through its attributes'; 'a reviewer cannot put a course into a vacancy'; 'an internship never reaches the CV bundle'; 'a course has no Pay row'; 'a missing deadline reads not stated'; 'a fee is shown as the source wrote it'; 'excludeTypes leaves programme kinds out and the count agrees'; the new Kind order; 'every enum value has an English and a Georgian label'.
 
 Exit gate:
-- [ ] 0054 applied to the test and trial databases; the agent's review has no P0 or P1.
+- [x] 0054 applied to the test and trial databases; the agent's review has no P0 or P1 (2026-11-13).
 - [ ] Tests green in CI.
-- [ ] Browser QA on the trial database, local and public surfaces, 390 and 1280: Browse with courses tagged among vacancies; Kind = course / school; the long board chip with no overflow; a course page with a register link and one without. No console errors.
+- [x] Browser QA on the trial database, local and public surfaces, 390 and 1280: Browse with courses tagged among vacancies; Kind = course / school; the long board chip with no overflow; a course page with a register link and one without. No console errors. (2026-11-13; the trial holds courses only, so "among vacancies" is covered by the unit tests and the tag on mixed lists already shipped for tenders.)
 - [x] The owner has read the Georgian kind labels (2026-11-13; two changed, above).
 
 ### 15C: hosted rollout of the summer-school source

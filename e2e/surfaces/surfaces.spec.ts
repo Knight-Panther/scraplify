@@ -177,7 +177,7 @@ test.describe('XTELO_SURFACE=public', () => {
     const reply = await get('public', `/opportunities/${UNKNOWN_OPPORTUNITY}`);
     expect(reply.status).toBe(404);
     const html = reply.body.toString();
-    expect(html).toContain('This vacancy or tender is no longer listed');
+    expect(html).toContain('This listing is no longer shown');
     // Streamed after <head> (Next's streaming metadata), so not a literal <title> tag here.
     expect(html).toContain('No longer listed · Xtelo');
     expect(html).not.toContain('No such opportunity');

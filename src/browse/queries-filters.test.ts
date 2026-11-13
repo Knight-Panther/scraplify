@@ -15,6 +15,8 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../db/test-support.js';
+import { PROGRAMME_KINDS } from '../dedupe/programme-kind.js';
+import type { OpportunityType } from '../domain/opportunity.js';
 import {
   countListings,
   countOpportunities,
@@ -94,7 +96,7 @@ describe('opportunity filters, counts and ordering', () => {
     firstSeenAt?: string;
     /** Per-member first-seen, for the case where the members disagree. */
     firstSeenAts?: readonly string[];
-    type?: 'job' | 'tender';
+    type?: OpportunityType;
   }): Promise<{ opportunityId: string; listingIds: string[]; slugs: string[] }> {
     const created: string[] = [];
     const slugs: string[] = [];
@@ -412,6 +414,23 @@ describe('opportunity filters, counts and ordering', () => {
     expect(await countOpportunities(db, { text: marker })).toBe(2);
     expect(await countOpportunities(db, { text: marker, types: ['tender'] })).toBe(1);
     expect(await countOpportunities(db, { text: marker, types: ['job'] })).toBe(1);
+  });
+
+  it('excludeTypes leaves programme kinds out and the count agrees', async () => {
+    const marker = `Exclude kinds ${randomUUID().slice(0, 8)}`;
+    await makeCluster({ title: `${marker} vacancy`, sourceCount: 1 });
+    await makeCluster({ title: `${marker} tender`, sourceCount: 1, type: 'tender' });
+    await makeCluster({ title: `${marker} course`, sourceCount: 1, type: 'summer_school' });
+    await makeCluster({ title: `${marker} internship`, sourceCount: 1, type: 'internship' });
+
+    const filters = { text: marker, excludeTypes: PROGRAMME_KINDS };
+    const rows = await searchOpportunities(db, { ...filters, sort: 'title' });
+    expect(rows.map((row) => row.canonicalTitle)).toEqual([
+      `${marker} tender`,
+      `${marker} vacancy`,
+    ]);
+    expect(await countOpportunities(db, filters)).toBe(2);
+    expect(await countOpportunities(db, { text: marker })).toBe(4);
   });
 
   it('orders by when a vacancy first appeared, not by updatedAt', async () => {

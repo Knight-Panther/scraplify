@@ -8,6 +8,7 @@ import {
   type ComparisonRow,
   column,
   comparisonRows,
+  excerpts,
   experienceField,
   extraFields,
 } from './opportunity-detail.js';
@@ -51,6 +52,8 @@ export interface PublicOpportunityDetail {
    * needed because the two cases render identically to a visitor either way.
    */
   descriptions: BoardDescription[];
+  /** See `OpportunityDetail.excerpts`. */
+  excerpts: BoardDescription[];
   extras: BoardExtras[];
   crossPosted: boolean;
   grouped: boolean;
@@ -84,6 +87,7 @@ export function toPublicDetail(view: PublicOpportunityDetailView): PublicOpportu
     descriptions: members
       .filter((member) => member.description.trim() !== '')
       .map((member) => ({ column: column(member), text: member.description })),
+    excerpts: excerpts(members),
     extras,
     crossPosted: new Set(members.map((member) => member.sourceSlug)).size > 1,
     grouped: members.length > 1,

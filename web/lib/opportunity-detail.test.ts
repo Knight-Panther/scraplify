@@ -805,3 +805,131 @@ describe('toDetail — a tender', () => {
     expect(detail.comparison.map((entry) => entry.label)).toContain('Employer');
   });
 });
+
+describe('toDetail — a course', () => {
+  /**
+   * The shape the summerschoolsineurope.eu parser stores
+   * (`src/adapters/summerschoolsineurope-eu/detail.ts`), from its fixture of
+   * course 48834, trimmed to what the screen reads.
+   */
+  function courseMember(attributes: Record<string, unknown> = {}, overrides = {}) {
+    return member({
+      sourceSlug: 'summerschoolsineurope-eu',
+      canonicalUrl: 'https://www.summerschoolsineurope.eu/course/mindfulness-and-compassion-2/',
+      title: 'Mindfulness and Compassion',
+      organization: 'Leiden University',
+      publishedAt: '2024-10-01T00:00:00.000Z',
+      deadlineAt: null,
+      locations: ['Leiden, Netherlands'],
+      salaryRaw: null,
+      applicationMethod: { type: 'url', value: 'https://www.universiteitleiden.nl/register' },
+      structuredAttributes: {
+        kind: 'programme',
+        opportunityKind: 'summer_school',
+        excerpt: 'An introduction to mindfulness and compassion.',
+        whenRaw: '05 July - 16 July 2027',
+        startDate: '2027-07-05',
+        endDate: '2027-07-16',
+        institution: 'Leiden University',
+        format: null,
+        language: 'English',
+        credits: { amount: 6, unit: 'EC' },
+        fee: { amount: 1850, currency: 'EUR', raw: '1850 EUR' },
+        feeOptions: [
+          { amount: 1850, currency: 'EUR', label: 'Student' },
+          { amount: 2200, currency: 'EUR', label: 'Professional' },
+        ],
+        earlyBirdDeadline: '2027-02-07',
+        disciplines: [
+          { slug: 'social-sciences', name: 'Social Sciences' },
+          { slug: 'psychology', name: 'Psychology' },
+        ],
+        ...attributes,
+      },
+      ...overrides,
+    });
+  }
+
+  function courseView(members: OpportunityMemberDetail[]) {
+    return {
+      ...view(members),
+      type: 'summer_school',
+      canonicalTitle: 'Mindfulness and Compassion',
+    };
+  }
+
+  it('a course has no Pay row and no Posted row, and its rows are a learner’s', () => {
+    const detail = toDetail(courseView([courseMember()]));
+    expect(detail.comparison.map((entry) => entry.label)).toEqual([
+      'Title',
+      'Organiser',
+      'Institution',
+      'State',
+      'Dates',
+      'Place',
+      'Language',
+      'Credits',
+      'Fee',
+      'Fee options',
+      'Registration deadline',
+      'Early-bird deadline',
+      'Category',
+    ]);
+  });
+
+  it('a missing deadline reads not stated rather than dropping the row', () => {
+    const deadline = row(toDetail(courseView([courseMember()])), 'deadline');
+    expect(deadline?.cells).toEqual([null]);
+    const dated = row(
+      toDetail(courseView([courseMember({}, { deadlineAt: '2027-06-01T19:59:59.000Z' })])),
+      'deadline',
+    );
+    expect(dated?.cells).toEqual([{ kind: 'date', iso: '2027-06-01T19:59:59.000Z' }]);
+  });
+
+  it('a fee is shown as the source wrote it, with its options, and the dates in its own words', () => {
+    const detail = toDetail(courseView([courseMember()]));
+    expect(row(detail, 'fee')?.cells).toEqual([{ kind: 'text', value: '1850 EUR' }]);
+    expect(row(detail, 'feeOptions')?.cells).toEqual([
+      { kind: 'text', value: 'Student 1,850 EUR · Professional 2,200 EUR' },
+    ]);
+    expect(row(detail, 'dates')?.cells).toEqual([
+      { kind: 'text', value: '05 July - 16 July 2027' },
+    ]);
+    expect(row(detail, 'credits')?.cells).toEqual([{ kind: 'text', value: '6 EC' }]);
+    expect(row(detail, 'category')?.cells).toEqual([
+      { kind: 'text', value: 'Social Sciences, Psychology' },
+    ]);
+  });
+
+  it('an online course says so in place of a place, and a single fee has no options row', () => {
+    const detail = toDetail(
+      courseView([
+        courseMember(
+          { format: 'online', feeOptions: [{ amount: 1850, currency: 'EUR', label: 'Student' }] },
+          { locations: [] },
+        ),
+      ]),
+    );
+    expect(row(detail, 'place')?.cells).toEqual([{ kind: 'text', value: 'Online' }]);
+    expect(row(detail, 'feeOptions')).toBeUndefined();
+  });
+});
+
+describe('toDetail — an excerpt where the full text is not shown', () => {
+  it('shows a source’s excerpt only where its full text is blank', () => {
+    const blank = member({
+      sourceSlug: 'summerschoolsineurope-eu',
+      description: '',
+      structuredAttributes: { kind: 'programme', excerpt: 'An introduction to mindfulness.' },
+    });
+    const full = member({ structuredAttributes: { excerpt: 'Never shown beside its full text.' } });
+    const detail = toDetail({ ...view([blank, full]), type: 'summer_school' });
+    expect(detail.excerpts).toEqual([
+      {
+        column: expect.objectContaining({ sourceSlug: 'summerschoolsineurope-eu' }),
+        text: 'An introduction to mindfulness.',
+      },
+    ]);
+  });
+});
