@@ -53,7 +53,7 @@ Every open item, what it waits on, and when it is next touched. Times are UTC (T
 | ❌ | Backlog: 7B supervised repair; the 1C remainder | — | "Upcoming" at the end |
 <!-- board:end -->
 
-## Current phase: Phase 14 — where a listing is: ss.ge's places, Tbilisi's official map, location quality (14A live 2026-11-07 and its morning-after check passed; 14B live 2026-11-08 and its first nightly refresh passed 2026-11-09; 14C live since 2026-11-10 15:34 UTC, recheck about 2026-11-14; 14D merged 2026-11-12 as `3c383a1`, reviewed by Hermes, its deploy owed)
+## Current phase: Phase 14 — where a listing is: ss.ge's places, Tbilisi's official map, location quality (14A live 2026-11-07 and its morning-after check passed; 14B live 2026-11-08 and its first nightly refresh passed 2026-11-09; 14C live since 2026-11-10 15:34 UTC, recheck about 2026-11-14; 14D live since 2026-11-13 06:18 UTC as `5c153c3`, with C6 lookup v3)
 
 Owner decisions 2026-11-06, so Hermes can tell flats apart down to the street and building, knows Tbilisi's official districts, uses metro distance, and never repeats a place the data contradicts:
 
