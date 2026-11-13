@@ -17,7 +17,7 @@ export DEBIAN_FRONTEND=noninteractive
 echo "== apt baseline"
 apt-get update -q
 apt-get -y -q upgrade
-apt-get -y -q install ca-certificates curl gnupg git openssl ufw \
+apt-get -y -q install ca-certificates curl gnupg git jq openssl ufw \
   debian-keyring debian-archive-keyring apt-transport-https postgresql-common
 
 echo "== rclone, the official build: Ubuntu's 1.60 stores each R2 upload, then fails it with a 501"

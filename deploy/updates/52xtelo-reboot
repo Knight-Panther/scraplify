@@ -1,0 +1,8 @@
+// Installed as /etc/apt/apt.conf.d/52xtelo-reboot by deploy/updates/install.sh.
+// Reboot right after an update that needs it (a kernel, libc): the updates run
+// only in a quiet hour (xtelo-update-guard), so nothing is in flight. Without
+// this the host ran kernel 6.8.0-142 from 2026-09-29 to 2026-11-13 with three
+// newer ones installed.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "now";

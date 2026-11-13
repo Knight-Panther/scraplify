@@ -53,7 +53,8 @@ describe('matchKeys', () => {
   });
 });
 
-describe('the place catalogue (Phase 14B)', () => {
+// Every test here queries the database; the C6 lookups take about 5 s on CI's.
+describe('the place catalogue (Phase 14B)', { timeout: 20_000 }, () => {
   const sourceIds: string[] = [];
   let nextKey = 1;
 

@@ -41,6 +41,9 @@ missing key fails fast instead of hanging on a prompt.
    printf 'copied off host in last 36h: '; sudo -n journalctl -u xtelo-backup --since -36h --no-pager -o cat | grep -c 'Copied off the host'
    echo "== health-check";    sudo -n /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/health-check.js 2>&1 | tail -15; echo "exit=${PIPESTATUS[0]}"
    echo "== disk/mem";        df -h / | tail -1; free -m | sed -n 2p
+   echo "== security updates (last completed run | reboot owed since | guard's last word)"
+   printf '%s | %s | ' "$(date -u -r /var/lib/apt/periodic/upgrade-stamp '+%F %H:%M' 2>/dev/null || echo never)" "$(date -u -r /var/run/reboot-required '+%F %H:%M' 2>/dev/null || echo no)"
+   sudo -n journalctl -u apt-daily-upgrade --since -2d --no-pager -o cat 2>/dev/null | grep 'xtelo-update-guard' | tail -1
    echo "== ss.ge tunnel (listeners held by the laptop)"; ss -ltn | grep -oE '127\.0\.0\.1:(18888|2222) ' | paste -sd' '
    echo "== ss.ge run unit";  systemctl show xtelo-realestate@ss-ge -p ActiveState -p Result -p ExecMainStatus -p ExecMainExitTimestamp | paste -sd' '
    q() { sudo -n -u postgres psql -X -qAt -F ' | ' -d scraplify -v ON_ERROR_STOP=1 -c 'set default_transaction_read_only = on' -c 'set role scraplify_backup' -c "$1"; }
@@ -77,7 +80,7 @@ missing key fails fast instead of hanging on a prompt.
    each. Rows: release (short sha), services, failed units, running jobs,
    next pipeline run, each source's last pipeline result and last crawl run,
    backup, health-check exit, unlinked listings, open parser incidents, disk
-   and memory, ss.ge tunnel and last ss.ge run, real-estate archive, daily totals, place tree, place catalogue, listing locations, probe. Then one verdict line,
+   and memory, security updates, ss.ge tunnel and last ss.ge run, real-estate archive, daily totals, place tree, place catalogue, listing locations, probe. Then one verdict line,
    and a short "needs attention" list if anything is ⚠️ or ❌.
 
    How to read the signals:
@@ -89,6 +92,9 @@ missing key fails fast instead of hanging on a prompt.
      whether their count grew since the latest run, if the evidence shows it.
    - No "Copied off the host" in the last 36 h means the nightly off-host
      backup did not land: ❌.
+   - Security updates (RUNBOOK §2 step 0): a last completed run more than
+     three days old, or a reboot owed for more than a day, is ⚠️ with the guard's
+     last word as evidence (it names what kept the hour busy).
    - A pipeline or backup `Result` other than `success` is ❌. If its timestamp
      is older than the latest successful run, it is history, not current state.
    - ss.ge leaves through the owner's laptop in Tbilisi (RUNBOOK §3 step 9).
