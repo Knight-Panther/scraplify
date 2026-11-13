@@ -65,6 +65,11 @@ Plan, item by item, with the owner's eight decisions and every measurement: [`PH
   - [x] Measurements recorded (`PHASE_15_PLAN.md`, 15A, "Measured in the trial"); the "only for" count is in front of the owner (2026-11-13: "only for" 6, "exclusively" 2, "EU/EEA" 60, "students of" 45, "enrolled at" 8, in 625 course texts).
   - [x] Dedupe cost recorded: 7.6 s for the 625 courses, 8,675 pairs compared, 0 candidates; the largest organiser block is UCL Summer School (66). Under 30 s, so 15B skips nothing.
   - [x] RIGHTS entry written (permission not needed, owner 2026-11-13).
+- **Phase 15B, kinds, Browse and detail rendering (merged, deployed with 15C), on branch `phase-15b-kinds` (PR #106):** migration 0054 (`internship`, `volunteering`, `competition`), `kindLabel` in both languages, the landing page counting vacancies and tenders only, course pages with a learner's rows, How to register and the excerpt. Exit gate:
+  - [x] 0054 applied to the test and trial databases; the migration-safety review has no P0 or P1 (2026-11-13).
+  - [ ] Tests green in CI (the full suite passed on the throwaway database: 2,715, 9 skipped).
+  - [x] Browser QA on the trial database, local and public surfaces, 390 and 1280: Browse with Kind = course / school, the long source chip inside its column, a course page with a register link and one registered on the site's form; no console errors (2026-11-13; two fixes on the way).
+  - [x] The owner has read the Georgian kind labels (2026-11-13: "საზაფხულო სკოლა" and "გრანტები" set by the owner). They show nowhere until 15E's bilingual tab (the owner's heads-up, confirmed).
 
 ## Phase 14 — where a listing is: ss.ge's places, Tbilisi's official map, location quality (14A live 2026-11-07 and its morning-after check passed; 14B live 2026-11-08 and its first nightly refresh passed 2026-11-09; 14C live since 2026-11-10 15:34 UTC, recheck about 2026-11-14; 14D live since 2026-11-13 06:18 UTC as `5c153c3`, with C6 lookup v3; C3's official-district level in December)
 
