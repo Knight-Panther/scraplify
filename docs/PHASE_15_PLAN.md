@@ -23,8 +23,8 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. Order: 15A,
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
 | ✅ | **15A** | Summer-school crawler, typing by source, local trial | no | done 2026-11-13: trial passed, merged as `aa0d9f5` (PR #105) |
-| ⏳ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | 15A (built ahead on a stacked branch, PR #106) |
-| ❌ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | 15B |
+| ✅ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | done 2026-11-13: merged as `b7f166d` (PR #106) |
+| ⏳ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | wired on `phase-15c-hosted`; the Hermes note waits on the owner; deploy 2026-11-14 |
 | ❌ | **15D** | Eurodesk crawler (visitor session), local trial | no | 15B |
 | ❌ | **15E** | The bilingual Programmes tab, designed against both data sets | yes | 15C live, 15D's trial data |
 | ❌ | **15F** | Eurodesk hosted rollout | yes | 15D, 15E |
@@ -363,7 +363,7 @@ Tests: 'a job board cannot declare a kind through its attributes'; 'a reviewer c
 
 Exit gate:
 - [x] 0054 applied to the test and trial databases; the agent's review has no P0 or P1 (2026-11-13).
-- [ ] Tests green in CI.
+- [x] Tests green in CI.
 - [x] Browser QA on the trial database, local and public surfaces, 390 and 1280: Browse with courses tagged among vacancies; Kind = course / school; the long board chip with no overflow; a course page with a register link and one without. No console errors. (2026-11-13; the trial holds courses only, so "among vacancies" is covered by the unit tests and the tag on mixed lists already shipped for tenders.)
 - [x] The owner has read the Georgian kind labels (2026-11-13; two changed, above).
 
