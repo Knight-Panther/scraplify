@@ -87,11 +87,11 @@ describe('resolveCanonicalOpportunity', () => {
     return { listingId: listing.id, revisionId };
   }
 
-  async function makeOpportunity(): Promise<string> {
+  async function makeOpportunity(type: 'job' | 'scholarship' = 'job'): Promise<string> {
     const id = randomUUID();
     await db.insert(opportunities).values({
       id,
-      type: 'job',
+      type,
       canonicalTitle: 'placeholder',
       organizationId: null,
       canonicalStatus: 'active',
@@ -386,6 +386,21 @@ describe('resolveCanonicalOpportunity', () => {
 
     const [row] = await db.select().from(opportunities).where(eq(opportunities.id, opportunityId));
     expect(row?.type).toBe('summer_school');
+  });
+
+  it('a type set by hand on job-board members is kept', async () => {
+    const source = await createTestSource();
+    sourceIds.push(source);
+    const opportunityId = await makeOpportunity('scholarship');
+    const { listingId } = await addListing(source, { title: 'Scholarship for engineers' });
+    await addMember(opportunityId, listingId);
+
+    await db.transaction((tx) =>
+      resolveCanonicalOpportunity(tx, opportunityId, '2026-11-13T12:00:00Z'),
+    );
+
+    const [row] = await db.select().from(opportunities).where(eq(opportunities.id, opportunityId));
+    expect(row?.type).toBe('scholarship');
   });
 
   it('marks an emptied opportunity closed without inventing a revision', async () => {
