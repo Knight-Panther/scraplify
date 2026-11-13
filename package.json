@@ -30,6 +30,7 @@
     "crawl:hr-ge": "node --env-file-if-exists=.env dist/cli/run-hr-ge-crawl.js",
     "crawl:etenders-ge": "node --env-file-if-exists=.env dist/cli/run-etenders-ge-crawl.js",
     "crawl:ss-ge": "node --env-file-if-exists=.env dist/cli/run-ss-ge-crawl.js",
+    "crawl:summerschoolsineurope-eu": "node --env-file-if-exists=.env dist/cli/run-summerschoolsineurope-eu-crawl.js",
     "group:ss-ge": "node --env-file-if-exists=.env dist/cli/group-ss-ge.js",
     "totals:ss-ge": "node --env-file-if-exists=.env dist/cli/totals-ss-ge.js",
     "places:ss-ge": "node --env-file-if-exists=.env dist/cli/places-ss-ge.js",
