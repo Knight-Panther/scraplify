@@ -16,7 +16,12 @@ import {
 import { organizations } from './organizations.js';
 import { sourceListingStatusEnum, sourceListings } from './source-listings.js';
 
-/** Opportunity types (§12.3); `tender` added for etenders.ge (Phase 9A, docs/addEtender.md). */
+/**
+ * Opportunity types (§12.3); `tender` added for etenders.ge (Phase 9A,
+ * docs/addEtender.md); `internship`, `volunteering` and `competition` for the
+ * programme sources (Phase 15B, migration 0054). New values go at the end:
+ * Postgres appends them, and the display order lives in `web/lib/kind-labels.ts`.
+ */
 export const opportunityTypeEnum = pgEnum('opportunity_type', [
   'job',
   'summer_school',
@@ -24,6 +29,9 @@ export const opportunityTypeEnum = pgEnum('opportunity_type', [
   'grant',
   'event',
   'tender',
+  'internship',
+  'volunteering',
+  'competition',
 ]);
 
 /** Dedupe decision states (§14.1 stage 5). */

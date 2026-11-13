@@ -13,6 +13,7 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../db/test-support.js';
+import type { OpportunityType } from '../domain/opportunity.js';
 import {
   acceptDuplicateCandidate,
   detachListing,
@@ -39,10 +40,7 @@ describe('membership review', () => {
   const opportunityIds: string[] = [];
   const listingIds: string[] = [];
 
-  async function makeOpportunity(
-    title: string,
-    type: 'job' | 'summer_school' | 'scholarship' | 'grant' | 'event' = 'job',
-  ): Promise<string> {
+  async function makeOpportunity(title: string, type: OpportunityType = 'job'): Promise<string> {
     const id = randomUUID();
     await db.insert(opportunities).values({
       id,

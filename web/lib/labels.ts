@@ -1,4 +1,3 @@
-import type { CandidateClaimKind } from '../../src/domain/candidate.js';
 import type {
   dedupeDecidedByEnum,
   dedupeDecisionEnum,
@@ -10,6 +9,8 @@ import type {
   sourceListingStatusEnum,
 } from '../../src/db/schema/source-listings.js';
 import type { classificationMethodEnum, taxonomyAxisEnum } from '../../src/db/schema/taxonomy.js';
+import type { CandidateClaimKind } from '../../src/domain/candidate.js';
+import { kindLabel } from './kind-labels.js';
 
 /**
  * The single place a database enum becomes something a person reads.
@@ -96,30 +97,33 @@ type OpportunityType = (typeof opportunityTypeEnum.enumValues)[number];
 /**
  * §12.3 opportunity types.
  *
- * Every one of the 406 canonical opportunities is currently a `job`, and the
- * screens deliberately do NOT print that label 406 times — a column whose every
- * cell reads the same word is noise in a scanning tool. The map exists because
- * the other four types are real schema values that will appear the moment a
- * source carrying scholarships or grants is added, and an unlabelled enum
- * reaching the screen then is exactly the failure this file exists to prevent.
+ * Most rows are vacancies, and the screens deliberately do NOT print "job" on
+ * each of them: a word every row repeats is noise in a scanning tool, so only
+ * the other kinds get a tag (tenders since Phase 9, programme kinds since
+ * Phase 15). Every schema value has a label all the same, since an unlabelled
+ * enum reaching the screen is exactly the failure this file exists to prevent.
+ * The short word is `kindLabel(type, 'en')`, so every screen and the bilingual
+ * pages name a kind the same way.
  */
-export const opportunityTypeLabels: Record<OpportunityType, Label> = {
-  job: { short: 'job', explanation: 'A paid vacancy.' },
-  summer_school: {
-    short: 'summer school',
-    explanation: 'A fixed-term educational programme rather than employment.',
-  },
-  scholarship: {
-    short: 'scholarship',
-    explanation: 'Funding for study, awarded to a person rather than a project.',
-  },
-  grant: { short: 'grant', explanation: 'Funding awarded for a project or activity.' },
-  event: { short: 'event', explanation: 'A one-off event, such as a conference or competition.' },
-  tender: {
-    short: 'tender',
-    explanation: 'A purchase a company or organisation puts out to bid; suppliers submit offers.',
-  },
+const opportunityTypeExplanations: Record<OpportunityType, string> = {
+  job: 'A paid vacancy.',
+  summer_school:
+    'A short course or school (summer, winter or another season) run by a university or organisation.',
+  scholarship: 'Funding for study, awarded to a person rather than a project.',
+  grant: 'Funding awarded for a project or activity.',
+  event: 'A one-off event, such as a conference, a training course or a youth exchange.',
+  tender: 'A purchase a company or organisation puts out to bid; suppliers submit offers.',
+  internship: 'A placement abroad to learn on the job, often unpaid or with a stipend.',
+  volunteering: 'Unpaid service, often abroad, with some or all costs covered.',
+  competition: 'A contest with a prize or an award, such as an essay or a design competition.',
 };
+
+export const opportunityTypeLabels = Object.fromEntries(
+  Object.entries(opportunityTypeExplanations).map(([type, explanation]) => [
+    type,
+    { short: kindLabel(type, 'en'), explanation },
+  ]),
+) as Record<OpportunityType, Label>;
 
 export function opportunityTypeLabel(type: string): Label {
   return (

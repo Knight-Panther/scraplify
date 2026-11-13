@@ -1,6 +1,7 @@
 import type { SearchOpportunitiesFilters } from '../../src/browse/queries.js';
-import { opportunityTypeEnum } from '../../src/db/schema/opportunities.js';
+import type { opportunityTypeEnum } from '../../src/db/schema/opportunities.js';
 import { sourceListingStatusEnum } from '../../src/db/schema/source-listings.js';
+import { PROGRAMME_KIND_ORDER } from './kind-labels.js';
 
 /**
  * The opportunities screen's state, held entirely in the URL.
@@ -45,14 +46,15 @@ export const STATUS_OPTIONS = [
 ] as const;
 
 /**
- * §12.3 opportunity types offered as facet checkboxes, in display order: the
- * two kinds the corpus actually holds first (vacancies, then tenders, which
- * share the list since Phase 9C), then every other schema value.
+ * §12.3 opportunity types offered as facet checkboxes, in display order:
+ * vacancies, then tenders (which share the list since Phase 9C), then the
+ * programme kinds in `PROGRAMME_KIND_ORDER` (Phase 15B). A test holds this to
+ * every schema value.
  */
 export const TYPE_OPTIONS = [
   'job',
   'tender',
-  ...opportunityTypeEnum.enumValues.filter((type) => type !== 'job' && type !== 'tender'),
+  ...PROGRAMME_KIND_ORDER,
 ] as const satisfies readonly (typeof opportunityTypeEnum.enumValues)[number][];
 
 /**
