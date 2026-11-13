@@ -130,6 +130,26 @@ describe('chooseSplitFacet', () => {
   });
 });
 
+describe('chooseSplitFacet, multi-valued facets', () => {
+  it('prefers a facet whose counts sum exactly to the set over a cheaper one whose counts only exceed it', () => {
+    const facets = {
+      course_country: [
+        { value: 'x', label: 'X', count: 20 },
+        { value: 'y', label: 'Y', count: 20 },
+        { value: 'z', label: 'Z', count: 10 },
+      ],
+      course_discipline: [
+        { value: 'a', label: 'A', count: 12 },
+        { value: 'b', label: 'B', count: 12 },
+        { value: 'c', label: 'C', count: 12 },
+        { value: 'd', label: 'D', count: 12 },
+        { value: 'e', label: 'E', count: 6 },
+      ],
+    };
+    expect(chooseSplitFacet(facets, new Set(), 50, 12)).toBe('course_country');
+  });
+});
+
 describe('coverListing', () => {
   it('reads every course once, from result sets of 12 or fewer', async () => {
     const courses: ModelCourse[] = [];
@@ -165,6 +185,48 @@ describe('coverListing', () => {
     expect(result.complete).toBe(true);
     expect(result.cards.size).toBe(14);
     expect(result.resamples).toBeGreaterThan(0);
+  });
+
+  it('a split that falls short is followed by a split by the next facet', async () => {
+    // Country is the cheapest split, but one of its values may not be asked
+    // for; every course also has its own city, which reaches the rest.
+    const countries = ['it', 'es', 'fr', 'bad value'];
+    const courses: ModelCourse[] = Array.from({ length: 40 }, (_, n) => ({
+      id: String(n + 1),
+      facets: {
+        course_country: [countries[n < 12 ? 0 : n < 24 ? 1 : n < 30 ? 2 : 3] as string],
+        course_city: [`city-${n + 1}`],
+      },
+    }));
+    const result = await coverListing(fakeSite(courses).read, {
+      capacity: 12,
+      acceptValue: (_facet, value) => !value.includes(' '),
+    });
+    expect(result.complete).toBe(true);
+    expect(result.cards.size).toBe(40);
+    expect(result.rejectedValues).toEqual([
+      { facet: 'course_country', value: 'bad value', count: 10 },
+    ]);
+  });
+
+  it('leaves out a facet value it may not ask for, and says what it left', async () => {
+    const courses = Array.from({ length: 40 }, (_, n) =>
+      course(n + 1, n < 30 ? 'it' : 'bad value', n < 30 ? 'pisa' : 'no where', '07_july'),
+    );
+    const site = fakeSite(courses);
+    const result = await coverListing(site.read, {
+      capacity: 12,
+      acceptValue: (_facet, value) => !value.includes(' '),
+    });
+    expect(result.complete).toBe(false);
+    // Country is tried first, then city as the fallback; both values are refused.
+    expect(result.rejectedValues).toEqual([
+      { facet: 'course_country', value: 'bad value', count: 10 },
+      { facet: 'course_city', value: 'no where', count: 10 },
+    ]);
+    expect(
+      site.requests.some((filters) => filters.some(([, values]) => values.includes('bad value'))),
+    ).toBe(false);
   });
 
   it('a course with no value of any facet leaves the walk incomplete', async () => {

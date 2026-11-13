@@ -30,12 +30,24 @@ export interface CoverOptions {
   maxRequests?: number;
   /** Extra page-1 requests for a set no facet splits. */
   maxResamples?: number;
+  /**
+   * Whether a facet value may be asked for. A refused value is left out of
+   * every split and reported in `rejectedValues`; its courses count as
+   * unseen unless another facet reaches them.
+   */
+  acceptValue?: (facet: ListingSplitFacet, value: string) => boolean;
+}
+
+export interface RejectedValue {
+  facet: ListingSplitFacet;
+  value: string;
+  count: number;
 }
 
 export interface CoverResult {
   /** Every course seen, by post id; a later sighting replaces an earlier one. */
   cards: Map<string, CourseCard>;
-  /** Every set reached its own count, and no request failed or was cut by the budget. */
+  /** Every course the upcoming set counts was seen, and no request failed or was cut by the budget. */
   complete: boolean;
   /** No request failed. */
   requestsOk: boolean;
@@ -44,10 +56,12 @@ export interface CoverResult {
   resultSets: number;
   resamples: number;
   rootTotal: number | null;
-  /** Courses the sets counted but the walk never saw, summed over the sets that fell short. */
+  /** Courses the upcoming set counts that the walk never saw. */
   uncovered: number;
   /** The root's facet choices (the crawl reads discipline names and slugs from them). */
   rootFacets: Record<string, FacetChoice[]>;
+  /** Facet values `acceptValue` refused, each once, with the count where it was first refused. */
+  rejectedValues: RejectedValue[];
 }
 
 const DEFAULT_CAPACITY = 12;
@@ -99,9 +113,11 @@ function splitCost(choices: readonly FacetChoice[], capacity: number): number {
 /**
  * The facet to split a set of `total` courses by: one not used yet, whose
  * every value holds fewer than the whole set (or it would split nothing).
- * A facet whose values cover the whole set comes before one that leaves
- * courses out; among those, the cheapest, then the fixed order. Null when no
- * facet can split the set.
+ * A facet whose counts sum exactly to the set comes first (one value per
+ * course, as country, city and start month have); then one whose counts sum
+ * past it (several values per course, as disciplines: some courses may still
+ * have none); then one that leaves courses out. Within each, the cheapest,
+ * then the fixed order. Null when no facet can split the set.
  */
 export function chooseSplitFacet(
   facets: Readonly<Record<string, readonly FacetChoice[]>>,
@@ -109,16 +125,17 @@ export function chooseSplitFacet(
   total: number,
   capacity: number,
 ): ListingSplitFacet | null {
-  let best: { facet: ListingSplitFacet; covers: boolean; cost: number } | null = null;
+  let best: { facet: ListingSplitFacet; rank: number; cost: number } | null = null;
   for (const facet of LISTING_SPLIT_FACETS) {
     if (used.has(facet)) continue;
     const choices = (facets[facet] ?? []).filter((choice) => choice.count > 0);
     if (choices.length === 0) continue;
     if (choices.some((choice) => choice.count >= total)) continue;
-    const covers = sumCounts(choices) >= total;
+    const sum = sumCounts(choices);
+    const rank = sum === total ? 0 : sum > total ? 1 : 2;
     const cost = splitCost(choices, capacity);
-    if (best === null || (covers && !best.covers) || (covers === best.covers && cost < best.cost)) {
-      best = { facet, covers, cost };
+    if (best === null || rank < best.rank || (rank === best.rank && cost < best.cost)) {
+      best = { facet, rank, cost };
     }
   }
   return best?.facet ?? null;
@@ -131,6 +148,8 @@ export async function coverListing(
   const capacity = options.capacity ?? DEFAULT_CAPACITY;
   const maxRequests = options.maxRequests ?? DEFAULT_MAX_REQUESTS;
   const maxResamples = options.maxResamples ?? DEFAULT_MAX_RESAMPLES;
+  const acceptValue = options.acceptValue ?? (() => true);
+  const rejected = new Map<string, RejectedValue>();
   const result: CoverResult = {
     cards: new Map(),
     complete: true,
@@ -141,6 +160,7 @@ export async function coverListing(
     rootTotal: null,
     uncovered: 0,
     rootFacets: {},
+    rejectedValues: [],
   };
 
   const ask = async (filters: Filters): Promise<ParsedListingPage | null> => {
@@ -166,10 +186,27 @@ export async function coverListing(
     const total = page.pager.totalRows;
 
     if (total > capacity) {
+      // Split by the best facet; if that leaves the set short (a multi-valued
+      // facet some courses lack, or a refused value), by the next one.
       const used = new Set<string>(filters.map(([facet]) => facet));
-      const facet = chooseSplitFacet(page.facets, used, total, capacity);
-      if (facet !== null) {
-        const { groups, big } = packGroups(page.facets[facet] ?? [], capacity);
+      for (
+        let facet = chooseSplitFacet(page.facets, used, total, capacity);
+        facet !== null && ids.size < total;
+        facet = chooseSplitFacet(page.facets, used, total, capacity)
+      ) {
+        used.add(facet);
+        const accepted: FacetChoice[] = [];
+        for (const choice of page.facets[facet] ?? []) {
+          if (acceptValue(facet, choice.value)) accepted.push(choice);
+          else if (choice.count > 0 && !rejected.has(`${facet}=${choice.value}`)) {
+            rejected.set(`${facet}=${choice.value}`, {
+              facet,
+              value: choice.value,
+              count: choice.count,
+            });
+          }
+        }
+        const { groups, big } = packGroups(accepted, capacity);
         const children = [
           ...groups.map((group) => group.map((choice) => choice.value)),
           ...big.map((choice) => [choice.value]),
@@ -194,10 +231,6 @@ export async function coverListing(
       result.resamples++;
       for (const card of again.cards) ids.add(card.postId);
     }
-    if (ids.size < total) {
-      result.complete = false;
-      result.uncovered += total - ids.size;
-    }
     return ids;
   };
 
@@ -205,6 +238,11 @@ export async function coverListing(
   if (root === null) return result;
   result.rootTotal = root.pager.totalRows;
   result.rootFacets = root.facets;
-  await cover([], root);
+  // Complete means every course the upcoming set counts was seen: a set that
+  // fell short is fine when another split reached its courses.
+  const seen = await cover([], root);
+  result.uncovered = Math.max(0, root.pager.totalRows - seen.size);
+  if (result.uncovered > 0) result.complete = false;
+  result.rejectedValues = [...rejected.values()];
   return result;
 }
