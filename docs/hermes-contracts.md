@@ -4,12 +4,12 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 
 | Contract | What | State |
 |---|---|---|
-| C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`); v2 (Phase 14D: places on both maps, the metro, location quality) built on branch `phase-14d-c1-v2`, for Hermes's review before it merges |
+| C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`); v2 (Phase 14D: places on both maps, the metro, location quality) live since 2026-11-13 (`5c153c3`, migration `0053`) |
 | C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`); Phase 14A appends ten columns (`0049`) |
 | C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy, 4 from 2026-11-10, 5 from 2026-11-12 (the list-end read, live 2026-11-11 13:51 UTC) |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
 | C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`), Phase 14C eleven (`0051`), Phase 14D one (`0053`, on branch `phase-14d-c1-v2`), all below |
-| C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | live since 2026-11-08 (`f81599a`, migration `0050`, Phase 14B); lookup v2 and `official_source` live since 2026-11-10 (`743c034`, migration `0051`, Phase 14C) |
+| C6 | `realestate.public_places` and the place lookup: ss.ge's places and Tbilisi's official map | live since 2026-11-08 (`f81599a`, migration `0050`, Phase 14B); lookup v2 and `official_source` live since 2026-11-10 (`743c034`, migration `0051`, Phase 14C); lookup v3 live since 2026-11-13 (`5c153c3`, Phase 14D) |
 
 ## C1: the real-estate filter builder (v1)
 

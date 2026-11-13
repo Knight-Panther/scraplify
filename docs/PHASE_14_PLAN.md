@@ -227,7 +227,7 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
 - ✅ **Docs:** ✅ the new columns in `docs/hermes-contracts.md` (C5's 14C section, C6), updated for the calibrated rules; ✅ RUNBOOK §3 step 8 "Location quality"; ✅ 14C's gates in STATUS; ✅ `prod-status`'s "listing locations" check, written and tried on the trial copy, added at the deploy (2026-11-10).
 - **Order:** code and tests on a branch, 2026-11-08 ✅; calibration on the first night against OpenStreetMap, 2026-11-08 ✅; grants rehearsal on a copy of production, 2026-11-08 ✅; confirmation on the second night and the merge (`3ab7077`), 2026-11-09 ✅; deploy 2026-11-10 15:34 UTC as `743c034` ✅ (Changed: not after 13A's first-deletion check, which last night's page fault had prevented; 13A's deletions come with the run of 2026-11-10 21:35 instead).
 
-## 14D: Hermes's contracts — ⏳ merged 2026-11-12 as `3c383a1`, the deploy owed
+## 14D: Hermes's contracts — ✅ live since 2026-11-13 06:18 UTC as `5c153c3` (with C6 lookup v3)
 
 - ⏳ **Agree first**, in Hermes's `.git/xtelo-speed/PLAN.md`:
   - ✅ C6 and the bare-name rule: in the joint plan's contracts table since 2026-11-08 (Hermes added the row). Its switch of H2's area words waits for the owner's go;
@@ -246,7 +246,7 @@ Changed: the plan placed listings by ss.ge's street point, with the pin checked 
   - (c) **C1 v2 takes a C6 row's (level, ref) as it is,** at every level: official_district (OSM ref), metro_station (1–22) and neighbourhood. A neighbourhood applies its parent, and the coverage says so.
   - (d) **Unknown counts.** An official-district or metro filter also returns how many listings in the matching ss.ge areas have no known official district or no metro, so the bot says "at least N, M unknown". This is `locationCoverage`, made specific.
   - (e) **"Vaja Pshavela",** a common English spelling, keys to `vaj psavel` and misses the avenue (`vaz psavel`). Folding j into z would merge ჯ with ჟ, so it needs a Latin spelling variant or an alias. ვაჟა appears in 14 street names.
-- ⏳ **C6 place lookup v3** (Changed 2026-11-12: added to 14D, from Hermes running its 33 old area cases against live C6). Merged the same day as `6e45313` (PR #103, CI green). It rides 14D's deploy, whose own `places-ss-ge` pass gives the stored keys their initial-less form; then a lookup check and one line to Hermes:
+- ✅ **C6 place lookup v3** (live since 2026-11-13 06:18 UTC as `5c153c3`; checked on production) (Changed 2026-11-12: added to 14D, from Hermes running its 33 old area cases against live C6). Merged the same day as `6e45313` (PR #103, CI green). It rides 14D's deploy, whose own `places-ss-ge` pass gives the stored keys their initial-less form; then a lookup check and one line to Hermes:
   - ✅ **initials:** a name starting with initials ("ი.ჭავჭავაძის გამზ.", street 19, about 6,000 listings) is also keyed without them, and a full first name finds an initial exactly ("Ilia Chavchavadze");
   - ✅ **order by tier:** what the words ask for (a street's word, a village's word), Tbilisi's areas not named as villages, the official map, stations, then everything else busiest first. "Krtsanisi" gives the district first, as C6's doc said. Changed: streets no longer come strictly after other towns' areas, so a bare "ჭავჭავაძის" is the avenue (4,437 listings) and not Kutaisi's Chavchavadze settlement (174);
   - ✅ rows carry `kind` and `tier`, so Hermes takes the top row's level and tier and drops its own village rule;
