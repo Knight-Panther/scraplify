@@ -50,6 +50,14 @@ context=$(
     echo "Handoff note from the previous session:"
     sed 's/^/  /' "$handoff"
   fi
+
+  # A standing poll the owner asked for outlives sessions this way: cron jobs
+  # are session-only, so each new session re-arms it from this note.
+  poll="$gitdir/standing-poll"
+  if [ -f "$poll" ]; then
+    echo "STANDING POLL is on: re-arm it now with CronCreate, before other work (the note says how):"
+    sed 's/^/  /' "$poll"
+  fi
 )
 
 [ -z "$context" ] && exit 0
