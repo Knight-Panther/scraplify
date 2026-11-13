@@ -330,3 +330,12 @@ Schema still 1. One more `reason` word: `page_limit`, for a run given `--max-pag
 the short run by hand after a deploy) that reached it. It ends partial by design; until now it
 arrived as `other`, which Hermes could not tell from a reason the host does not know. Hermes asked
 for the word and reads it as "stopped at its page limit (a run by hand)".
+
+### For Phase 15C (summer-school courses)
+
+A fourth pipeline source, `summerschoolsineurope-eu`, runs on the same daily timer and sends the
+same `xtelo.pipeline.finished` event under `"domain": "opportunities"`, with the same counters
+(its crawl counts listings like the job boards). Its listings are courses, typed `summer_school`,
+not vacancies: they never reach the CV bundle, so Hermes lists the source with the others and its
+CV screener leaves its rows alone. Hermes is told before the deploy (Phase 15C; the note is shown
+to the owner first).

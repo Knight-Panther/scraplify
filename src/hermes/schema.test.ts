@@ -131,6 +131,10 @@ describe('parseHermesEvent', () => {
     expect(accepted?.[1]?.split(' | ').sort()).toEqual([...PIPELINE_SOURCES].sort());
   });
 
+  it('runs the summer-school courses as a pipeline source (Phase 15C)', () => {
+    expect(PIPELINE_SOURCES).toContain('summerschoolsineurope-eu');
+  });
+
   // What a compromised crawl could try to have signed. Each is one change to
   // an event that is otherwise real.
   it.each<[string, (event: Record<string, unknown>) => void]>([

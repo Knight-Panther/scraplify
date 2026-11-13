@@ -27,12 +27,15 @@ describe('crawl schedule slots', () => {
 
 describe('CRAWL_SCHEDULES', () => {
   it('declares every scheduled source', () => {
-    expect(Object.keys(CRAWL_SCHEDULES).sort()).toEqual([
-      'etenders-ge',
-      'hr-ge',
-      'jobs-ge',
-      ...REAL_ESTATE_PIPELINE_SOURCES,
-    ]);
+    expect(Object.keys(CRAWL_SCHEDULES).sort()).toEqual(
+      [
+        'etenders-ge',
+        'hr-ge',
+        'jobs-ge',
+        'summerschoolsineurope-eu',
+        ...REAL_ESTATE_PIPELINE_SOURCES,
+      ].sort(),
+    );
   });
 
   function timerSlot(file: string): { hourUtc: number; minuteUtc: number } {

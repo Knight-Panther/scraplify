@@ -3,6 +3,7 @@ import { etendersGeSource } from '../policies/etenders-ge.js';
 import { hrGeSource } from '../policies/hr-ge.js';
 import { jobsGeSource } from '../policies/jobs-ge.js';
 import { ssGeSource } from '../policies/ss-ge.js';
+import { summerSchoolsEuSource } from '../policies/summerschoolsineurope-eu.js';
 import { type HermesEvent, REAL_ESTATE_STOP_REASONS } from './event.js';
 
 /**
@@ -32,6 +33,8 @@ export const PIPELINE_SOURCES: readonly string[] = [
   jobsGeSource.slug,
   hrGeSource.slug,
   etendersGeSource.slug,
+  // Courses, not vacancies (Phase 15C): Hermes lists them and its CV screener skips them.
+  summerSchoolsEuSource.slug,
 ];
 
 /**

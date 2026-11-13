@@ -26,7 +26,7 @@ j=$(sudo -n journalctl -u 'xtelo-realestate@*' --since -24h --no-pager -o short-
 echo "PROXY|$(grep -E 'proxy unreachable|proxy is back' <<<"$j" | tail -1 | awk '{ split($1, t, "."); print t[1] "|" ($0 ~ /unreachable/ ? "down" : "up") }')"
 echo "FAILED|$(systemctl --failed --no-legend --plain | awk '{ print $1 }' | paste -sd' ')"
 echo "SERVICES|$(for u in xtelo-web@public xtelo-web@admin postgresql@17-main caddy; do printf '%s ' "$(systemctl is-active "$u")"; done)"
-for s in jobs-ge hr-ge etenders-ge; do
+for s in jobs-ge hr-ge etenders-ge summerschoolsineurope-eu; do
   echo "PIPE|$s|$(systemctl show "xtelo-pipeline@$s" -P Result)|$(systemctl show "xtelo-pipeline@$s" -P ActiveState)|$(date -u -d "$(systemctl show "xtelo-pipeline@$s" -P ExecMainExitTimestamp)" +%s 2>/dev/null || echo 0)"
 done
 echo "BACKUP|$(systemctl show xtelo-backup -P Result)|$(sudo -n journalctl -u xtelo-backup --since -36h --no-pager -o cat 2>/dev/null | grep -c 'Copied off the host')"

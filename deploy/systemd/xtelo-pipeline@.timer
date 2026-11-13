@@ -2,6 +2,7 @@
 # (scripts/register-crawl-schedule.ps1).
 #
 #   sudo systemctl enable --now xtelo-pipeline@jobs-ge.timer xtelo-pipeline@hr-ge.timer xtelo-pipeline@etenders-ge.timer
+#   sudo systemctl enable --now xtelo-pipeline@summerschoolsineurope-eu.timer   # Phase 15C: the day after its first run, by hand
 
 [Unit]
 Description=Daily Xtelo crawl pipeline (%i)
