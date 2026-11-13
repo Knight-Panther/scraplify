@@ -2,7 +2,7 @@
 
 Two new sources, three new kinds and one new bilingual tab. Kept as a tracker once building starts.
 
-- **Status: planned and saved for later. Not started.** The owner worked through it in plan mode on 2026-11-09 and made the eight decisions below, then set it aside to finish Phase 14 first. Building starts when he says so, with Opus 5.5.
+- **Status: under way since 2026-11-13, on the owner's go.** 15A first, on branch `phase-15a-summer-schools`. The owner worked through the plan in plan mode on 2026-11-09 and made the eight decisions below, then set it aside to finish Phase 14 first.
 - **The original** is at `~/.claude/plans/first-analyze-our-xtelo-jaunty-gray.md` on the owner's PC. This copy is the one kept current.
 - **All open work, every phase:** the Board at the top of `docs/STATUS.md`.
 - **Keeping it current:** CLAUDE.md, "Tracking". Once a sub-phase starts, each item below gets its mark (✅ done · ⏳ under way · ❌ not started) and a "Changed:" note wherever building changed the plan.
@@ -20,15 +20,15 @@ Outcome: courses and programmes appear in Browse under their kind, and on a new 
 
 Each is its own branch and PR with an exit gate in `docs/STATUS.md`. Order: 15A, 15B, 15C, 15D, 15E, 15F, 15G.
 
-| | What | Goes live? | Waits on |
-|---|---|---|---|
-| **15A** | Summer-school crawler, typing by source, local trial | no | 14C live (2026-11-11); its recon questions may be answered sooner |
-| **15B** | Three new kinds (migration 0052), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | 15A |
-| **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | 15B |
-| **15D** | Eurodesk crawler (visitor session), local trial | no | 15B |
-| **15E** | The bilingual Programmes tab, designed against both data sets | yes | 15C live, 15D's trial data |
-| **15F** | Eurodesk hosted rollout | yes | 15D, 15E |
-| **15G** | Job-board kind hygiene and the UI gaps found on the way | later | the owner's go |
+| | | What | Goes live? | Waits on |
+|---|---|---|---|---|
+| ⏳ | **15A** | Summer-school crawler, typing by source, local trial | no | 14C live (2026-11-11); its recon questions may be answered sooner |
+| ❌ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | 15A |
+| ❌ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | 15B |
+| ❌ | **15D** | Eurodesk crawler (visitor session), local trial | no | 15B |
+| ❌ | **15E** | The bilingual Programmes tab, designed against both data sets | yes | 15C live, 15D's trial data |
+| ❌ | **15F** | Eurodesk hosted rollout | yes | 15D, 15E |
+| ❌ | **15G** | Job-board kind hygiene and the UI gaps found on the way | later | the owner's go |
 
 ## What was measured (2026-11-09, read-only)
 
@@ -124,7 +124,7 @@ Each was a real alternative; the reason follows.
 
 ### Kinds and typing
 
-- Enum after migration 0052: `job, summer_school, scholarship, grant, event, tender, competition, internship, volunteering`. `PROGRAMME_KINDS` is every kind except `job` and `tender`.
+- Enum after migration 0054: `job, summer_school, scholarship, grant, event, tender, competition, internship, volunteering`. `PROGRAMME_KINDS` is every kind except `job` and `tender`.
 - New `src/dedupe/programme-kind.ts`:
 
 ```ts
@@ -301,8 +301,10 @@ Exit gate:
 
 ### 15B: kinds, Browse and detail rendering
 
+Changed (2026-11-13): the migration is `0054`, not `0052`, since Phase 14 took `0052` and `0053` after this plan was written.
+
 Add:
-- `drizzle/migrations/0052_*.sql`: three `ALTER TYPE … ADD VALUE` lines and nothing else (precedents 0038, 0044). The migration-safety-reviewer agent reads it.
+- `drizzle/migrations/0054_*.sql`: three `ALTER TYPE … ADD VALUE` lines and nothing else (precedents 0038, 0044). The migration-safety-reviewer agent reads it.
 - `web/lib/kind-labels.ts` (+ test): `kindLabel(type, locale)`.
 
 | Kind | EN | KA (the owner reads these before the merge) |
@@ -330,7 +332,7 @@ Change:
 Tests: 'a job board cannot declare a kind through its attributes'; 'a reviewer cannot put a course into a vacancy'; 'an internship never reaches the CV bundle'; 'a course has no Pay row'; 'a missing deadline reads not stated'; 'a fee is shown as the source wrote it'; 'excludeTypes leaves programme kinds out and the count agrees'; the new Kind order; 'every enum value has an English and a Georgian label'.
 
 Exit gate:
-- [ ] 0052 applied to the test and trial databases; the agent's review has no P0 or P1.
+- [ ] 0054 applied to the test and trial databases; the agent's review has no P0 or P1.
 - [ ] Tests green in CI.
 - [ ] Browser QA on the trial database, local and public surfaces, 390 and 1280: Browse with courses tagged among vacancies; Kind = course / school; the long board chip with no overflow; a course page with a register link and one without. No console errors.
 - [ ] The owner has read the Georgian kind labels.
@@ -345,7 +347,7 @@ Hermes: one note, shown to the owner first. It names the new slug and says its l
 
 Sequence (ss.ge's run must have ended; deploy window 13:40 to 20:30 UTC):
 1. One polite GET of `/courses/` from the host, to confirm it still answers.
-2. Deploy: backup, migrate 0052, `apply-db-roles.sh grants`, repoint, probe.
+2. Deploy: backup, migrate 0054, `apply-db-roles.sh grants`, repoint, probe.
 3. Start the first run by hand straight after, about 13:50 UTC. It ends near 16:30, so that evening's vacancies land above the courses in Browse.
 4. Enable `xtelo-pipeline@summerschoolsineurope-eu.timer` after 16:20 UTC the next day.
 
