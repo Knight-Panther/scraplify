@@ -1358,7 +1358,7 @@ Courses and programmes appear in Browse under their kind and on a bilingual Prog
 
 ### 32.3 What the public site shows
 
-The facts of each course or programme, a short excerpt of its own description, and links to the source's page and to the organiser. The full text is stored and not shown. This is a per-source exception to the owner's decision of 2026-10-07 that descriptions stay off the public site (§23.3), made for these two sources only: neither has given permission, and neither is a board whose visitors the catalogue would draw away.
+The facts of each course or programme, a short excerpt of its own description, and links to the source's page and to the organiser. The full text is stored and not shown. This is a per-source exception to the owner's decision of 2026-10-07 that descriptions stay off the public site (§23.3), made for these two sources only. summerschoolsineurope.eu needs no permission (owner, 2026-11-13), and neither source is a board whose visitors the catalogue would draw away.
 
 ### 32.4 Access (§4.3)
 
