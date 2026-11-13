@@ -62,8 +62,8 @@ Facets read from `FWP_JSON.preload_data.facets` (value, label and count per choi
 | `detail-73181-end-before-start.html` | "28 June - 02 June 2027" |
 | `detail-64143-nok.html` | a NOK fee |
 | `detail-20152-fee-dot.html` | "1.450 EUR" |
-| `detail-73336-tbilisi.html` | a course in Tbilisi |
+| `detail-73336-tbilisi.html` | a course in Tbilisi, Institution "N/A", a fee option with decimals |
 | `detail-72548-card-deadline-only.html` | its card says "Deadline: 30 November"; the page does not |
 | `not-found-404.html` | a course page that does not exist |
 
-No page with Institution "N/A" was among those read; the parser's test makes one from a fixture.
+Institution "N/A" appears on the Tbilisi course (`detail-73336-tbilisi.html`); the parser stores it as none.

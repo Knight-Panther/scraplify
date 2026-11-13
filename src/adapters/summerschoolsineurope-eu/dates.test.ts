@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deadlineInstant, parseWhen, resolveCardDeadline } from './dates.js';
+import { deadlineInstant, parseFullDate, parseWhen, resolveCardDeadline } from './dates.js';
 
 describe('parseWhen', () => {
   it('a range within one year', () => {
@@ -70,5 +70,15 @@ describe('resolveCardDeadline', () => {
 describe('deadlineInstant', () => {
   it('a deadline is the end of its day at +04:00', () => {
     expect(deadlineInstant('2026-12-01')).toBe('2026-12-01T19:59:59.000Z');
+  });
+});
+
+describe('parseFullDate', () => {
+  it('reads a printed day with its year, and nothing else', () => {
+    expect(parseFullDate('07 February 2027')).toBe('2027-02-07');
+    expect(parseFullDate('1 March 2027')).toBe('2027-03-01');
+    expect(parseFullDate('31 February 2027')).toBeNull();
+    expect(parseFullDate('07 February')).toBeNull();
+    expect(parseFullDate(null)).toBeNull();
   });
 });

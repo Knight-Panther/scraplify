@@ -149,3 +149,15 @@ export function resolveCardDeadline(
 export function deadlineInstant(isoDate: string): string {
   return new Date(dayMs(isoDate) + DAY_MS - 1000 - TBILISI_OFFSET_MS).toISOString();
 }
+
+const FULL_DATE_RE = /^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/;
+
+/** A printed day with its year ("07 February 2027", the early-bird line), or null. */
+export function parseFullDate(text: string | null | undefined): string | null {
+  const match = FULL_DATE_RE.exec(text?.replace(/\s+/g, ' ').trim() ?? '');
+  if (match === null) return null;
+  const month = monthIndex(match[2] ?? '');
+  if (month === null) return null;
+  const day = dayUtc(Number(match[3]), month, Number(match[1]));
+  return day === null ? null : isoDay(day);
+}
