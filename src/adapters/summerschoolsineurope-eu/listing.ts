@@ -146,8 +146,20 @@ function readFacets(fwp: unknown): Record<string, FacetChoice[]> {
 /**
  * A card's fingerprint: the facts a course page would also show, so a
  * changed card means the course page is worth reading again. "Top course"
- * (paid placement), images and card order are left out.
+ * (paid placement), images and card order are left out, and so are the facts
+ * a card shows unsteadily: a course held in several cities names one of them,
+ * not always the same one (trial run 2, 2026-11-13), so the place is left to
+ * the sitemap's page date; languages count as a set, whatever their order.
  */
+function languageSet(raw: string | null): string[] | null {
+  if (raw === null) return null;
+  return raw
+    .split(',')
+    .map((language) => language.trim().toLowerCase())
+    .filter((language) => language !== '')
+    .sort();
+}
+
 export function cardFingerprint(
   card: Pick<
     CourseCard,
@@ -167,11 +179,10 @@ export function cardFingerprint(
       JSON.stringify([
         card.title,
         card.school,
-        card.placeRaw,
         card.whenRaw,
         card.creditsRaw,
         card.feeRaw,
-        card.languageRaw,
+        languageSet(card.languageRaw),
         card.deadlineRaw,
         card.online,
       ]),
