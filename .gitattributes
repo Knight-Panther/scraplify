@@ -20,6 +20,8 @@ deploy/** text eol=lf
 # scope, though the same fix is recommended for them (see
 # src/adapters/hr-ge/RECON_NOTES.md).
 src/adapters/hr-ge/fixtures/** -text
+# The same for summerschoolsineurope.eu's (Phase 15A), from their first commit.
+src/adapters/summerschoolsineurope-eu/fixtures/** -text
 
 # GitHub's Linguist ranks languages by byte count, so these fixtures decide how
 # the repo is labelled: hr.ge's SSR pages embed a large ng-state island (one
