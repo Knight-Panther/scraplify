@@ -22,7 +22,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. Order: 15A,
 
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
-| ✅ | **15A** | Summer-school crawler, typing by source, local trial | no | done 2026-11-13 (trial passed; PR #105) |
+| ✅ | **15A** | Summer-school crawler, typing by source, local trial | no | done 2026-11-13: trial passed, merged as `aa0d9f5` (PR #105) |
 | ❌ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | 15A |
 | ❌ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | 15B |
 | ❌ | **15D** | Eurodesk crawler (visitor session), local trial | no | 15B |
