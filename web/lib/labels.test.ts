@@ -7,6 +7,7 @@ import {
   listingStatusLabel,
   listingStatusLabels,
   sourceLabel,
+  sourceLabels,
 } from './labels.js';
 
 /**
@@ -90,5 +91,10 @@ describe('labels', () => {
     expect(sourceLabel('hr-ge')).toBe('hr.ge');
     // An unknown source still renders, rather than blanking the row.
     expect(sourceLabel('new-board')).toBe('new-board');
+  });
+
+  it('names the course source, and keeps it off the job boards the taxonomy screens list', () => {
+    expect(sourceLabel('summerschoolsineurope-eu')).toBe('summerschoolsineurope.eu');
+    expect(Object.hasOwn(sourceLabels, 'summerschoolsineurope-eu')).toBe(false);
   });
 });

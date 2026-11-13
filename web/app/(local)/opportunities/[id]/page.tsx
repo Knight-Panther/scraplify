@@ -13,6 +13,7 @@ import { decisionsByOpportunity } from '../../../../../src/shortlist/decisions.j
 import { DecisionControl } from '../../../../components/decision-control.js';
 import { KindTag } from '../../../../components/kind-tag.js';
 import { StatusChip } from '../../../../components/status-chip.js';
+import { backLink } from '../../../../lib/back-link.js';
 import {
   absoluteTime,
   relativeTime,
@@ -20,6 +21,7 @@ import {
   sourceDate,
   sourceDateTime,
 } from '../../../../lib/format.js';
+import { isProgrammeKind } from '../../../../lib/kind-labels.js';
 import {
   dedupeDecidedByLabel,
   dedupeDecisionLabel,
@@ -58,6 +60,7 @@ type DetailForDisplay = Pick<
   | 'comparison'
   | 'apply'
   | 'descriptions'
+  | 'excerpts'
   | 'extras'
   | 'crossPosted'
 > & { canonicalIsStale?: boolean };
@@ -135,7 +138,11 @@ export default async function OpportunityPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ back?: string | string[]; conflict?: string | string[] }>;
+  searchParams: Promise<{
+    back?: string | string[];
+    from?: string | string[];
+    conflict?: string | string[];
+  }>;
 }) {
   const { id } = await params;
   const surface = currentSurface();
@@ -153,7 +160,7 @@ export default async function OpportunityPage({
     const detail = toPublicDetail(view);
     return (
       <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
-        <BackLink back={query.back} opportunityId={detail.opportunityId} />
+        <BackLink back={query.back} from={query.from} opportunityId={detail.opportunityId} />
         {/* No ConflictNotice here, deliberately: `?conflict=` is only ever set
             by `detachFromOpportunity`'s own redirect, a local-only Server
             Action (`assertLocalSurface()`-guarded). Rendering an arbitrary
@@ -164,6 +171,7 @@ export default async function OpportunityPage({
         <Header detail={detail} hasFormerBoards={false} />
         <Comparison detail={detail} />
         <Apply detail={detail} />
+        <Excerpts detail={detail} />
         <Descriptions detail={detail} />
         <Extras detail={detail} />
       </main>
@@ -184,7 +192,7 @@ export default async function OpportunityPage({
 
   return (
     <main className="w-full px-4 py-8 sm:px-6 sm:py-10">
-      <BackLink back={query.back} opportunityId={detail.opportunityId} />
+      <BackLink back={query.back} from={query.from} opportunityId={detail.opportunityId} />
       {conflict !== undefined && conflict !== '' && <ConflictNotice message={conflict} />}
       <Header detail={detail} hasFormerBoards={detail.formerBoards.length > 0} />
       <section className="mt-4">
@@ -197,6 +205,7 @@ export default async function OpportunityPage({
       </section>
       <Comparison detail={detail} />
       <Apply detail={detail} />
+      <Excerpts detail={detail} />
       <Descriptions detail={detail} />
       <Extras detail={detail} />
       <FormerBoards detail={detail} />
@@ -237,28 +246,23 @@ function ConflictNotice({ message }: { message: string }) {
 
 function BackLink({
   back,
+  from,
   opportunityId,
 }: {
   back: string | string[] | undefined;
+  from: string | string[] | undefined;
   opportunityId: string;
 }) {
-  const rawBack = Array.isArray(back) ? back[0] : back;
-  const search = rawBack === undefined || rawBack === '' ? '' : `?${rawBack.replace(/^\?/, '')}`;
-
-  // This opportunity's own id, not the position it happened to occupy.
-  // A crawl running while the detail page is open adds, removes and reorders
-  // rows, so row 37 on the way back is a different vacancy from row 37 on the
-  // way in — the URL-state promise failing precisely while the corpus moves,
-  // which is when someone is most likely to be reading. The id needs nothing
-  // passed from the list and cannot go stale.
-  const anchor = `#opp-${opportunityId}`;
-
+  // The anchor is this opportunity's own id, not the position it happened to
+  // occupy: a crawl running while the page is open reorders the list, so row
+  // 37 on the way back is a different vacancy from row 37 on the way in.
+  const { href, label } = backLink({ back, from, opportunityId });
   return (
     <a
       className="text-sm text-accent underline underline-offset-2 hover:text-foreground"
-      href={`/opportunities${search}${anchor}`}
+      href={href}
     >
-      Back to opportunities
+      {label}
     </a>
   );
 }
@@ -491,6 +495,7 @@ function applicationHost(href: string): string {
 function Apply({ detail }: { detail: DetailForDisplay }) {
   if (detail.apply.length === 0) return null;
   if (detail.type === 'tender') return <Bid detail={detail} />;
+  if (isProgrammeKind(detail.type)) return <Register detail={detail} />;
 
   return (
     <section className="mt-8">
@@ -565,6 +570,94 @@ function Bid({ detail }: { detail: DetailForDisplay }) {
           >
             Open on&nbsp;<span translate="no">{sourceLabel(column.sourceSlug)}</span>
           </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * How to register for a course or another programme (Phase 15B): the
+ * organiser's registration page when the source links one, and the source's
+ * own page either way, since that is where the facts were read. A course
+ * registered through the source's own form says so; one whose page names no
+ * route says that instead of showing a dead control.
+ */
+function Register({ detail }: { detail: DetailForDisplay }) {
+  const button =
+    'inline-flex items-center rounded-[var(--radius)] border border-accent px-4 py-2 text-sm font-semibold text-accent hover:bg-surface-raised';
+  return (
+    <section className="mt-8">
+      <SectionHeading>How to register</SectionHeading>
+      <ul className="mt-3 flex flex-col gap-3 text-sm">
+        {detail.apply.map(({ column, route }) => (
+          <li key={column.sourceListingId} className="flex flex-wrap items-center gap-2">
+            {route.kind === 'url' && (
+              <a
+                href={route.href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Register for ${detail.title} on ${applicationHost(route.href)} (opens in a new tab)`}
+                className={button}
+              >
+                Register on&nbsp;<span translate="no">{applicationHost(route.href)}</span>
+              </a>
+            )}
+            <a
+              href={column.url}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Open ${detail.title} on ${sourceLabel(column.sourceSlug)} (opens in a new tab)`}
+              className={button}
+            >
+              Open on&nbsp;<span translate="no">{sourceLabel(column.sourceSlug)}</span>
+            </a>
+            {route.kind === 'onSource' && (
+              <span className="text-muted">registration is through a form on that page</span>
+            )}
+            {route.kind === 'email' && (
+              <span className="text-muted">
+                register by email:{' '}
+                <a
+                  href={route.href}
+                  translate="no"
+                  className="numeric break-all text-accent underline underline-offset-2 hover:text-foreground"
+                >
+                  {route.address}
+                </a>
+              </span>
+            )}
+            {route.kind === 'unstated' && (
+              <span className="text-muted">the page does not say how to register</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * A source's short excerpt, where its full text is not shown: a course's
+ * source has not cleared full republishing, so on public the excerpt its
+ * parser bounded is all the text there is (`docs/PHASE_15_PLAN.md`,
+ * decision 2). The sources write in English whatever the reader's language.
+ */
+function Excerpts({ detail }: { detail: DetailForDisplay }) {
+  if (detail.excerpts.length === 0) return null;
+  return (
+    <section className="mt-8">
+      <SectionHeading>In short</SectionHeading>
+      <div className="mt-3 flex flex-col gap-6">
+        {detail.excerpts.map(({ column, text }) => (
+          <article key={column.sourceListingId}>
+            <h3 className="text-xs text-faint">
+              from <BoardLink column={column} title={detail.title} />
+            </h3>
+            <p lang="en" className="mt-2 max-w-[var(--measure)] text-sm">
+              {text}
+            </p>
+          </article>
         ))}
       </div>
     </section>

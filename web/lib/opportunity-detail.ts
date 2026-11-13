@@ -1,5 +1,6 @@
 import type { OpportunityDetailView } from '../../src/browse/queries.js';
 import { sourceDayKey } from './format.js';
+import { isProgrammeKind } from './kind-labels.js';
 
 /**
  * The detail screen's derivations, kept out of the component so they can be
@@ -104,6 +105,8 @@ export interface OpportunityDetail {
   comparison: ComparisonRow[];
   apply: BoardApply[];
   descriptions: BoardDescription[];
+  /** A source's short excerpt, where its full text is not shown (a programme on public). */
+  excerpts: BoardDescription[];
   extras: BoardExtras[];
   crossPosted: boolean;
   /**
@@ -513,6 +516,169 @@ export function tenderValue(attributes: unknown): Cell | null {
   return typeof value.raw === 'string' ? text(value.raw) : null;
 }
 
+/** A programme's word for a value it reads from its attributes, or null. */
+function attributeText(attributes: unknown, key: string): Cell | null {
+  const value = asRecord(attributes)[key];
+  return typeof value === 'string' ? text(value) : null;
+}
+
+/** "6 EC". */
+function creditsText(attributes: unknown): Cell | null {
+  const credits = asRecord(asRecord(attributes).credits);
+  if (typeof credits.amount !== 'number' || typeof credits.unit !== 'string') return null;
+  return text(`${AMOUNT.format(credits.amount)} ${credits.unit}`);
+}
+
+/** The fee as the source wrote it; a course whose fee could not be read keeps its words. */
+function feeText(attributes: unknown): Cell | null {
+  const raw = asRecord(asRecord(attributes).fee).raw;
+  return typeof raw === 'string' ? text(raw) : null;
+}
+
+/** "Student 1,850 EUR · Professional 2,200 EUR", only when there is more than one. */
+function feeOptionsText(attributes: unknown): Cell | null {
+  const options = asRecord(attributes).feeOptions;
+  if (!Array.isArray(options) || options.length < 2) return null;
+  const parts = options.map((option) => {
+    const { amount, currency, label } = asRecord(option);
+    const price =
+      typeof amount === 'number'
+        ? `${AMOUNT.format(amount)}${typeof currency === 'string' ? ` ${currency}` : ''}`
+        : '';
+    return [typeof label === 'string' ? label : '', price].filter(Boolean).join(' ');
+  });
+  return text(parts.filter(Boolean).join(' · '));
+}
+
+/** Discipline names, in the source's order. */
+function categoryText(attributes: unknown): Cell | null {
+  const disciplines = asRecord(attributes).disciplines;
+  if (!Array.isArray(disciplines)) return null;
+  const names = disciplines
+    .map((discipline) => asRecord(discipline).name)
+    .filter((name): name is string => typeof name === 'string' && name.trim() !== '');
+  return text(names.join(', '));
+}
+
+/** Where it happens; "Online" for a course the source marks as online. */
+function placeText(member: ComparedMember): Cell | null {
+  return asRecord(member.structuredAttributes).format === 'online'
+    ? text('Online')
+    : locationText(member.locations);
+}
+
+/**
+ * A course, scholarship or other programme (Phase 15B): a learner's rows, no
+ * Pay and no Posted. Dates and fees are shown in the source's own words; the
+ * registration deadline stays as a row even when no source states one, since
+ * "not stated" is itself what a person deciding needs to know.
+ */
+function programmeRows(members: readonly ComparedMember[]): (ComparisonRow | null)[] {
+  const deadlineCells = members.map((m) => date(m.deadlineAt));
+  const deadlineNote = 'The sources state different registration deadlines.';
+  return [
+    row(
+      'title',
+      'Title',
+      'The sources word the title differently.',
+      members.map((m) => text(m.title)),
+    ),
+    row(
+      'employer',
+      'Organiser',
+      'The sources name the organiser differently.',
+      members.map((m) => text(m.organization)),
+    ),
+    row(
+      'institution',
+      'Institution',
+      'The sources name the institution differently.',
+      members.map((m) => attributeText(m.structuredAttributes, 'institution')),
+    ),
+    row(
+      'state',
+      'State',
+      'The sources report different states, and a missed crawl is a suspicion rather than a takedown.',
+      members.map((m): Cell => ({ kind: 'status', value: m.status })),
+    ),
+    row(
+      'dates',
+      'Dates',
+      'The sources state different dates.',
+      members.map((m) => attributeText(m.structuredAttributes, 'whenRaw')),
+    ),
+    row('place', 'Place', 'The sources state different places.', members.map(placeText)),
+    row(
+      'language',
+      'Language',
+      'The sources state different languages.',
+      members.map((m) => attributeText(m.structuredAttributes, 'language')),
+    ),
+    row(
+      'credits',
+      'Credits',
+      'The sources state different credits.',
+      members.map((m) => creditsText(m.structuredAttributes)),
+    ),
+    row(
+      'fee',
+      'Fee',
+      'The sources state different fees.',
+      members.map((m) => feeText(m.structuredAttributes)),
+    ),
+    row(
+      'feeOptions',
+      'Fee options',
+      'The sources state different fee options.',
+      members.map((m) => feeOptionsText(m.structuredAttributes)),
+    ),
+    row('deadline', 'Registration deadline', deadlineNote, deadlineCells) ?? {
+      key: 'deadline',
+      label: 'Registration deadline',
+      note: deadlineNote,
+      cells: deadlineCells,
+      differs: false,
+    },
+    row(
+      'earlyBird',
+      'Early-bird deadline',
+      'The sources state different early-bird deadlines.',
+      members.map((m) => date(attributeString(m.structuredAttributes, 'earlyBirdDeadline'))),
+    ),
+    row(
+      'category',
+      'Category',
+      'The sources file it under different subjects.',
+      members.map((m) => categoryText(m.structuredAttributes)),
+    ),
+  ];
+}
+
+function attributeString(attributes: unknown, key: string): string | null {
+  const value = asRecord(attributes)[key];
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+/**
+ * Each source's excerpt (`structuredAttributes.excerpt`, bounded and
+ * stripped of contacts by its parser) where that source's full text is
+ * blank: on public, a source that has not cleared full republishing arrives
+ * with an empty description (`docs/PHASE_15_PLAN.md`, decision 2).
+ */
+export function excerpts(
+  members: readonly (Parameters<typeof column>[0] & {
+    description: string;
+    structuredAttributes: unknown;
+  })[],
+): BoardDescription[] {
+  return members.flatMap((member) => {
+    const excerpt = attributeString(member.structuredAttributes, 'excerpt');
+    return member.description.trim() === '' && excerpt !== null
+      ? [{ column: column(member), text: excerpt }]
+      : [];
+  });
+}
+
 /** The member fields a comparison reads, on both surfaces. */
 export interface ComparedMember {
   title: string;
@@ -534,6 +700,9 @@ export interface ComparedMember {
  * method, documents and Q&A stay off this screen (owner, 2026-10-07).
  */
 export function comparisonRows(type: string, members: readonly ComparedMember[]): ComparisonRow[] {
+  if (isProgrammeKind(type)) {
+    return programmeRows(members).filter((entry): entry is ComparisonRow => entry !== null);
+  }
   const tender = type === 'tender';
   return [
     row(
@@ -652,6 +821,7 @@ export function toDetail(view: OpportunityDetailView): OpportunityDetail {
     descriptions: members
       .filter((member) => member.description.trim() !== '')
       .map((member) => ({ column: column(member), text: member.description })),
+    excerpts: excerpts(members),
     extras,
     // One entry per SOURCE, matching how the list screen counts cross-posting:
     // two memberships from the same board are a data problem, not a second

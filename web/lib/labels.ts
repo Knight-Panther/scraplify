@@ -150,8 +150,16 @@ const realEstateSourceLabels: Record<string, string> = {
   'ss-ge': 'ss.ge',
 };
 
+/**
+ * Programme sources (Phase 15), named the same way and kept out of
+ * `sourceLabels`, which the taxonomy screens list as the job boards.
+ */
+export const programmeSourceLabels: Record<string, string> = {
+  'summerschoolsineurope-eu': 'summerschoolsineurope.eu',
+};
+
 export function sourceLabel(slug: string): string {
-  return sourceLabels[slug] ?? realEstateSourceLabels[slug] ?? slug;
+  return sourceLabels[slug] ?? realEstateSourceLabels[slug] ?? programmeSourceLabels[slug] ?? slug;
 }
 
 /**

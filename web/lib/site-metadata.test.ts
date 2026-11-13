@@ -83,6 +83,23 @@ describe('isIndexable', () => {
 });
 
 describe('opportunityDescription', () => {
+  it('uses a course’s excerpt where its full text is not published', () => {
+    const text = opportunityDescription(
+      view([
+        member({
+          sourceSlug: 'summerschoolsineurope-eu',
+          organization: 'Leiden University',
+          locations: ['Leiden, Netherlands'],
+          description: '',
+          structuredAttributes: { excerpt: 'An introduction to mindfulness and compassion.' },
+        }),
+      ]),
+    );
+    expect(text).toBe(
+      'Leiden University · Leiden, Netherlands · on summerschoolsineurope.eu. An introduction to mindfulness and compassion.',
+    );
+  });
+
   it('states employer, place and boards from the members', () => {
     expect(opportunityDescription(view([member()]))).toBe('შპს მაგალითი · თბილისი · on jobs.ge');
   });

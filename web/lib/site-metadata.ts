@@ -2,8 +2,8 @@ import type { PublicOpportunityDetailView } from '../../src/browse/public-querie
 import { heroCopy } from './hero-copy.js';
 import { sourceLabel } from './labels.js';
 import type { Locale } from './locale.js';
-import { locationText } from './opportunity-detail.js';
-import { type Surface, currentSurface } from './surface.js';
+import { excerpts, locationText } from './opportunity-detail.js';
+import { currentSurface, type Surface } from './surface.js';
 
 /**
  * What link previews (Facebook, LinkedIn, X, messengers) and search engines
@@ -147,7 +147,11 @@ export function opportunityDescription(view: PublicOpportunityDetailView): strin
   ].filter((part): part is string => part !== undefined && part !== '');
 
   const lead = facts.join(' · ');
-  const body = members.map((m) => m.description.trim()).find((text) => text !== '') ?? '';
+  // A source whose full text is not published (a course) lends its excerpt.
+  const body =
+    members.map((m) => m.description.trim()).find((text) => text !== '') ??
+    excerpts(members)[0]?.text ??
+    '';
   const combined = body === '' ? lead : lead === '' ? body : `${lead}. ${body}`;
   return clip(combined === '' ? siteDescription('en') : combined, DESCRIPTION_LIMIT);
 }
