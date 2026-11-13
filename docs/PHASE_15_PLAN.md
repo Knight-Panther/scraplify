@@ -22,7 +22,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. Order: 15A,
 
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
-| ⏳ | **15A** | Summer-school crawler, typing by source, local trial | no | 14C live (2026-11-11); its recon questions may be answered sooner |
+| ✅ | **15A** | Summer-school crawler, typing by source, local trial | no | done 2026-11-13 (trial passed; PR #105) |
 | ❌ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | 15A |
 | ❌ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | 15B |
 | ❌ | **15D** | Eurodesk crawler (visitor session), local trial | no | 15B |
@@ -296,14 +296,27 @@ Trial into a new `scraplify_qa_p15` (migrate, crawl, `dedupe --auto-link`, a sec
 - second-run fetch counts by trigger; and 30 unchanged courses refetched by hand, to see whether a page ever changes without its sitemap `lastmod` changing;
 - dedupe pass time and `pairsCompared` with and without the source, and the largest organiser block.
 
+Measured in the trial (`scraplify_qa_p15`, 2026-11-13; the PC's clock ran about 1 h 50 m slow until about 16:28 UTC, so run 1's stored times are early by that much):
+- **Runs:** run 1 completed in 3 h 09 m: 625 of 625 upcoming courses through 86 listing requests and no re-asks, 11 sitemap requests (9,567 entries), 620 pages read (5 had been read by the short run before), 0 quarantined, 0 failed, 2 started courses closed by date. Run 2, on the fixed build: completed in 36 min, 625 seen, 113 listing requests, 3 sitemap requests (1,585 entries), 12 pages read, all card-triggered and unchanged (fixed: a two-city course's card names either city; `c004abd`), 0 by the sitemap.
+- **Daily cost:** about 90 to 115 listing requests and 3 sitemaps, about half an hour at the 15 s delay, plus the changed pages.
+- **By country:** United Kingdom 202, Italy 87, Germany 65, Denmark 54, Netherlands 50, France 29, Belgium 22, Türkiye 18, Estonia 16, Czechia 13, Lithuania 11, the rest under 10 (Georgia 4). One course is in two countries ("Portugal, Belgium").
+- **By discipline (a course counts once per discipline):** Business & Entrepreneurship 105, Social Sciences 58, Artificial Intelligence 50, Engineering 48, Cultural Studies 42, Political Science 41; 36 disciplines in all, every name with its facet slug.
+- **Format, season, currency:** 40 online; summer 490, winter 106, spring 11, autumn 2, none 16; EUR 405, GBP 202, NOK 5, CHF 4, SEK 2, no fee 7.
+- **Registration and deadlines:** 156 link the organiser's page, 469 register on the site's own form; 26 carry a deadline badge, all 26 resolved, 0 ambiguous; 147 state an early-bird date; 342 list more than one fee.
+- **Dates:** 0 unparsed; 1 suspect ("28 June - 02 June 2027", course 73181, kept raw); institution "N/A" or absent on 45.
+- **Eligibility phrases:** "only for" 6, "exclusively" 2, "EU/EEA" 60, "students of" 45, "enrolled at" 8 (shown to the owner 2026-11-13).
+- **Dedupe:** 7.6 s for 625 listings, 8,675 pairs compared, 0 candidates, 625 opportunities, all `summer_school`; largest organiser block UCL Summer School (66), then AU Summer University (54), University of Pisa Summer School (43).
+- **Bounds:** the longest excerpt 280 characters, search text 187, school link 154.
+- **Moved to 15C (ruling, 2026-11-13):** the next-day churn and the 30 unchanged pages read again by hand, to see whether a page changes without its sitemap date; the hosted daily runs give the same numbers.
+
 Exit gate:
-- [ ] Recon answers written; fixtures committed with their dates.
-- [ ] Tests green in CI; the full suite on the throwaway database.
-- [ ] Trial run completed with no quarantines; the second run fetched only changed courses.
-- [ ] Every trial opportunity is `summer_school`; none reached a bundle snapshot.
-- [ ] Measurements recorded; the "only for" count is in front of the owner.
-- [ ] Dedupe cost recorded. If the source adds over 30 s, same-source pairs are skipped in the block loop in 15B, with a test.
-- [ ] RIGHTS entry written.
+- [x] Recon answers written; fixtures committed with their dates.
+- [x] Tests green in CI; the full suite on the throwaway database.
+- [x] Trial run completed with no quarantines; the second run fetched only changed courses (see "Measured in the trial" for the 12 card-triggered reads and their fix).
+- [x] Every trial opportunity is `summer_school`; none reached a bundle snapshot.
+- [x] Measurements recorded; the "only for" count is in front of the owner.
+- [x] Dedupe cost recorded (7.6 s; nothing to skip in 15B).
+- [x] RIGHTS entry written.
 
 ### 15B: kinds, Browse and detail rendering
 
