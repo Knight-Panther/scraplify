@@ -313,11 +313,13 @@ Add:
 - `drizzle/migrations/0054_*.sql`: three `ALTER TYPE … ADD VALUE` lines and nothing else (precedents 0038, 0044). The migration-safety-reviewer agent reads it.
 - `web/lib/kind-labels.ts` (+ test): `kindLabel(type, locale)`.
 
-| Kind | EN | KA (the owner reads these before the merge) |
+Changed (2026-11-13): the owner read the Georgian labels and set two of them: `summer_school` is "საზაფხულო სკოლა" and `grant` is "გრანტები"; the rest stand as written.
+
+| Kind | EN | KA (read by the owner 2026-11-13) |
 |---|---|---|
-| `summer_school` | course / school | კურსი / სკოლა |
+| `summer_school` | course / school | საზაფხულო სკოლა |
 | `scholarship` | scholarship | სტიპენდია |
-| `grant` | grant | გრანტი |
+| `grant` | grant | გრანტები |
 | `internship` | internship abroad | სტაჟირება საზღვარგარეთ |
 | `volunteering` | volunteering | მოხალისეობა |
 | `competition` | competition | კონკურსი |
@@ -341,7 +343,7 @@ Exit gate:
 - [ ] 0054 applied to the test and trial databases; the agent's review has no P0 or P1.
 - [ ] Tests green in CI.
 - [ ] Browser QA on the trial database, local and public surfaces, 390 and 1280: Browse with courses tagged among vacancies; Kind = course / school; the long board chip with no overflow; a course page with a register link and one without. No console errors.
-- [ ] The owner has read the Georgian kind labels.
+- [x] The owner has read the Georgian kind labels (2026-11-13; two changed, above).
 
 ### 15C: hosted rollout of the summer-school source
 
