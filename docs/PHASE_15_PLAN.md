@@ -22,7 +22,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. Order: 15A,
 
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
-| ⏳ | **15A** | Summer-school crawler, typing by source, local trial | no | 14C live (2026-11-11); its recon questions may be answered sooner |
+| ✅ | **15A** | Summer-school crawler, typing by source, local trial | no | done 2026-11-13 (trial passed; PR #105) |
 | ❌ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | 15A |
 | ❌ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | 15B |
 | ❌ | **15D** | Eurodesk crawler (visitor session), local trial | no | 15B |
@@ -182,7 +182,7 @@ Rules:
 1. `/sitemap_index.xml`, then the course sitemaps whose index `lastmod` is newer than the last completed run minus two days (all ten on a first run).
 2. `/courses/`, then `?_paged=2..N` from the pager in `FWP_JSON`. Three tries per page. Union by post id.
 3. A detail fetch when the id is new, the card fingerprint changed (title, school, place, when, credits, fee, language, deadline, online), the sitemap `lastmod` is newer than the stored `modifiedAt`, the listing is quarantined, or `--refetch=all`.
-4. End of run: `expireOverdueListings`; the adapter's `closeStartedCourses` (start date passed, no request); and, when the run completed with full coverage, `closeMissingListingsInTransaction` with a streak of 3.
+4. End of run: `expireOverdueListings`; the adapter's `expireStartedCourses` (start date passed, no request); and, when the run completed with full coverage, `closeMissingListingsInTransaction` with a streak of 3.
 
 - **Budget.** Daily about 60 to 85 requests, 16 to 23 minutes. First run about 593 requests, about 2.6 hours. Detail cap 700.
 
@@ -249,6 +249,12 @@ Both sites sit behind Cloudflare and both answered our server normally with our 
 
 ### 15A: summer-school acquisition (not hosted)
 
+Changed (2026-11-13, recon measured again; `src/adapters/summerschoolsineurope-eu/RECON_NOTES.md`):
+- **Membership comes from a covering walk, not from paging.** The listing is shuffled on every page, and plain pages are cached up to 2 h each at their own moment, so all 53 pages gave only 403 of 625 courses. Filtered listings are uncached and complete when they hold 12 or fewer, and a facet takes several values as OR. The walk starts at `_course_status=future`, splits a result larger than one page by a facet (country, city, start month, duration, discipline), packs that facet's small values into OR-groups of up to 12, and asks each group's page 1; a result no facet splits is asked again until its distinct courses reach its `total_rows`. A run is full coverage only when every result set reached its own count, so closure after three complete walks stays (choice C), now with exact coverage. Replaces step 2 of the recipe and the `coverage` and `pageSize` guards below.
+- **The URL allow-list** takes `/courses/` only with `_course_status=future` and those five facets (slug values, comma-separated), and no `_paged`.
+- **Budget:** about 85 to 130 listing requests a day by estimate, plus the sitemaps and changed course pages; the trial measures it. The first run is about 750 requests, about 3.5 hours.
+- **The course page answers the recon questions too:** the registration deadline is on the card only; a started course can still be listed as "future", so `expireStartedCourses` matters; disciplines come from the pretitle, their slugs from the listing's facet; `datePublished` and `dateModified` from JSON-LD; Institution "N/A" seen once (Tbilisi).
+
 Recon first (plain GETs, 15 s apart; allowed before 14C is live). Answers go into the adapter's `RECON_NOTES.md`:
 - Does the "Deadline" badge stay after its date passes?
 - Does the default listing mean "not started" or "not ended"?
@@ -258,7 +264,7 @@ Recon first (plain GETs, 15 s apart; allowed before 14C is live). Answers go int
 Add:
 - `src/policies/summerschoolsineurope-eu.ts` (+ test): `mayRepublishFullContent: false`; `termsUrl: null` with "not yet reviewed: the page renders in the browser"; dated evidence for the robots.txt read, the named AI bots it turns away, the REST 401 and the host test.
 - `src/adapters/summerschoolsineurope-eu/`: `listing.ts`, `sitemap.ts`, `detail.ts`, `dates.ts`, `money.ts`, `crawl.ts`, `RECON_NOTES.md`, `fixtures/`, tests. Model: `src/adapters/etenders-ge/`; for sitemaps `src/adapters/hr-ge/sitemap.ts`.
-- `src/cli/run-summerschoolsineurope-eu-crawl.ts` (the name `deploy/run-pipeline.sh` expects), `summerschoolsineurope-eu-options.ts` (+ test) with `--refetch`, `--max-pages`, `--max-detail-fetches`, `--sitemaps=all`; npm script `crawl:summerschoolsineurope-eu`.
+- `src/cli/run-summerschoolsineurope-eu-crawl.ts` (the name `deploy/run-pipeline.sh` expects), `summerschoolsineurope-eu-options.ts` (+ test) with `--refetch`, `--max-listing-requests`, `--max-detail-fetches`, `--sitemaps=all`; npm script `crawl:summerschoolsineurope-eu`.
 - `src/dedupe/programme-kind.ts` (+ test), with this source's fixed rule.
 
 Change:
@@ -266,7 +272,7 @@ Change:
 - `src/dedupe/tender-post.ts`, `src/dedupe/resolve-canonical.ts`.
 - `src/source-traits.ts` (+ test) and `src/matching/bundle/build.ts:93-99`: the rename to `NON_VACANCY_SOURCES`, with the new slug.
 - `scripts/run-crawl.ps1:5` (ValidateSet only; no local scheduled task).
-- `docs/RIGHTS.md`: a Sources row, and the verdict lines at :7, :22 and :74, saying that permission has not been asked and the terms are not reviewed.
+- `docs/RIGHTS.md`: a Sources row, and the verdict lines at :7, :22 and :74, saying that no permission is needed (owner, 2026-11-13) and the terms are not reviewed.
 - `docs/scraplify-concept.md`: a dated amendment for the two sources, the new kinds (§12.3), the excerpt exception and the Eurodesk session decision with its limits (§4.3).
 
 Fixtures (dated): listing pages 1, 2 and last with their `FWP_JSON`; the sitemap index and one course sitemap; details for a plain course, a GBP fee, "Interested?" with no external link, Institution "N/A", an early-bird line, an online course and the "28 June - 02 June" card.
@@ -290,14 +296,27 @@ Trial into a new `scraplify_qa_p15` (migrate, crawl, `dedupe --auto-link`, a sec
 - second-run fetch counts by trigger; and 30 unchanged courses refetched by hand, to see whether a page ever changes without its sitemap `lastmod` changing;
 - dedupe pass time and `pairsCompared` with and without the source, and the largest organiser block.
 
+Measured in the trial (`scraplify_qa_p15`, 2026-11-13; the PC's clock ran about 1 h 50 m slow until about 16:28 UTC, so run 1's stored times are early by that much):
+- **Runs:** run 1 completed in 3 h 09 m: 625 of 625 upcoming courses through 86 listing requests and no re-asks, 11 sitemap requests (9,567 entries), 620 pages read (5 had been read by the short run before), 0 quarantined, 0 failed, 2 started courses closed by date. Run 2, on the fixed build: completed in 36 min, 625 seen, 113 listing requests, 3 sitemap requests (1,585 entries), 12 pages read, all card-triggered and unchanged (fixed: a two-city course's card names either city; `c004abd`), 0 by the sitemap.
+- **Daily cost:** about 90 to 115 listing requests and 3 sitemaps, about half an hour at the 15 s delay, plus the changed pages.
+- **By country:** United Kingdom 202, Italy 87, Germany 65, Denmark 54, Netherlands 50, France 29, Belgium 22, Türkiye 18, Estonia 16, Czechia 13, Lithuania 11, the rest under 10 (Georgia 4). One course is in two countries ("Portugal, Belgium").
+- **By discipline (a course counts once per discipline):** Business & Entrepreneurship 105, Social Sciences 58, Artificial Intelligence 50, Engineering 48, Cultural Studies 42, Political Science 41; 36 disciplines in all, every name with its facet slug.
+- **Format, season, currency:** 40 online; summer 490, winter 106, spring 11, autumn 2, none 16; EUR 405, GBP 202, NOK 5, CHF 4, SEK 2, no fee 7.
+- **Registration and deadlines:** 156 link the organiser's page, 469 register on the site's own form; 26 carry a deadline badge, all 26 resolved, 0 ambiguous; 147 state an early-bird date; 342 list more than one fee.
+- **Dates:** 0 unparsed; 1 suspect ("28 June - 02 June 2027", course 73181, kept raw); institution "N/A" or absent on 45.
+- **Eligibility phrases:** "only for" 6, "exclusively" 2, "EU/EEA" 60, "students of" 45, "enrolled at" 8 (shown to the owner 2026-11-13).
+- **Dedupe:** 7.6 s for 625 listings, 8,675 pairs compared, 0 candidates, 625 opportunities, all `summer_school`; largest organiser block UCL Summer School (66), then AU Summer University (54), University of Pisa Summer School (43).
+- **Bounds:** the longest excerpt 280 characters, search text 187, school link 154.
+- **Moved to 15C (ruling, 2026-11-13):** the next-day churn and the 30 unchanged pages read again by hand, to see whether a page changes without its sitemap date; the hosted daily runs give the same numbers.
+
 Exit gate:
-- [ ] Recon answers written; fixtures committed with their dates.
-- [ ] Tests green in CI; the full suite on the throwaway database.
-- [ ] Trial run completed with no quarantines; the second run fetched only changed courses.
-- [ ] Every trial opportunity is `summer_school`; none reached a bundle snapshot.
-- [ ] Measurements recorded; the "only for" count is in front of the owner.
-- [ ] Dedupe cost recorded. If the source adds over 30 s, same-source pairs are skipped in the block loop in 15B, with a test.
-- [ ] RIGHTS entry written.
+- [x] Recon answers written; fixtures committed with their dates.
+- [x] Tests green in CI; the full suite on the throwaway database.
+- [x] Trial run completed with no quarantines; the second run fetched only changed courses (see "Measured in the trial" for the 12 card-triggered reads and their fix).
+- [x] Every trial opportunity is `summer_school`; none reached a bundle snapshot.
+- [x] Measurements recorded; the "only for" count is in front of the owner.
+- [x] Dedupe cost recorded (7.6 s; nothing to skip in 15B).
+- [x] RIGHTS entry written.
 
 ### 15B: kinds, Browse and detail rendering
 
@@ -307,11 +326,13 @@ Add:
 - `drizzle/migrations/0054_*.sql`: three `ALTER TYPE … ADD VALUE` lines and nothing else (precedents 0038, 0044). The migration-safety-reviewer agent reads it.
 - `web/lib/kind-labels.ts` (+ test): `kindLabel(type, locale)`.
 
-| Kind | EN | KA (the owner reads these before the merge) |
+Changed (2026-11-13): the owner read the Georgian labels and set two of them: `summer_school` is "საზაფხულო სკოლა" and `grant` is "გრანტები"; the rest stand as written.
+
+| Kind | EN | KA (read by the owner 2026-11-13) |
 |---|---|---|
-| `summer_school` | course / school | კურსი / სკოლა |
+| `summer_school` | course / school | საზაფხულო სკოლა |
 | `scholarship` | scholarship | სტიპენდია |
-| `grant` | grant | გრანტი |
+| `grant` | grant | გრანტები |
 | `internship` | internship abroad | სტაჟირება საზღვარგარეთ |
 | `volunteering` | volunteering | მოხალისეობა |
 | `competition` | competition | კონკურსი |
@@ -335,7 +356,7 @@ Exit gate:
 - [ ] 0054 applied to the test and trial databases; the agent's review has no P0 or P1.
 - [ ] Tests green in CI.
 - [ ] Browser QA on the trial database, local and public surfaces, 390 and 1280: Browse with courses tagged among vacancies; Kind = course / school; the long board chip with no overflow; a course page with a register link and one without. No console errors.
-- [ ] The owner has read the Georgian kind labels.
+- [x] The owner has read the Georgian kind labels (2026-11-13; two changed, above).
 
 ### 15C: hosted rollout of the summer-school source
 
@@ -499,7 +520,7 @@ npm run build && npm run typecheck && npm run lint
 DATABASE_URL=postgresql://scraplify:throwaway@127.0.0.1:5544/scraplify_qa_re npm test
 # trial database in container xtelo-re-test (dropping it later needs the owner's yes; the write guard asks)
 DATABASE_URL=<.../scraplify_qa_p15> npm run db:migrate
-DATABASE_URL=<.../scraplify_qa_p15> npm run crawl:summerschoolsineurope-eu -- --max-pages=2 --max-detail-fetches=10   # smoke
+DATABASE_URL=<.../scraplify_qa_p15> npm run crawl:summerschoolsineurope-eu -- --max-listing-requests=2 --max-detail-fetches=10   # smoke
 DATABASE_URL=<.../scraplify_qa_p15> npm run crawl:summerschoolsineurope-eu                                             # full, about 2.6 h
 DATABASE_URL=<.../scraplify_qa_p15> npm run crawl:eurodesk-eu
 DATABASE_URL=<.../scraplify_qa_p15> npm run dedupe -- --auto-link

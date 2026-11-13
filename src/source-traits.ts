@@ -1,5 +1,6 @@
 import { etendersGeSource } from './policies/etenders-ge.js';
 import { ssGeSource } from './policies/ss-ge.js';
+import { summerSchoolsEuSource } from './policies/summerschoolsineurope-eu.js';
 
 /**
  * Per-source facts that change how the rest of the system treats a board,
@@ -16,12 +17,16 @@ import { ssGeSource } from './policies/ss-ge.js';
 export const SOURCES_WITHOUT_FULL_COVERAGE: readonly string[] = [etendersGeSource.slug];
 
 /**
- * Sources that carry tenders and nothing else. The CV Ranked bundle holds
- * vacancies only (owner, 2026-10-07), so its health gate neither reads nor
- * waits on these: a slow or failed etenders.ge run must not freeze the
- * vacancy bundle.
+ * Sources that carry no vacancies: the tender board, and the programme
+ * sources (Phase 15: courses, scholarships, grants and the like). The CV
+ * Ranked bundle holds vacancies only (owner, 2026-10-07 and 2026-11-09), so
+ * its health gate neither reads nor waits on these: a slow, failed or
+ * never-crawled run of one of them must not freeze the vacancy bundle.
  */
-export const TENDER_ONLY_SOURCES: readonly string[] = [etendersGeSource.slug];
+export const NON_VACANCY_SOURCES: readonly string[] = [
+  etendersGeSource.slug,
+  summerSchoolsEuSource.slug,
+];
 
 /**
  * Sources whose listings are real estate, kept in the `realestate` schema and

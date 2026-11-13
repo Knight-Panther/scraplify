@@ -1338,3 +1338,30 @@ A real-estate listing is not an opportunity. Nothing in §12–§17 applies to i
 §5.3 applies unchanged: ss.ge has a policy record, and only the public pages its robots.txt allows are read. The site's own JSON gateway, which its frontend calls with a site-issued token, is not used unless ss.ge says so.
 
 Listing pages carry phone numbers and people's names. They are dropped by the parser and never stored. Descriptions are stored for search and, as for the job boards (§23.3 and the owner's decision of 2026-10-07), not republished on the public surface.
+
+## 32. Programmes for students and youth (amendment, 2026-11-13)
+
+**Status of this section:** accepted direction, in progress as Phase 15 (`docs/STATUS.md`). The plan, the owner's eight decisions of 2026-11-09 and every measurement are in `docs/PHASE_15_PLAN.md`; this section records the decision and how it sits beside the rest of this document.
+
+### 32.1 Decision summary
+
+The owner wants the site to draw Georgian students and young people. Two programme sources join the job boards and the tender board:
+
+- **summerschoolsineurope.eu:** short academic courses across Europe (625 upcoming on 2026-11-13). Every upcoming course is taken.
+- **programmes.eurodesk.eu:** the EU youth programmes Eurodesk lists as open to Georgia (94 on 2026-11-09), for young people and for organisations, each tagged.
+
+Courses and programmes appear in Browse under their kind and on a bilingual Programmes tab. They are never vacancies: CV Ranked keeps vacancies only (`NON_VACANCY_SOURCES`, `src/source-traits.ts`).
+
+### 32.2 Opportunity types (§12.3)
+
+§12.3's `summer_school`, `scholarship`, `grant` and `event` get their first sources, and three types join them: `competition`, `internship` (shown as "internship abroad") and `volunteering`. Training courses share `summer_school`, shown as "course / school". A programme source's listing is typed by its source (`src/dedupe/programme-kind.ts`), before the tender rules, so a course titled "Public Procurement for …" stays a course; a job board cannot declare a type through its attributes. Programme types never merge automatically in the first version: a would-be merge goes to review.
+
+### 32.3 What the public site shows
+
+The facts of each course or programme, a short excerpt of its own description, and links to the source's page and to the organiser. The full text is stored and not shown. This is a per-source exception to the owner's decision of 2026-10-07 that descriptions stay off the public site (§23.3), made for these two sources only. summerschoolsineurope.eu needs no permission (owner, 2026-11-13), and neither source is a board whose visitors the catalogue would draw away.
+
+### 32.4 Access (§4.3)
+
+summerschoolsineurope.eu is read as its robots.txt asks: one request at a time, 15 seconds apart, with this crawler's own name. Its listing is shuffled on every page, so membership comes from its own filters (`src/adapters/summerschoolsineurope-eu/RECON_NOTES.md`); nothing is hidden or locked.
+
+Eurodesk answers its search only to a request that carries the session cookie any visitor receives on its first page. The owner decided on 2026-11-09 that the crawler may take that cookie the same way, and writes to Eurodesk about it. The limits stand beside §4.3's rule against circumventing access control: no login, no token header, no POST, one session refresh per run, and a stop on the first sign of refusal. Neither site's challenge is ever solved or evaded; a challenge stops the source and the durable fix is an allow-list from its operator.

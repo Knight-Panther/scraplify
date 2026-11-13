@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../db/client.js';
 import {
   opportunities,
@@ -8,6 +8,7 @@ import {
   opportunitySourceMemberships,
   sourceListingRevisions,
   sourceListings,
+  sources,
 } from '../db/schema/index.js';
 import {
   cleanupTestSource,
@@ -16,6 +17,21 @@ import {
   createTestSourceListing,
 } from '../db/test-support.js';
 import { canonicalContentHash, resolveCanonicalOpportunity } from './resolve-canonical.js';
+
+// The summer-school source under a disposable id, so a course member is typed
+// by source without writing a row under the real source.
+const courseSourceIds = vi.hoisted(() => ({ sourceId: crypto.randomUUID() }));
+vi.mock('../policies/summerschoolsineurope-eu.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../policies/summerschoolsineurope-eu.js')>();
+  return {
+    ...actual,
+    summerSchoolsEuSource: {
+      ...actual.summerSchoolsEuSource,
+      id: courseSourceIds.sourceId,
+      slug: `test-source-${courseSourceIds.sourceId}`,
+    },
+  };
+});
 
 /**
  * These cover the four separate stale-state defects a single resolver
@@ -71,11 +87,11 @@ describe('resolveCanonicalOpportunity', () => {
     return { listingId: listing.id, revisionId };
   }
 
-  async function makeOpportunity(): Promise<string> {
+  async function makeOpportunity(type: 'job' | 'scholarship' = 'job'): Promise<string> {
     const id = randomUUID();
     await db.insert(opportunities).values({
       id,
-      type: 'job',
+      type,
       canonicalTitle: 'placeholder',
       organizationId: null,
       canonicalStatus: 'active',
@@ -348,6 +364,43 @@ describe('resolveCanonicalOpportunity', () => {
       .where(eq(opportunityRevisions.id, after.revisionId as string));
     const resolved = revision?.resolvedFields as { organization: Array<{ value: string }> };
     expect(resolved.organization.map((entry) => entry.value)).toEqual(['Org Two']);
+  });
+
+  it('an opportunity stored as job whose member is a course becomes a course', async () => {
+    await db.insert(sources).values({
+      id: courseSourceIds.sourceId,
+      slug: `test-source-${courseSourceIds.sourceId}`,
+      displayName: 'Test course source',
+      baseUrl: 'https://example.invalid/',
+    });
+    sourceIds.push(courseSourceIds.sourceId);
+    const opportunityId = await makeOpportunity();
+    const { listingId } = await addListing(courseSourceIds.sourceId, {
+      title: 'Public Procurement for Development',
+    });
+    await addMember(opportunityId, listingId);
+
+    await db.transaction((tx) =>
+      resolveCanonicalOpportunity(tx, opportunityId, '2026-11-13T12:00:00Z'),
+    );
+
+    const [row] = await db.select().from(opportunities).where(eq(opportunities.id, opportunityId));
+    expect(row?.type).toBe('summer_school');
+  });
+
+  it('a type set by hand on job-board members is kept', async () => {
+    const source = await createTestSource();
+    sourceIds.push(source);
+    const opportunityId = await makeOpportunity('scholarship');
+    const { listingId } = await addListing(source, { title: 'Scholarship for engineers' });
+    await addMember(opportunityId, listingId);
+
+    await db.transaction((tx) =>
+      resolveCanonicalOpportunity(tx, opportunityId, '2026-11-13T12:00:00Z'),
+    );
+
+    const [row] = await db.select().from(opportunities).where(eq(opportunities.id, opportunityId));
+    expect(row?.type).toBe('scholarship');
   });
 
   it('marks an emptied opportunity closed without inventing a revision', async () => {

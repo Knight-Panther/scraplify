@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { SourceHealthView } from '../../browse/queries.js';
 import { db, pool } from '../../db/client.js';
 import {
   listingClassifications,
@@ -22,9 +23,10 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../../db/test-support.js';
+import { summerSchoolsEuSource } from '../../policies/summerschoolsineurope-eu.js';
 import type { TitleEmbedder } from '../semantic/title-vectors-build.js';
 import { FilesystemArtifactStore } from './artifact-store.js';
-import { type BuildOptions, buildMatchingBundle } from './build.js';
+import { type BuildOptions, buildMatchingBundle, vacancyUpstreamAlerts } from './build.js';
 import {
   ARTIFACT_FILE_NAMES,
   MANIFEST_FILE,
@@ -571,6 +573,46 @@ describe('matching bundle build', () => {
     const later = new Date(Date.now() + 80 * 3600 * 1000).toISOString();
     expect(assessMatchingHealth(status, later)).toEqual([
       expect.objectContaining({ level: 'critical', code: 'bundle_stale' }),
+    ]);
+  });
+});
+
+describe('the vacancy bundle health gate', () => {
+  const NOW = '2026-11-13T12:00:00.000Z';
+  const healthy = (sourceSlug: string): SourceHealthView => ({
+    sourceSlug,
+    listingsByStatus: { active: 10 },
+    lastRunAt: '2026-11-13T06:00:00.000Z',
+    lastRunStatus: 'completed',
+    lastFullCoverageRunAt: '2026-11-13T06:00:00.000Z',
+    fullCoverageApplies: true,
+    lastSyncedAt: '2026-11-13T06:00:00.000Z',
+    unresolvedIncidents: 0,
+    unresolvedCriticalIncidents: 0,
+    unlinkedActiveListings: 0,
+    staleUnlinkedActiveListings: 0,
+  });
+  const neverCrawled = (sourceSlug: string): SourceHealthView => ({
+    ...healthy(sourceSlug),
+    listingsByStatus: {},
+    lastRunAt: null,
+    lastRunStatus: null,
+    lastFullCoverageRunAt: null,
+    lastSyncedAt: null,
+  });
+
+  it('a critical alert on a non-vacancy source does not fail the vacancy bundle', () => {
+    const alerts = vacancyUpstreamAlerts(
+      [healthy('jobs-ge'), healthy('hr-ge'), neverCrawled(summerSchoolsEuSource.slug)],
+      NOW,
+    );
+    expect(alerts).toEqual([]);
+  });
+
+  it('a critical alert on a job board still does', () => {
+    const alerts = vacancyUpstreamAlerts([neverCrawled('jobs-ge'), healthy('hr-ge')], NOW);
+    expect(alerts.map((alert) => [alert.sourceSlug, alert.code])).toEqual([
+      ['jobs-ge', 'never_crawled'],
     ]);
   });
 });
