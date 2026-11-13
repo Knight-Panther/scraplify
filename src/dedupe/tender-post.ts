@@ -3,6 +3,7 @@ import { sourceListingRevisions, sourceListings } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
 import type { OpportunityType } from '../domain/opportunity.js';
 import { etendersGeSource } from '../policies/etenders-ge.js';
+import { opportunityKindSql, programmeKindForListing } from './programme-kind.js';
 
 /**
  * Which kind of opportunity a source listing is: a vacancy or a procurement
@@ -178,10 +179,21 @@ export interface ListingTypeInput {
   title: string;
   /** Whether the listing's description announces a tender (`descriptionAnnouncesTender`). */
   descriptionAnnouncesTender: boolean;
+  /**
+   * The kind the listing declares (`structuredAttributes.opportunityKind`,
+   * `opportunityKindSql`). Honoured only for a programme source.
+   */
+  sourceKind: string | null;
 }
 
-/** The opportunity type a source listing belongs to. */
+/**
+ * The opportunity type a source listing belongs to. A programme source's
+ * kind comes first, so a course titled "Public Procurement for …" stays a
+ * course; then the tender board; then a job board's tender posts.
+ */
 export function opportunityTypeForListing(input: ListingTypeInput): OpportunityType {
+  const programmeKind = programmeKindForListing(input.sourceId, input.sourceKind);
+  if (programmeKind !== undefined) return programmeKind;
   if (input.sourceId === etendersGeSource.id) return 'tender';
   if (isTenderPostTitle(input.title)) return 'tender';
   if (input.descriptionAnnouncesTender && !hasJobRoleWord(input.title)) return 'tender';
@@ -201,6 +213,7 @@ export async function loadListingOpportunityType(
       sourceId: sourceListings.sourceId,
       title: sourceListingRevisions.titleRaw,
       descriptionAnnouncesTender: descriptionAnnouncesTenderSql(sourceListingRevisions.description),
+      sourceKind: opportunityKindSql(sourceListingRevisions.structuredAttributes),
     })
     .from(sourceListings)
     .innerJoin(

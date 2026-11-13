@@ -12,6 +12,7 @@ import type { OpportunityType } from '../domain/opportunity.js';
 import { normalizeOrganizationName } from '../normalize/organization.js';
 import { normalizeApplicationValue } from '../normalize/text.js';
 import { reassignListingWithin } from './membership-review.js';
+import { opportunityKindSql } from './programme-kind.js';
 import { resolveCanonicalOpportunity } from './resolve-canonical.js';
 import {
   DEDUPE_RULESET_VERSION,
@@ -149,6 +150,7 @@ async function loadListings(
       deadlineAt: sourceListings.sourceDeadlineAt,
       status: sourceListings.status,
       descriptionAnnouncesTender: descriptionAnnouncesTenderSql(sourceListingRevisions.description),
+      sourceKind: opportunityKindSql(sourceListingRevisions.structuredAttributes),
     })
     .from(sourceListings)
     .innerJoin(
@@ -176,6 +178,7 @@ async function loadListings(
         sourceId: row.sourceId,
         title: row.titleRaw,
         descriptionAnnouncesTender: row.descriptionAnnouncesTender,
+        sourceKind: row.sourceKind,
       }),
     };
   });

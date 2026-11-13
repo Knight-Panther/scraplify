@@ -231,6 +231,7 @@ describe('source policy records', () => {
       'hr-ge',
       'jobs-ge',
       'ss-ge',
+      'summerschoolsineurope-eu',
     ]);
     for (const [slug, record] of Object.entries(sourcePolicies))
       expect(record.source.slug).toBe(slug);

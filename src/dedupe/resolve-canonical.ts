@@ -9,6 +9,7 @@ import {
 } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
 import type { OpportunityType } from '../domain/opportunity.js';
+import { opportunityKindSql, PROGRAMME_KINDS } from './programme-kind.js';
 import { descriptionAnnouncesTenderSql, opportunityTypeForListing } from './tender-post.js';
 
 /**
@@ -64,11 +65,14 @@ function resolveStatus(memberStatuses: readonly string[]): (typeof STATUS_PRECED
 }
 
 /**
- * Vacancy or tender, resolved across members (Phase 9B). Any member being a
- * tender makes the opportunity a tender: the tender-post detector is built to
- * be precise, so one board calling it a tender is the stronger evidence. Only
- * the job/tender distinction is derived here; the other types are set by
- * hand and kept.
+ * The opportunity's type, resolved across members. Any member being a tender
+ * makes the opportunity a tender (Phase 9B): the tender-post detector is
+ * built to be precise, so one board calling it a tender is the stronger
+ * evidence. Otherwise, when every member is a programme kind and they agree
+ * (Phase 15: courses are typed by their source), that kind, which also
+ * restores a course stored as a vacancy, or as a tender a member's title
+ * once made it. Otherwise the stored type, with a stored tender that no
+ * member supports any more going back to a vacancy.
  *
  * Derived on every resolve, because a listing's type can change after its
  * opportunity was created: a re-crawl edits a title, or the detector itself
@@ -81,6 +85,14 @@ function resolveType(
 ): OpportunityType {
   if (memberTypes.length === 0) return stored;
   if (memberTypes.includes('tender')) return 'tender';
+  const [first] = memberTypes;
+  if (
+    first !== undefined &&
+    PROGRAMME_KINDS.includes(first) &&
+    memberTypes.every((type) => type === first)
+  ) {
+    return first;
+  }
   return stored === 'tender' ? 'job' : stored;
 }
 
@@ -171,6 +183,7 @@ export async function resolveCanonicalOpportunity(
       organization: sourceListingRevisions.organizationRaw,
       status: sourceListings.status,
       descriptionAnnouncesTender: descriptionAnnouncesTenderSql(sourceListingRevisions.description),
+      sourceKind: opportunityKindSql(sourceListingRevisions.structuredAttributes),
     })
     .from(opportunitySourceMemberships)
     .innerJoin(sourceListings, eq(sourceListings.id, opportunitySourceMemberships.sourceListingId))
@@ -199,6 +212,7 @@ export async function resolveCanonicalOpportunity(
         sourceId: member.sourceId,
         title: member.title,
         descriptionAnnouncesTender: member.descriptionAnnouncesTender,
+        sourceKind: member.sourceKind,
       }),
     ),
   );

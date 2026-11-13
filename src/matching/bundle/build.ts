@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Pool } from 'pg';
-import { getSourceHealth } from '../../browse/queries.js';
+import { getSourceHealth, type SourceHealthView } from '../../browse/queries.js';
 import { assessSourceHealth, type HealthAlert } from '../../browse/source-health.js';
 import { ADVISORY_LOCKS, withAdvisoryLock } from '../../db/advisory-lock.js';
 import { matchingBundleBuilds, matchingBundlePublications } from '../../db/schema/index.js';
 import type { Database } from '../../db/types.js';
-import { TENDER_ONLY_SOURCES } from '../../source-traits.js';
+import { NON_VACANCY_SOURCES } from '../../source-traits.js';
 import type { TitleDictionary } from '../semantic/title-english.js';
 import { buildTitleVectors, type TitleEmbedder } from '../semantic/title-vectors-build.js';
 import type { MatchingArtifactStore } from './artifact-store.js';
@@ -90,13 +90,22 @@ class BuildFailure extends Error {
   }
 }
 
-async function defaultUpstreamAlerts(db: Database, now: string): Promise<HealthAlert[]> {
-  const sources = await getSourceHealth(db);
-  // The bundle holds vacancies only, so a tender-only board's health says
-  // nothing about it (`TENDER_ONLY_SOURCES`).
+/**
+ * The health alerts the vacancy bundle waits on. The bundle holds vacancies
+ * only, so a source that carries none, a tender board or a programme source,
+ * says nothing about it (`NON_VACANCY_SOURCES`).
+ */
+export function vacancyUpstreamAlerts(
+  sources: readonly SourceHealthView[],
+  now: string,
+): HealthAlert[] {
   return sources
-    .filter((source) => !TENDER_ONLY_SOURCES.includes(source.sourceSlug))
+    .filter((source) => !NON_VACANCY_SOURCES.includes(source.sourceSlug))
     .flatMap((source) => assessSourceHealth(source, now));
+}
+
+async function defaultUpstreamAlerts(db: Database, now: string): Promise<HealthAlert[]> {
+  return vacancyUpstreamAlerts(await getSourceHealth(db), now);
 }
 
 export async function buildMatchingBundle(

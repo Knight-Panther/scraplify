@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { etendersGeSource } from '../policies/etenders-ge.js';
+import { summerSchoolsEuSource } from '../policies/summerschoolsineurope-eu.js';
 import {
   descriptionAnnouncesTender,
   hasJobRoleWord,
@@ -95,10 +96,41 @@ describe('tender-post detector', () => {
     expect(descriptionAnnouncesTender(null)).toBe(false);
   });
 
+  it('a course titled "Public Procurement for …" is a course, not a tender', () => {
+    expect(
+      opportunityTypeForListing({
+        sourceId: summerSchoolsEuSource.id,
+        title: 'Public Procurement for Development',
+        descriptionAnnouncesTender: true,
+        sourceKind: 'summer_school',
+      }),
+    ).toBe('summer_school');
+  });
+
+  it('a job board listing stays a vacancy or a tender whatever kind its attributes claim', () => {
+    const jobBoard = randomUUID();
+    expect(
+      opportunityTypeForListing({
+        sourceId: jobBoard,
+        title: 'Summer school assistant',
+        descriptionAnnouncesTender: false,
+        sourceKind: 'summer_school',
+      }),
+    ).toBe('job');
+    expect(
+      opportunityTypeForListing({
+        sourceId: jobBoard,
+        title: 'ტენდერი - ბეჭდვითი მომსახურება',
+        descriptionAnnouncesTender: false,
+        sourceKind: 'scholarship',
+      }),
+    ).toBe('tender');
+  });
+
   it('types listings by source, then title, then description', () => {
     const jobBoard = randomUUID();
     const type = (sourceId: string, title: string, descriptionAnnouncesTender = false) =>
-      opportunityTypeForListing({ sourceId, title, descriptionAnnouncesTender });
+      opportunityTypeForListing({ sourceId, title, descriptionAnnouncesTender, sourceKind: null });
 
     expect(type(etendersGeSource.id, 'შესყიდვების მენეჯერი')).toBe('tender');
     expect(type(jobBoard, 'ტენდერი - ბეჭდვითი მომსახურება')).toBe('tender');
