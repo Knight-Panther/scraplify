@@ -24,8 +24,6 @@ export interface HeroCopy {
   closingSoon: string;
   noAccountNeeded: string;
   statOpenVacancies: string;
-  /** The tag on a tender row in the newest-listings panel. */
-  tenderTag: string;
   statBoardsMerged: string;
   statListingsTracked: string;
   newestListings: string;
@@ -64,7 +62,6 @@ const EN: HeroCopy = {
   closingSoon: 'Closing soon',
   noAccountNeeded: 'no account needed',
   statOpenVacancies: 'open vacancies and tenders',
-  tenderTag: 'tender',
   statBoardsMerged: 'boards merged',
   statListingsTracked: 'listings tracked',
   newestListings: 'Newest listings',
@@ -117,7 +114,6 @@ const KA: HeroCopy = {
   closingSoon: 'მალე იხურება',
   noAccountNeeded: 'რეგისტრაციის გარეშე',
   statOpenVacancies: 'ღია ვაკანსია და ტენდერი',
-  tenderTag: 'ტენდერი',
   statBoardsMerged: 'გაერთიანებული საიტი',
   statListingsTracked: 'აღრიცხული განცხადება',
   newestListings: 'უახლესი განცხადებები',

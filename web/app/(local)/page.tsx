@@ -12,6 +12,7 @@ import {
   searchOpportunities,
 } from '../../../src/browse/queries.js';
 import { db } from '../../../src/db/client.js';
+import { PROGRAMME_KINDS } from '../../../src/dedupe/programme-kind.js';
 import { countRealEstate } from '../../../src/realestate/queries.js';
 import { CrawlStatus } from '../../components/crawl-status.js';
 import { CvChooser } from '../../components/cv-chooser.js';
@@ -22,6 +23,7 @@ import { LandingCrawler } from '../../components/landing-crawler.js';
 import { cvRankedEnabled } from '../../lib/cv-ranked/availability.js';
 import { count } from '../../lib/format.js';
 import { type HeadlineRun, type HeroCopy, heroCopy } from '../../lib/hero-copy.js';
+import { kindLabel } from '../../lib/kind-labels.js';
 import { sourceLabel } from '../../lib/labels.js';
 import { currentLocale, type Locale } from '../../lib/locale.js';
 import { type OpportunityRow, toRow } from '../../lib/opportunity-row.js';
@@ -67,12 +69,18 @@ export async function generateMetadata(): Promise<Metadata> {
  * `missing_suspected` ("may be gone" — an unconfirmed absence, not a fact)
  * stays excluded even though the ranking engine treats it as still
  * available; a landing-page headline number should read as more certain
- * than that. The CTA links still point at `/opportunities?status=active`,
+ * than that. Programme kinds (courses, scholarships and the rest, Phase
+ * 15B) are left out of both with `excludeTypes`, so the stat's words, open
+ * vacancies and tenders, stay true, and the links below carry the same two
+ * kinds (`VACANCIES_AND_TENDERS`). The CTA links point at `/opportunities?status=active`,
  * the closest real destination — that screen has not been retrofitted with
  * this same per-member filter, so its own count can differ slightly from
  * the number shown here; recorded as a known, narrower gap rather than
  * silently glossed over.
  */
+/** The kinds this page counts and shows, as Browse's query (`web/lib/search-params.ts`). */
+const VACANCIES_AND_TENDERS = 'type=job&type=tender';
+
 export default async function Page() {
   const [hero, crawlStatus, locale] = await Promise.all([
     loadHeroData(),
@@ -185,7 +193,7 @@ export default async function Page() {
               <div className="flex flex-col gap-1.5">
                 <div className="flex flex-wrap gap-3">
                   <a
-                    href="/opportunities?status=active"
+                    href={`/opportunities?status=active&${VACANCIES_AND_TENDERS}`}
                     className="inline-flex h-[50px] items-center rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-5 text-[15px] font-bold text-[var(--color-browse-ink)] transition-colors duration-150 hover:bg-[var(--color-browse-accent-hover)]"
                   >
                     {copy.browseOpenings}
@@ -197,7 +205,7 @@ export default async function Page() {
                   destination instead: both params are genuine and round-trip
                   through parseOpportunityQuery. */}
                   <a
-                    href="/opportunities?status=active&closing=7"
+                    href={`/opportunities?status=active&closing=7&${VACANCIES_AND_TENDERS}`}
                     className="inline-flex h-[50px] items-center rounded-[var(--radius)] border border-[var(--color-browse-border-control)] px-[18px] text-[15px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-border-control-hover)] hover:text-white"
                   >
                     {copy.closingSoon}
@@ -350,15 +358,16 @@ async function loadHeroData(): Promise<HeroData> {
   try {
     const surface = currentSurface();
     const genuinelyOpenAsOf = new Date().toISOString();
+    const newest = { sort: 'recent', limit: ROWS_SHOWN, excludeTypes: PROGRAMME_KINDS } as const;
     const [{ sortedSlugs, trackedCount }, openCount, eligible, realEstateShown] = await Promise.all(
       [
         loadBoardOverview(surface),
         surface === 'public'
-          ? publicCountOpportunities(db, { genuinelyOpenAsOf })
-          : countOpportunities(db, { genuinelyOpenAsOf }),
+          ? publicCountOpportunities(db, { genuinelyOpenAsOf, excludeTypes: PROGRAMME_KINDS })
+          : countOpportunities(db, { genuinelyOpenAsOf, excludeTypes: PROGRAMME_KINDS }),
         surface === 'public'
-          ? publicSearchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN })
-          : searchOpportunities(db, { genuinelyOpenAsOf, sort: 'recent', limit: ROWS_SHOWN }),
+          ? publicSearchOpportunities(db, { ...newest, genuinelyOpenAsOf })
+          : searchOpportunities(db, { ...newest, genuinelyOpenAsOf }),
         // Whether the Real estate tab has anything on show: counted no
         // further than one row. Its own catch, so a database without the
         // real-estate view still shows the job boards.
@@ -548,7 +557,7 @@ function NewestPanel({
               />
             ))}
             <a
-              href="/opportunities?status=active"
+              href={`/opportunities?status=active&${VACANCIES_AND_TENDERS}`}
               data-crawl-stop=""
               className="block px-[18px] py-3.5 text-[13px] text-[var(--color-browse-accent)] transition-colors duration-150 hover:text-[var(--color-browse-accent-hover)]"
             >
@@ -599,7 +608,7 @@ function NewestRow({
       <div className="min-w-0 flex-1">
         {row.type !== 'job' && (
           <span className="mb-1 block">
-            <KindTag type={row.type} label={row.type === 'tender' ? copy.tenderTag : undefined} />
+            <KindTag type={row.type} label={kindLabel(row.type, locale)} />
           </span>
         )}
         <a

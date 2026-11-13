@@ -16,6 +16,8 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../db/test-support.js';
+import { PROGRAMME_KINDS } from '../dedupe/programme-kind.js';
+import type { OpportunityType } from '../domain/opportunity.js';
 import {
   publicCountListings,
   publicCountOpportunities,
@@ -52,7 +54,7 @@ describe('public queries', () => {
     opportunityId?: string;
     /** Force `source_listings.id` rather than a random uuid — for tests where the sort tie-break matters. */
     listingId?: string;
-    type?: 'job' | 'tender';
+    type?: OpportunityType;
     organization?: string;
     locations?: string[];
   }): Promise<{ opportunityId: string; listingId: string; sourceId: string }> {
@@ -614,6 +616,20 @@ describe('public queries', () => {
     const sitemap = (await publicSitemapOpportunities(db)).map((entry) => entry.opportunityId);
     expect(sitemap).toContain(vacancy.opportunityId);
     expect(sitemap).toContain(tender.opportunityId);
+  });
+
+  it('excludeTypes leaves programme kinds out and the count agrees', async () => {
+    const suffix = randomUUID().slice(0, 8);
+    await addOpportunity({ title: `Vacancy ${suffix}` });
+    await addOpportunity({ title: `Tender ${suffix}`, type: 'tender' });
+    await addOpportunity({ title: `Course ${suffix}`, type: 'summer_school' });
+    await addOpportunity({ title: `Grant ${suffix}`, type: 'grant' });
+
+    const filters = { text: suffix, excludeTypes: PROGRAMME_KINDS };
+    const rows = await publicSearchOpportunities(db, { ...filters, sort: 'title' });
+    expect(rows.map((r) => r.canonicalTitle)).toEqual([`Tender ${suffix}`, `Vacancy ${suffix}`]);
+    expect(await publicCountOpportunities(db, filters)).toBe(2);
+    expect(await publicCountOpportunities(db, { text: suffix })).toBe(4);
   });
 
   it('publicLastSeen is the oldest of each source own latest, only when every source has one', () => {
