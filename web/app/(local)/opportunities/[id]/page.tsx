@@ -402,7 +402,13 @@ function Comparison({ detail }: { detail: DetailForDisplay }) {
 
   return (
     <section className="mt-8">
-      <SectionHeading>What each board states</SectionHeading>
+      <SectionHeading>
+        {!isProgrammeKind(detail.type)
+          ? 'What each board states'
+          : detail.columns.length > 1
+            ? 'What each source states'
+            : 'What the source states'}
+      </SectionHeading>
       <div className="mt-3 overflow-x-auto">
         {/* Capped, not full-width. Left to stretch, the two value columns came
             to 687px each at 1600 for values that are a few Georgian words

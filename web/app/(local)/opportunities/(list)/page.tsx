@@ -527,8 +527,14 @@ function SourceLinks({ row }: { row: OpportunityRow }) {
             aria-label={`${row.title} on ${sourceLabel(source.sourceSlug)}${
               differs ? `, ${listingStatusLabel(source.status).short} on this board` : ''
             } (opens in a new tab)`}
-            title={differs ? listingStatusLabel(source.status).explanation : undefined}
-            className="numeric rounded-full border border-border-control px-2.5 py-1 text-xs text-muted hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+            // A long source name (summerschoolsineurope.eu) has no break
+            // point: it ends in an ellipsis inside its column, named in full here.
+            title={
+              differs
+                ? listingStatusLabel(source.status).explanation
+                : sourceLabel(source.sourceSlug)
+            }
+            className="numeric min-w-0 max-w-full truncate rounded-full border border-border-control px-2.5 py-1 text-xs text-muted hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
           >
             {sourceLabel(source.sourceSlug)}
             {differs && ` · ${listingStatusLabel(source.status).short}`}
