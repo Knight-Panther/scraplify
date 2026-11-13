@@ -16,6 +16,7 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../db/test-support.js';
+import { reassignListing } from './membership-review.js';
 import { canonicalContentHash, resolveCanonicalOpportunity } from './resolve-canonical.js';
 
 // The summer-school source under a disposable id, so a course member is typed
@@ -386,6 +387,36 @@ describe('resolveCanonicalOpportunity', () => {
 
     const [row] = await db.select().from(opportunities).where(eq(opportunities.id, opportunityId));
     expect(row?.type).toBe('summer_school');
+  });
+
+  it('a reviewer cannot put a course into a vacancy', async () => {
+    await db.insert(sources).values({
+      id: courseSourceIds.sourceId,
+      slug: `test-source-${courseSourceIds.sourceId}`,
+      displayName: 'Test course source',
+      baseUrl: 'https://example.invalid/',
+    });
+    sourceIds.push(courseSourceIds.sourceId);
+    const board = await createTestSource();
+    sourceIds.push(board);
+    const vacancyOpportunity = await makeOpportunity();
+    const vacancy = await addListing(board, { title: 'Accountant' });
+    await addMember(vacancyOpportunity, vacancy.listingId);
+    const course = await addListing(courseSourceIds.sourceId, {
+      title: 'Accounting for Non-Accountants',
+    });
+
+    await expect(
+      reassignListing(db, {
+        sourceListingId: course.listingId,
+        toOpportunityId: vacancyOpportunity,
+        decision: 'confirmed_same',
+        confidence: 1,
+        evidence: { reasons: ['operator test'] },
+        actor: { decidedBy: 'human', version: 'test' },
+        at: '2026-11-13T13:00:00Z',
+      }),
+    ).rejects.toThrow(/is a summer_school and opportunity .* is a job/);
   });
 
   it('a type set by hand on job-board members is kept', async () => {

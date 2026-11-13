@@ -23,6 +23,7 @@ import {
   createTestSource,
   createTestSourceListing,
 } from '../../db/test-support.js';
+import type { OpportunityType } from '../../domain/opportunity.js';
 import { summerSchoolsEuSource } from '../../policies/summerschoolsineurope-eu.js';
 import type { TitleEmbedder } from '../semantic/title-vectors-build.js';
 import { FilesystemArtifactStore } from './artifact-store.js';
@@ -88,7 +89,11 @@ describe('matching bundle build', () => {
   /** A clustered, public, eligible opportunity with one live member and a canonical revision. */
   async function makeOpportunity(
     title: string,
-    listing: { status?: 'active' | 'expired' | 'quarantined'; deadlineAt?: string | null } = {},
+    listing: {
+      status?: 'active' | 'expired' | 'quarantined';
+      deadlineAt?: string | null;
+      type?: OpportunityType;
+    } = {},
   ): Promise<{ opportunityId: string; listingId: string; revisionId: string }> {
     const row = await createTestSourceListing(sourceId, {
       status: listing.status ?? 'active',
@@ -127,7 +132,7 @@ describe('matching bundle build', () => {
     const canonicalRevisionId = randomUUID();
     await db.insert(opportunities).values({
       id: opportunityId,
-      type: 'job',
+      type: listing.type ?? 'job',
       canonicalTitle: title,
       organizationId: null,
       canonicalStatus: listing.status ?? 'active',
@@ -234,6 +239,19 @@ describe('matching bundle build', () => {
       expect(raw).not.toContain(excluded.opportunityId);
     }
     expect(await activeBuildId()).toBe(result.buildId);
+  });
+
+  it('an internship never reaches the CV bundle, nor a course: vacancies only', async () => {
+    const vacancy = await makeOpportunity('Backend engineer');
+    await makeOpportunity('Internship abroad in Brussels', { type: 'internship' });
+    await makeOpportunity('Data science summer school', { type: 'summer_school' });
+    await makeOpportunity('Erasmus+ volunteering', { type: 'volunteering' });
+
+    const result = await buildMatchingBundle(db, pool, store, options());
+    expect(result.outcome).toBe('activated');
+    if (result.outcome !== 'activated') return;
+    const bundle = await readBundle(result.buildId);
+    expect(bundle.opportunities.map((row) => row.opportunityId)).toEqual([vacancy.opportunityId]);
   });
 
   it('is idempotent: an unchanged corpus produces byte-identical rows', async () => {
