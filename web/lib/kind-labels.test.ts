@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { opportunityTypeEnum } from '../../src/db/schema/index.js';
 import { OpportunityType } from '../../src/domain/opportunity.js';
-import { kindLabel, PROGRAMME_KIND_ORDER } from './kind-labels.js';
+import { isProgrammeKind, kindLabel, PROGRAMME_KIND_ORDER } from './kind-labels.js';
 import { opportunityTypeLabel } from './labels.js';
 import { TYPE_OPTIONS } from './search-params.js';
 
@@ -36,6 +36,15 @@ describe('kindLabel', () => {
       expect(opportunityTypeLabel(type).short, type).toBe(kindLabel(type, 'en'));
       expect(opportunityTypeLabel(type).explanation, type).toMatch(/\S/);
     }
+  });
+});
+
+describe('isProgrammeKind', () => {
+  it('is true for the programme kinds and false for job, tender and anything unknown', () => {
+    expect(PROGRAMME_KIND_ORDER.every(isProgrammeKind)).toBe(true);
+    expect(isProgrammeKind('job')).toBe(false);
+    expect(isProgrammeKind('tender')).toBe(false);
+    expect(isProgrammeKind('apprenticeship')).toBe(false);
   });
 });
 

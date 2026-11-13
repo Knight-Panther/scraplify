@@ -1,3 +1,4 @@
+import { isProgrammeKind } from '../../../../lib/kind-labels.js';
 import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../../../lib/labels.js';
 import {
   DEADLINE_OPTIONS,
@@ -105,6 +106,11 @@ export function FacetRail({
               />
             );
           })}
+          {query.form.types.some(isProgrammeKind) && (
+            <p className="mt-1 text-xs text-faint">
+              More filters for courses and other programmes will be on their own tab.
+            </p>
+          )}
         </Group>
 
         <Group name="First seen" hint="window">
@@ -142,7 +148,7 @@ export function FacetRail({
             name="cross"
             value="1"
             label="On more than one board"
-            title="Only vacancies or tenders that more than one board carries."
+            title="Only opportunities that more than one source carries."
             defaultChecked={query.form.crossPosted}
           />
         </div>

@@ -39,6 +39,13 @@ export const PROGRAMME_KIND_ORDER = [
   'event',
 ] as const satisfies readonly OpportunityType[];
 
+const PROGRAMME_KINDS: ReadonlySet<string> = new Set(PROGRAMME_KIND_ORDER);
+
+/** A kind that is neither a vacancy nor a tender (a course, a scholarship and the rest). */
+export function isProgrammeKind(type: string): boolean {
+  return PROGRAMME_KINDS.has(type);
+}
+
 /** The kind's word in `locale`; a kind this build does not know says so instead of its raw value. */
 export function kindLabel(type: string, locale: Locale): string {
   return (KIND_LABELS[type as OpportunityType] ?? UNKNOWN)[locale];

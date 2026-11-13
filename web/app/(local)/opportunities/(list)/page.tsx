@@ -71,7 +71,7 @@ export const metadata = { title: 'Opportunities · Xtelo' };
 const SORT_LABELS: Record<(typeof SORTS)[number], { label: string; hint: string }> = {
   recent: {
     label: 'newest first',
-    hint: 'By when the vacancy first appeared on any source — not by when this record was last touched.',
+    hint: 'By when it first appeared on any source — not by when this record was last touched.',
   },
   deadline: { label: 'closing soonest', hint: 'By the latest deadline any source states.' },
   title: { label: 'by title', hint: 'Alphabetical.' },
@@ -219,7 +219,8 @@ export default async function OpportunitiesPage({
                 Browse
               </h1>
               <p className="mt-2 max-w-[var(--measure)] text-sm text-faint">
-                One row per vacancy or tender, with every board that carries it.
+                One row per vacancy, tender, course or other opportunity, with every source that
+                carries it.
               </p>
             </div>
           }
