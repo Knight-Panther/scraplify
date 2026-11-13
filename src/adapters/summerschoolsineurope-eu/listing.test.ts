@@ -95,4 +95,31 @@ describe('cardFingerprint', () => {
     expect(cardFingerprint({ ...card, online: true })).not.toBe(card.fingerprint);
     expect(cardFingerprint({ ...card, feeRaw: '360 EUR' })).not.toBe(card.fingerprint);
   });
+
+  // Trial run 2 (2026-11-13): 11 of the 34 courses held in two cities were read
+  // again with nothing changed, because their card names one of the cities,
+  // not always the same one (an Atlas course read "Oxford" on Cambridge's page).
+  it('ignores which of its cities a card names, and the order of its languages', () => {
+    const card = {
+      title: 'Atlas Summer Courses: Law',
+      school: 'Atlas Summer Courses',
+      placeRaw: 'Cambridge, United Kingdom',
+      whenRaw: '27 June - 29 August 2027',
+      creditsRaw: '0 EC',
+      feeRaw: '6995 GBP',
+      languageRaw: 'French, English',
+      deadlineRaw: null,
+      online: false,
+    };
+    expect(cardFingerprint({ ...card, placeRaw: 'Oxford, United Kingdom' })).toBe(
+      cardFingerprint(card),
+    );
+    expect(cardFingerprint({ ...card, languageRaw: 'English, French' })).toBe(
+      cardFingerprint(card),
+    );
+    expect(cardFingerprint({ ...card, languageRaw: 'English' })).not.toBe(cardFingerprint(card));
+    expect(cardFingerprint({ ...card, whenRaw: '04 July - 29 August 2027' })).not.toBe(
+      cardFingerprint(card),
+    );
+  });
 });
