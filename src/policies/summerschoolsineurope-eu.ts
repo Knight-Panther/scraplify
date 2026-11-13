@@ -83,16 +83,46 @@ const LISTING_PATH = '/courses/';
 const DETAIL_PATH_RE = /^\/course\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/;
 const SITEMAP_INDEX_PATH = '/sitemap_index.xml';
 const COURSE_SITEMAP_RE = /^\/course-sitemap(?:[1-9][0-9]?)?\.xml$/;
-/** 1–200: the listing held 53 pages on 2026-11-13. */
-const PAGE_RE = /^(?:[1-9][0-9]?|1[0-9]{2}|200)$/;
+
+/** The listing's own "upcoming" filter, always sent, so its default cannot change underneath. */
+export const LISTING_STATUS_PARAM = '_course_status';
+export const LISTING_STATUS_VALUE = 'future';
+/**
+ * The facets the covering walk may split a result set by (RECON_NOTES,
+ * "Membership"), as FacetWP names them; the URL parameter is the name with
+ * a leading underscore.
+ */
+export const LISTING_SPLIT_FACETS = [
+  'course_country',
+  'course_city',
+  'course_starting',
+  'course_duration',
+  'course_discipline',
+] as const;
+export type ListingSplitFacet = (typeof LISTING_SPLIT_FACETS)[number];
+/** A FacetWP choice value as the site makes them: `italy`, `01_january`, `short-0-1-week`. */
+const FACET_VALUE_RE = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
+const MAX_FACET_VALUES = 100;
+
+function facetValuesAllowed(raw: string): boolean {
+  const values = raw.split(',');
+  return (
+    values.length >= 1 &&
+    values.length <= MAX_FACET_VALUES &&
+    values.every((value) => FACET_VALUE_RE.test(value))
+  );
+}
 
 /**
  * summerschoolsineurope.eu authorization. Allowed:
- *   - '/courses/' bare, or with exactly `_paged=<1..200>`;
+ *   - '/courses/' with `_course_status=future` and, each at most once, any
+ *     of the split facets (`_course_country`, `_course_city`,
+ *     `_course_starting`, `_course_duration`, `_course_discipline`) holding a
+ *     comma-separated list of slug values;
  *   - '/course/<slug>/' with no query (a lower-case slug, as the site makes them);
  *   - '/sitemap_index.xml' and '/course-sitemap<n>.xml' with no query.
  * Everything else is rejected: other hosts, schemes and ports, the REST API,
- * the admin and login, facet and search parameters, fragments.
+ * the admin and login, paging, other facets and search, fragments.
  */
 export function isSummerSchoolsEuUrlAllowed(url: string): boolean {
   let parsed: URL;
@@ -107,11 +137,13 @@ export function isSummerSchoolsEuUrlAllowed(url: string): boolean {
 
   const keys = [...parsed.searchParams.keys()];
   if (parsed.pathname === LISTING_PATH) {
-    if (keys.length === 0) return parsed.search === '';
-    return (
-      keys.length === 1 &&
-      keys[0] === '_paged' &&
-      PAGE_RE.test(parsed.searchParams.get('_paged') ?? '')
+    if (new Set(keys).size !== keys.length) return false;
+    if (parsed.searchParams.get(LISTING_STATUS_PARAM) !== LISTING_STATUS_VALUE) return false;
+    const facetParams = new Set<string>(LISTING_SPLIT_FACETS.map((facet) => `_${facet}`));
+    return keys.every(
+      (key) =>
+        key === LISTING_STATUS_PARAM ||
+        (facetParams.has(key) && facetValuesAllowed(parsed.searchParams.get(key) ?? '')),
     );
   }
   if (parsed.search !== '') return false;

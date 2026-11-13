@@ -43,20 +43,38 @@ describe('summerschoolsineurope.eu source policy', () => {
 });
 
 describe('isSummerSchoolsEuUrlAllowed', () => {
-  it('allows the course listing bare and its numbered pages', () => {
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/`)).toBe(true);
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=2`)).toBe(true);
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=200`)).toBe(true);
+  const FUTURE = `${BASE}/courses/?_course_status=future`;
+
+  it('allows the upcoming-course listing, filtered by the facets the covering walk splits on', () => {
+    expect(isSummerSchoolsEuUrlAllowed(FUTURE)).toBe(true);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_country=georgia`)).toBe(true);
+    expect(
+      isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_country=austria%2Cbulgaria%2Ccroatia`),
+    ).toBe(true);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_country=austria,bulgaria`)).toBe(true);
+    expect(
+      isSummerSchoolsEuUrlAllowed(
+        `${FUTURE}&_course_country=italy&_course_city=pisa&_course_starting=07_july&_course_duration=short-0-1-week&_course_discipline=natural-sciences`,
+      ),
+    ).toBe(true);
   });
 
-  it('rejects page numbers out of shape and any other listing parameter', () => {
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=0`)).toBe(false);
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=201`)).toBe(false);
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=02`)).toBe(false);
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=x`)).toBe(false);
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=2&_paged=3`)).toBe(false);
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?s=summer`)).toBe(false);
-    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=2#top`)).toBe(false);
+  it('rejects the listing without the upcoming filter, paging, other facets and malformed values', () => {
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_paged=2`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_paged=2`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_course_status=past`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${BASE}/courses/?_course_country=italy`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_type=online`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_search=summer`)).toBe(false);
+    expect(
+      isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_country=italy&_course_country=spain`),
+    ).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_country=`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_country=Italy`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_country=italy,,spain`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}&_course_country=it aly`)).toBe(false);
+    expect(isSummerSchoolsEuUrlAllowed(`${FUTURE}#top`)).toBe(false);
   });
 
   it('allows a course page only as /course/<slug>/ with no query', () => {
