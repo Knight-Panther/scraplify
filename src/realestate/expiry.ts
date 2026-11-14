@@ -48,6 +48,14 @@ export const MISSING_TRUSTED_AFTER_DAYS = 2;
 export const LAPSE_AFTER_DAYS = 7;
 /** A gone listing is kept this long (a source showing it again reopens it), then archived and deleted. */
 export const GONE_RETENTION_DAYS = 14;
+/**
+ * A listing given up for a blank page is asked once more, this long after at
+ * the earliest, so on a later run: ss.ge answers a live listing's page with
+ * no listing in it for 1 to 2% of requests at night and 7 to 10% by day
+ * (2026-11-14), and of 40 listings given up that way the evening before, 32
+ * were live the next morning.
+ */
+export const BLANK_PAGE_RECHECK_HOURS = 12;
 
 export interface DueListing {
   id: string;
@@ -60,11 +68,27 @@ export type ListingCheck =
   | { status: 'gone'; reason: string };
 
 /**
- * Active listings worth asking their own page about, in that order.
+ * Its own page has said live since a list last showed it: the source hides
+ * it, as a flat list hides all but one listing of a look-alike group, and it
+ * stays hidden until it ends. A full read missing it again is no news. Asked
+ * at every miss, 24,000 such flats took about 5,000 of a night's 9,000
+ * listing pages (2026-11-14): seven in ten of the missed listings waiting had
+ * been asked four or five days before, and of 34 asked again that day none
+ * had been sold or had expired. Its page's own end date stands instead.
+ */
+const knownHidden = sql`(${realEstateListings.verifiedAt} is not null
+  and ${realEstateListings.verifiedAt} > ${realEstateListings.lastSeenAt})`;
+
+/**
+ * Listings worth asking their own page about before the pages new listings
+ * want read, in that order.
  *
- * First those a full read of their list missed (`markMissedListings`) that
- * the tab still shows, the longest-lived first: a dead one of those stays on
- * show longest, and 55% of them were live on 2026-11-11. Then those on show
+ * First those given up for a blank page (`BLANK_PAGE_RECHECK_HOURS`), once:
+ * four in five are live. Then those a full read of their list missed
+ * (`markMissedListings`) that the tab still shows and whose page has not
+ * said live since a list last showed them (`knownHidden`), the longest-lived
+ * first: a dead one of those stays on show longest, and one in four of the
+ * never asked was dead on 2026-11-14. Then those on show
  * whose order time moved less than 29 days after their creation, an edit
  * rather than a renewal, once 30 days from creation have passed with no list
  * showing them and no page read since the move: about one agent's such move
@@ -73,14 +97,11 @@ export type ListingCheck =
  * listed, so it would stay on show, often as its group's leader, until its
  * order time plus 30. Of 50 such rows asked, 9 were dead. Then those past
  * their expected end that a list showed after that date and none has since,
- * most recently expired first. Then those past their end with a look-alike
- * (the same `group_key` or `similarity_group`) still on show: a flat list
- * shows one listing of each group, so a live one folded behind its twin is on
- * no list. 9.8% of those were live on 2026-11-11 (89 of 909 asked), and 89 of
- * the 99 live flats past their end that no list showed; with no look-alike
- * on show, 0.3%.
+ * most recently expired first.
  *
- * The rest past their end are not asked: they lapse a week later
+ * Those past their end with a look-alike still on show come after the pages
+ * wanted for details (`loadLookAlikesDueForCheck`). The rest past their end
+ * are not asked: they lapse a week later
  * (`markLapsedListingsGone`), and the night's listing pages go to the
  * details instead. Since 2026-11-11 every list's end is read each night, and
  * that is where a listing alive past its 30 days is: of the owners' listings
@@ -93,9 +114,18 @@ export async function loadListingsDueForCheck(
   db: DatabaseOrTransaction,
   input: { sourceId: string; asOf: string; limit: number },
 ): Promise<DueListing[]> {
+  const recheckBefore = new Date(
+    Date.parse(input.asOf) - BLANK_PAGE_RECHECK_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+  // Its second answer moves `verified_at` past `gone_at`, so it is asked once.
+  const givenUpForABlankPage = sql`(${realEstateListings.status} = 'gone'
+    and ${realEstateListings.goneReason} = 'missing'
+    and ${realEstateListings.verifiedAt} = ${realEstateListings.goneAt}
+    and ${realEstateListings.goneAt} <= ${recheckBefore})`;
   const missedOnShow = and(
     isNotNull(realEstateListings.missedAt),
     gt(realEstateListings.expectedEndAt, input.asOf),
+    sql`not ${knownHidden}`,
   );
   // Its order time moved within its first life, by an edit rather than a
   // renewal, that life is over, and neither a list nor its page has said
@@ -108,15 +138,53 @@ export async function loadListingsDueForCheck(
     and (${realEstateListings.verifiedAt} is null
       or ${realEstateListings.verifiedAt} < ${realEstateListings.sourceUpdatedAt}))`;
   const seenAfterItsEnd = gt(realEstateListings.lastSeenAt, realEstateListings.expectedEndAt);
+  return db
+    .select({ id: realEstateListings.id, sourceListingKey: realEstateListings.sourceListingKey })
+    .from(realEstateListings)
+    .where(
+      and(
+        eq(realEstateListings.sourceId, input.sourceId),
+        or(
+          givenUpForABlankPage,
+          and(
+            eq(realEstateListings.status, 'active'),
+            or(
+              missedOnShow,
+              movedUnseen,
+              and(lte(realEstateListings.expectedEndAt, input.asOf), seenAfterItsEnd),
+            ),
+          ),
+        ),
+      ),
+    )
+    .orderBy(
+      desc(sql`coalesce(${givenUpForABlankPage}, false)`),
+      desc(sql`coalesce(${missedOnShow}, false)`),
+      desc(sql`coalesce(${movedUnseen}, false)`),
+      desc(realEstateListings.expectedEndAt),
+    )
+    .limit(input.limit);
+}
+
+/**
+ * Active listings past their expected end, on no list since, with a
+ * look-alike (the same `group_key` or `similarity_group`) still on show, most
+ * recently expired first: a flat list shows one listing of each group, so a
+ * live one folded behind its twin is on no list. 9.8% of those were live on
+ * 2026-11-11 (89 of 909 asked) and 2 of 20 on 2026-11-14; with no look-alike
+ * on show, 0.3%. One page in ten finds a live listing whose twin the tab
+ * shows anyway, so they are asked with the pages left once the listings
+ * wanting their details are read (`runSsGeCrawl`); unasked, they lapse.
+ */
+export async function loadLookAlikesDueForCheck(
+  db: DatabaseOrTransaction,
+  input: { sourceId: string; asOf: string; limit: number },
+): Promise<DueListing[]> {
   // Not correlated, so each is one hashed set however long the queue.
   const onShowIn = (column: 'group_key' | 'similarity_group') => sql`(
     select ${sql.identifier(column)} from ${realEstateListings}
      where source_id = ${input.sourceId} and status = 'active'
        and expected_end_at > ${input.asOf} and ${sql.identifier(column)} is not null)`;
-  const lookAlikeOnShow = or(
-    sql`${realEstateListings.groupKey} in ${onShowIn('group_key')}`,
-    sql`${realEstateListings.similarityGroup} in ${onShowIn('similarity_group')}`,
-  );
   return db
     .select({ id: realEstateListings.id, sourceListingKey: realEstateListings.sourceListingKey })
     .from(realEstateListings)
@@ -124,22 +192,15 @@ export async function loadListingsDueForCheck(
       and(
         eq(realEstateListings.sourceId, input.sourceId),
         eq(realEstateListings.status, 'active'),
+        lte(realEstateListings.expectedEndAt, input.asOf),
+        lte(realEstateListings.lastSeenAt, realEstateListings.expectedEndAt),
         or(
-          missedOnShow,
-          movedUnseen,
-          and(
-            lte(realEstateListings.expectedEndAt, input.asOf),
-            or(seenAfterItsEnd, lookAlikeOnShow),
-          ),
+          sql`${realEstateListings.groupKey} in ${onShowIn('group_key')}`,
+          sql`${realEstateListings.similarityGroup} in ${onShowIn('similarity_group')}`,
         ),
       ),
     )
-    .orderBy(
-      desc(sql`coalesce(${missedOnShow}, false)`),
-      desc(sql`coalesce(${movedUnseen}, false)`),
-      desc(sql`coalesce(${seenAfterItsEnd}, false)`),
-      desc(realEstateListings.expectedEndAt),
-    )
+    .orderBy(desc(realEstateListings.expectedEndAt))
     .limit(input.limit);
 }
 
@@ -153,14 +214,28 @@ export async function loadListingsDueForCheck(
 export async function recordListingCheck(
   db: DatabaseOrTransaction,
   input: { listingId: string; check: ListingCheck; checkedAt: string },
-): Promise<'verified' | 'gone' | 'unsettled'> {
+): Promise<'verified' | 'gone' | 'unsettled' | 'reopened' | 'still-gone'> {
   const { listingId, check, checkedAt } = input;
   const checkedMs = Date.parse(checkedAt);
-  if (check.status === 'gone' && check.reason === 'missing') {
-    const [listing] = await db
-      .select({ lastSeenAt: realEstateListings.lastSeenAt, missedAt: realEstateListings.missedAt })
-      .from(realEstateListings)
+  const [listing] = await db
+    .select({
+      status: realEstateListings.status,
+      lastSeenAt: realEstateListings.lastSeenAt,
+      missedAt: realEstateListings.missedAt,
+    })
+    .from(realEstateListings)
+    .where(eq(realEstateListings.id, listingId));
+  // Given up already, and asked once more (`BLANK_PAGE_RECHECK_HOURS`).
+  const givenUp = listing?.status === 'gone';
+  if (givenUp && check.status === 'gone') {
+    // The days it is kept (`GONE_RETENTION_DAYS`) run from the first answer.
+    await db
+      .update(realEstateListings)
+      .set({ goneReason: check.reason, verifiedAt: checkedAt })
       .where(eq(realEstateListings.id, listingId));
+    return 'still-gone';
+  }
+  if (check.status === 'gone' && check.reason === 'missing') {
     const seenMs = listing === undefined ? Number.NaN : Date.parse(listing.lastSeenAt);
     // A full read of its list that missed it is a second signal: believed at once.
     if (listing?.missedAt === null && checkedMs - seenMs < MISSING_TRUSTED_AFTER_DAYS * DAY_MS) {
@@ -198,7 +273,12 @@ export async function recordListingCheck(
 
   await db
     .update(realEstateListings)
-    .set({ expectedEndAt: new Date(nextMs).toISOString(), verifiedAt: checkedAt, missedAt: null })
+    .set({
+      expectedEndAt: new Date(nextMs).toISOString(),
+      verifiedAt: checkedAt,
+      missedAt: null,
+      ...(givenUp ? { status: 'active' as const, goneAt: null, goneReason: null } : {}),
+    })
     .where(eq(realEstateListings.id, listingId));
   if (check.price !== undefined) {
     await recordPriceSighting(db, { listingId, price: check.price, seenAt: checkedAt });
@@ -206,7 +286,7 @@ export async function recordListingCheck(
   if (check.details !== undefined) {
     await recordListingDetails(db, { listingId, details: check.details, readAt: checkedAt });
   }
-  return 'verified';
+  return givenUp ? 'reopened' : 'verified';
 }
 
 /**
@@ -216,7 +296,8 @@ export async function recordListingCheck(
  * one listing per look-alike group (47,864 active listings were in 15,053
  * groups on 2026-10-27), so a listing whose group was seen is folded, not
  * missing. Listings already past their expected end are left to the usual
- * rules. A missed listing is never dropped for that alone.
+ * rules, and so is one whose own page has said live since a list last showed
+ * it (`knownHidden`). A missed listing is never dropped for that alone.
  */
 export async function markMissedListings(
   db: DatabaseOrTransaction,
@@ -239,6 +320,7 @@ export async function markMissedListings(
        and l.missed_at is null
        and l.last_seen_at < ${input.readStartedAt}
        and l.expected_end_at > ${input.at}
+       and (l.verified_at is null or l.verified_at <= l.last_seen_at)
        and not exists (
          select 1 from realestate.listings g
           where g.source_id = l.source_id

@@ -13,6 +13,7 @@ import {
   type DueListing,
   deleteLongGoneListings,
   loadListingsDueForCheck,
+  loadLookAlikesDueForCheck,
   markLapsedListingsGone,
   markMissedListings,
   recordListingCheck,
@@ -813,12 +814,36 @@ function listingPagesAllowed(run: RunState): number {
   return Math.max(0, Math.min(run.listingPagesLeft, run.maxRequests - run.counters.requestCount));
 }
 
+/** What a listing page that loaded says; null, with the failure noted, when it cannot be read. */
+function listingPageSaid(
+  run: RunState,
+  url: string,
+  sourceListingKey: string,
+  fetched: Fetched,
+): DetailResult | null {
+  if (fetched.kind !== 'ok') return null;
+  try {
+    return parseDetailPage(fetched.body, sourceListingKey);
+  } catch (err) {
+    if (!(err instanceof SsGePageShapeError)) throw err;
+    noteFailure(run, url, err.message);
+    return null;
+  }
+}
+
 /**
  * Asks each listing's own page and writes what it says (`recordListingCheck`):
  * gone, or live until a date, with its details. A page that does not load
  * says nothing about its listing, which waits for the next run. Stops at a
  * refusal, after five failures in a row, and when the run's time or requests
  * run out, which is no fault: the rest wait for the next run.
+ *
+ * A page with no listing in it is asked a second time before it is believed.
+ * ss.ge answers a live listing's page that way for 1 to 2% of requests at
+ * night and 7 to 10% by day, mostly one at a time (466 alone, 44 pairs and 4
+ * threes among 9,248 pages on 2026-11-13), and of 40 listings given up for
+ * one such answer, 32 were live the next morning. The second request is the
+ * same listing's and does not count against the run's listing pages.
  */
 async function readListingPages(
   run: RunState,
@@ -828,22 +853,19 @@ async function readListingPages(
   let failuresInARow = 0;
   for (const [index, listing] of listings.entries()) {
     const url = buildDetailUrl(listing.sourceListingKey);
-    const fetched = await request(run, url);
+    let fetched = await request(run, url);
     if (fetched.kind === 'spent') break;
     run.listingPagesLeft--;
     run.asked.add(listing.id);
+    let check = listingPageSaid(run, url, listing.sourceListingKey, fetched);
+    if (check?.status === 'gone' && check.reason === 'missing') {
+      fetched = await request(run, url);
+      if (fetched.kind === 'spent') break;
+      check = listingPageSaid(run, url, listing.sourceListingKey, fetched);
+    }
     if (fetched.kind === 'refused') {
       stop(run, `listing ${listing.sourceListingKey}: ${fetched.reason}`, true);
       break;
-    }
-    let check: DetailResult | null = null;
-    if (fetched.kind === 'ok') {
-      try {
-        check = parseDetailPage(fetched.body, listing.sourceListingKey);
-      } catch (err) {
-        if (!(err instanceof SsGePageShapeError)) throw err;
-        noteFailure(run, url, err.message);
-      }
     }
     if (check === null || fetched.kind !== 'ok') {
       if (++failuresInARow >= MAX_DETAIL_FAILURES_IN_A_ROW) {
@@ -874,7 +896,11 @@ async function readListingPages(
       continue;
     }
     if (outcome === 'gone') run.counters.goneCount++;
-    else if (outcome === 'verified') {
+    // Given up for a blank page and live after all (`BLANK_PAGE_RECHECK_HOURS`).
+    else if (outcome === 'reopened') {
+      run.counters.reopenedCount++;
+      run.counters.detailsCount++;
+    } else if (outcome === 'verified') {
       // `verified` counts checks of listings past their end, as before 12B.
       if (purpose === 'checks') run.counters.verifiedCount++;
       if (check.status === 'active') run.counters.detailsCount++;
@@ -898,6 +924,23 @@ async function checkDueListings(run: RunState): Promise<void> {
     limit,
   });
   await readListingPages(run, due, 'checks');
+}
+
+/**
+ * Asks the own page of each listing past its end with a look-alike still on
+ * show, with the pages the night has left once the listings wanting their
+ * details are read (`loadLookAlikesDueForCheck`): one in ten is live.
+ */
+async function checkLookAlikesPastTheirEnd(run: RunState): Promise<void> {
+  const limit = listingPagesAllowed(run);
+  if (limit === 0) return;
+  const due = await loadLookAlikesDueForCheck(run.db, {
+    sourceId: ssGeSource.id,
+    asOf: run.now(),
+    limit: limit + run.asked.size,
+  });
+  const unasked = due.filter((listing) => !run.asked.has(listing.id)).slice(0, limit);
+  await readListingPages(run, unasked, 'checks');
 }
 
 /**
@@ -1320,9 +1363,11 @@ export async function runSsGeCrawl(
     // refused, or would not answer, asks for nothing more.
     if (!run.siteTrouble) await checkDueListings(run);
     // A few pages for the place tree, then, with the time and requests left,
-    // the pages listings want read.
+    // the pages listings want read, the newest first. Last, what is still
+    // left goes to the listings past their end behind a look-alike.
     if (!run.siteTrouble) await readPlacePoints(run);
     if (!run.siteTrouble) await readWantedDetails(run);
+    if (!run.siteTrouble) await checkLookAlikesPastTheirEnd(run);
 
     // Not after site trouble: listings this run never had the chance to see
     // again must not be given up on its account.

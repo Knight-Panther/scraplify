@@ -58,6 +58,35 @@ describe('describeCrawlStatus', () => {
     expect(view?.state).toEqual({ kind: 'scheduled' });
   });
 
+  it('a run started by hand before the slot that ended after it counts for it: the timer had nothing to start', () => {
+    // ss.ge, 2026-11-14: a run started by hand at 08:37 ran past the 21:30
+    // slot to 00:37, so the timer skipped that slot; the site said "late".
+    const nightly = { hourUtc: 21, minuteUtc: 30, maxRunningMs: 20 * 60 * 60 * 1000 };
+    const view = describeCrawlStatus(
+      snapshot({
+        sourceSlug: 'ss-ge',
+        lastRunStartedAt: '2026-11-13T08:37:48Z',
+        lastCompletedAt: '2026-11-14T00:37:51Z',
+      }),
+      at('2026-11-14T06:30:00Z'),
+      nightly,
+    );
+    expect(view?.state).toEqual({ kind: 'scheduled' });
+    expect(view?.lastUpdatedAt).toBe('2026-11-14T00:37:51Z');
+  });
+
+  it('a run that ended before the slot does not cover it: late', () => {
+    const view = describeCrawlStatus(
+      snapshot({
+        lastRunStartedAt: '2026-09-28T12:00:00Z',
+        lastCompletedAt: '2026-09-28T16:05:00Z',
+      }),
+      at('2026-09-28T16:40:00Z'),
+      DAILY,
+    );
+    expect(view?.state).toEqual({ kind: 'late', expectedAt: '2026-09-28T16:10:00.000Z' });
+  });
+
   it('a run left "running" for over 3 hours is a dead process: late, not updating', () => {
     const view = describeCrawlStatus(
       snapshot({ lastRunStartedAt: '2026-09-27T16:10:00Z', lastRunStatus: 'running' }),
