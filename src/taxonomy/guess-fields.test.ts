@@ -138,7 +138,9 @@ describe('guessFields', () => {
     expect(cookGuess?.method).toBe('keyword');
     expect(cookGuess?.axis).toBe('profession');
     expect(cookGuess?.confidence).toBeGreaterThanOrEqual(0.8);
-    expect((cookGuess?.evidence as { model?: string } | undefined)?.model).toBe(FIELD_GUESS_VERSION);
+    expect((cookGuess?.evidence as { model?: string } | undefined)?.model).toBe(
+      FIELD_GUESS_VERSION,
+    );
     expect((await liveGuesses(driver))[0]?.taxonomyTermId).toBe(termIds[DRIVER]);
 
     // Nothing new on the next run: each revision is guessed once per model.
