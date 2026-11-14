@@ -379,7 +379,7 @@ Sequence (ss.ge's run must have ended; deploy window 13:40 to 20:30 UTC). Change
 1. One polite GET of `/courses/` from the host, to confirm it still answers.
 2. Deploy: backup, migrate 0054, `apply-db-roles.sh grants`, repoint, probe.
 3. Start the first run by hand straight after, about 13:50 UTC. It ends near 16:30, so that evening's vacancies land above the courses in Browse.
-4. Enable `xtelo-pipeline@summerschoolsineurope-eu.timer` after 16:20 UTC the next day. Changed 2026-11-14: the first run ended at 11:06 UTC, hours before the 16:10 slot, so the timer was enabled at 11:30 UTC the same day (`Persistent=true` with no stamp yet, so nothing started at once); waiting a day would have shown the courses as late on the landing board for two days. First timer run 2026-11-14 16:19 UTC.
+4. Enable `xtelo-pipeline@summerschoolsineurope-eu.timer` after 16:20 UTC the next day. Changed 2026-11-14: the first run ended at 11:06 UTC, hours before the 16:10 slot, so the timer was enabled at 11:26 UTC the same day (`Persistent=true` with no stamp yet, so nothing started at once); waiting a day would have shown the courses as late on the landing board for two days. First timer run 2026-11-14 16:19 UTC.
 
 Effect on the others: the daily run holds its crawl lock for about 20 minutes, during which another pipeline's retention step skips by design; dedupe and the bundle build run once more a day.
 
