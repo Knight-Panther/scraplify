@@ -24,7 +24,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. Order: 15A,
 |---|---|---|---|---|
 | ✅ | **15A** | Summer-school crawler, typing by source, local trial | no | done 2026-11-13: trial passed, merged as `aa0d9f5` (PR #105) |
 | ✅ | **15B** | Three new kinds (migration 0054), kind labels in both languages, Browse and detail-page rendering | merged, deployed with 15C | done 2026-11-13: merged as `b7f166d` (PR #106) |
-| ⏳ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | wired on `phase-15c-hosted`; the Hermes note waits on the owner; deploy 2026-11-14 |
+| ⏳ | **15C** | Hosted rollout of the summer-school source | yes: courses in Browse under their kind | merged as `27919cd` (PR #107); live since 2026-11-14 07:39 UTC with 15A and 15B; Hermes told (ready, its side 07:35); first run `f55df969` started by hand at 07:39; gate after it ends |
 | ❌ | **15D** | Eurodesk crawler (visitor session), local trial | no | 15B |
 | ❌ | **15E** | The bilingual Programmes tab, designed against both data sets | yes | 15C live, 15D's trial data |
 | ❌ | **15F** | Eurodesk hosted rollout | yes | 15D, 15E |
@@ -375,7 +375,7 @@ Change:
 
 Hermes: one note, shown to the owner first. It names the new slug and says its listings are courses, not vacancies, so Hermes's source lists need it and its CV screener must not screen them (`Hermes/workflows/integrations/xtelo.py:54`, `xtelo_screen.py:48`, `xtelo_events.py:544`).
 
-Sequence (ss.ge's run must have ended; deploy window 13:40 to 20:30 UTC):
+Sequence (ss.ge's run must have ended; deploy window 13:40 to 20:30 UTC). Changed 2026-11-14: ss.ge's run had ended at 00:37 UTC, so the deploy went at 07:36 to 07:39 UTC (`.git/handoff-15a/deploy-15c.sh`); the polite GET answered 200 (24 course links, no challenge); the first run started 07:39, ending near 10:40, hours before the 16:10 job boards:
 1. One polite GET of `/courses/` from the host, to confirm it still answers.
 2. Deploy: backup, migrate 0054, `apply-db-roles.sh grants`, repoint, probe.
 3. Start the first run by hand straight after, about 13:50 UTC. It ends near 16:30, so that evening's vacancies land above the courses in Browse.
