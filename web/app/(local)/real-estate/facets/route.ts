@@ -18,15 +18,18 @@ export const dynamic = 'force-dynamic';
  * the filters in the address. Reads only `public_listings` and `public_places`,
  * so it is served on every surface. Each facet is asked once per filter set
  * every ten minutes in this process, like the page's own counts; one that
- * outlasts its time limit is `null`, and the panel shows no numbers. The null
- * is kept as long, so a slow facet costs the host once per window, not on
- * every change while a panel is open (the page's slow counts do the same).
+ * outlasts its time limit is `null`, and the panel shows no numbers. A null is
+ * kept one minute, so a slow facet costs the host once a minute rather than
+ * on every change while a panel is open, and a miss on a cold start (the
+ * first minutes after a deploy, 2026-11-14) does not blank a panel for ten.
  */
 const TTL_MS = 10 * 60_000;
 const MAX_KEYS = 2_000;
 const FACET_TIMEOUT_MS = 2_500;
 const MAX_FACETS = 16;
-const facets = cachedByKey<FacetResult | null>(TTL_MS, MAX_KEYS, () => true);
+const MISS_TTL_MS = 60_000;
+const answered = cachedByKey<FacetResult | null>(TTL_MS, MAX_KEYS, (result) => result !== null);
+const recent = cachedByKey<FacetResult | null>(MISS_TTL_MS, MAX_KEYS, () => true);
 
 /** The address's pairs as the pages get theirs: one string, or a list for a repeated name. */
 function rawParams(params: URLSearchParams): RawSearchParams {
@@ -50,8 +53,10 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const results = await Promise.all(
       wanted.map((facet) =>
-        facets(`${facet}|${key}`, () =>
-          withinTimeout(db, FACET_TIMEOUT_MS, (tx) => facetCounts(tx, filters, now, facet)),
+        answered(`${facet}|${key}`, () =>
+          recent(`${facet}|${key}`, () =>
+            withinTimeout(db, FACET_TIMEOUT_MS, (tx) => facetCounts(tx, filters, now, facet)),
+          ),
         ),
       ),
     );
