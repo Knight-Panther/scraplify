@@ -30,7 +30,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 | ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
 | ✅ | **16C** | Browse v2 | yes | done: merged as `4a251d2` (PR #114), live 2026-11-14 14:14 UTC |
 | ⏳ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14; merged 2026-11-14 as `efa1c99` (PR #115, CI green) | a deploy with migration 0055 and `apply-db-roles.sh grants`, after the ss.ge run | 2026-11-15, the deploy window |
-| ⏳ | **16E** | A city for jobs.ge vacancies, read from the listing's own text and marked "from text". The owner's go 2026-11-14 | CI, then the deploy with 16D's (migrations 0055 and 0056) | the PR |
+| ⏳ | **16E** | A city for jobs.ge vacancies, read from the listing's own text and marked "from text". The owner's go 2026-11-14 | merged as `0e5bdc9` (PR #116); the deploy with 16D's (migrations 0055 and 0056), after the ss.ge run | the deploy |
 
 ## 16A: theme foundation
 
