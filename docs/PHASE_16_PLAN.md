@@ -132,7 +132,7 @@ Gate:
 - ✅ Every filter the tab had still reachable: `web/lib/real-estate-params.test.ts` lists 29 of them, each set from an old address and found in the registry; 53 address tests in all.
 - ✅ Browser, public and local surfaces on `scraplify_qa_16`: 144 page loads (9 filter states, both themes, Georgian and English, 390 and 1280) and 56 open panels (every pill, the kind, and "All filters" for five kinds, both themes, both widths): no overflow, no console error, no text under its contrast floor, every panel inside the screen with focus in it.
 - ✅ Reviews: web-design-guidelines (two fixes: focused rows clear of the sticky bar, pills without the tap delay); surface-boundary review, no defect (the endpoints read only `public_listings` and `public_places`).
-- ✅ Tests: 2,785 pass locally (26 new for the counts and place suggestions); ❌ CI on the PR.
+- ✅ Tests: 2,785 pass locally (26 new for the counts and place suggestions); ✅ CI green on PR #112.
 
 ## 16C: Browse v2
 
