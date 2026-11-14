@@ -148,7 +148,7 @@ function ProfileRow({ profile }: { profile: ProfileListRow }) {
                 <input type="hidden" name="profileId" value={profile.profileId} />
                 <button
                   type="submit"
-                  className="rounded-[var(--radius)] border border-status-held px-3 py-1 text-sm text-status-held hover:bg-status-held hover:text-white"
+                  className="rounded-[var(--radius)] border border-status-held px-3 py-1 text-sm text-status-held hover:bg-status-held hover:text-background"
                 >
                   Yes, delete permanently
                 </button>

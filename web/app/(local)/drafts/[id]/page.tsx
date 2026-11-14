@@ -384,7 +384,7 @@ function DeleteDraft({ draftId }: { draftId: string }) {
             <input type="hidden" name="draftId" value={draftId} />
             <button
               type="submit"
-              className="rounded-[var(--radius)] border border-status-held px-3 py-1 text-sm text-status-held hover:bg-status-held hover:text-white"
+              className="rounded-[var(--radius)] border border-status-held px-3 py-1 text-sm text-status-held hover:bg-status-held hover:text-background"
             >
               Yes, delete draft
             </button>

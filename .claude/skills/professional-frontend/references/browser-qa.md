@@ -58,6 +58,11 @@ Check at minimum:
 At each: no horizontal overflow on `<body>`, no clipped text, no unexpected
 scrollbars, no layout that only works at the width you developed at.
 
+Check each width in **both themes** (Phase 16A): light is what a first visit gets,
+dark is set by the cookie `xtelo-theme=dark` (`page.context().addCookies` in
+Playwright). A colour that reads on one ground can vanish on the other, lime on
+white above all.
+
 Mobile deserves real thought, not stacking. A table of hundreds of rows on a 390px screen
 needs a decided answer — which columns survive, what becomes secondary, what
 collapses. Decide it rather than letting it reflow.

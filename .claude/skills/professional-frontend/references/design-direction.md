@@ -14,43 +14,58 @@ SynapseX is a marketing site with video backgrounds and scroll-linked motion;
 Xtelo is a dense triage tool. The **visual system** transfers; the **cinematics**
 do not. Concretely:
 
-### Palette — take it
+### Palette: one set, two themes (Phase 16A, 2026-11-14)
+
+The original SynapseX palette (pure black, a pink accent `#d88bd2`) is gone. Since
+Phase 16 the whole site uses one colour set, the lime family the Browse and landing
+screens already had, in two themes the visitor switches with the sun and moon in
+the header: **light** (a first visit's theme, owner decision 2026-11-14) and
+**dark** (the site as it was). `web/app/globals.css` is the source: dark values in
+`@theme static`, light values under `:root[data-theme="light"]`, and the root
+layout sets `data-theme` from the `xtelo-theme` cookie. A component names a role,
+never a hex, and `web/lib/theme-cookie.test.ts` fails on a raw hex, a retired
+token or a colour with no light value.
 
 ```
---color-background      #000000     pure black ground
---color-surface         #121014     raised panels, popovers
---color-surface-raised  #1c191e     one step further up
---color-accent-surface  #29232e     selected / active rows
---color-foreground      #ffffff
---color-muted-fg        #ffffff99   secondary columns          7.37:1
---color-faint-fg        #ffffff8c   tertiary, labels, counts   6.25:1
---color-nontext         #ffffff40   dividers, disabled controls  — NOT text
---color-border          #ffffff26   hairline table rules
---color-accent          #d88bd2     the single accent
---color-accent-strong   #b841ad     selection background
---color-ring            #f0a9ea     focus
---radius                0.75rem
+role                    dark       light
+--color-background      #07090b    #f4f5f1   page ground
+--color-surface         #0e1114    #ffffff   panels, popovers
+--color-surface-raised  #141920    #eef0ea   one step up
+--color-surface-active  #1c2228    #e4e9da   selected / active rows
+--color-foreground      #f3f6f8    #12161a
+--color-muted           #b7c2ca    #3c4750   secondary columns
+--color-faint           #8b97a1    #59646e   tertiary, labels, counts
+--color-nontext         #55616b    #8a948a   dividers, disabled: NOT text
+--color-border          #1c2228    #e1e4dc   hairlines
+--color-border-strong   #2a323a    #cbd2c6   control edges
+--color-brand           #d6ff3f    #d6ff3f   lime FILL, with ink on it
+--color-accent          #d6ff3f    #4a6400   lime TEXT (olive on light)
+--color-accent-line     #d6ff3f    #7aa300   lime lines, dots, bars
+--color-ink             #0b0d10    #0b0d10   text on lime and on the header
+--color-header          #f2ee00    #f2ee00   the yellow header, both themes
+--color-ring            #d6ff3f    #3f5800   focus
 ```
 
-The muted-text ladder is the most useful thing here: a dense table needs exactly
-that gradation for secondary and tertiary columns.
+Plus status (open, unconfirmed, closed, held), warn, kind (job, tender, course)
+and metro-line colours, each with both values in `globals.css`.
 
-**One value was changed from the reference, for contrast.** SynapseX uses
-`#ffffff66` for its labels and metric captions. Measured, that composites to
-`#666` and gives **3.66:1** on black and **3.03:1** on the raised surfaces —
-under WCAG AA's 4.5:1 floor for normal text, which the interface checklist
-requires. Raised to `#ffffff8c`, which measures 6.25:1 and 5.17:1. The
-reference's original 40% survives as `--color-nontext`, restricted to dividers
-and disabled controls, which WCAG exempts. Ratios above are measured, not
-estimated; accent (8.54:1), ring (11.57:1) and accent-strong on white (4.78:1)
-all passed unchanged.
+**The light rule that matters most:** lime is never text on white (about 1.1:1).
+It fills buttons and selected options under ink; words in the brand colour use
+`accent` (olive); decorative lines and dots use `accent-line`. Every text colour
+measures 4.5:1 or better against all four surfaces of its theme; the plan's
+first light status and kind colours (3.6 to 4.2 on the selected-row ground) were
+darkened to get there.
 
-**Focus ring, taken verbatim** — `outline: 2px solid #f0a9ea; outline-offset: 6px`.
-Stronger and more visible than most defaults, and it satisfies the focus rules in
-the interface checklist without further thought.
+The muted-text ladder is still the most useful thing here: a dense table needs
+exactly that gradation for secondary and tertiary columns.
 
-Near-black is an ergonomic choice here, not only an aesthetic one: this is a tool
-someone stares at daily.
+**Focus ring** — `outline: 2px solid var(--color-ring); outline-offset: 6px`, in
+Tailwind's base layer so a component can replace it: the yellow header uses a 2px
+ink ring, since lime on that yellow cannot be seen.
+
+Near-black stays the dark ground for an ergonomic reason, not only an aesthetic
+one: this is a tool someone stares at daily. Light exists because most visitors
+arrive in daylight on a phone.
 
 ### Typefaces — changed, and this is the one real departure
 

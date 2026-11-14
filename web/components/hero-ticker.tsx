@@ -134,7 +134,7 @@ export function HeroTicker({
   return (
     <div
       ref={wrapperRef}
-      className="group relative mt-14 w-full overflow-hidden lg:mt-[3svh] border-t border-[var(--color-browse-border)] bg-[var(--color-browse-panel)]"
+      className="group relative mt-14 w-full overflow-hidden lg:mt-[3svh] border-t border-border bg-surface"
     >
       {/* Nothing to toggle once the OS preference has already frozen the
           strip — a "Pause" button over already-stationary content is a
@@ -145,7 +145,7 @@ export function HeroTicker({
           onClick={() => setPaused((value) => !value)}
           aria-label={paused ? playLabel : pauseLabel}
           title={paused ? playLabel : pauseLabel}
-          className="absolute top-1/2 right-3 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--color-browse-border-control)] bg-[var(--color-browse-panel)] text-[var(--color-browse-text-pill)] hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+          className="absolute top-1/2 right-3 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border-control bg-surface text-muted hover:border-accent-line hover:text-accent"
         >
           <svg aria-hidden="true" viewBox="0 0 12 12" className="h-3 w-3" fill="currentColor">
             {paused ? (
@@ -209,10 +209,7 @@ function TickerItems({
         const key = duplicate ? `dup-${index}` : row.opportunityId;
         const content = (
           <>
-            <span
-              aria-hidden="true"
-              className="mr-3 h-1 w-1 flex-none bg-[var(--color-browse-accent)]"
-            />
+            <span aria-hidden="true" className="mr-3 h-1 w-1 flex-none bg-accent-line" />
             {row.title}
             {employers}
           </>
@@ -226,7 +223,7 @@ function TickerItems({
         return duplicate ? (
           <span
             key={key}
-            className="flex items-center whitespace-nowrap py-3.5 pr-7 text-[13px] text-[var(--color-browse-text-muted)]"
+            className="flex items-center whitespace-nowrap py-3.5 pr-7 text-[13px] text-faint"
           >
             {content}
           </span>
@@ -236,7 +233,7 @@ function TickerItems({
             href={`/opportunities/${row.opportunityId}`}
             data-ticker-id={row.opportunityId}
             tabIndex={visibleIds?.has(row.opportunityId) === true ? 0 : -1}
-            className="flex items-center whitespace-nowrap py-3.5 pr-7 text-[13px] text-[var(--color-browse-text-muted)] hover:text-white"
+            className="flex items-center whitespace-nowrap py-3.5 pr-7 text-[13px] text-faint hover:text-foreground"
           >
             {content}
           </a>

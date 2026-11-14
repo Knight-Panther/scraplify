@@ -19,9 +19,9 @@ export function SiteFooter() {
   return (
     <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-5 sm:px-6">
       <p className="numeric text-xs text-faint">
-        Xtelo — jobs.ge <span className="text-[var(--color-browse-accent)]">+</span> hr.ge{' '}
-        <span className="text-[var(--color-browse-accent)]">+</span> etenders.ge, deduplicated into
-        one row per vacancy or tender. Courses from summerschoolsineurope.eu. Property from ss.ge.
+        Xtelo — jobs.ge <span className="text-accent">+</span> hr.ge{' '}
+        <span className="text-accent">+</span> etenders.ge, deduplicated into one row per vacancy or
+        tender. Courses from summerschoolsineurope.eu. Property from ss.ge.
       </p>
       <div className="flex items-center gap-4">
         {/* The owner's own wording (2026-09-28). */}
@@ -31,7 +31,7 @@ export function SiteFooter() {
           target="_blank"
           rel="noreferrer"
           aria-label="Facebook (opens in a new tab)"
-          className="text-faint transition-colors duration-150 hover:text-[var(--color-browse-accent)]"
+          className="text-faint transition-colors duration-150 hover:text-accent"
         >
           <FacebookIcon />
         </a>
@@ -40,7 +40,7 @@ export function SiteFooter() {
           target="_blank"
           rel="noreferrer"
           aria-label="LinkedIn (opens in a new tab)"
-          className="text-faint transition-colors duration-150 hover:text-[var(--color-browse-accent)]"
+          className="text-faint transition-colors duration-150 hover:text-accent"
         >
           <LinkedinIcon />
         </a>

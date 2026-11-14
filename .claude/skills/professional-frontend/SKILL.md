@@ -34,8 +34,9 @@ this environment, so there is no setup cost to doing it.
    layer. Note that layer is a starting point, **not a finished contract**: widen
    a return type when a screen needs a field it drops (`product-context.md`).
 2. Read `references/design-direction.md`. The visual direction is **settled**, not
-   open: a dark, restrained system derived from the SynapseX reference the owner
-   supplied. Do not invent a palette or a type scale from scratch.
+   open: a restrained system derived from the SynapseX reference the owner
+   supplied, in a light and a dark theme (Phase 16A). Do not invent a palette or a
+   type scale from scratch, and test every change in both themes.
 3. Read `references/georgian-typography.md` **before choosing any font**. Most of
    this corpus is Georgian script. The wrong font stack is the single most likely
    way this UI will look broken, and it is invisible to anyone testing with Latin
@@ -54,7 +55,7 @@ this environment, so there is no setup cost to doing it.
 - Semantic HTML first, then custom. No component library is installed (Tailwind
   utilities only): a plain
   `<table>`, `<input>` and `<button>` cover these screens, and the palette is a
-  custom dark system anyway. If a genuinely hard primitive appears — a
+  custom two-theme system anyway. If a genuinely hard primitive appears — a
   focus-trapped dialog, a combobox — add shadcn for that one thing rather than
   hand-rolling its accessibility.
 - Every value from a token. No arbitrary hex, spacing, radius or shadow.

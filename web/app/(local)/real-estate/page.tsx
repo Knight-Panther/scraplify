@@ -767,7 +767,7 @@ function Chips({
         {options.map(([value, label]) => (
           <label
             key={value}
-            className="flex cursor-pointer items-center gap-1.5 rounded-[var(--radius)] border border-border bg-surface px-2 py-1.5 text-sm text-foreground hover:border-border-strong has-[:checked]:border-accent has-[:checked]:bg-surface-active has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-ring)] has-[:focus-visible]:outline-solid"
+            className="flex cursor-pointer items-center gap-1.5 rounded-[var(--radius)] border border-border bg-surface px-2 py-1.5 text-sm text-foreground hover:border-border-strong has-[:checked]:border-accent-line has-[:checked]:bg-surface-active has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-ring)] has-[:focus-visible]:outline-solid"
           >
             <input
               type="checkbox"

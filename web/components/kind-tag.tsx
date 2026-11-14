@@ -14,7 +14,7 @@ export function KindTag({ type, label: shown }: { type: string; label?: string |
   const label = opportunityTypeLabel(type);
   return (
     <span
-      className="inline-flex items-center rounded-full border border-[var(--color-browse-accent)] px-2 text-xs leading-5 text-[var(--color-browse-accent)]"
+      className="inline-flex items-center rounded-full border border-accent-line px-2 text-xs leading-5 text-accent"
       title={label.explanation}
     >
       {shown ?? label.short}

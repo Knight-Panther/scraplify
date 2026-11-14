@@ -198,7 +198,7 @@ export default async function OpportunitiesPage({
         <StickyFilterBar
           title={
             <div className="px-4 sm:px-0">
-              <p className="numeric text-xs text-[var(--color-browse-accent)] uppercase">
+              <p className="numeric text-xs text-accent uppercase">
                 {/* `tracking-*` on a <p> is dead: globals.css's unlayered
                     `p { letter-spacing: normal }` (added for Georgian
                     headings) beats Tailwind's layered utility regardless of
@@ -215,7 +215,7 @@ export default async function OpportunitiesPage({
                   )}
                 </span>
               </p>
-              <h1 className="mt-1 font-[family-name:var(--font-display)] text-6xl leading-[0.9] text-white uppercase">
+              <h1 className="mt-1 font-[family-name:var(--font-display)] text-6xl leading-[0.9] text-foreground uppercase">
                 Browse
               </h1>
               <p className="mt-2 max-w-[var(--measure)] text-sm text-faint">
@@ -244,7 +244,7 @@ export default async function OpportunitiesPage({
 
               <button
                 type="submit"
-                className="h-[46px] rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-5 text-sm font-bold text-[var(--color-browse-ink)] hover:bg-[var(--color-browse-accent-hover)]"
+                className="h-[46px] rounded-[var(--radius)] bg-brand px-5 text-sm font-bold text-ink hover:bg-brand-hover"
               >
                 Apply
               </button>
@@ -269,22 +269,19 @@ export default async function OpportunitiesPage({
                     <a
                       key={chip.key}
                       href={chip.href}
-                      className="flex items-center gap-1.5 rounded-full border border-border-control px-3 py-1 text-xs text-muted hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+                      className="flex items-center gap-1.5 rounded-full border border-border-control px-3 py-1 text-xs text-muted hover:border-accent-line hover:text-accent"
                     >
                       {chip.label}
                       <XIcon />
                     </a>
                   ))}
-                  <a
-                    href="/opportunities"
-                    className="text-xs text-[var(--color-browse-accent)] hover:underline"
-                  >
+                  <a href="/opportunities" className="text-xs text-accent hover:underline">
                     Clear all
                   </a>
                 </>
               )}
               <p className="numeric ml-auto text-xs text-faint">
-                <span className="text-[var(--color-browse-accent)]">{count(total)}</span>{' '}
+                <span className="text-accent">{count(total)}</span>{' '}
                 {total === 1 ? 'match' : 'matches'}
               </p>
             </div>
@@ -364,7 +361,7 @@ function SortControl({ query }: { query: OpportunityQuery }) {
             title={SORT_LABELS[sort].hint}
             className={
               active
-                ? 'rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-2 py-1 font-semibold text-[var(--color-browse-ink)]'
+                ? 'rounded-[var(--radius)] bg-brand px-2 py-1 font-semibold text-ink'
                 : 'rounded-[var(--radius)] px-2 py-1 text-muted hover:bg-surface hover:text-foreground'
             }
           >
@@ -467,10 +464,7 @@ function Row({
             </time>
           )}
         </p>
-        <a
-          href={href}
-          className="mt-1 block font-medium text-foreground hover:text-[var(--color-browse-accent)]"
-        >
+        <a href={href} className="mt-1 block font-medium text-foreground hover:text-accent">
           {row.title}
         </a>
         {row.employers.length > 0 && (
@@ -534,7 +528,7 @@ function SourceLinks({ row }: { row: OpportunityRow }) {
                 ? listingStatusLabel(source.status).explanation
                 : sourceLabel(source.sourceSlug)
             }
-            className="numeric min-w-0 max-w-full truncate rounded-full border border-border-control px-2.5 py-1 text-xs text-muted hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]"
+            className="numeric min-w-0 max-w-full truncate rounded-full border border-border-control px-2.5 py-1 text-xs text-muted hover:border-accent-line hover:text-accent"
           >
             {sourceLabel(source.sourceSlug)}
             {differs && ` · ${listingStatusLabel(source.status).short}`}
@@ -582,19 +576,13 @@ function EmptyState({
           {suggestion !== null && (
             <>
               Did you mean{' '}
-              <a
-                className="text-[var(--color-browse-accent)] underline underline-offset-2"
-                href={suggestion.href}
-              >
+              <a className="text-accent underline underline-offset-2" href={suggestion.href}>
                 {suggestion.text}
               </a>
               ?{' '}
             </>
           )}
-          <a
-            className="text-[var(--color-browse-accent)] underline underline-offset-2"
-            href="/opportunities"
-          >
+          <a className="text-accent underline underline-offset-2" href="/opportunities">
             Clear them
           </a>{' '}
           to see everything.

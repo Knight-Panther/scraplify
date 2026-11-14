@@ -572,7 +572,7 @@ function Bid({ detail }: { detail: DetailForDisplay }) {
             target="_blank"
             rel="noreferrer"
             aria-label={`Open ${detail.title} on ${sourceLabel(column.sourceSlug)} (opens in a new tab)`}
-            className="inline-flex items-center rounded-[var(--radius)] border border-accent px-4 py-2 text-sm font-semibold text-accent hover:bg-surface-raised"
+            className="inline-flex items-center rounded-[var(--radius)] border border-accent-line px-4 py-2 text-sm font-semibold text-accent hover:bg-surface-raised"
           >
             Open on&nbsp;<span translate="no">{sourceLabel(column.sourceSlug)}</span>
           </a>
@@ -591,7 +591,7 @@ function Bid({ detail }: { detail: DetailForDisplay }) {
  */
 function Register({ detail }: { detail: DetailForDisplay }) {
   const button =
-    'inline-flex items-center rounded-[var(--radius)] border border-accent px-4 py-2 text-sm font-semibold text-accent hover:bg-surface-raised';
+    'inline-flex items-center rounded-[var(--radius)] border border-accent-line px-4 py-2 text-sm font-semibold text-accent hover:bg-surface-raised';
   return (
     <section className="mt-8">
       <SectionHeading>How to register</SectionHeading>

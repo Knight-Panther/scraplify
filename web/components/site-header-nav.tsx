@@ -4,6 +4,8 @@ import { usePathname } from 'next/navigation.js';
 import { signOutAction, toggleLocale } from '../app/actions.js';
 import type { Locale } from '../lib/locale.js';
 import type { Surface } from '../lib/surface.js';
+import type { Theme } from '../lib/theme-cookie.js';
+import { ThemeSwitch } from './theme-switch.js';
 
 /**
  * The site's nav links, one list shared by the desktop bar and the mobile
@@ -67,16 +69,17 @@ const NAV_ADMIN = [
 ] as const;
 
 /**
- * Client only for the two things that genuinely need the browser: which
- * link is "active" (needs the current pathname) and the mobile menu's
- * open/closed state. `dbLabel`/`writesOn`/`surface` are passed in from the
- * server parent (`site-header.tsx`) rather than computed here — this
- * component used to call `databaseLabel()`/`writesEnabled()` directly when
- * it was still the whole `SiteNav`, and because those read server-only env
- * vars, running them again on the client (undefined there) produced a real
- * hydration mismatch: the server said "scraplify", the client said "no
- * database". Passing the already-resolved values down avoids that class of
- * bug entirely rather than working around its symptom.
+ * Client only for what genuinely needs the browser: which link is "active"
+ * (needs the current pathname), the mobile menu's open state, and the theme
+ * switch. `dbLabel`/`writesOn`/`surface`/`theme` are passed in from the
+ * server parent (`site-header.tsx`) rather than computed here: computing
+ * server-only values again on the client once produced a real hydration
+ * mismatch ("scraplify" on the server, "no database" on the client).
+ *
+ * The bar is the Phase 16 design (`docs/PHASE_16_PLAN.md`): yellow in both
+ * themes, the logo, the links as plain ink words with the current page an
+ * ink pill, then the database badge (local only), the theme switch, the
+ * language and, below the width the links fit in, the menu button.
  */
 export function SiteHeaderNav({
   dbLabel,
@@ -84,6 +87,7 @@ export function SiteHeaderNav({
   locale,
   surface,
   cvRanked,
+  theme,
 }: {
   dbLabel: string;
   writesOn: boolean;
@@ -91,78 +95,41 @@ export function SiteHeaderNav({
   surface: Surface;
   /** False while `XTELO_CV_RANKED=off` (Phase 8E rollback switch). */
   cvRanked: boolean;
+  /** The theme the server painted, from the visitor's cookie. */
+  theme: Theme;
 }) {
   const pathname = usePathname();
   // Exact match for both root links ('/' and admin's own '/admin'
-  // dashboard) — otherwise `startsWith` also matches every child route
+  // dashboard): otherwise `startsWith` also matches every child route
   // (`/admin/sources`, ...), highlighting two nav items at once (Codex,
   // 2026-09-24).
   const isActive = (href: string) =>
     href === '/' || href === '/admin' ? pathname === href : (pathname?.startsWith(href) ?? false);
   const navFull = locale === 'ka' ? NAV_KA : NAV_EN;
   // Public hosted nav is `Browse | Listings | Real estate | CV Ranked` only
-  // (concept §30.1 and §31; the first four entries of both lists) — the other links
-  // (`/profile`, `/ranked`, `/drafts`, `/review`, `/taxonomy-review`,
-  // `/health`) all 404 once Stage 6 allow-lists routes by surface, and
-  // linking to them here would send a public visitor at a dead end. Sliced
-  // from the same array rather than a second literal list, so the two
-  // surfaces can never drift on the label/href for a link they share.
-  //
-  // `admin` gets its own fixed list (Stage 8) rather than a slice of
-  // `navFull`: none of `navFull`'s links exist on that surface at all, unlike
-  // public's subset which genuinely is a subset of local's.
+  // (concept §30.1 and §31; the first four entries of both lists): the other
+  // links all 404 on that surface. Sliced from the same array rather than a
+  // second literal list, so the two surfaces can never drift on a link they
+  // share. `admin` gets its own fixed list: none of `navFull`'s links exist
+  // there at all.
   const surfaceNav =
     surface === 'admin' ? NAV_ADMIN : surface === 'public' ? navFull.slice(0, 4) : navFull;
   const nav = cvRanked ? surfaceNav : surfaceNav.filter((item) => item.href !== '/cv-ranked');
-  // Per-locale, not one shared value: Georgian's longer nav words need
-  // more room than English's (see the desktop-nav comment below), and a
-  // single breakpoint sized for Georgian would needlessly drop English
-  // users at 1480-1719px into the mobile popover when their content
-  // actually fits there. Each variant below is a complete literal class
-  // name (`min-[1480px]:flex`, `min-[1720px]:flex`, ...) so Tailwind's
-  // source scanner — which matches raw text, not evaluated JS — still
-  // finds and generates both.
-  //
-  // Per surface too, since the 11th link, "Real estate" (Phase 11C,
-  // 2026-10-12). The local bar carries all eleven and measured 1740px wide
-  // in English and 1992px in Georgian, so it needs 1780px and 2030px. The
-  // public bar carries four links and the admin bar five, which fit with
-  // room to spare, so they keep 1560px and 1810px: raising those would push
-  // every public visitor below 2030px into the popover for nothing.
-  const allLinks = surface === 'local';
-  const deskFlex =
-    locale === 'ka'
-      ? allLinks
-        ? 'min-[2030px]:flex'
-        : 'min-[1810px]:flex'
-      : allLinks
-        ? 'min-[1780px]:flex'
-        : 'min-[1560px]:flex';
-  const deskHidden =
-    locale === 'ka'
-      ? allLinks
-        ? 'min-[2030px]:hidden'
-        : 'min-[1810px]:hidden'
-      : allLinks
-        ? 'min-[1780px]:hidden'
-        : 'min-[1560px]:hidden';
+  const { deskFlex, deskHidden } = deskBreakpoints(surface, locale);
+  // On the yellow bar the site's lime focus ring would vanish: ink instead.
+  const focusInk =
+    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink';
 
   return (
-    <header className="flex h-[58px] items-stretch bg-[var(--color-browse-nav-yellow)] lg:h-[78px]">
+    <header className="relative z-30 flex h-14 items-center gap-7 bg-header px-4 text-ink min-[900px]:h-16">
       {/* Plain `<img>`, not `next/image`: a small fixed-size static header
           logo doesn't need Next's optimization pipeline, and `next/image`'s
           own shipped types don't resolve cleanly under this repo's
-          `nodenext` module resolution (shared with the CLI build) — the
-          same class of problem `types.d.ts`'s `next/font/google` shim
-          exists to patch, not worth a second shim for one `<img>` tag.
-          Explicit width/height (the real 2172×724 asset, scaled by the
-          `h-*`/`w-auto` classes) avoid layout shift the way `next/image`
-          would have handled automatically. */}
-      {/* `/` is refused outright on the `admin` surface (`proxy.ts`'s admin
-          branch only ever passes `/admin*`/`/api/auth*`) — the wordmark must
-          target `/admin` there instead of the shared default (Codex,
-          2026-09-24). */}
-      <a href={surface === 'admin' ? '/admin' : '/'} className="flex items-center pl-4 lg:pl-8">
+          `nodenext` module resolution. Explicit width/height (the real
+          2172×724 asset, scaled by the `h-*`/`w-auto` classes) avoid layout
+          shift. `/` is refused on the `admin` surface, so the logo goes to
+          `/admin` there (Codex, 2026-09-24). */}
+      <a href={surface === 'admin' ? '/admin' : '/'} className={`flex flex-none ${focusInk}`}>
         {/* biome-ignore lint/performance/noImgElement: next/image doesn't
             type-check under this repo's nodenext resolution (see comment
             above); a fixed-size static logo has no LCP/bandwidth case for
@@ -172,147 +139,91 @@ export function SiteHeaderNav({
           alt="Xtelo"
           width={264}
           height={88}
-          className="h-[34px] w-auto lg:h-[44px]"
+          className="h-[30px] w-auto min-[900px]:h-9"
         />
       </a>
 
-      {/* Desktop: every link inline, in the handoff's clipped-corner blocks.
-          `min-[1360px]:flex` in English, not `xl:flex` (1280px) — the
-          original threshold, chosen when this bar had 6 then 8 links and
-          claimed to fit "at xl" in isolation. It didn't: measured via real
-          `header.scrollWidth` at exactly 1280px CSS width (Phase 3E's own
-          browser-QA sweep, 2026-09-15, found only because it tested the
-          true boundary rather than a devicePixelRatio-skewed approximation
-          of it), the 8-link nav alone overflowed by 37px at 1280px, and
-          together with the write-gate badge below (which shares this
-          threshold) by 155px. Dropping the redundant `/` ("Design system")
-          entry the same day (it's the landing page now, already reachable
-          via the wordmark link) took the count back to 7 — measured natural
-          width (wordmark + nav + badge, unclipped) is ~1270px in English, so
-          1360px is used there for real margin without the first fix's much
-          wider 1500px.
-
-          `min-[1600px]:flex` in Georgian (this bilingual change) — its nav
-          labels are longer words, not the short English ones the 1360px
-          number was tuned for: measured natural width in `ka` is ~1505px
-          (`getBoundingClientRect` summed across the wordmark, nav `<ul>`,
-          language toggle and badge at an unconstrained 2000px viewport) —
-          already past 1360px itself, which is how a shared-breakpoint
-          version of this first shipped with a visible horizontal scrollbar
-          at 1440px before being caught in browser QA. Kept per-locale
-          rather than raising the English breakpoint too, so English users
-          at 1360-1599px keep the desktop bar their content actually fits
-          in — see `deskFlex`/`deskHidden` above. The mobile popover below
-          still covers the gap under whichever threshold is active.
-
-          Raised again for the 9th link, "Drafts" (Phase 6A, 2026-09-16), by the
-          same method rather than by estimate: at a real 1360px viewport the
-          English header measured 1434px wide in a 1345px client (overflowing),
-          and fit with 11px to spare at 1460px, so 1480px; Georgian measured
-          1664px in 1585px at 1600px, so 1720px. The comments above keep the
-          earlier numbers as history.
-
-          Raised again for the 10th link, "CV Ranked" (Phase 8D, 2026-09-26):
-          bisected on a real page load for the narrowest width where the
-          header stops overflowing — 1540px in English, 1789px in Georgian —
-          so 1560px and 1810px. */}
-      <nav aria-label="Main" className={`ml-auto hidden items-stretch ${deskFlex}`}>
-        <ul className="flex items-stretch">
-          {nav.map((item, index) => (
+      <nav aria-label="Main" className={`hidden ${deskFlex}`}>
+        <ul className="flex gap-1">
+          {nav.map((item) => (
             <li key={item.href}>
               <a
                 href={item.href}
                 aria-current={isActive(item.href) ? 'page' : undefined}
-                className={`flex h-11 items-center text-[13px] font-semibold whitespace-nowrap text-white hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)] ${
-                  locale === 'en' ? 'uppercase [letter-spacing:0.1em]' : ''
-                } ${
-                  isActive(item.href)
-                    ? 'bg-[var(--color-browse-nav-yellow)] text-[var(--color-browse-ink)]'
-                    : 'bg-[var(--color-browse-nav-olive)]'
+                className={`block rounded-lg px-3 py-1.5 text-[15px] font-semibold whitespace-nowrap ${focusInk} ${
+                  isActive(item.href) ? 'bg-ink text-header' : 'text-ink hover:bg-ink/8'
                 }`}
-                style={{
-                  padding: index === 0 ? '0 22px 0 34px' : '0 22px',
-                  clipPath:
-                    index === 0 ? 'polygon(28px 0, 100% 0, 100% 100%, 0 100%, 0 28px)' : undefined,
-                  marginLeft: index === 0 ? undefined : -1,
-                }}
               >
                 {item.label}
               </a>
             </li>
           ))}
         </ul>
-        {/* `admin` has no `lib/locale.ts`-reading screen at all (`/`, the
-            only page that cookie affects, is unreachable on this surface —
-            `proxy.ts` refuses it), so the locale toggle would flip a cookie
-            with no visible effect anywhere admin can reach. A sign-out
-            control fills the same slot instead — the one admin-specific
-            action this bar needs that public/local's shared nav has no
-            equivalent for. */}
-        {surface === 'admin' ? (
-          <SignOutButton className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]" />
-        ) : (
-          // Switches the landing page's (`/`) language — see `lib/locale.ts`.
-          // Every other screen ignores this cookie and stays English, so the
-          // action always redirects to `/` rather than the current path;
-          // clicking it elsewhere would otherwise flip the cookie with no
-          // visible effect. A real `<form>` submit, not a client `onClick`,
-          // so it works with scripting off like the rest of this app's
-          // controls (`saved/actions.ts`'s own note). Label shows the
-          // language a click switches INTO, not the current one — "EN"/"KA"
-          // are language codes, never translated.
-          <form action={toggleLocale}>
-            <button
-              type="submit"
-              className="flex h-11 items-center border-l border-white/24 bg-[var(--color-browse-nav-olive)] pr-5 pl-5 text-[13px] font-semibold text-white [letter-spacing:0.1em] hover:bg-[var(--color-browse-nav-yellow)] hover:text-[var(--color-browse-ink)]"
-              style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 22px) 100%, 0 100%)' }}
-              aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
-            >
-              {locale === 'ka' ? 'EN' : 'KA'}
-            </button>
-          </form>
-        )}
       </nav>
 
-      {/* Mobile: language toggle (or sign-out, on `admin`) + popover trigger,
-          both visible in the bar itself rather than living only inside the
-          popover — a control a visitor needs in order to even read the rest
-          of the page shouldn't require opening the menu first to reach. */}
-      <div className={`ml-auto flex items-center ${deskHidden}`}>
+      <div className="ml-auto flex flex-none items-center gap-3.5">
+        {/* An operator's reminder of which database this instance reads and
+            whether it may write. Local only: a hosted visitor has no business
+            knowing either. Shown with the inline links, where there is room. */}
+        {surface === 'local' && (
+          <span className={`hidden items-center gap-2 text-xs text-ink/70 ${deskFlex}`}>
+            <span>{dbLabel}</span>
+            <span
+              title={
+                writesOn
+                  ? 'This instance can modify the database. It should be pointed at a disposable copy, not the live corpus.'
+                  : 'Read-only. Set XTELO_WRITES_ENABLED=true against a disposable database to make changes.'
+              }
+              className={
+                writesOn
+                  ? 'rounded-full border border-ink/40 px-2 py-0.5 text-ink'
+                  : 'rounded-full border border-ink/20 px-2 py-0.5 text-ink/70'
+              }
+            >
+              {writesOn ? 'writes on' : 'read-only'}
+            </span>
+          </span>
+        )}
+
+        <ThemeSwitch initial={theme} locale={locale} />
+
+        {/* `admin` has no screen that reads the language cookie, so a sign-out
+            control takes the language switch's place there. Both are real
+            `<form>` submits, so they work with scripting off. The language
+            label shows the language a click switches INTO; "EN"/"KA" are
+            codes, never translated. */}
         {surface === 'admin' ? (
-          <SignOutButton className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]" />
+          <SignOutButton
+            className={`rounded-lg px-1 py-1.5 text-sm font-bold text-ink hover:bg-ink/8 ${focusInk}`}
+          />
         ) : (
           <form action={toggleLocale}>
             <button
               type="submit"
-              className="flex h-11 items-center px-3 text-[13px] font-semibold text-[var(--color-browse-ink)]"
+              className={`rounded-lg px-1 py-1.5 text-sm font-bold text-ink hover:bg-ink/8 ${focusInk}`}
               aria-label={locale === 'ka' ? 'Switch to English' : 'Switch to Georgian'}
             >
               {locale === 'ka' ? 'EN' : 'KA'}
             </button>
           </form>
         )}
+
         <button
           type="button"
           popoverTarget="site-nav-mobile"
-          aria-label="Menu"
-          className="flex items-center px-4 text-[var(--color-browse-ink)]"
+          aria-label={locale === 'ka' ? 'მენიუ' : 'Menu'}
+          className={`-mr-1 flex size-10 items-center justify-center rounded-lg text-ink hover:bg-ink/8 ${focusInk} ${deskHidden}`}
         >
           <MenuIcon />
         </button>
       </div>
+
+      {/* The menu below the width the inline links fit in. Its top follows
+          the bar's own height (56px, then 64px from 900px). */}
       <div
         id="site-nav-mobile"
         popover="auto"
-        // mt-[58px]/h-[calc(100vh-58px)] alone matched the header's own
-        // default height, but not its lg:h-[78px] — at 1024-1359px (now
-        // routed through this menu rather than the desktop nav, widened
-        // when that nav's own breakpoint moved past `lg` for the overflow
-        // fix above) the popover started 20px too high, its top overlapping
-        // the taller header instead of sitting below it (Codex, 2026-09-15).
-        // lg: variants below mirror the header's own threshold exactly
-        // rather than introducing a third breakpoint value to keep in sync.
-        className={`m-0 mt-[58px] ml-auto h-[calc(100vh-58px)] w-64 max-h-none rounded-none border-0 border-l border-border bg-surface p-5 text-foreground lg:mt-[78px] lg:h-[calc(100vh-78px)] ${deskHidden}`}
+        className={`m-0 mt-14 ml-auto h-[calc(100vh-56px)] w-64 max-h-none overscroll-contain rounded-none border-0 border-l border-border bg-surface p-5 text-foreground min-[900px]:mt-16 min-[900px]:h-[calc(100vh-64px)] ${deskHidden}`}
       >
         <ul className="flex flex-col gap-1">
           {nav.map((item) => (
@@ -322,7 +233,7 @@ export function SiteHeaderNav({
                 aria-current={isActive(item.href) ? 'page' : undefined}
                 className={`block rounded-[var(--radius)] px-3 py-2 text-sm ${
                   isActive(item.href)
-                    ? 'bg-[var(--color-browse-accent)] font-semibold text-[var(--color-browse-ink)]'
+                    ? 'bg-brand font-semibold text-ink'
                     : 'text-muted hover:bg-surface-raised hover:text-foreground'
                 }`}
               >
@@ -332,41 +243,30 @@ export function SiteHeaderNav({
           ))}
         </ul>
       </div>
-
-      {/* Matches the desktop nav's own threshold above — this badge already
-          lived only alongside the full desktop nav, so the two breakpoints
-          staying equal keeps that relationship. It is a "nice to have"
-          operator dev/env indicator (which database, whether writes are on),
-          not something a real page depends on seeing, so it simply doesn't
-          render at all below the shared threshold rather than needing its
-          own separate fit budget — and not on any surface but `local` at
-          all: a hosted public visitor has no business knowing which
-          database or write-mode this instance runs, and `admin` gets its
-          own dashboard chrome once Stage 8 builds it, not this operator
-          debug strip. */}
-      {surface === 'local' && (
-        <span
-          className={`my-auto ml-4 mr-4 hidden items-center gap-2 text-xs text-[var(--color-browse-ink)]/70 ${deskFlex}`}
-        >
-          <span>{dbLabel}</span>
-          <span
-            title={
-              writesOn
-                ? 'This instance can modify the database. It should be pointed at a disposable copy, not the live corpus.'
-                : 'Read-only. Set XTELO_WRITES_ENABLED=true against a disposable database to make changes.'
-            }
-            className={
-              writesOn
-                ? 'rounded-full border border-[var(--color-browse-ink)]/40 px-2 py-0.5 text-[var(--color-browse-ink)]'
-                : 'rounded-full border border-[var(--color-browse-ink)]/20 px-2 py-0.5 text-[var(--color-browse-ink)]/70'
-            }
-          >
-            {writesOn ? 'writes on' : 'read-only'}
-          </span>
-        </span>
-      )}
     </header>
   );
+}
+
+/**
+ * The width each bar's links fit inline from: below it they move into the
+ * menu. Measured in a real browser on 2026-11-14 as the natural width of
+ * logo, links, badge, switch and language with the gaps and 16px sides,
+ * then a page scrollbar (15px) and some room added: the public bar is 665px
+ * in English and 827px in Georgian, the local bar (eleven links and the
+ * database badge) 1,598px and 2,186px. `admin`'s five English links fit the
+ * public width. Every class is a complete literal so Tailwind's source
+ * scanner generates it.
+ */
+function deskBreakpoints(
+  surface: Surface,
+  locale: Locale,
+): { deskFlex: string; deskHidden: string } {
+  if (surface === 'local') {
+    return locale === 'ka'
+      ? { deskFlex: 'min-[2230px]:flex', deskHidden: 'min-[2230px]:hidden' }
+      : { deskFlex: 'min-[1640px]:flex', deskHidden: 'min-[1640px]:hidden' };
+  }
+  return { deskFlex: 'min-[900px]:flex', deskHidden: 'min-[900px]:hidden' };
 }
 
 /** The `admin` surface's sign-out control — a real `<form>` submit, same reasoning as `toggleLocale`'s own form (works with scripting off). */

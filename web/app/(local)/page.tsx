@@ -94,42 +94,40 @@ export default async function Page() {
     // the root <html lang> stays "en" for the other, English-only screens.
     <main lang={locale}>
       {/* On a two-column desktop the hero fills exactly the screen between
-          the 78px header and the 59px footer, so the whole page, ticker and
+          the 64px header and the 59px footer, so the whole page, ticker and
           footer included, is visible without scrolling (owner request,
           2026-09-27). Headline size and vertical spacing scale with the
           viewport height there for the same reason. Still min-h, not h: a
           window too short for even the smallest sizes scrolls instead of
           clipping. Narrower screens stack and scroll as before. */}
-      <section className="relative flex min-h-[calc(100svh-58px)] flex-col justify-end overflow-hidden border-b border-[var(--color-browse-border)] bg-[var(--color-browse-ink)] lg:min-h-[calc(100svh-137px)]">
-        <HeroPoster />
-        <HeroVideo />
-        {/* Legibility overlay, not the source reference's grid+glow layers —
+      <section className="relative flex min-h-[calc(100svh-56px)] flex-col justify-end overflow-hidden border-b border-border bg-background min-[900px]:min-h-[calc(100svh-64px)] lg:min-h-[calc(100svh-123px)]">
+        {/* The film and its poster. On light, `--hero-film-filter` turns the
+            same files into a light map (globals.css): nothing new to load. */}
+        <div aria-hidden="true" className="absolute inset-0 [filter:var(--hero-film-filter)]">
+          <HeroPoster />
+          <HeroVideo />
+        </div>
+        {/* Legibility veil, not the source reference's grid+glow layers:
             those exist as an alternative background for a page with no
-            video; layering an animated grid AND a warm glow gradient under
-            a moving video competes for the same visual depth and the glow
-            (~4% luminance) is invisible over real video brightness anyway.
-            Retuned to this screen's own ink token so the reduced-motion
-            render (HeroVideo mounts nothing at all; HeroPoster's still frame stays, see hero-video.tsx)
-            rests on the same ground as the panel/ticker below it, not a
-            different dark. */}
+            video, and over real video the glow is invisible anyway. Its
+            gradient is the theme's (`--hero-veil`): the page's own dark
+            ground on dark, so the reduced-motion render (the poster alone,
+            see hero-video.tsx) rests on the same ground as the panel and
+            ticker below; the light ground from the left on light. */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'linear-gradient(180deg, rgba(11,13,16,0.55) 0%, rgba(11,13,16,0.72) 55%, rgba(11,13,16,0.94) 100%)',
-          }}
+          className="pointer-events-none absolute inset-0 [background:var(--hero-veil)]"
         />
 
         <div className="relative mx-auto grid w-full max-w-[1440px] grid-cols-1 items-end gap-11 px-8 pt-14 min-[1060px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] min-[1060px]:gap-14 min-[1060px]:pt-[3svh]">
           <div>
             {hero.ok && (
-              <p className="numeric flex animate-hero-fade-up items-start gap-[9px] text-[11px] text-[var(--color-browse-accent)] uppercase [animation-duration:600ms]">
+              <p className="numeric flex animate-hero-fade-up items-start gap-[9px] text-[11px] text-accent uppercase [animation-duration:600ms]">
                 {/* On the first line's middle (its line is 17.6 px), so it
                     stays there if the names wrap. */}
                 <span
                   aria-hidden="true"
-                  className="mt-[5.8px] h-1.5 w-1.5 flex-none animate-hero-pulse rounded-full bg-[var(--color-browse-accent)]"
+                  className="mt-[5.8px] h-1.5 w-1.5 flex-none animate-hero-pulse rounded-full bg-accent-line"
                 />
                 {/* Tighter on a phone: with ss.ge the four names at 0.22em
                     took two lines at 390 px; without spacing they fit on one from
@@ -180,10 +178,10 @@ export default async function Page() {
 
             <div
               aria-hidden="true"
-              className="mt-[26px] h-0.5 w-full animate-hero-sweep min-[1060px]:mt-[2svh] bg-[var(--color-browse-accent)]"
+              className="mt-[26px] h-0.5 w-full animate-hero-sweep min-[1060px]:mt-[2svh] bg-accent-line"
             />
 
-            <p className="mt-[22px] max-w-[64ch] animate-hero-fade-up min-[1060px]:mt-[2svh] text-base text-[var(--color-browse-text-muted)] leading-[var(--leading-body)] [animation-delay:640ms] [animation-duration:700ms]">
+            <p className="mt-[22px] max-w-[64ch] animate-hero-fade-up min-[1060px]:mt-[2svh] text-base text-faint leading-[var(--leading-body)] [animation-delay:640ms] [animation-duration:700ms]">
               <Subhead copy={copy} />
             </p>
 
@@ -194,7 +192,7 @@ export default async function Page() {
                 <div className="flex flex-wrap gap-3">
                   <a
                     href={`/opportunities?status=active&${VACANCIES_AND_TENDERS}`}
-                    className="inline-flex h-[50px] items-center rounded-[var(--radius)] bg-[var(--color-browse-accent)] px-5 text-[15px] font-bold text-[var(--color-browse-ink)] transition-colors duration-150 hover:bg-[var(--color-browse-accent-hover)]"
+                    className="inline-flex h-[50px] items-center rounded-[var(--radius)] bg-brand px-5 text-[15px] font-bold text-ink transition-colors duration-150 hover:bg-brand-hover"
                   >
                     {copy.browseOpenings}
                   </a>
@@ -206,7 +204,7 @@ export default async function Page() {
                   through parseOpportunityQuery. */}
                   <a
                     href={`/opportunities?status=active&closing=7&${VACANCIES_AND_TENDERS}`}
-                    className="inline-flex h-[50px] items-center rounded-[var(--radius)] border border-[var(--color-browse-border-control)] px-[18px] text-[15px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-border-control-hover)] hover:text-white"
+                    className="inline-flex h-[50px] items-center rounded-[var(--radius)] border border-border-control px-[18px] text-[15px] text-muted transition-colors duration-150 hover:border-border-hover hover:text-foreground"
                   >
                     {copy.closingSoon}
                   </a>
@@ -216,9 +214,7 @@ export default async function Page() {
                   for SynapseX's monospace chrome look; Georgian falls back
                   to the default `--font-sans` (Noto Sans Georgian), which
                   actually covers it. */}
-                <span
-                  className={`${locale === 'en' ? 'numeric' : ''} text-xs text-[var(--color-browse-text-muted)]`}
-                >
+                <span className={`${locale === 'en' ? 'numeric' : ''} text-xs text-faint`}>
                   {copy.noAccountNeeded}
                 </span>
               </div>
@@ -233,13 +229,13 @@ export default async function Page() {
                   noteFitsButton
                   label={copy.rankByCv}
                   note={copy.rankByCvNote}
-                  className="inline-flex h-[50px] w-fit items-center rounded-[var(--radius)] border border-[var(--color-browse-accent)] px-[18px] text-[15px] font-semibold text-[var(--color-browse-accent)] transition-colors duration-150 hover:bg-[var(--color-browse-accent)] hover:text-[var(--color-browse-ink)]"
+                  className="inline-flex h-[50px] w-fit items-center rounded-[var(--radius)] border border-accent-line px-[18px] text-[15px] font-semibold text-accent transition-colors duration-150 hover:bg-brand hover:text-ink"
                 />
               )}
             </div>
 
             {hero.ok && (
-              <div className="mt-11 flex animate-hero-fade-up flex-wrap gap-x-12 gap-y-6 border-t border-[var(--color-browse-border)] pt-6 [animation-delay:880ms] [animation-duration:700ms] min-[1060px]:mt-[3svh] min-[1060px]:pt-[2svh]">
+              <div className="mt-11 flex animate-hero-fade-up flex-wrap gap-x-12 gap-y-6 border-t border-border pt-6 [animation-delay:880ms] [animation-duration:700ms] min-[1060px]:mt-[3svh] min-[1060px]:pt-[2svh]">
                 <Stat value={hero.openCount} label={copy.statOpenVacancies} locale={locale} />
                 <Stat value={hero.boardsCount} label={copy.statBoardsMerged} locale={locale} />
                 <Stat value={hero.trackedCount} label={copy.statListingsTracked} locale={locale} />
@@ -464,11 +460,10 @@ function HeadlineLine({
           locale === 'en' ? 'tracking-[0.004em]' : ''
         } ${delayClass}`}
       >
+        {/* The brand-coloured words are lime on dark and ink over a lime
+            highlighter on light (`.hero-mark`, globals.css). */}
         {runs.map((run) => (
-          <span
-            key={run.text}
-            className={run.accent ? 'text-[var(--color-browse-accent)]' : 'text-white'}
-          >
+          <span key={run.text} className={run.accent ? 'hero-mark' : 'text-foreground'}>
             {run.text}
           </span>
         ))}
@@ -489,7 +484,7 @@ function Subhead({ copy }: { copy: HeroCopy }) {
       {copy.subhead.slice(0, at)}
       <a
         href="/real-estate"
-        className="text-[var(--color-browse-accent)] underline underline-offset-[3px] transition-colors duration-150 hover:text-[var(--color-browse-accent-hover)]"
+        className="text-accent underline underline-offset-[3px] transition-colors duration-150 hover:text-accent-hover"
       >
         {copy.subheadRealEstateLink}
       </a>
@@ -501,14 +496,10 @@ function Subhead({ copy }: { copy: HeroCopy }) {
 function Stat({ value, label, locale }: { value: number; label: string; locale: Locale }) {
   return (
     <div>
-      <p className="numeric text-[34px] text-white leading-none">{count(value)}</p>
+      <p className="numeric text-[34px] text-foreground leading-none">{count(value)}</p>
       {/* `.numeric` (Space Mono) covers only the count above — it has no
           Georgian glyphs, so the label below only takes it in English. */}
-      <p
-        className={`mt-2 text-[11px] text-[var(--color-browse-text-muted)] ${
-          locale === 'en' ? 'numeric uppercase' : ''
-        }`}
-      >
+      <p className={`mt-2 text-[11px] text-faint ${locale === 'en' ? 'numeric uppercase' : ''}`}>
         <span className={locale === 'en' ? 'tracking-[0.16em]' : ''}>{label}</span>
       </p>
     </div>
@@ -529,18 +520,12 @@ function NewestPanel({
   return (
     <div>
       {/* `.numeric` is Space Mono, no Georgian coverage — English only. */}
-      <p
-        className={`text-[11px] text-[var(--color-browse-accent)] ${
-          locale === 'en' ? 'numeric uppercase' : ''
-        }`}
-      >
+      <p className={`text-[11px] text-accent ${locale === 'en' ? 'numeric uppercase' : ''}`}>
         <span className={locale === 'en' ? 'tracking-[0.16em]' : ''}>{copy.newestListings}</span>
       </p>
-      <div className="mt-3.5 overflow-hidden rounded-[14px] border border-[var(--color-browse-border)] bg-[var(--color-browse-panel)]">
+      <div className="mt-3.5 overflow-hidden rounded-[14px] border border-border bg-surface">
         {rows.length === 0 ? (
-          <p className="px-[18px] py-6 text-sm text-[var(--color-browse-text-muted)]">
-            {copy.emptyState}
-          </p>
+          <p className="px-[18px] py-6 text-sm text-faint">{copy.emptyState}</p>
         ) : (
           <>
             {rows.map((panelRow, index) => (
@@ -559,7 +544,7 @@ function NewestPanel({
             <a
               href={`/opportunities?status=active&${VACANCIES_AND_TENDERS}`}
               data-crawl-stop=""
-              className="block px-[18px] py-3.5 text-[13px] text-[var(--color-browse-accent)] transition-colors duration-150 hover:text-[var(--color-browse-accent-hover)]"
+              className="block px-[18px] py-3.5 text-[13px] text-accent transition-colors duration-150 hover:text-accent-hover"
             >
               <span data-crawl="">{copy.seeAllOpenings(count(openCount))}</span>
             </a>
@@ -597,13 +582,13 @@ function NewestRow({
   return (
     <div
       data-crawl-stop=""
-      className={`flex items-start gap-3.5 border-b border-[var(--color-browse-border)] px-[18px] py-4 last:border-b-0 ${
+      className={`flex items-start gap-3.5 border-b border-border px-[18px] py-4 last:border-b-0 ${
         hideWhenShort === undefined ? '' : HIDE_WHEN_SHORT[hideWhenShort][locale]
       }`}
     >
       <span
         aria-hidden="true"
-        className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-[var(--color-browse-accent)]"
+        className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-accent-line"
       />
       <div className="min-w-0 flex-1">
         {row.type !== 'job' && (
@@ -614,7 +599,7 @@ function NewestRow({
         <a
           href={`/opportunities/${row.opportunityId}`}
           data-crawl=""
-          className="block truncate text-[15px] font-semibold text-white leading-[var(--leading-body)] hover:text-[var(--color-browse-accent)]"
+          className="block truncate text-[15px] font-semibold text-foreground leading-[var(--leading-body)] hover:text-accent"
           title={row.title}
         >
           {row.title}
@@ -622,7 +607,7 @@ function NewestRow({
         {row.employers.length > 0 && (
           <p
             data-crawl=""
-            className="truncate text-[13px] text-[var(--color-browse-text-muted)] leading-[var(--leading-body)]"
+            className="truncate text-[13px] text-faint leading-[var(--leading-body)]"
             title={employers}
           >
             {employers}
@@ -680,7 +665,7 @@ function NewestRow({
               // under Space Mono. English-only keeps the split-typeface risk
               // out; `ka` renders the whole pill in the default Noto Sans
               // Georgian sans stack instead, which covers both scripts.
-              className={`${locale === 'en' ? 'numeric' : ''} rounded-full border border-[var(--color-browse-border-control)] px-2.5 py-1 text-[11px] text-[var(--color-browse-text-pill)] transition-colors duration-150 hover:border-[var(--color-browse-accent)] hover:text-[var(--color-browse-accent)]`}
+              className={`${locale === 'en' ? 'numeric' : ''} rounded-full border border-border-control px-2.5 py-1 text-[11px] text-muted transition-colors duration-150 hover:border-accent-line hover:text-accent`}
             >
               {sourceLabel(source.sourceSlug)}
               {inactive && ` · ${label.short}`}
