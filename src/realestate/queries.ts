@@ -9,7 +9,7 @@ import {
   shownRows,
   withoutDetailFilters,
 } from './filters.js';
-import type { BuildingStatus, Condition, DealType, PropertyType } from './kinds.js';
+import type { BuildingStatus, Condition, DealType, MetroBasis, PropertyType } from './kinds.js';
 
 export {
   BALCONIES_TOP,
@@ -66,6 +66,17 @@ export interface RealEstateRow {
   /** From the listing's own page (Phase 12B); null until it is read, or when it does not say. */
   buildingStatus: BuildingStatus | null;
   condition: Condition | null;
+  cityRef: number | null;
+  /** Our nearest metro station (ss.ge's code), by the checked location; null when none is within the last band. */
+  metroStation: string | null;
+  /** Its walking band, in minutes (`METRO_MINUTE_BANDS`). */
+  metroMinutes: number | null;
+  /** Every station within the last band, nearest first. */
+  metroNearby: string[] | null;
+  /** Each of `metroNearby`'s bands, in its order. */
+  metroNearbyMinutes: number[] | null;
+  /** What the metro was worked out from; null when the location is too vague to judge it. */
+  metroBasis: MetroBasis | null;
 }
 
 const amount = (value: string | null): number | null => (value === null ? null : Number(value));
@@ -105,6 +116,12 @@ export async function searchRealEstate(
       groupKey: listings.groupKey,
       buildingStatus: listings.buildingStatus,
       condition: listings.condition,
+      cityRef: listings.cityRef,
+      metroStation: listings.metroStation,
+      metroMinutes: listings.metroMinutes,
+      metroNearby: listings.metroNearby,
+      metroNearbyMinutes: listings.metroNearbyMinutes,
+      metroBasis: listings.metroBasis,
     })
     .from(listings)
     .where(shownRows(filters, now))

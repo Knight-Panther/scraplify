@@ -79,6 +79,19 @@
   --color-kind-course: #ffb86b;
   --color-metro-1: #ef5b5b;
   --color-metro-2: #3fb950;
+  /* Layers over the page for the filter panels (Phase 16B): a row's hover,
+     a button's, a histogram's empty bar, the dim behind a sheet, the slider's
+     thumb, the lit bars, and a warning's ground. */
+  --color-hover: #ffffff07;
+  --color-hover-strong: #ffffff14;
+  --color-fill: #ffffff26;
+  --color-scrim: #000000bb;
+  --color-brand-bar: #d6ff3f;
+  --color-thumb: #f3f6f8;
+  --color-thumb-border: #0b0d10;
+  --color-warn-soft: #1a1a0f;
+  --shadow-pop: 0 18px 44px #000d;
+  --shadow-bar: 0 10px 28px #000b;
 
   --radius: 0.75rem;
 
@@ -119,6 +132,42 @@
   --animate-hero-fade-up: hero-fade-up 700ms ease-out both;
   --animate-hero-ticker: hero-ticker 38s linear infinite;
   --animate-hero-pulse: hero-pulse 1.8s ease-in-out infinite;
+}
+
+/* The Real estate filter panels (Phase 16B): each use sits behind motion-safe. */
+@keyframes re-run {
+  to {
+    transform: translateX(380%);
+  }
+}
+@keyframes re-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+@keyframes re-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes re-slide-left {
+  from {
+    opacity: 0.4;
+    transform: translateX(32px);
+  }
+}
+@keyframes re-slide-up {
+  from {
+    opacity: 0.4;
+    transform: translateY(40px);
+  }
+}
+@keyframes re-token {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
 }
 
 @keyframes hero-line-up {
@@ -236,6 +285,16 @@
   --color-kind-course: #9c5205;
   --color-metro-1: #d64545;
   --color-metro-2: #23913a;
+  --color-hover: #12161a08;
+  --color-hover-strong: #12161a12;
+  --color-fill: #12161a1f;
+  --color-scrim: #10141873;
+  --color-brand-bar: #a6d000;
+  --color-thumb: #ffffff;
+  --color-thumb-border: #12161a;
+  --color-warn-soft: #fff6e0;
+  --shadow-pop: 0 18px 44px #1018202e;
+  --shadow-bar: 0 10px 28px #1018201a;
   /* The same film and poster, turned into a light map: nothing new to
      download. The veil fades it under the text on the left. */
   --hero-film-filter: invert(1) grayscale(1) contrast(0.55) brightness(1.2);

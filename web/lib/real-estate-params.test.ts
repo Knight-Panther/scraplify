@@ -1,451 +1,547 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { RealEstateLocations } from '../../src/realestate/queries.js';
+import { BALCONIES_TOP, BATHROOMS_TOP, ROOMS_TOP } from '../../src/realestate/filters.js';
+import { formHref, METRO_LINES, METRO_STATIONS } from './real-estate-form.js';
+import { countLabel } from './real-estate-panels.js';
 import {
   buildRealEstateHref,
   countCacheKey,
   isFiltered,
+  keepPlaces,
   parseRealEstateQuery,
   REAL_ESTATE_CHUNK,
   REAL_ESTATE_MAX_SHOWN,
 } from './real-estate-params.js';
+import { chipFilters, FILTER, FILTERS, PROMOTED } from './real-estate-registry.js';
 
 const NOW = Date.parse('2026-10-12T22:00:00.000Z');
+const parse = (raw: Record<string, string | string[]>) => parseRealEstateQuery(raw, NOW);
+/** An address's query as the page receives it: a repeated key is a list. */
+function rawOf(href: string): Record<string, string | string[]> {
+  const raw: Record<string, string | string[]> = {};
+  for (const [key, value] of new URL(`http://x${href}`).searchParams) {
+    const had = raw[key];
+    raw[key] = had === undefined ? value : [...(Array.isArray(had) ? had : [had]), value];
+  }
+  return raw;
+}
+/** The address a parsed address writes back. */
+const back = (raw: Record<string, string | string[]>) => buildRealEstateHref(parse(raw));
 
-const PLACES: RealEstateLocations = {
-  cities: [
-    { ref: 95, name: 'თბილისი', count: 900 },
-    { ref: 96, name: 'ბათუმი', count: 100 },
-  ],
-  subdistricts: [
-    {
-      ref: 3,
-      name: 'საბურთალო',
-      count: 200,
-      cityRef: 95,
-      districtRef: 3,
-      districtName: 'ვაკე-საბურთალო',
-    },
-    {
-      ref: 2,
-      name: 'ვაკე',
-      count: 150,
-      cityRef: 95,
-      districtRef: 3,
-      districtName: 'ვაკე-საბურთალო',
-    },
-    {
-      ref: 40,
-      name: 'ძველი ბათუმი',
-      count: 30,
-      cityRef: 96,
-      districtRef: null,
-      districtName: null,
-    },
-  ],
-};
-
-const parse = (raw: Record<string, string | string[]>) => parseRealEstateQuery(raw, PLACES, NOW);
-
-describe('parseRealEstateQuery', () => {
-  describe('sub-types (Phase 12A)', () => {
-    it('accepts several commercial types and drops unknown codes', () => {
-      const query = parse({ kind: 'commercial', ct: ['22', '7', '99', 'x', '7', ''] });
-
-      // In the order of the code list, so one choice has one address.
-      expect(query.form.ct).toEqual(['7', '22']);
-      expect(query.filters.commercialTypes).toEqual([7, 22]);
-      expect(query.filters.propertyType).toBe('commercial');
-    });
-
-    it('accepts land types the same way', () => {
-      const query = parse({ kind: 'land', lt: '6' });
-
-      expect(query.form.lt).toEqual(['6']);
-      expect(query.filters.landTypes).toEqual([6]);
-    });
-
-    it('ignores commercial types when the kind is not commercial', () => {
-      const flat = parse({ kind: 'flat', ct: '7', lt: '1' });
-      expect(flat.form).toMatchObject({ ct: [], lt: [] });
-      expect(flat.filters).not.toHaveProperty('commercialTypes');
-      expect(flat.filters).not.toHaveProperty('landTypes');
-      // No kind at all is not commercial either.
-      expect(parse({ ct: '7' }).filters).not.toHaveProperty('commercialTypes');
-      expect(isFiltered(parse({ ct: '7' }))).toBe(false);
-    });
-
-    it('writes repeated parameters back into the address', () => {
-      const query = parse({ kind: 'commercial', ct: ['22', '7'], deal: 'daily' });
-
-      expect(buildRealEstateHref(query)).toBe('/real-estate?deal=daily&kind=commercial&ct=7&ct=22');
-      expect(isFiltered(query)).toBe(true);
-    });
-
-    it('accepts every kind and deal', () => {
-      for (const kind of ['flat', 'house', 'cottage', 'commercial', 'land', 'hotel']) {
-        expect(parse({ kind }).filters.propertyType).toBe(kind);
-      }
-      for (const deal of ['sale', 'rent', 'daily', 'pledge']) {
-        expect(parse({ deal }).filters.dealType).toBe(deal);
-      }
-    });
-  });
-
-  describe('more filters (Phase 12C)', () => {
-    it('drops an amenity the chosen kind does not offer', () => {
-      // Land offers gas, electricity, sewage, water and video calls; never an elevator.
-      const land = parse({ kind: 'land', am: ['elevator', 'water', 'natural-gas', 'pool'] });
-      expect(land.form.am).toEqual(['natural-gas', 'water']);
-      expect(land.filters.amenities).toEqual(['natural-gas', 'water']);
-
-      // A flat for sale offers "top floor" but not pets; for rent, the other way round.
-      const sale = parse({ kind: 'flat', deal: 'sale', am: ['pets-allowed', 'top-floor'] });
-      expect(sale.form.am).toEqual(['top-floor']);
-      const rent = parse({ kind: 'flat', deal: 'rent', am: ['pets-allowed', 'top-floor'] });
-      expect(rent.form.am).toEqual(['pets-allowed']);
-      // No deal: whatever any deal offers.
-      expect(parse({ kind: 'flat', am: ['pets-allowed', 'top-floor'] }).form.am).toEqual([
-        'pets-allowed',
-        'top-floor',
-      ]);
-
-      // No kind, no panel.
-      const none = parse({ am: 'balcony' });
-      expect(none.form.am).toEqual([]);
-      expect(none.filters).not.toHaveProperty('amenities');
-      expect(isFiltered(none)).toBe(false);
-    });
-
-    it('keeps "other information" with the amenities, for flats only', () => {
-      const flat = parse({ kind: 'flat', am: ['bright', 'balcony', 'yard-view'] });
-      expect(flat.form.am).toEqual(['balcony', 'yard-view', 'bright']);
-      expect(flat.filters.amenities).toEqual(['balcony', 'yard-view', 'bright']);
-      expect(parse({ kind: 'house', am: ['bright', 'balcony'] }).form.am).toEqual(['balcony']);
-    });
-
-    it('keeps several conditions and projects and writes them back', () => {
-      const query = parse({
-        kind: 'flat',
-        cond: ['renovated', 'needs-renovation', 'shiny', 'renovated'],
-        proj: ['khrushchev', 'czech'],
-      });
-
-      // In the vocabulary's own order, so one choice has one address.
-      expect(query.form.cond).toEqual(['needs-renovation', 'renovated']);
-      expect(query.form.proj).toEqual(['czech', 'khrushchev']);
-      expect(query.filters.conditions).toEqual(['needs-renovation', 'renovated']);
-      expect(query.filters.projects).toEqual(['czech', 'khrushchev']);
-      expect(isFiltered(query)).toBe(true);
-      expect(buildRealEstateHref(query)).toBe(
-        '/real-estate?kind=flat&cond=needs-renovation&cond=renovated&proj=czech&proj=khrushchev',
-      );
-    });
-
-    it('reads building status, floor type, bathrooms and balconies', () => {
-      const query = parse({
-        kind: 'flat',
-        st: ['old', 'new', 'ancient'],
-        ftype: ['attic', 'duplex'],
-        bath: ['0', '5+', '2', '5'],
-        bal: ['6', '1'],
-      });
-
-      expect(query.filters).toMatchObject({
-        buildingStatuses: ['new', 'old'],
-        floorTypes: ['duplex', 'attic'],
-        // The top chip is that many or more and is written "5+"; 0 is none.
-        bathrooms: [2, 5, 0],
-        balconies: [1],
-      });
-      expect(query.form).toMatchObject({
-        st: ['new', 'old'],
-        ftype: ['duplex', 'attic'],
-        bath: ['2', '5+', '0'],
-        bal: ['1'],
-      });
-    });
-
-    it('reads several room counts, the top one meaning that many or more', () => {
-      const query = parse({ rooms: ['3', '10+', '1', '11', '10'] });
-
-      expect(query.form.rooms).toEqual(['1', '3', '10+']);
-      expect(query.filters.roomsIn).toEqual([1, 3, 10]);
-    });
-
-    it('reads the old single rooms value', () => {
-      // Links made before Phase 12C said "5+" for five or more.
-      const query = parse({ kind: 'flat', rooms: '5+' });
-
-      expect(query.form.rooms).toEqual(['5', '6', '7', '8', '9', '10+']);
-      expect(query.filters.roomsIn).toEqual([5, 6, 7, 8, 9, 10]);
-      expect(buildRealEstateHref(query)).toBe(
-        '/real-estate?kind=flat&rooms=5&rooms=6&rooms=7&rooms=8&rooms=9&rooms=10%2B',
-      );
-    });
-
-    it('applies price bounds per m² when asked', () => {
-      const query = parse({ pmin: '800', pmax: '1500', pm2: '1' });
-      expect(query.filters).toMatchObject({ priceMin: 800, priceMax: 1500, pricePerM2: true });
-      expect(query.form.pm2).toBe('1');
-      expect(buildRealEstateHref(query)).toBe('/real-estate?pm2=1&pmin=800&pmax=1500');
-
-      expect(parse({ pmin: '800' }).filters).not.toHaveProperty('pricePerM2');
-      expect(parse({ pm2: 'yes' }).form.pm2).toBe('');
-      // How prices are counted is not a narrowing of the list.
-      expect(isFiltered(parse({ pm2: '1' }))).toBe(false);
-    });
-
-    it('reads the floor, kitchen, house and yard ranges', () => {
-      expect(
-        parse({ kind: 'flat', fmin: '2', fmax: '9', kmin: '8', kmax: '20' }).filters,
-      ).toMatchObject({ floorMin: 2, floorMax: 9, kitchenAreaMin: 8, kitchenAreaMax: 20 });
-      expect(
-        parse({ kind: 'house', hmin: '120', hmax: '300', ymin: '200', ymax: 'big' }),
-      ).toMatchObject({
-        filters: { houseAreaMin: 120, houseAreaMax: 300, yardAreaMin: 200 },
-        form: { hmin: '120', hmax: '300', ymin: '200', ymax: '' },
-      });
-    });
-
-    it('reads each listing type into its own filter', () => {
-      const query = parse({ kind: 'hotel', ptype: ['exclusive', 'owner', 'agent', 'photos'] });
-
-      expect(query.form.ptype).toEqual(['photos', 'owner', 'exclusive']);
-      expect(query.filters).toMatchObject({
-        withPhotos: true,
-        ownerOnly: true,
-        exclusiveOnly: true,
-      });
-      expect(query.filters).not.toHaveProperty('developerOnly');
-      expect(parse({ kind: 'land', ptype: 'developer' }).filters.developerOnly).toBe(true);
-    });
-
-    it('drops every choice the chosen kind’s panel does not offer', () => {
-      const everything = {
-        st: 'new',
-        cond: 'renovated',
-        proj: 'czech',
-        ftype: 'duplex',
-        bath: '1',
-        bal: '1',
-        rooms: '2',
-        fmin: '2',
-        kmin: '8',
-        hmin: '100',
-        ymin: '100',
-        ptype: 'photos',
-      };
-      const form = (kind?: string) =>
-        parse({ ...everything, ...(kind === undefined ? {} : { kind }) }).form;
-      const kept = (kind?: string) =>
-        Object.entries(form(kind))
-          .filter(([key, value]) => key in everything && value.length > 0)
-          .map(([key]) => key)
-          .sort();
-
-      expect(kept('flat')).toEqual(
-        ['st', 'cond', 'proj', 'ftype', 'bath', 'bal', 'rooms', 'fmin', 'kmin', 'ptype'].sort(),
-      );
-      expect(kept('house')).toEqual(['st', 'cond', 'rooms', 'hmin', 'ymin', 'ptype'].sort());
-      expect(kept('cottage')).toEqual(kept('house'));
-      expect(kept('commercial')).toEqual(['st', 'cond', 'ptype'].sort());
-      expect(kept('land')).toEqual(['ptype']);
-      expect(kept('hotel')).toEqual(['st', 'cond', 'rooms', 'ptype'].sort());
-      // With no kind there is no panel; rooms stay, as the main bar has them.
-      expect(kept()).toEqual(['rooms']);
-      expect(parse(everything).filters).toEqual({
-        currency: 'usd',
-        sort: 'newest',
-        grouped: true,
-        roomsIn: [2],
-      });
-    });
-  });
-
-  it('asks for everything, newest first, in dollars, when the address says nothing', () => {
+describe('parseRealEstateQuery (Phase 16B)', () => {
+  it('asks for listings to buy, newest first, in dollars, one row per home, when the address says nothing', () => {
     const query = parse({});
-
-    expect(query.filters).toEqual({ currency: 'usd', sort: 'newest', grouped: true });
+    expect(query.filters).toEqual({
+      dealType: 'sale',
+      currency: 'usd',
+      sort: 'newest',
+      grouped: true,
+    });
     expect(query.show).toBe(REAL_ESTATE_CHUNK);
     expect(buildRealEstateHref(query)).toBe('/real-estate');
+    expect(isFiltered(query)).toBe(false);
   });
 
-  it('reads every filter from the address', () => {
-    const query = parse({
+  it('reads "all" as every deal and writes it back', () => {
+    const query = parse({ deal: 'all' });
+    expect(query.filters.dealType).toBeUndefined();
+    expect(buildRealEstateHref(query)).toBe('/real-estate?deal=all');
+    expect(parse({ deal: 'rent' }).filters.dealType).toBe('rent');
+    expect(parse({ deal: 'nonsense' }).filters.dealType).toBe('sale');
+  });
+
+  it('reads every filter of a flat from the address and writes the same address back', () => {
+    const raw = {
       deal: 'rent',
       kind: 'flat',
-      city: '95',
-      area: 's3',
+      pl: ['subdistrict:3', 'street:812'],
+      mm: '10',
+      ms: ['rustaveli', 'delisi'],
+      unc: '1',
       cur: 'gel',
-      pmin: '1000',
-      pmax: '2500',
+      pm2: '1',
+      pmin: '10',
+      pmax: '25',
       amin: '40',
       amax: '90',
-      rooms: '2',
+      rooms: ['2', '10+'],
       floor: 'middle',
+      fmin: '2',
+      fmax: '9',
+      kmin: '8',
+      kmax: '20',
+      st: ['new'],
+      cond: ['renovated'],
+      proj: ['czech'],
+      ftype: ['duplex'],
+      bal: ['1', '5+'],
+      bath: ['0'],
+      ptype: ['owner', 'photos'],
+      am: ['central-heating', 'bright'],
       by: 'business',
       since: '7',
       q: ' ავეჯით ',
-      sort: 'price-asc',
-    });
-
+      sort: 'metro',
+      view: 'all',
+    };
+    const query = parse(raw);
     expect(query.filters).toEqual({
       dealType: 'rent',
       propertyType: 'flat',
-      cityRef: 95,
-      subdistrictRef: 3,
+      places: [
+        { level: 'subdistrict', ref: 3 },
+        { level: 'street', ref: 812 },
+      ],
+      metro: { maxMinutes: 10, stations: ['rustaveli', 'delisi'] },
+      excludeUncertain: true,
       currency: 'gel',
-      priceMin: 1000,
-      priceMax: 2500,
+      pricePerM2: true,
+      priceMin: 10,
+      priceMax: 25,
       areaMin: 40,
       areaMax: 90,
-      roomsIn: [2],
+      roomsIn: [2, 10],
       floor: 'middle',
+      floorMin: 2,
+      floorMax: 9,
+      kitchenAreaMin: 8,
+      kitchenAreaMax: 20,
+      buildingStatuses: ['new'],
+      conditions: ['renovated'],
+      projects: ['czech'],
+      floorTypes: ['duplex'],
+      balconies: [1, 5],
+      bathrooms: [0],
+      withPhotos: true,
+      ownerOnly: true,
+      amenities: ['central-heating', 'bright'],
       poster: 'business',
       updatedSince: new Date(NOW - 7 * 24 * 60 * 60 * 1000).toISOString(),
       text: 'ავეჯით',
-      sort: 'price-asc',
-      grouped: true,
+      sort: 'metro',
+      grouped: false,
     });
-  });
-
-  it('reads a whole district', () => {
-    const query = parse({ city: '95', area: 'd3' });
-
-    expect(query.filters).toMatchObject({ cityRef: 95, districtRef: 3 });
-    expect(query.filters.subdistrictRef).toBeUndefined();
+    // Parsing what it writes gives the same filters: one choice, one address.
+    const again = parseRealEstateQuery(rawOf(buildRealEstateHref(query)), NOW);
+    expect(again.filters).toEqual(query.filters);
   });
 
   it('drops what it does not recognise, so the form and the results always agree', () => {
     const query = parse({
       deal: 'swap',
       kind: 'castle',
-      city: '7',
-      area: 's3',
+      pl: ['planet:1', 'city:abc', 'city:0', 'street:99999999999'],
+      mm: '7',
+      ms: ['atlantis'],
+      unc: 'yes',
       cur: 'eur',
       pmin: '-5',
-      pmax: 'cheap',
-      amin: '1e9',
-      rooms: '0',
-      floor: 'basement',
-      by: 'me',
+      pmax: '12abc',
+      rooms: ['0', '11'],
+      floor: 'roof',
+      by: 'cat',
       since: '2',
       sort: 'random',
       view: 'some',
       group: 'not-a-key',
     });
-
-    expect(query.filters).toEqual({ currency: 'usd', sort: 'newest', grouped: true });
-    expect(query.form).toMatchObject({
-      deal: '',
-      kind: '',
-      city: '',
-      area: '',
-      pmin: '',
-      rooms: [],
-      view: '',
-      group: '',
+    expect(query.filters).toEqual({
+      dealType: 'sale',
+      currency: 'usd',
+      sort: 'newest',
+      grouped: true,
     });
+    expect(isFiltered(query)).toBe(false);
   });
 
-  it('drops an area that is not in the chosen city', () => {
-    // Saburtalo is in Tbilisi; with Batumi chosen the two cannot both hold.
-    const query = parse({ city: '96', area: 's3' });
-
-    expect(query.filters).toMatchObject({ cityRef: 96 });
-    expect(query.filters.subdistrictRef).toBeUndefined();
-    expect(query.form.area).toBe('');
+  it('keeps a list in its own order, each once, so one choice has one address', () => {
+    expect(back({ kind: 'flat', rooms: ['3', '1', '3'] })).toBe(
+      '/real-estate?kind=flat&rooms=1&rooms=3',
+    );
+    expect(back({ kind: 'commercial', ct: ['7', '31', '999'] })).toBe(
+      '/real-estate?kind=commercial&ct=7&ct=31',
+    );
+    expect(back({ ms: ['delisi', 'akhmeteli'] })).toBe('/real-estate?ms=akhmeteli&ms=delisi');
   });
 
-  it('takes the first value when a parameter is repeated', () => {
-    expect(parse({ deal: ['rent', 'sale'] }).filters.dealType).toBe('rent');
+  it('reads the old single "5+" rooms value as five rooms or more', () => {
+    expect(parse({ rooms: '5+' }).filters.roomsIn).toEqual([5, 6, 7, 8, 9, 10]);
   });
 
   it('caps the search text by character, never mid-letter', () => {
     const query = parse({ q: 'ა'.repeat(500) });
-
     expect([...(query.filters.text ?? '')]).toHaveLength(120);
-  });
-
-  it('folds look-alikes unless asked for every listing, and lists one group by its key', () => {
-    expect(parse({ view: 'all' }).filters).toMatchObject({ grouped: false });
-    const key = '6a546aed-492a-4cf2-9627-072e6fc768bf';
-    const query = parse({ group: key.toUpperCase() });
-    expect(query.filters.groupKey).toBe(key);
-    expect(query.filters.grouped).toBeUndefined();
-    expect(isFiltered(query)).toBe(true);
-    // Grouped or not is how the list is shown, not a narrowing of it.
-    expect(isFiltered(parse({ view: 'all' }))).toBe(false);
   });
 
   it('rounds the depth up to whole chunks and stops at the most a page will show', () => {
     expect(parse({ show: '150' }).show).toBe(200);
-    expect(parse({ show: '99999999' }).show).toBe(REAL_ESTATE_MAX_SHOWN);
-    expect(parse({ show: 'lots' }).show).toBe(REAL_ESTATE_CHUNK);
+    expect(parse({ show: '99999' }).show).toBe(REAL_ESTATE_MAX_SHOWN);
+    expect(parse({ show: 'x' }).show).toBe(REAL_ESTATE_CHUNK);
+  });
+
+  it('folds look-alikes unless asked for every listing, and lists one group by its key', () => {
+    expect(parse({}).filters.grouped).toBe(true);
+    expect(parse({ view: 'all' }).filters.grouped).toBe(false);
+    const key = '0b5c7f2e-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
+    const group = parse({ group: key.toUpperCase() });
+    expect(group.filters.groupKey).toBe(key);
+    expect(group.filters.grouped).toBeUndefined();
+  });
+});
+
+describe('what each kind offers (the mockup registry)', () => {
+  it('drops sub-types and panel filters a kind does not have', () => {
+    const land = parse({
+      kind: 'land',
+      ct: '31',
+      lt: '2',
+      rooms: '2',
+      floor: 'not-first',
+      st: 'new',
+      cond: 'renovated',
+      ymin: '100',
+      bath: '1',
+      am: ['water', 'elevator'],
+    });
+    expect(land.filters).toEqual({
+      dealType: 'sale',
+      propertyType: 'land',
+      landTypes: [2],
+      amenities: ['water'],
+      currency: 'usd',
+      sort: 'newest',
+      grouped: true,
+    });
+  });
+
+  it('keeps rooms, floor, status and condition with no kind; amenities need a kind', () => {
+    const any = parse({
+      rooms: '2',
+      floor: 'not-last',
+      fmin: '3',
+      st: 'old',
+      cond: 'renovated',
+      am: 'elevator',
+    });
+    expect(any.filters).toMatchObject({
+      roomsIn: [2],
+      floor: 'not-last',
+      floorMin: 3,
+      buildingStatuses: ['old'],
+      conditions: ['renovated'],
+    });
+    expect(any.filters.amenities).toBeUndefined();
+  });
+
+  it('offers the floor for flats and commercial spaces only, of the kinds', () => {
+    expect(parse({ kind: 'commercial', floor: 'middle' }).filters.floor).toBe('middle');
+    expect(parse({ kind: 'house', floor: 'middle' }).filters.floor).toBeUndefined();
+    expect(parse({ kind: 'hotel', fmin: '2' }).filters.floorMin).toBeUndefined();
+  });
+
+  it('reads a house-area link as the area, which is a house’s area on ss.ge', () => {
+    expect(parse({ kind: 'house', hmin: '100', hmax: '250' }).filters).toMatchObject({
+      areaMin: 100,
+      areaMax: 250,
+    });
+    expect(parse({ kind: 'house', hmin: '100', amin: '80' }).filters.areaMin).toBe(80);
+    expect(parse({ kind: 'flat', hmin: '100' }).filters.areaMin).toBeUndefined();
+    expect(FILTER.area.title(parse({ kind: 'cottage' }).form)).toBe('House area');
+  });
+
+  it('keeps "other information" with the amenities, for flats only', () => {
+    expect(parse({ kind: 'flat', am: ['bright', 'cozy'] }).filters.amenities).toEqual([
+      'bright',
+      'cozy',
+    ]);
+    expect(parse({ kind: 'house', am: ['bright'] }).filters.amenities).toBeUndefined();
+  });
+
+  it('promotes only filters the kind offers', () => {
+    for (const [kind, keys] of Object.entries(PROMOTED)) {
+      const form = parse(kind === '' ? {} : { kind }).form;
+      for (const key of keys) expect(FILTER[key].applies(form), `${kind}: ${key}`).toBe(true);
+    }
+  });
+});
+
+describe('every filter the tab had before 16B is still reachable (exit gate)', () => {
+  /*
+   * The live tab's address on 2026-11-14, filter by filter, with a value it
+   * accepted and the query filter it set. Each must still set the same
+   * filter, and each must have its place in the registry that draws the bar,
+   * the sheet and the chips.
+   */
+  const BEFORE: readonly {
+    name: string;
+    raw: Record<string, string | string[]>;
+    expect: Record<string, unknown>;
+    registry: string;
+  }[] = [
+    { name: 'search', raw: { q: 'ვაკე' }, expect: { text: 'ვაკე' }, registry: 'where' },
+    { name: 'deal', raw: { deal: 'rent' }, expect: { dealType: 'rent' }, registry: 'deal' },
+    { name: 'kind', raw: { kind: 'hotel' }, expect: { propertyType: 'hotel' }, registry: 'kind' },
+    {
+      name: 'space type',
+      raw: { kind: 'commercial', ct: '7' },
+      expect: { commercialTypes: [7] },
+      registry: 'ctype',
+    },
+    {
+      name: 'land type',
+      raw: { kind: 'land', lt: '1' },
+      expect: { landTypes: [1] },
+      registry: 'ltype',
+    },
+    {
+      name: 'building status',
+      raw: { kind: 'flat', st: 'old' },
+      expect: { buildingStatuses: ['old'] },
+      registry: 'status',
+    },
+    {
+      name: 'city',
+      raw: { city: '95' },
+      expect: { places: [{ level: 'city', ref: 95 }] },
+      registry: 'where',
+    },
+    {
+      name: 'area: a district',
+      raw: { city: '95', area: 'd3' },
+      expect: { places: [{ level: 'district', ref: 3 }] },
+      registry: 'where',
+    },
+    {
+      name: 'area: a sub-district',
+      raw: { city: '95', area: 's12' },
+      expect: { places: [{ level: 'subdistrict', ref: 12 }] },
+      registry: 'where',
+    },
+    { name: 'rooms', raw: { rooms: '3' }, expect: { roomsIn: [3] }, registry: 'rooms' },
+    {
+      name: 'price',
+      raw: { pmin: '5', pmax: '9', cur: 'gel', pm2: '1' },
+      expect: { priceMin: 5, priceMax: 9, currency: 'gel', pricePerM2: true },
+      registry: 'price',
+    },
+    {
+      name: 'area',
+      raw: { amin: '30', amax: '60' },
+      expect: { areaMin: 30, areaMax: 60 },
+      registry: 'area',
+    },
+    {
+      name: 'floor',
+      raw: { kind: 'flat', floor: 'not-first' },
+      expect: { floor: 'not-first' },
+      registry: 'floor',
+    },
+    { name: 'posted by', raw: { by: 'other' }, expect: { poster: 'other' }, registry: 'by' },
+    {
+      name: 'updated',
+      raw: { since: '3' },
+      expect: { updatedSince: new Date(NOW - 3 * 24 * 60 * 60 * 1000).toISOString() },
+      registry: 'since',
+    },
+    {
+      name: 'order',
+      raw: { sort: 'area-desc' },
+      expect: { sort: 'area-desc' },
+      registry: 'display',
+    },
+    {
+      name: 'house area',
+      raw: { kind: 'house', hmin: '120' },
+      expect: { areaMin: 120 },
+      registry: 'area',
+    },
+    {
+      name: 'yard area',
+      raw: { kind: 'house', ymin: '300' },
+      expect: { yardAreaMin: 300 },
+      registry: 'yard',
+    },
+    {
+      name: 'condition',
+      raw: { kind: 'house', cond: 'white-frame' },
+      expect: { conditions: ['white-frame'] },
+      registry: 'cond',
+    },
+    {
+      name: 'kitchen area',
+      raw: { kind: 'flat', kmax: '12' },
+      expect: { kitchenAreaMax: 12 },
+      registry: 'kitchen',
+    },
+    {
+      name: 'floor range',
+      raw: { kind: 'flat', fmin: '2', fmax: '5' },
+      expect: { floorMin: 2, floorMax: 5 },
+      registry: 'floor',
+    },
+    {
+      name: 'floor type',
+      raw: { kind: 'flat', ftype: 'attic' },
+      expect: { floorTypes: ['attic'] },
+      registry: 'ftype',
+    },
+    {
+      name: 'balconies',
+      raw: { kind: 'flat', bal: '2' },
+      expect: { balconies: [2] },
+      registry: 'bal',
+    },
+    {
+      name: 'bathrooms',
+      raw: { kind: 'flat', bath: '5+' },
+      expect: { bathrooms: [5] },
+      registry: 'bath',
+    },
+    {
+      name: 'project',
+      raw: { kind: 'flat', proj: 'lviv' },
+      expect: { projects: ['lviv'] },
+      registry: 'proj',
+    },
+    {
+      name: 'other information',
+      raw: { kind: 'flat', am: 'street-view' },
+      expect: { amenities: ['street-view'] },
+      registry: 'other',
+    },
+    {
+      name: 'listing type',
+      raw: { kind: 'hotel', ptype: ['developer', 'exclusive'] },
+      expect: { developerOnly: true, exclusiveOnly: true },
+      registry: 'ptype',
+    },
+    {
+      name: 'amenities',
+      raw: { kind: 'land', am: 'sewage' },
+      expect: { amenities: ['sewage'] },
+      registry: 'am',
+    },
+    {
+      name: 'every listing',
+      raw: { view: 'all' },
+      expect: { grouped: false },
+      registry: 'display',
+    },
+  ];
+
+  for (const filter of BEFORE) {
+    it(`keeps "${filter.name}"`, () => {
+      const query = parse(filter.raw);
+      expect(query.filters).toMatchObject(filter.expect);
+      if (filter.registry !== 'display') {
+        const def = FILTERS.find((f) => f.key === filter.registry);
+        expect(def, filter.registry).toBeDefined();
+        expect(def?.applies(query.form)).toBe(true);
+        expect(def?.active(query.form)).toBe(true);
+      }
+    });
+  }
+});
+
+describe('the registry', () => {
+  it('clears each filter it shows as a chip, and nothing else', () => {
+    const query = parse({
+      kind: 'flat',
+      rooms: '2',
+      pmin: '50000',
+      mm: '10',
+      unc: '1',
+      ptype: 'photos',
+      am: ['elevator', 'bright'],
+      pl: 'city:95',
+    });
+    const chips = chipFilters(query.form).map((filter) => filter.key);
+    expect(chips).toEqual(['metro', 'uncertain', 'price', 'rooms', 'am', 'other', 'ptype']);
+    for (const filter of chipFilters(query.form)) {
+      const cleared = filter.clear(query.form);
+      expect(filter.active(cleared), filter.key).toBe(false);
+      const left = chipFilters(cleared).map((f) => f.key);
+      expect(left).toEqual(chips.filter((key) => key !== filter.key));
+      // The places stay: they are the Where box's.
+      expect(cleared.pl).toEqual(['city:95']);
+    }
+  });
+
+  it('says what each set filter is, in words', () => {
+    const { form } = parse({
+      kind: 'flat',
+      rooms: ['2', '3'],
+      pmin: '50000',
+      pmax: '120000',
+      ms: 'rustaveli',
+      mm: '10',
+    });
+    expect(FILTER.rooms.summary(form, { placeNames: new Map() })).toBe('2, 3');
+    expect(FILTER.price.summary(form, { placeNames: new Map() })).toBe('$50k–$120k');
+    expect(FILTER.metro.summary(form, { placeNames: new Map() })).toBe('≤ 10 min of Rustaveli');
+  });
+});
+
+describe('the shared form', () => {
+  it('keeps the old places of an address as the narrowest one named', () => {
+    expect(parse({ city: '95', area: 's3' }).form.pl).toEqual(['subdistrict:3']);
+    expect(parse({ city: '95', area: 'd3' }).form.pl).toEqual(['district:3']);
+    expect(parse({ city: '95', area: 'x3' }).form.pl).toEqual(['city:95']);
+    expect(formHref(parse({ city: '95' }).form)).toBe('/real-estate?pl=city%3A95');
+  });
+
+  it('drops the places the catalogue does not know, once the page has asked it', () => {
+    const query = parse({ pl: ['city:95', 'street:4'] });
+    const kept = keepPlaces(query, new Set(['city:95']), NOW);
+    expect(kept.filters.places).toEqual([{ level: 'city', ref: 95 }]);
+    expect(keepPlaces(query, new Set(['city:95', 'street:4']), NOW)).toBe(query);
+  });
+
+  it('draws the metro lines from the same stations as the place file', () => {
+    const file = JSON.parse(
+      readFileSync(
+        path.join(
+          path.dirname(fileURLToPath(import.meta.url)),
+          '../../src/realestate/places/tbilisi.json',
+        ),
+        'utf8',
+      ),
+    ) as { stations: { code: string; nameKa: string; nameEn: string; lines: number[] }[] };
+    expect(METRO_STATIONS).toEqual(
+      file.stations.map((s) => ({ code: s.code, ka: s.nameKa, en: s.nameEn })),
+    );
+    for (const line of METRO_LINES) {
+      expect(line.codes).toEqual(
+        file.stations.filter((s) => s.lines.includes(line.line)).map((s) => s.code),
+      );
+    }
+  });
+
+  it('has the same top count chips as the query layer', () => {
+    expect(countLabel('rooms', ROOMS_TOP)).toBe(`${ROOMS_TOP}+`);
+    expect(countLabel('bathrooms', BATHROOMS_TOP)).toBe(`${BATHROOMS_TOP}+`);
+    expect(countLabel('balconies', BALCONIES_TOP)).toBe(`${BALCONIES_TOP}+`);
+    expect(countLabel('rooms', ROOMS_TOP - 1)).toBe(String(ROOMS_TOP - 1));
   });
 });
 
 describe('buildRealEstateHref', () => {
-  it('writes back exactly the state it read', () => {
-    const raw: [string, string][] = [
-      ['deal', 'rent'],
-      ['kind', 'flat'],
-      ['st', 'new'],
-      ['st', 'under-construction'],
-      ['city', '95'],
-      ['area', 's3'],
-      ['cur', 'gel'],
-      ['pm2', '1'],
-      ['pmin', '1000'],
-      ['pmax', '2500'],
-      ['amin', '40'],
-      ['amax', '90'],
-      ['rooms', '2'],
-      ['rooms', '10+'],
-      ['floor', 'not-first'],
-      ['by', 'other'],
-      ['since', '3'],
-      ['cond', 'newly-renovated'],
-      ['kmin', '8'],
-      ['kmax', '20'],
-      ['fmin', '2'],
-      ['fmax', '12'],
-      ['ftype', 'duplex'],
-      ['bal', '1'],
-      ['bal', '0'],
-      ['bath', '5+'],
-      ['proj', 'non-standard'],
-      ['ptype', 'owner'],
-      ['am', 'balcony'],
-      ['am', 'pets-allowed'],
-      ['am', 'cozy'],
-      ['q', 'ავეჯით'],
-      ['sort', 'area-desc'],
-      ['view', 'all'],
-      ['show', '300'],
-    ];
-    const asRaw: Record<string, string[]> = {};
-    for (const [key, value] of raw) asRaw[key] = [...(asRaw[key] ?? []), value];
-    const href = buildRealEstateHref(parse(asRaw));
-    const params = [...new URL(href, 'https://x.invalid').searchParams];
-
-    expect(params).toEqual(raw);
-  });
-
-  it('changes one thing and keeps the rest', () => {
-    const query = parse({ deal: 'rent', q: 'ვაკე', show: '300' });
-
+  it('changes the depth, the grouping or the group and keeps the rest', () => {
+    const query = parse({ kind: 'flat', rooms: '2', show: '300' });
+    expect(buildRealEstateHref(query)).toBe('/real-estate?kind=flat&rooms=2&show=300');
     expect(buildRealEstateHref(query, { show: 400 })).toBe(
-      `/real-estate?${new URLSearchParams({ deal: 'rent', q: 'ვაკე', show: '400' })}`,
+      '/real-estate?kind=flat&rooms=2&show=400',
     );
-  });
-
-  it('switches the grouping or opens a group from the top of the list, keeping the filters', () => {
-    const query = parse({ deal: 'rent', show: '300' });
-    expect(buildRealEstateHref(query, { view: 'all' })).toBe('/real-estate?deal=rent&view=all');
-    expect(buildRealEstateHref(parse({ view: 'all' }), { view: '' })).toBe('/real-estate');
-    const key = '6a546aed-492a-4cf2-9627-072e6fc768bf';
-    expect(buildRealEstateHref(query, { group: key })).toBe(`/real-estate?deal=rent&group=${key}`);
+    // A change of grouping or group starts the list from its top.
+    expect(buildRealEstateHref(query, { view: 'all' })).toBe(
+      '/real-estate?kind=flat&rooms=2&view=all',
+    );
+    const key = '0b5c7f2e-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
+    expect(buildRealEstateHref(query, { group: key })).toBe(
+      `/real-estate?kind=flat&rooms=2&group=${key}`,
+    );
   });
 });
 
@@ -453,22 +549,21 @@ describe('countCacheKey', () => {
   const TEN_MINUTES = 10 * 60_000;
 
   it('is one key for the same filters, whatever their order, sort or page', () => {
-    const a = parseRealEstateQuery({ deal: 'sale', kind: 'flat', sort: 'price-asc' }, PLACES, NOW);
-    const b = parseRealEstateQuery({ kind: 'flat', deal: 'sale', show: '300' }, PLACES, NOW);
+    const a = parse({ deal: 'sale', kind: 'flat', sort: 'price-asc' });
+    const b = parse({ kind: 'flat', show: '300' });
     expect(countCacheKey(a.filters, TEN_MINUTES)).toBe(countCacheKey(b.filters, TEN_MINUTES));
-    const c = parseRealEstateQuery({ deal: 'rent', kind: 'flat' }, PLACES, NOW);
+    const c = parse({ deal: 'rent', kind: 'flat' });
     expect(countCacheKey(c.filters, TEN_MINUTES)).not.toBe(countCacheKey(a.filters, TEN_MINUTES));
   });
 
   it('gives "updated within" asked moments apart one key, and a later window another', () => {
     const at = (ms: number) =>
-      countCacheKey(parseRealEstateQuery({ since: '7' }, PLACES, ms).filters, TEN_MINUTES);
+      countCacheKey(parseRealEstateQuery({ since: '7' }, ms).filters, TEN_MINUTES);
     const start = Math.ceil(NOW / TEN_MINUTES) * TEN_MINUTES;
     expect(at(start + 5)).toBe(at(start + 1_234));
     expect(at(start + TEN_MINUTES)).not.toBe(at(start));
-    // A different choice is a different key.
     expect(
-      countCacheKey(parseRealEstateQuery({ since: '1' }, PLACES, start).filters, TEN_MINUTES),
+      countCacheKey(parseRealEstateQuery({ since: '1' }, start).filters, TEN_MINUTES),
     ).not.toBe(at(start));
   });
 });

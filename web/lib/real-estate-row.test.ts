@@ -44,6 +44,12 @@ function row(overrides: Partial<RealEstateRow> = {}): RealEstateRow {
     alikeCount: 1,
     buildingStatus: null,
     condition: null,
+    cityRef: 95,
+    metroStation: null,
+    metroMinutes: null,
+    metroNearby: null,
+    metroNearbyMinutes: null,
+    metroBasis: null,
     ...overrides,
   };
 }
