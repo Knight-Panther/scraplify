@@ -116,6 +116,9 @@ export function CrawlStatus({
         {views.map((view) => (
           // Two columns, so a line that wraps (Georgian, or a narrow
           // column) continues under the text rather than under the dot.
+          // The name column grows past 5.25rem for a name that needs it:
+          // summerschoolsineurope.eu ran into the text beside it
+          // (2026-11-14); a domain name has nowhere to wrap.
           // Spacing, not a "·", separates the two parts: a separator would
           // dangle at the end of a wrapped line.
           // `data-crawl-stop` / `data-crawl`: where the landing crawler walks
@@ -124,7 +127,7 @@ export function CrawlStatus({
           <li
             key={view.sourceSlug}
             data-crawl-stop=""
-            className="grid grid-cols-[5.25rem_minmax(0,1fr)] items-baseline gap-x-2"
+            className="grid grid-cols-[minmax(5.25rem,max-content)_minmax(0,1fr)] items-baseline gap-x-2"
           >
             <span className="flex items-center gap-2">
               <StateDot view={view} dotClass={classes.dot} />
