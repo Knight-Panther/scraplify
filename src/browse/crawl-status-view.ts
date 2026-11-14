@@ -53,6 +53,11 @@ export function describeCrawlStatus(
   const startedMs =
     snapshot.lastRunStartedAt === null ? null : Date.parse(snapshot.lastRunStartedAt);
   const slot = previousSlot(schedule, nowMs);
+  // A full update that ended after the slot was running through it (it
+  // started before, or it counts for the slot anyway): the timer finds its
+  // unit busy and skips the slot, as after a run started by hand.
+  const updatedSinceSlot =
+    snapshot.lastCompletedAt !== null && Date.parse(snapshot.lastCompletedAt) >= slot;
 
   let state: CrawlState = { kind: 'scheduled' };
   if (
@@ -63,6 +68,7 @@ export function describeCrawlStatus(
     state = { kind: 'updating', since: new Date(startedMs).toISOString() };
   } else if (
     nowMs >= slot + LATE_AFTER_MS &&
+    !updatedSinceSlot &&
     (startedMs === null || startedMs < slot - EARLY_START_MS)
   ) {
     state = { kind: 'late', expectedAt: new Date(slot).toISOString() };
