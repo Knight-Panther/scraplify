@@ -2,7 +2,7 @@
 
 Three designs the owner approved as HTML mockups on 2026-11-14, to be built into the site. Kept as a tracker once building starts.
 
-- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B built** on `phase-16b-real-estate` (2026-11-14), its gate checked in a browser, waiting on its PR's CI; 16C not started.
+- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B live** since 2026-11-14 13:05 UTC as `c0ddf0f` (PR #112); 16C not started.
 - **The mockups are the visual source of truth.** They live outside the repo, on the owner's PC, in `C:\Users\Giorgi Teliashvili\Desktop\xtelo-mockups\`. To view them, run `python -m http.server 8765 --bind 127.0.0.1` in that folder and open `http://127.0.0.1:8765/home-v2.html`. Stop the server afterwards.
   - `real-estate-filters-v2.html` with `real-estate-filters-data.js`: Real estate filters, **approved**. It uses synthetic listings drawn from real distributions; the sub-districts, streets and stations are real.
   - `browse-v2.html` with `browse-data.js`: Browse, **approved**. It uses a real read-only sample of the live catalogue: 460 random open jobs, all 61 open tenders, 272 courses.
@@ -27,7 +27,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
 | ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
-| ⏳ | **16B** | Real estate filters v2 | yes | its PR's CI, then a web-only deploy |
+| ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
 | ❌ | **16C** | Browse v2 | yes | 16A |
 | ❌ | **16D** | (Optional) a field for jobs.ge vacancies, guessed from the title and labelled as a guess | later | the owner's go |
 
@@ -119,7 +119,7 @@ The mockup is the spec. Key points:
 
 **Built 2026-11-14** on `phase-16b-real-estate`:
 - The bar, the pills by kind, the popovers (wide) and bottom sheets (phone), "All filters" in its seven groups plus Display, the Where box, the metro diagram and the price panel, drawn in the browser from one registry (`web/lib/real-estate-registry.ts`). The address is still the whole state (`web/lib/real-estate-form.ts`, `real-estate-params.ts`): each change asks the server for the page again while the list dims.
-- Counts: `/real-estate/facets` (`src/realestate/facets.ts`), asked only while a panel is open, each facet capped at 2.5 s and kept ten minutes per filter set (a timed-out one too). Place suggestions: `/real-estate/places` (`src/realestate/place-suggest.ts`), over C6, with counts under the other filters in one scan.
+- Counts: `/real-estate/facets` (`src/realestate/facets.ts`), asked only while a panel is open, each facet capped at 2.5 s and kept ten minutes per filter set; a timed-out one is kept one minute (changed after the deploy, below). Place suggestions: `/real-estate/places` (`src/realestate/place-suggest.ts`), over C6, with counts under the other filters in one scan.
 - Results: a Metro column (our walking band to the nearest station, or to the one asked for; "over 20 min" where located and none is near) and a "Nearest metro first" order; three-line rows under 900px.
 
 Changed while building:
@@ -133,6 +133,8 @@ Gate:
 - ✅ Browser, public and local surfaces on `scraplify_qa_16`: 144 page loads (9 filter states, both themes, Georgian and English, 390 and 1280) and 56 open panels (every pill, the kind, and "All filters" for five kinds, both themes, both widths): no overflow, no console error, no text under its contrast floor, every panel inside the screen with focus in it.
 - ✅ Reviews: web-design-guidelines (two fixes: focused rows clear of the sticky bar, pills without the tap delay); surface-boundary review, no defect (the endpoints read only `public_listings` and `public_places`).
 - ✅ Tests: 2,785 pass locally (26 new for the counts and place suggestions); ✅ CI green on PR #112.
+- ✅ Deployed web-only 2026-11-14 13:05 UTC (`.git/handoff-16b/deploy-16b.sh`; no migration; the ss.ge crawl left running on its own release, so old releases still not pruned). Both sites ready, health check ok. On jobster.fun at 390 and 1280: light, 91,726 properties under "Buy", no overflow, no console error; facets answer in 0.8 to 1.5 s on broad filters, place suggestions in 0.7 s.
+- Changed after the deploy: the default page's Kind and Rooms counts timed out on the first request after the restart (cold caches) and, kept ten minutes, left those panels without numbers. A timed-out count is now kept one minute (follow-up PR).
 
 ## 16C: Browse v2
 
