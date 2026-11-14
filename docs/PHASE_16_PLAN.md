@@ -29,7 +29,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 | ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
 | ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
 | ✅ | **16C** | Browse v2 | yes | done: merged as `4a251d2` (PR #114), live 2026-11-14 14:14 UTC |
-| ❌ | **16D** | (Optional) a field for jobs.ge vacancies, guessed from the title and labelled as a guess | later | the owner's go |
+| ⏳ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14 | — | being built |
 
 ## 16A: theme foundation
 
@@ -200,4 +200,6 @@ Gate:
 
 ## 16D (optional): a field for jobs.ge vacancies
 
-jobs.ge states no field. A keyword classifier on the title could give one, using the taxonomy step's `keyword` method. It would be shown as "field guessed from the title". The owner hasn't asked for it, so it waits on the owner's go.
+jobs.ge states no field. A keyword classifier on the title could give one, using the taxonomy step's `keyword` method. It would be shown as "field guessed from the title". The owner gave the go on 2026-11-14.
+
+Changed 2026-11-14, before building: 5,048 of the 5,170 open jobs.ge vacancies have no hr.ge twin, and every listing on both boards has its description. So the guess is learnt from hr.ge's 11,640 labelled listings (title, employer and description, its 40 top-level fields), not from a hand-written keyword list. It is checked against the jobs.ge vacancies that do have an hr.ge twin, which give jobs.ge's own text with hr.ge's field. It is stored as a `keyword` classification and given only above a threshold chosen on that check.
