@@ -13,6 +13,7 @@ import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import {
   deleteLongGoneListings,
   loadListingsDueForCheck,
+  loadLookAlikesDueForCheck,
   markLapsedListingsGone,
   markMissedListings,
   recordListingCheck,
@@ -186,7 +187,7 @@ describe('listing expiry', () => {
       expect(found.map((row) => row.id)).toEqual([missedOnShow, movedUnseen, seenAfterItsEnd]);
     });
 
-    it('then asks about those past their end whose look-alike is still on show', async () => {
+    it('asks about those past their end whose look-alike is still on show apart, after the pages wanted for details', async () => {
       const sourceId = await newSource();
       // A flat list shows one listing of each look-alike group: a live one
       // folded behind its twin is on no list. Of those past their end with a
@@ -223,13 +224,70 @@ describe('listing expiry', () => {
         lastSeenAt: at(-0.5),
       });
 
+      // Two of twenty such were live on 2026-11-14: they wait behind the
+      // pages new listings want read (`runSsGeCrawl`).
+      const first = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
+      expect(first.map((row) => row.id)).toEqual([seenAfterItsEnd]);
+
+      const last = await loadLookAlikesDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
+      expect(last.map((row) => row.id)).toEqual([foldedBySimilarity, foldedByRepost]);
+      expect(
+        (await loadLookAlikesDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 1 })).map(
+          (row) => row.id,
+        ),
+      ).toEqual([foldedBySimilarity]);
+    });
+
+    it('does not ask again about a missed listing whose own page has said live since a list last showed it', async () => {
+      const sourceId = await newSource();
+      // ss.ge hides a flat behind its look-alike: its page said live four
+      // days ago, and every full read of its list misses it again. Asked each
+      // time, 24,000 such flats took most of a night's pages (2026-11-14);
+      // of 34 asked that day, none had been sold or had expired.
+      await listing(sourceId, {
+        expectedEndAt: at(5),
+        missedAt: at(-1),
+        lastSeenAt: at(-10),
+        verifiedAt: at(-4),
+      });
+      // Its page was read before a list last showed it: the miss is news.
+      const missedSinceItsPage = await listing(sourceId, {
+        expectedEndAt: at(5),
+        missedAt: at(-1),
+        lastSeenAt: at(-10),
+        verifiedAt: at(-12),
+      });
+      const neverAsked = await listing(sourceId, { expectedEndAt: at(4), missedAt: at(-1) });
+
       const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
 
-      expect(found.map((row) => row.id)).toEqual([
-        seenAfterItsEnd,
-        foldedBySimilarity,
-        foldedByRepost,
-      ]);
+      expect(found.map((row) => row.id)).toEqual([missedSinceItsPage, neverAsked]);
+    });
+
+    it('asks first, once and half a day later, about a listing given up for a blank page', async () => {
+      const sourceId = await newSource();
+      const missedOnShow = await listing(sourceId, { expectedEndAt: at(5), missedAt: at(-1) });
+      // ss.ge answers a live listing's page with no listing in it now and
+      // then: of 40 given up that way on 2026-11-13, 32 were live the next
+      // morning. Its page is asked once more, on a later night.
+      const blank = { status: 'gone', goneReason: 'missing' } as const;
+      const givenUp = await listing(sourceId, { ...blank, goneAt: at(-1), verifiedAt: at(-1) });
+      // Given up an hour ago: the same hour's answer would say the same.
+      await listing(sourceId, { ...blank, goneAt: at(-0.04), verifiedAt: at(-0.04) });
+      // Asked again since, and still blank.
+      await listing(sourceId, { ...blank, goneAt: at(-3), verifiedAt: at(-2) });
+      // Its page said why: that is believed.
+      await listing(sourceId, {
+        status: 'gone',
+        goneReason: 'inactive',
+        goneAt: at(-1),
+        verifiedAt: at(-1),
+      });
+      await listing(sourceId, { status: 'gone', goneReason: 'lapsed', goneAt: at(-1) });
+
+      const found = await loadListingsDueForCheck(db, { sourceId, asOf: NOW_ISO, limit: 10 });
+
+      expect(found.map((row) => row.id)).toEqual([givenUp, missedOnShow]);
     });
 
     it('then takes the most recently expired of those seen after their end, up to the limit', async () => {
@@ -281,6 +339,24 @@ describe('listing expiry', () => {
       }
     });
 
+    it('leaves a listing whose own page has said live since a list last showed it', async () => {
+      const sourceId = await newSource();
+      const hidden = await listing(sourceId, { lastSeenAt: at(-10), verifiedAt: at(-4) });
+      const missed = await listing(sourceId, { lastSeenAt: at(-10), verifiedAt: at(-12) });
+
+      const count = await markMissedListings(db, {
+        sourceId,
+        dealType: 'sale',
+        propertyType: 'flat',
+        readStartedAt: at(-1),
+        at: NOW_ISO,
+      });
+
+      expect(count).toBe(1);
+      expect((await read(hidden))?.missedAt).toBeNull();
+      expect(instant((await read(missed))?.missedAt)).toBe(NOW);
+    });
+
     it('keeps the first time a listing was missed', async () => {
       const sourceId = await newSource();
       const id = await listing(sourceId, { lastSeenAt: at(-10), missedAt: at(-7) });
@@ -299,6 +375,71 @@ describe('listing expiry', () => {
   });
 
   describe('recordListingCheck', () => {
+    it('puts back on show a listing given up for a blank page whose page now shows it live', async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, {
+        status: 'gone',
+        goneReason: 'missing',
+        goneAt: at(-1),
+        verifiedAt: at(-1),
+        expectedEndAt: at(3),
+      });
+
+      const outcome = await recordListingCheck(db, {
+        listingId: id,
+        check: { status: 'active', endAt: at(12) },
+        checkedAt: NOW_ISO,
+      });
+
+      expect(outcome).toBe('reopened');
+      const row = await read(id);
+      expect(row).toMatchObject({ status: 'active', goneAt: null, goneReason: null });
+      expect(instant(row?.expectedEndAt)).toBe(instant(at(12)));
+      expect(instant(row?.verifiedAt)).toBe(NOW);
+    });
+
+    it('keeps one given up for a blank page gone when its page is blank again, from the day it was given up, and asks no third time', async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, {
+        status: 'gone',
+        goneReason: 'missing',
+        goneAt: at(-1),
+        verifiedAt: at(-1),
+      });
+
+      const outcome = await recordListingCheck(db, {
+        listingId: id,
+        check: { status: 'gone', reason: 'missing' },
+        checkedAt: NOW_ISO,
+      });
+
+      expect(outcome).toBe('still-gone');
+      const row = await read(id);
+      expect(row).toMatchObject({ status: 'gone', goneReason: 'missing' });
+      // The fourteen days it is kept run from the first answer.
+      expect(instant(row?.goneAt)).toBe(instant(at(-1)));
+      expect(instant(row?.verifiedAt)).toBe(NOW);
+      expect(await loadListingsDueForCheck(db, { sourceId, asOf: at(1), limit: 10 })).toEqual([]);
+    });
+
+    it('keeps the reason its page gives the second time', async () => {
+      const sourceId = await newSource();
+      const id = await listing(sourceId, {
+        status: 'gone',
+        goneReason: 'missing',
+        goneAt: at(-1),
+        verifiedAt: at(-1),
+      });
+
+      await recordListingCheck(db, {
+        listingId: id,
+        check: { status: 'gone', reason: 'inactive' },
+        checkedAt: NOW_ISO,
+      });
+
+      expect(await read(id)).toMatchObject({ status: 'gone', goneReason: 'inactive' });
+    });
+
     it('clears the missed mark of a listing its page shows as live', async () => {
       const sourceId = await newSource();
       const id = await listing(sourceId, { missedAt: at(-1) });

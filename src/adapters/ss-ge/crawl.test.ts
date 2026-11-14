@@ -1310,7 +1310,10 @@ describe('runSsGeCrawl, resuming and full reads', () => {
       { mode: 'nightly', maxDetailChecks: 1, deepPageBudget: 3 },
     );
 
+    // Its page has no listing in it, twice: a blank page is asked again
+    // before it is believed.
     expect(site.requested.filter((url) => !url.includes('/l/'))).toEqual([
+      buildDetailUrl(removedKey),
       buildDetailUrl(removedKey),
     ]);
     expect(crawlRun).toMatchObject({ status: 'completed', goneCount: 1 });
@@ -1585,7 +1588,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
       { mode: 'sweep', maxDetailChecks: 3 },
     );
 
-    expect(detailRequests(site).sort()).toEqual(['1000', '1001', '1002']);
+    // The blank page is asked a second time before it is believed.
+    expect(detailRequests(site).sort()).toEqual(['1000', '1001', '1002', '1002']);
     for (const url of site.requested) expect(isSsGeUrlAllowed(url), url).toBe(true);
     expect(crawlRun).toMatchObject({ status: 'completed', verifiedCount: 1, goneCount: 1 });
 
@@ -1600,6 +1604,131 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     expect(blank).toMatchObject({ status: 'active', goneAt: null });
     expect(instant(blank?.expectedEndAt)).toBeLessThan(NOW + 4 * DAY_MS);
     expect(await stored(1100)).toMatchObject({ status: 'active', verifiedAt: null });
+  });
+
+  /** A row as a list last showed it five days ago, for these tests to bend. */
+  const storedRow = (id: number, overrides: Record<string, unknown> = {}) => {
+    const ago = (ms: number) => new Date(NOW - ms).toISOString();
+    return {
+      sourceId: ssGeSource.id,
+      sourceListingKey: String(id),
+      canonicalUrl: buildDetailUrl(String(id)),
+      dealType: 'sale' as const,
+      propertyType: 'flat' as const,
+      sourceUpdatedAt: ago(20 * DAY_MS),
+      expectedEndAt: new Date(NOW + 10 * DAY_MS).toISOString(),
+      firstSeenAt: ago(20 * DAY_MS),
+      lastSeenAt: ago(5 * DAY_MS),
+      contentHash: 'h',
+      ...overrides,
+    };
+  };
+
+  it('asks a blank listing page a second time before believing it', async () => {
+    // ss.ge answers a live listing's page with no listing in it for 7 to 10%
+    // of requests by day (2026-11-14). A full read had missed these two, so
+    // one blank answer used to give each up: 32 of 40 given up that way were
+    // live the next morning.
+    const site = new FakeSite({ [first.key]: rows(1_100, 1) });
+    await ensureSsGeSourceSeeded(db);
+    const missedAt = new Date(NOW - DAY_MS).toISOString();
+    await db
+      .insert(realEstateListings)
+      .values([storedRow(1000, { missedAt }), storedRow(1001, { missedAt })]);
+    site.details.set('1000', { status: 'Active', endsAt: NOW + 10 * DAY_MS });
+    site.script(buildDetailUrl('1000'), ok(buildDetailUrl('1000'), page({})));
+    // 1001's page is blank both times: that is believed.
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 2 },
+    );
+
+    expect(detailRequests(site).sort()).toEqual(['1000', '1000', '1001', '1001']);
+    expect(crawlRun).toMatchObject({ status: 'completed', verifiedCount: 1, goneCount: 1 });
+    expect(await stored(1000)).toMatchObject({ status: 'active', missedAt: null });
+    expect(await stored(1001)).toMatchObject({ status: 'gone', goneReason: 'missing' });
+  });
+
+  it('asks once more about a listing given up for a blank page, and puts a live one back on show', async () => {
+    const site = new FakeSite({ [first.key]: rows(1_100, 1) });
+    await ensureSsGeSourceSeeded(db);
+    const givenUpAt = new Date(NOW - DAY_MS).toISOString();
+    const givenUp = { status: 'gone', goneReason: 'missing', goneAt: givenUpAt } as const;
+    await db
+      .insert(realEstateListings)
+      .values([
+        storedRow(1000, { ...givenUp, verifiedAt: givenUpAt }),
+        storedRow(1001, { ...givenUp, verifiedAt: givenUpAt }),
+      ]);
+    site.details.set('1000', { status: 'Active', endsAt: NOW + 10 * DAY_MS });
+
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 2 },
+    );
+
+    expect(detailRequests(site).sort()).toEqual(['1000', '1001', '1001']);
+    // Back on show is not a check of a listing past its end, and one still
+    // gone was counted the night it was given up.
+    expect(crawlRun).toMatchObject({
+      status: 'completed',
+      reopenedCount: 1,
+      verifiedCount: 0,
+      goneCount: 0,
+    });
+    expect(await stored(1000)).toMatchObject({ status: 'active', goneAt: null, goneReason: null });
+    const still = await stored(1001);
+    expect(still).toMatchObject({ status: 'gone', goneReason: 'missing' });
+    expect(instant(still?.goneAt)).toBe(NOW - DAY_MS);
+  });
+
+  it('reads the pages its new listings want before asking about one past its end behind a look-alike', async () => {
+    // A night's pages all went to checks, and of 57,832 listings first seen
+    // in a week 900 had their details (2026-11-14). One past its end behind
+    // a look-alike is live one time in ten, its twin on show either way.
+    const site = new FakeSite({ [first.key]: rows(1_100, 1) });
+    await ensureSsGeSourceSeeded(db);
+    const ago = (ms: number) => new Date(NOW - ms).toISOString();
+    await db.insert(realEstateListings).values([
+      storedRow(1000, { similarityGroup: 'twins', expectedEndAt: ago(DAY_MS) }),
+      // Its twin, hidden on its list and known to be: nothing asks about it.
+      storedRow(1001, { similarityGroup: 'twins', verifiedAt: ago(2 * DAY_MS) }),
+    ]);
+    site.details.set('1000', { status: 'Active', endsAt: NOW + 10 * DAY_MS });
+
+    await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 1 },
+    );
+
+    expect(detailRequests(site).length).toBeGreaterThan(0);
+    expect(detailRequests(site)).not.toContain('1000');
+    expect(detailRequests(site)).not.toContain('1001');
+    expect(await stored(1000)).toMatchObject({ status: 'active', verifiedAt: null });
+  });
+
+  it('asks about one past its end behind a look-alike with the pages left over', async () => {
+    const site = new FakeSite({ [first.key]: rows(1_100, 1) });
+    await ensureSsGeSourceSeeded(db);
+    const ago = (ms: number) => new Date(NOW - ms).toISOString();
+    await db
+      .insert(realEstateListings)
+      .values([
+        storedRow(1000, { similarityGroup: 'twins', expectedEndAt: ago(DAY_MS) }),
+        storedRow(1001, { similarityGroup: 'twins', verifiedAt: ago(2 * DAY_MS) }),
+      ]);
+    site.details.set('1000', { status: 'Active', endsAt: NOW + 10 * DAY_MS });
+
+    await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep', maxDetailChecks: 200 },
+    );
+
+    expect(detailRequests(site).at(-1)).toBe('1000');
+    const asked = await stored(1000);
+    expect(asked?.verifiedAt).not.toBeNull();
+    expect(instant(asked?.expectedEndAt)).toBeGreaterThan(NOW + 9 * DAY_MS);
   });
 
   it('asks no page of a listing its list still shows past its end: the sighting keeps it on show', async () => {
@@ -1649,7 +1778,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
       { mode: 'sweep', maxDetailChecks: 1 },
     );
 
-    expect(detailRequests(site)).toHaveLength(1);
+    // One listing's page, blank and so asked twice.
+    expect(new Set(detailRequests(site)).size).toBe(1);
     expect(detailRequests(site)).not.toContain('1000');
     expect(crawlRun).toMatchObject({ status: 'completed', verifiedCount: 0, goneCount: 0 });
     expect(await stored(1000)).toMatchObject({ status: 'active', verifiedAt: null });
@@ -1684,7 +1814,8 @@ describe('runSsGeCrawl, listings past their expected end', () => {
     );
 
     expect(crawlRun.status).toBe('partial');
-    expect(detailRequests(site).sort()).toEqual(['1000', '1001']);
+    // Each page is blank, and asked a second time before that is believed.
+    expect(detailRequests(site).sort()).toEqual(['1000', '1000', '1001', '1001']);
   });
 
   it('still checks them, and deletes the long gone, after a list that would not load', async () => {
