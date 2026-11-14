@@ -3,6 +3,7 @@ import { ADVISORY_LOCKS, withAdvisoryLock } from '../db/advisory-lock.js';
 import { db, pool } from '../db/client.js';
 import { logger } from '../logger.js';
 import { classifyListings } from '../taxonomy/classify-listings.js';
+import { guessFields } from '../taxonomy/guess-fields.js';
 import { seedTaxonomyTerms } from '../taxonomy/seed-terms.js';
 
 /**
@@ -32,12 +33,14 @@ async function main(): Promise<void> {
   }
 
   const startedAtMs = Date.now();
-  const { seedResult, classifyResult } = await withAdvisoryLock(
+  const { seedResult, classifyResult, guessResult } = await withAdvisoryLock(
     pool,
     ADVISORY_LOCKS.taxonomyBackfill,
     async () => ({
       seedResult: await seedTaxonomyTerms(db),
       classifyResult: await classifyListings(db),
+      // Phase 16D: a field for jobs.ge, which states none, learnt from hr.ge's.
+      guessResult: await guessFields(db),
     }),
   );
 
@@ -46,6 +49,7 @@ async function main(): Promise<void> {
       durationMs: Date.now() - startedAtMs,
       seed: seedResult,
       classify: classifyResult,
+      guess: guessResult,
     },
     'taxonomy backfill finished',
   );

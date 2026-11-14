@@ -81,15 +81,19 @@ function Fact({
   icon,
   children,
   title,
+  after,
 }: {
   icon: BrowseIcon;
   children: ReactNode;
   title?: string | undefined;
+  /** Kept whole when the value is cut short. */
+  after?: ReactNode;
 }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-[5px]" title={title}>
       <BrowseIconSvg name={icon} className="size-[13px]" />
       <span className="min-w-0 truncate">{children}</span>
+      {after}
     </span>
   );
 }
@@ -114,7 +118,22 @@ function facts(item: BrowseItem, surface: 'local' | 'public'): ReactNode[] {
     const field = item.fields[0]?.slice(2);
     if (field !== undefined) {
       out.push(
-        <Fact key="field" icon="field" title={field}>
+        <Fact
+          key="field"
+          icon="field"
+          title={
+            item.fieldGuessed
+              ? `${field}: guessed from the listing's text, since the board states no field`
+              : field
+          }
+          after={
+            item.fieldGuessed ? (
+              <span className="shrink-0 rounded-sm border border-dashed border-current px-1 text-[11px] leading-4">
+                guessed
+              </span>
+            ) : undefined
+          }
+        >
           {FIELD_EN.get(field) ?? field}
         </Fact>,
       );

@@ -66,6 +66,11 @@ export interface BrowseItem {
   places: string[];
   /** `j:<field>`, `t:<CPV division>`, `c:<field of study>`. */
   fields: string[];
+  /**
+   * Phase 16D: the job's field is a guess from its text (jobs.ge states none),
+   * taken only when no member states one. Shown as a guess, never as stated.
+   */
+  fieldGuessed: boolean;
   industries: string[];
   /** Lari a month, as hr.ge states it: "1500-?" is [1500, null]. */
   salary: [number | null, number | null] | null;
@@ -119,6 +124,8 @@ export interface IndexRow {
   locations: unknown;
   salaryRaw: string | null;
   facts: Record<string, unknown>;
+  /** Phase 16D: a field guessed from the text, for a board that states none. */
+  guessedField: string | null;
 }
 
 const strings = (value: unknown): string[] =>
@@ -210,6 +217,7 @@ export function assembleIndex(rows: readonly IndexRow[]): BrowseItem[] {
       cities: [],
       places: [],
       fields: [],
+      fieldGuessed: false,
       industries: [],
       salary: null,
       contract: null,
@@ -262,6 +270,16 @@ export function assembleIndex(rows: readonly IndexRow[]): BrowseItem[] {
       if (row !== undefined) addFacts(item, row);
     }
     item.deadlinesDisagree = deadlineDays.size > 1;
+    if (kind === 'job' && item.fields.length === 0) {
+      const guesses = group.flatMap((row) => (row.guessedField === null ? [] : [row.guessedField]));
+      if (guesses.length > 0) {
+        union(
+          item.fields,
+          guesses.map((g) => `j:${g}`),
+        );
+        item.fieldGuessed = true;
+      }
+    }
     if (kind === 'job') item.places = item.cities.map((c) => `g:${c}`);
     if (kind === 'course' && item.country !== null) item.places = [`c:${item.country}`];
     item.valueGel = item.value === null ? null : toGel(item.value.amount, item.value.currency);
@@ -391,6 +409,20 @@ function factsSql(a: ReturnType<typeof sql>) {
   ))`;
 }
 
+/**
+ * A revision's guessed field (Phase 16D), as `public_opportunity_members`'
+ * `guessed_field` reads it: keep the two the same.
+ */
+function guessedFieldSql(revisionId: ReturnType<typeof sql>) {
+  return sql`(select t.label from listing_classifications lc
+       join taxonomy_terms t on t.id = lc.taxonomy_term_id and t.parent_id is null
+       where lc.source_listing_revision_id = ${revisionId}
+         and lc.axis = 'profession' and lc.superseded_at is null
+         and lc.method in ('keyword', 'human_review')
+       order by (lc.method = 'human_review') desc, lc.confidence desc, lc.id
+       limit 1)`;
+}
+
 interface RawRow extends Record<string, unknown> {
   opportunity_id: string;
   type: string;
@@ -408,6 +440,7 @@ interface RawRow extends Record<string, unknown> {
   locations: unknown;
   salary_raw: string | null;
   facts: Record<string, unknown> | null;
+  guessed_field: string | null;
 }
 
 const iso = (value: string | Date): string =>
@@ -431,6 +464,7 @@ function toIndexRow(row: RawRow): IndexRow {
     locations: row.locations,
     salaryRaw: row.salary_raw,
     facts: row.facts ?? {},
+    guessedField: row.guessed_field,
   };
 }
 
@@ -459,7 +493,8 @@ export async function loadBrowseIndex(db: DatabaseOrTransaction): Promise<Browse
           sl.first_seen_at,
           concat_ws(' ', r.title_raw, r.organization_raw, r.locations::text, r.source_categories::text) as hay,
           r.locations, r.salary_raw,
-          ${factsSql(sql`r.structured_attributes`)} as facts
+          ${factsSql(sql`r.structured_attributes`)} as facts,
+          ${guessedFieldSql(sql`r.id`)} as guessed_field
         from opportunities o
         join opportunity_source_memberships m on m.opportunity_id = o.id and m.superseded_at is null
         join source_listings sl on sl.id = m.source_listing_id
@@ -485,7 +520,8 @@ export async function loadPublicBrowseIndex(db: DatabaseOrTransaction): Promise<
           pom.deadline_at, pom.first_seen_at,
           concat_ws(' ', pom.title, pom.organization, pom.locations::text, pom.source_categories::text) as hay,
           pom.locations, pom.salary_raw,
-          ${factsSql(sql`pom.structured_attributes`)} as facts
+          ${factsSql(sql`pom.structured_attributes`)} as facts,
+          pom.guessed_field
         from public_opportunity_members pom
         join public_opportunities po on po.id = pom.opportunity_id`,
   );
