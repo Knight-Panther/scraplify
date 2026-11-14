@@ -29,7 +29,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 | ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
 | ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
 | ✅ | **16C** | Browse v2 | yes | done: merged as `4a251d2` (PR #114), live 2026-11-14 14:14 UTC |
-| ⏳ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14; built and checked locally the same day on `phase-16d-field-guess` | CI, then a deploy with migration 0055 after the ss.ge run | the PR |
+| ⏳ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14; merged 2026-11-14 as `efa1c99` (PR #115, CI green) | a deploy with migration 0055 and `apply-db-roles.sh grants`, after the ss.ge run | 2026-11-15, the deploy window |
 
 ## 16A: theme foundation
 
