@@ -123,7 +123,7 @@ The mockup is the spec. Key points:
 - Results: a Metro column (our walking band to the nearest station, or to the one asked for; "over 20 min" where located and none is near) and a "Nearest metro first" order; three-line rows under 900px.
 
 Changed while building:
-- **A bare `/real-estate` is "Buy"** (the mockup's default); `deal=all` is every deal. Old addresses still work: `city` and `area` become places, and a house's `hmin`/`hmax` become its area.
+- **A bare `/real-estate` is "Buy"** (the mockup's default; the owner confirmed it after the deploy, 2026-11-14); `deal=all` is every deal. Old addresses still work: `city` and `area` become places, and a house's `hmin`/`hmax` become its area.
 - **"House area" is the list's area** for houses and cottages: on production the two agree on all 775 houses whose own page gives both, and the list's covers every house (44,648). Yard area stays a listing-page filter (740 of 44,648 houses) and says so in its panel.
 - **Floor** is offered for flats and commercial spaces (and with no kind), no longer for houses, land and hotels, as the plan says. Rooms, status and condition now work with no kind chosen, as in the mockup.
 - **Area presets** depend on the kind (a plot in hundreds of m²); the mockup had one set.
