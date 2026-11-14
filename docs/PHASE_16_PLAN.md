@@ -2,7 +2,7 @@
 
 Three designs the owner approved as HTML mockups on 2026-11-14, to be built into the site. Kept as a tracker once building starts.
 
-- **Status: 16A built** on branch `phase-16a-theme` (2026-11-14), its gate checked in a browser; 16B and 16C not started.
+- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); 16B and 16C not started.
 - **The mockups are the visual source of truth.** They live outside the repo, on the owner's PC, in `C:\Users\Giorgi Teliashvili\Desktop\xtelo-mockups\`. To view them, run `python -m http.server 8765 --bind 127.0.0.1` in that folder and open `http://127.0.0.1:8765/home-v2.html`. Stop the server afterwards.
   - `real-estate-filters-v2.html` with `real-estate-filters-data.js`: Real estate filters, **approved**. It uses synthetic listings drawn from real distributions; the sub-districts, streets and stations are real.
   - `browse-v2.html` with `browse-data.js`: Browse, **approved**. It uses a real read-only sample of the live catalogue: 460 random open jobs, all 61 open tenders, 272 courses.
@@ -26,7 +26,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
-| ⏳ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | its PR's CI, then a web-only deploy |
+| ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
 | ❌ | **16B** | Real estate filters v2 | yes | 16A |
 | ❌ | **16C** | Browse v2 | yes | 16A |
 | ❌ | **16D** | (Optional) a field for jobs.ge vacancies, guessed from the title and labelled as a guess | later | the owner's go |
@@ -65,7 +65,8 @@ The v2 designs use the browse family everywhere. `html` is fixed to `color-schem
 - ✅ `scrollWidth` equals `clientWidth` on all 200. No console errors (the not-found page logs only its own 404).
 - ✅ Contrast checked on every text colour against its background: every text element on every load (101,000 to 165,000 per surface), composited over its real ground, none under 4.5:1 (3:1 for large text); the check was shown to catch a planted lime word on light (1.05:1). axe (WCAG 2.1 AA, `test:e2e:surfaces`) finds nothing on the public pages, now light by default.
 - ✅ A first visit is light. The choice survives a reload and a new tab; Space on the focused switch toggles it; the cookie is `SameSite=Lax` for 365 days. No flash on load: with the CPU throttled 6×, the first frame painted after a red start page is already the chosen theme's ground, in both themes.
-- ✅ `web-design-guidelines` review clean (one fix: the phone menu contains its scroll). Surface-boundary review: no defect. Tests: 2,735 pass locally; ❌ CI on the PR.
+- ✅ `web-design-guidelines` review clean (one fix: the phone menu contains its scroll). Surface-boundary review: no defect. Tests: 2,735 pass locally; ✅ CI green on PR #111.
+- ✅ Deployed web-only 2026-11-14 11:23 to 11:25 UTC (`.git/handoff-16a/deploy-16a.sh`; no migration, the ss.ge crawl left running on its own release, so old releases not pruned yet). Both sites ready, health check ok. On jobster.fun, five pages at 390 and 1280 with no cookie: light, the switch present, no overflow, no console error; a click sets a `Secure`, `SameSite=Lax` cookie and dark survives a reload.
 
 **Changed while building (2026-11-14):**
 - The header is built as the mockups draw it, in both themes: the links as plain ink words with the current page an ink pill, then the switch and the language. Today's olive blocks are gone. On the public site the links now fit inline from 900px wide (they were in the menu below 1,560px); the local bar's eleven links fit from 1,640px in English and 2,230px in Georgian, measured.

@@ -379,16 +379,16 @@ Sequence (ss.ge's run must have ended; deploy window 13:40 to 20:30 UTC). Change
 1. One polite GET of `/courses/` from the host, to confirm it still answers.
 2. Deploy: backup, migrate 0054, `apply-db-roles.sh grants`, repoint, probe.
 3. Start the first run by hand straight after, about 13:50 UTC. It ends near 16:30, so that evening's vacancies land above the courses in Browse.
-4. Enable `xtelo-pipeline@summerschoolsineurope-eu.timer` after 16:20 UTC the next day.
+4. Enable `xtelo-pipeline@summerschoolsineurope-eu.timer` after 16:20 UTC the next day. Changed 2026-11-14: the first run ended at 11:06 UTC, hours before the 16:10 slot, so the timer was enabled at 11:30 UTC the same day (`Persistent=true` with no stamp yet, so nothing started at once); waiting a day would have shown the courses as late on the landing board for two days. First timer run 2026-11-14 16:19 UTC.
 
 Effect on the others: the daily run holds its crawl lock for about 20 minutes, during which another pipeline's retention step skips by design; dedupe and the bundle build run once more a day.
 
 Exit gate:
-- [ ] First run completed: counts against the site's `total_rows`, 0 quarantined, the Hermes event sent.
-- [ ] `health:check` exit 0; 0 active listings unlinked; the vacancy bundle built that day.
+- [x] First run completed: counts against the site's `total_rows`, 0 quarantined, the Hermes event sent. Run `f55df969`, 07:39 to 10:56 UTC, `completed`, full coverage: 625 discovered (the site's 625), 625 new, 0 quarantined, 0 failed, 2 expired (started courses); 623 active. Dedupe, taxonomy, bundle and retention exit 0; the pipeline ended `success` at 11:06; the Hermes event (`xtelo.pipeline.finished`) was delivered at 11:06:14 (HTTP 200).
+- [x] `health:check` exit 0; 0 active listings unlinked; the vacancy bundle built that day. All seven checks ok (11:20 UTC); 0 unlinked on every source; bundle `b9eb3104` activated at 11:06 (8,075 opportunities, with title vectors).
 - [ ] Morning after: the timer run completed, and in how many minutes. Retention ran at least once on each of the first three days; if not, a separate timer becomes a follow-up.
 - [ ] First week: no 403, 429 or challenge in the journal.
-- [ ] Live at 390 and 1280: courses under their Kind in Browse, and a course page.
+- [x] Live at 390 and 1280: courses under their Kind in Browse, and a course page. Checked 2026-11-14 on jobster.fun: Kind "course / school" gives 623 matches; a course page shows its kind tag, dates, place, language, credits and the link to the school's page; no console error, no horizontal overflow. Noted, older than 15C: at 390 a detail page's "What the source states" table is 24rem wide inside a 343px scroll box, so long values are cut at the right edge until swiped (jobs too).
 
 ### 15D: Eurodesk acquisition (not hosted)
 
