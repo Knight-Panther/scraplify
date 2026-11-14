@@ -1,81 +1,46 @@
+import { browseView } from '../../../../../src/browse/browse-engine.js';
 import {
-  publicCountOpportunities,
-  publicLastSeen,
-  publicSearchOpportunities,
-  publicSourceOverview,
-} from '../../../../../src/browse/public-queries.js';
-import {
-  countOpportunities,
-  getSourceHealth,
-  searchOpportunities,
-} from '../../../../../src/browse/queries.js';
+  type BrowseForm,
+  clearFilter,
+  formHref,
+  formSearch,
+} from '../../../../../src/browse/browse-form.js';
+import { publicLastSeen, publicSourceOverview } from '../../../../../src/browse/public-queries.js';
+import { getSourceHealth } from '../../../../../src/browse/queries.js';
 import { suggestSearch } from '../../../../../src/browse/search-terms.js';
 import { db } from '../../../../../src/db/client.js';
 import { decisionsByOpportunity } from '../../../../../src/shortlist/decisions.js';
-import { DecisionControl } from '../../../../components/decision-control.js';
-import { KindTag } from '../../../../components/kind-tag.js';
-import { StatusChip } from '../../../../components/status-chip.js';
-import {
-  absoluteTime,
-  count,
-  relativeTime,
-  sourceDate,
-  sourceDateTime,
-} from '../../../../lib/format.js';
-import { listingStatusLabel, opportunityTypeLabel, sourceLabel } from '../../../../lib/labels.js';
-import { type OpportunityRow, toRow } from '../../../../lib/opportunity-row.js';
-import {
-  appliedFilters,
-  buildHref,
-  buildQueryString,
-  type OpportunityQuery,
-  parseOpportunityQuery,
-  type RawSearchParams,
-  ROW_CHUNK,
-  SORTS,
-} from '../../../../lib/search-params.js';
-import { currentSurface, type Surface } from '../../../../lib/surface.js';
+import { AppliedFilters, CountLine } from '../../../../components/browse/applied.js';
+import { FilterBar } from '../../../../components/browse/filter-bar.js';
+import { Results } from '../../../../components/browse/results.js';
+import { BrowseShell, PendingBar, PendingResults } from '../../../../components/browse/shell.js';
+import { browseData, isFiltered } from '../../../../lib/browse-data.js';
+import { browseItems } from '../../../../lib/browse-index-cache.js';
+import { parseBrowseQuery } from '../../../../lib/browse-params.js';
+import { fmt, kindWord, titleOf } from '../../../../lib/browse-registry.js';
+import { relativeTime } from '../../../../lib/format.js';
+import { sourceLabel } from '../../../../lib/labels.js';
+import type { RawSearchParams } from '../../../../lib/search-params.js';
+import { currentSurface } from '../../../../lib/surface.js';
 import { lastCompletedSync } from '../../../../lib/sync.js';
-import { FacetRail } from './facet-rail.js';
-import { StickyFilterBar } from './sticky-filter-bar.js';
 
 /**
- * The deduplicated list — the screen someone opens daily and scans.
+ * Browse v2 (Phase 16C, the approved mockup): vacancies, tenders and courses,
+ * one row per opportunity with every board that carries it.
  *
- * It lives in a `(list)` route group, which changes no URL and exists for one
- * reason: `loading.tsx` applies to a segment AND everything nested under it,
- * so while this file sat directly in `opportunities/`, its loading fallback
- * wrapped `opportunities/[id]` too. See the detail screen's `notFound()` note
- * in git history for why that matters. The group scopes this screen's loading
- * UI to this screen. (next/docs: "Status Codes", loading.mdx.)
+ * It lives in a `(list)` route group so its `loading.tsx` does not wrap the
+ * detail page (`opportunities/[id]`).
  *
- * **State lives in the URL, not in React.** Every filter — search text,
- * board, state, first-seen window, deadline window, cross-posted — is one
- * `<form method="get">` covering the sticky search row and the facet rail
- * together, so a filtered view is still a plain link, the back button still
- * works, and every render is one straight server query. The only client
- * JavaScript on this screen is presentational: the sticky bar's scroll
- * collapse (`sticky-filter-bar.tsx`) and the mobile filter sheet, which uses
- * the native Popover API and needs none at all.
- *
- * Absent fields are simply absent. jobs.ge states no employer on many
- * listings and no salary on any, so a row must never show an empty slot or a
- * column of dashes — "this source does not have that field" is the normal
- * case here.
+ * The address is the whole state. The filter bar runs in the browser and
+ * asks for the next address on each change; this page answers it from the
+ * in-memory index (`src/browse/browse-index.ts`, rebuilt each minute): the
+ * rows, and every count the bar shows. A filter on a fact only some listings
+ * state says how many it leaves out, and from which board, and can keep them.
  */
 
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: 'Opportunities · Xtelo' };
-
-const SORT_LABELS: Record<(typeof SORTS)[number], { label: string; hint: string }> = {
-  recent: {
-    label: 'newest first',
-    hint: 'By when it first appeared on any source — not by when this record was last touched.',
-  },
-  deadline: { label: 'closing soonest', hint: 'By the latest deadline any source states.' },
-  title: { label: 'by title', hint: 'Alphabetical.' },
-};
+export const metadata = { title: 'Browse · Xtelo' };
 
 export default async function OpportunitiesPage({
   searchParams,
@@ -83,562 +48,184 @@ export default async function OpportunitiesPage({
   searchParams: Promise<RawSearchParams>;
 }) {
   const raw = await searchParams;
-  const surface = currentSurface();
+  const surface = currentSurface() === 'public' ? 'public' : 'local';
+  const form = parseBrowseQuery(raw, surface);
+  const nowMs = Date.now();
 
-  // The source list comes from the database rather than a hardcoded pair, so
-  // adding a third board does not leave a filter silently missing it. Surface-
-  // aware: `getSourceHealth` reads crawl-run diagnostics the public database
-  // role has no grant on at all (Phase 8B Stage 4) — `publicSourceOverview`
-  // is its narrower public equivalent, grouped from `public_opportunity_members`.
-  // `lastSyncLabel` is deliberately not always "synced": `publicLastSeen` is
-  // only the newest per-listing confirmation the public role can see (one
-  // incrementally-confirmed listing can advance it with most of the
-  // catalogue still stale), while `lastCompletedSync` is a real full-coverage
-  // crawl completion — calling both "synced" would assert a guarantee the
-  // public value has no way to back (Codex, 2026-09-24).
-  const { slugs, lastSync, lastSyncLabel } =
+  // The eyebrow's freshness. Public: the newest confirmation the public role
+  // can see ("last confirmed"); local: a real full-coverage crawl ("synced").
+  const [items, freshness] = await Promise.all([
+    browseItems(surface),
     surface === 'public'
-      ? await (async () => {
-          const overview = await publicSourceOverview(db);
-          return {
-            slugs: overview.map((s) => s.sourceSlug),
-            lastSync: publicLastSeen(overview),
-            lastSyncLabel: 'last confirmed',
-          };
-        })()
-      : await (async () => {
-          const health = await getSourceHealth(db);
-          return {
-            slugs: health.map((s) => s.sourceSlug),
-            lastSync: lastCompletedSync(health),
-            lastSyncLabel: 'synced',
-          };
-        })();
+      ? publicSourceOverview(db).then((overview) => ({
+          slugs: overview.map((s) => s.sourceSlug),
+          at: publicLastSeen(overview),
+          word: 'last confirmed',
+        }))
+      : getSourceHealth(db).then((health) => ({
+          slugs: health.map((s) => s.sourceSlug),
+          at: lastCompletedSync(health),
+          word: 'synced',
+        })),
+  ]);
 
-  const query = parseOpportunityQuery(raw, slugs);
-  // One shared instant for both calls below, same reason the landing hero
-  // shares its own `genuinelyOpenAsOf`: `publicOpportunityConditions` now
-  // enforces public eligibility unconditionally (Codex, 2026-09-24), and two
-  // separate `new Date()` calls a query apart could let `total` and the
-  // fetched rows disagree right at a deadline boundary.
-  const publicFilters =
-    surface === 'public'
-      ? { ...query.filters, genuinelyOpenAsOf: new Date().toISOString() }
-      : query.filters;
-
-  const total =
-    surface === 'public'
-      ? await publicCountOpportunities(db, publicFilters)
-      : await countOpportunities(db, query.filters);
-  // Clamped to what actually matches, so "how deep can this list go" has no
-  // arbitrary answer — it goes as deep as there are rows.
-  const opportunities = await fetchRows(surface, query, Math.min(query.show, total), publicFilters);
-
-  const rows = opportunities.map(toRow);
-
-  // A search that finds nothing may be one misspelt word away from one that
-  // does. Offered as a link, never applied silently, and only when the
-  // corrected search, with every other filter kept, actually finds something.
-  const corrected = total === 0 && query.form.q !== '' ? suggestSearch(query.form.q) : null;
-  const suggestion =
-    corrected === null
-      ? null
-      : (surface === 'public'
-            ? await publicCountOpportunities(db, { ...publicFilters, text: corrected })
-            : await countOpportunities(db, { ...query.filters, text: corrected })) > 0
-        ? { text: corrected, href: buildHref(query, { form: { q: corrected } }) }
-        : null;
-  // No shortlist on the public surface at all — Save/Dismiss/Undo are local-
-  // only Server Actions (Stage 2's assertLocalSurface()), and decisionsByOpportunity
-  // reads opportunity_decisions, a table the public database role has no
-  // grant on.
+  const view = browseView(items, form, { nowMs, surface });
+  const rows = view.rows.slice(0, form.show);
+  const orgKinds: Record<string, string> = {};
+  for (const org of form.org) {
+    const item = items.find((i) => i.orgs.includes(org));
+    if (item?.kind) orgKinds[org] = item.kind;
+  }
+  const data = browseData(view, surface, orgKinds);
   const decisions =
     surface === 'public'
       ? new Map<string, { decision: 'saved' | 'dismissed'; note: string | null }>()
       : await decisionsByOpportunity(
           db,
-          rows.map((row) => row.opportunityId),
+          rows.map((row) => row.id),
         );
+  const unstated = new Set(view.unstated);
+  const firstUnstated = rows.findIndex((row) => unstated.has(row.id));
 
-  // More matches exist than are rendered. Never silent: the bottom of the
-  // list says so and offers the next chunk.
-  const more = total - rows.length;
-  // Built once and handed to every row: the filters and sort a reader is
-  // looking at, so the detail screen can bring them back here unchanged.
-  const back = buildQueryString(query);
-
-  const chips = appliedFilters(
-    query,
-    sourceLabel,
-    (status) => listingStatusLabel(status).short,
-    (type) => opportunityTypeLabel(type).short,
-  );
-  const activeFacetCount =
-    (query.form.source === '' ? 0 : 1) +
-    query.form.statuses.length +
-    query.form.types.length +
-    (query.form.since === '' ? 0 : 1) +
-    (query.form.closing === '' ? 0 : 1) +
-    (query.form.crossPosted ? 1 : 0);
-
-  // A real id rather than a nested <form>: the results table below contains
-  // its own per-row write forms (DecisionControl's Save/Dismiss/Undo), and
-  // nesting a form inside a form is invalid HTML — a browser may reparent or
-  // discard the inner one, which would make Save/Dismiss submit this GET
-  // form instead of invoking their server action. FacetRail's own inputs
-  // live inside the grid below, outside this form's DOM subtree, and
-  // associate with it via `form={FILTER_FORM_ID}` on each one instead.
-  const FILTER_FORM_ID = 'opportunities-filters';
+  // A search that finds nothing may be one misspelt word away from one that does.
+  const corrected = view.total === 0 && form.q !== '' ? suggestSearch(form.q) : null;
+  const suggestion =
+    corrected === null
+      ? null
+      : (() => {
+          const fixed: BrowseForm = { ...form, q: corrected };
+          return browseView(items, fixed, { nowMs, surface }).total > 0
+            ? { text: corrected, href: formHref(fixed) }
+            : null;
+        })();
 
   return (
-    <main className="w-full">
-      <form id={FILTER_FORM_ID} method="get" action="/opportunities">
-        <input type="hidden" name="sort" value={query.sort} />
-
-        <StickyFilterBar
-          title={
-            <div className="px-4 sm:px-0">
-              <p className="numeric text-xs text-accent uppercase">
-                {/* `tracking-*` on a <p> is dead: globals.css's unlayered
-                    `p { letter-spacing: normal }` (added for Georgian
-                    headings) beats Tailwind's layered utility regardless of
-                    specificity — confirmed in the compiled stylesheet, not
-                    assumed. Carried on this inner span instead, same fix
-                    applied throughout the Phase 3E landing hero. */}
-                <span className="tracking-[0.1em]">
-                  {slugs.map(sourceLabel).join(' + ')}
-                  {lastSync !== undefined && (
-                    <>
-                      {' '}
-                      · {lastSyncLabel} {relativeTime(lastSync)}
-                    </>
-                  )}
-                </span>
-              </p>
-              <h1 className="mt-1 font-[family-name:var(--font-display)] text-6xl leading-[0.9] text-foreground uppercase">
-                Browse
-              </h1>
-              <p className="mt-2 max-w-[var(--measure)] text-sm text-faint">
-                One row per vacancy, tender, course or other opportunity, with every source that
-                carries it.
-              </p>
-            </div>
-          }
-          search={
-            <div className="flex flex-wrap items-center gap-3 px-4 sm:px-0">
-              <label className="relative min-w-[12rem] flex-1">
-                <span className="sr-only">Search</span>
-                <input
-                  name="q"
-                  type="search"
-                  defaultValue={query.form.q}
-                  // Deliberately no maxLength: the attribute counts UTF-16
-                  // code units, so it would cut a multi-unit character in
-                  // half. The cap is applied server-side by grapheme instead.
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="title, employer or city…"
-                  className="h-[46px] w-full rounded-[var(--radius)] border border-border bg-surface px-3 text-sm text-foreground placeholder:text-faint"
-                />
-              </label>
-
-              <button
-                type="submit"
-                className="h-[46px] rounded-[var(--radius)] bg-brand px-5 text-sm font-bold text-ink hover:bg-brand-hover"
-              >
-                Apply
-              </button>
-
-              <button
-                type="button"
-                popoverTarget="mobile-filters"
-                className="h-[46px] min-w-[92px] rounded-[var(--radius)] border border-border bg-surface px-4 text-sm hover:bg-surface-raised lg:hidden"
-              >
-                Filters{activeFacetCount > 0 && ` ${activeFacetCount}`}
-              </button>
-
-              <SortControl query={query} />
-            </div>
-          }
-          chips={
-            <div className="flex flex-wrap items-center gap-3 px-4 sm:px-0">
-              {chips.length > 0 && (
-                <>
-                  <span className="text-xs text-faint">Applied</span>
-                  {chips.map((chip) => (
-                    <a
-                      key={chip.key}
-                      href={chip.href}
-                      className="flex items-center gap-1.5 rounded-full border border-border-control px-3 py-1 text-xs text-muted hover:border-accent-line hover:text-accent"
-                    >
-                      {chip.label}
-                      <XIcon />
-                    </a>
-                  ))}
-                  <a href="/opportunities" className="text-xs text-accent hover:underline">
-                    Clear all
-                  </a>
-                </>
-              )}
-              <p className="numeric ml-auto text-xs text-faint">
-                <span className="text-accent">{count(total)}</span>{' '}
-                {total === 1 ? 'match' : 'matches'}
-              </p>
-            </div>
-          }
+    <main className="mx-auto w-full max-w-[1440px] px-4 pt-4 pb-20 min-[900px]:pt-[22px] [&_a]:scroll-mt-40 [&_button]:scroll-mt-40">
+      <p className="numeric m-0 mb-0.5 text-xs text-faint">
+        <i
+          aria-hidden="true"
+          className="mr-1.5 inline-block size-[7px] rounded-full bg-accent-line align-[1px]"
         />
-      </form>
+        <span translate="no">{freshness.slugs.map(sourceLabel).join(' · ')}</span>
+        {freshness.at === undefined ? null : (
+          <>
+            {' '}
+            · {freshness.word} {relativeTime(freshness.at)}
+          </>
+        )}
+      </p>
+      <h1 className="m-0 text-[22px] font-semibold">Browse</h1>
+      <p className="mt-1 mb-0 hidden max-w-[74ch] text-sm text-faint min-[900px]:block">
+        Vacancies, tenders and courses, one row per opportunity, with every board that carries it.
+      </p>
 
-      <div className="grid lg:grid-cols-[276px_minmax(0,1fr)]">
-        <FacetRail query={query} slugs={slugs} formId={FILTER_FORM_ID} />
-
-        <div className="min-w-0 px-4 py-6 sm:px-6">
+      <BrowseShell form={form} data={data}>
+        <FilterBar />
+        <AppliedFilters />
+        <CountLine />
+        <PendingBar />
+        <PendingResults>
           {rows.length === 0 ? (
-            <EmptyState
-              filtered={chips.length > 0 || query.form.q !== ''}
+            <Empty
+              form={form}
+              drops={view.drops}
               suggestion={suggestion}
+              filtered={isFiltered(form)}
             />
           ) : (
             <>
-              <ResultsTable rows={rows} decisions={decisions} back={back} surface={surface} />
-              <ShowMore query={query} shown={rows.length} more={more} />
+              <Results
+                rows={rows}
+                firstUnstated={firstUnstated}
+                unstatedCount={view.unstated.length}
+                kind={form.kind}
+                back={formSearch(form)}
+                nowMs={nowMs}
+                surface={surface}
+                decisions={decisions}
+              />
+              <ShowMore form={form} shown={rows.length} total={view.rows.length} />
             </>
           )}
-        </div>
-      </div>
+        </PendingResults>
+      </BrowseShell>
     </main>
   );
 }
 
-/**
- * Reads `count` rows in ROW_CHUNK-sized queries.
- *
- * Batched rather than one big query so the shared query layer keeps its
- * original 500-row bound. Safe under OFFSET only because every ordering ends
- * in `opportunities.id` — without that tie-breaker Postgres may order tied
- * rows differently per query, and adjacent batches would overlap and skip.
- */
-async function fetchRows(
-  surface: Surface,
-  query: OpportunityQuery,
-  count: number,
-  baseFilters: OpportunityQuery['filters'] = query.filters,
-) {
-  const collected = [];
-  for (let offset = 0; offset < count; offset += ROW_CHUNK) {
-    const filters = {
-      ...baseFilters,
-      sort: query.sort,
-      limit: Math.min(ROW_CHUNK, count - offset),
-      offset,
-    };
-    const batch =
-      surface === 'public'
-        ? await publicSearchOpportunities(db, filters)
-        : await searchOpportunities(db, filters);
-    collected.push(...batch);
-    if (batch.length === 0) break;
-  }
-  return collected;
-}
-
-/**
- * Sort as links rather than a submitted control, so choosing one applies
- * immediately without a round trip through the Apply button — and keeps the
- * whole screen navigable without JavaScript.
- */
-function SortControl({ query }: { query: OpportunityQuery }) {
-  return (
-    <nav aria-label="Sort" className="flex items-baseline gap-x-1 text-sm">
-      <span className="text-faint">Sort</span>
-      {SORTS.map((sort) => {
-        const active = sort === query.sort;
-        return (
-          <a
-            key={sort}
-            href={buildHref(query, { sort })}
-            aria-current={active ? 'true' : undefined}
-            title={SORT_LABELS[sort].hint}
-            className={
-              active
-                ? 'rounded-[var(--radius)] bg-brand px-2 py-1 font-semibold text-ink'
-                : 'rounded-[var(--radius)] px-2 py-1 text-muted hover:bg-surface hover:text-foreground'
-            }
-          >
-            {SORT_LABELS[sort].label}
-          </a>
-        );
-      })}
-    </nav>
-  );
-}
-
-/**
- * Desktop rows, mobile cards, in one `<table>`.
- *
- * A real table, not styled `<div>`s: `data-density.md` asks for the row
- * primitive here, and it is what gives the row/column semantics a screen
- * reader needs. The card look below `lg` comes from hiding the header and
- * letting each cell stack full-width — same DOM, no second markup to keep in
- * sync.
- */
-function ResultsTable({
-  rows,
-  decisions,
-  back,
-  surface,
-}: {
-  rows: OpportunityRow[];
-  decisions: Map<string, { decision: 'saved' | 'dismissed'; note: string | null }>;
-  back: string;
-  surface: Surface;
-}) {
-  return (
-    <table className="block w-full border-collapse text-sm lg:table lg:table-fixed">
-      <thead className="hidden lg:table-header-group">
-        <tr className="border-b border-border text-left text-xs text-faint">
-          <Th className="w-[46%]">Opportunity</Th>
-          <Th className="w-[18%]">Boards</Th>
-          <Th className="w-[14%]">Closes</Th>
-          {surface !== 'public' && <Th className="w-[22%]" />}
-        </tr>
-      </thead>
-      <tbody className="block lg:table-row-group">
-        {rows.map((row, index) => (
-          <Row
-            key={row.opportunityId}
-            row={row}
-            position={index + 1}
-            decision={decisions.get(row.opportunityId) ?? null}
-            back={back}
-            surface={surface}
-          />
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function Th({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return (
-    <th scope="col" className={`py-2 pr-4 font-normal ${className ?? ''}`}>
-      {children}
-    </th>
-  );
-}
-
-function Row({
-  row,
-  position,
-  decision,
-  back,
-  surface,
-}: {
-  row: OpportunityRow;
-  /** 1-based position in the current result set, for `ShowMore`'s scroll anchor. */
-  position: number;
-  decision: { decision: 'saved' | 'dismissed'; note: string | null } | null;
-  /** This view's query string, so the detail screen can link back to it. */
-  back: string;
-  surface: Surface;
-}) {
-  const href = `/opportunities/${row.opportunityId}?${new URLSearchParams({ back })}`;
-
-  return (
-    <tr
-      id={`opp-${row.opportunityId}`}
-      className="group block border-b border-border py-4 align-top hover:bg-surface-raised/60 lg:table-row lg:py-0"
-    >
-      {/* A second, positional id on the first cell rather than the row's own
-          `opp-<id>` id: the detail screen's back-link depends on that one
-          (`opportunities/[id]/page.tsx`'s `#opp-<id>` anchor) and cannot be
-          repurposed, but `ShowMore` below needs to jump to "row N" before it
-          knows which opportunity will land there. */}
-      <td id={`row-${position}`} className="block py-1 pr-4 lg:table-cell lg:py-4">
-        <p className="numeric flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-faint">
-          <KindTag type={row.type} />
-          <StatusChip status={row.status} />
-          {row.firstSeen !== null && (
-            <time dateTime={row.firstSeen} title={absoluteTime(row.firstSeen)}>
-              first seen {relativeTime(row.firstSeen)}
-            </time>
-          )}
-        </p>
-        <a href={href} className="mt-1 block font-medium text-foreground hover:text-accent">
-          {row.title}
-        </a>
-        {row.employers.length > 0 && (
-          <p className="mt-0.5 truncate text-muted" title={row.employers.join(' · ')}>
-            {row.employers.join(' · ')}
-          </p>
-        )}
-      </td>
-
-      <td className="block py-1 pr-4 lg:table-cell lg:py-4 lg:align-top">
-        <SourceLinks row={row} />
-      </td>
-
-      <td className="block py-1 pr-4 lg:table-cell lg:py-4 lg:align-top">
-        <Deadline row={row} />
-      </td>
-
-      {surface !== 'public' && (
-        <td className="block py-2 lg:table-cell lg:py-4 lg:align-top lg:opacity-35 lg:transition-[opacity,transform] lg:duration-150 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:[transform:translateX(6px)] lg:group-hover:[transform:translateX(0)] lg:group-focus-within:[transform:translateX(0)]">
-          <DecisionControl
-            opportunityId={row.opportunityId}
-            decision={decision?.decision ?? null}
-            note={decision?.note ?? null}
-          />
-        </td>
-      )}
-    </tr>
-  );
-}
-
-/**
- * A link per board, which is also how cross-posting is shown: two links means
- * two boards carry this vacancy. When a board's own listing state differs
- * from the cluster's, that state is printed next to the link as visible text
- * rather than left in a tooltip, which is unavailable on touch.
- */
-function SourceLinks({ row }: { row: OpportunityRow }) {
-  if (row.sources.length === 0) {
-    return <span className="text-xs text-faint">no live listing</span>;
-  }
-  return (
-    <span className="flex flex-wrap gap-1.5">
-      {row.sources.map((source) => {
-        const differs = source.status !== row.status;
-        return (
-          <a
-            key={source.sourceSlug}
-            href={source.url}
-            target="_blank"
-            rel="noreferrer"
-            // A board name is an identifier, not prose; machine translation
-            // mangles "jobs.ge" into something that no longer names anything.
-            translate="no"
-            aria-label={`${row.title} on ${sourceLabel(source.sourceSlug)}${
-              differs ? `, ${listingStatusLabel(source.status).short} on this board` : ''
-            } (opens in a new tab)`}
-            // A long source name (summerschoolsineurope.eu) has no break
-            // point: it ends in an ellipsis inside its column, named in full here.
-            title={
-              differs
-                ? listingStatusLabel(source.status).explanation
-                : sourceLabel(source.sourceSlug)
-            }
-            className="numeric min-w-0 max-w-full truncate rounded-full border border-border-control px-2.5 py-1 text-xs text-muted hover:border-accent-line hover:text-accent"
-          >
-            {sourceLabel(source.sourceSlug)}
-            {differs && ` · ${listingStatusLabel(source.status).short}`}
-          </a>
-        );
-      })}
-    </span>
-  );
-}
-
-function Deadline({ row }: { row: OpportunityRow }) {
-  if (row.deadline === null) return <span className="text-faint">—</span>;
-  return (
-    <>
-      {/* The board's calendar date, not "in 3 hours" — jobs.ge states a date
-          with no time, so a relative rendering would assert a precision the
-          source never gave. */}
-      <time className="numeric" dateTime={row.deadline} title={sourceDateTime(row.deadline)}>
-        {sourceDate(row.deadline)}
-      </time>
-      {row.deadlinesDisagree && (
-        <span
-          className="mt-0.5 block text-xs text-status-unconfirmed"
-          title="The boards state different closing dates. The later one is shown."
-        >
-          boards differ
-        </span>
-      )}
-    </>
-  );
-}
-
-function EmptyState({
-  filtered,
+/** Nothing matches: which filter to drop, with what each drop would show. */
+function Empty({
+  form,
+  drops,
   suggestion,
+  filtered,
 }: {
-  filtered: boolean;
+  form: BrowseForm;
+  drops: ReturnType<typeof browseView>['drops'];
   suggestion: { text: string; href: string } | null;
+  filtered: boolean;
 }) {
-  return (
-    <p className="rounded-[var(--radius)] border border-border bg-surface px-4 py-6 text-sm text-muted">
-      {filtered ? (
-        <>
-          No opportunity matches these filters.{' '}
-          {suggestion !== null && (
-            <>
-              Did you mean{' '}
-              <a className="text-accent underline underline-offset-2" href={suggestion.href}>
-                {suggestion.text}
-              </a>
-              ?{' '}
-            </>
-          )}
-          <a className="text-accent underline underline-offset-2" href="/opportunities">
-            Clear them
-          </a>{' '}
-          to see everything.
-        </>
-      ) : (
-        'There are no opportunities yet. They appear once a crawl has run and listings have been grouped.'
-      )}
-    </p>
-  );
-}
-
-/**
- * The bottom of the list: what is on screen, what is not, and a link to more.
- *
- * A link rather than a button, so it works without JavaScript, opens in a new
- * tab on middle-click, and leaves the depth in the URL where the rest of this
- * screen's state already lives.
- */
-function ShowMore({
-  query,
-  shown,
-  more,
-}: {
-  query: OpportunityQuery;
-  shown: number;
-  more: number;
-}) {
-  if (more <= 0) return null;
-  const next = Math.min(query.show + ROW_CHUNK, shown + more);
-
-  return (
-    <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-sm">
-      <a
-        className="block rounded-[var(--radius)] border border-border-strong bg-surface-raised px-4 py-2.5 text-center hover:bg-surface-active sm:inline-block"
-        href={`${buildHref(query, { show: next })}#row-${shown + 1}`}
-      >
-        Show <span className="numeric">{count(Math.min(ROW_CHUNK, more))}</span> more
-      </a>
-      <p className="text-faint">
-        <span className="numeric">{count(shown)}</span> of{' '}
-        <span className="numeric">{count(shown + more)}</span> shown
+  if (!filtered) {
+    return (
+      <p className="mt-[22px] max-w-[70ch] rounded-2xl border border-dashed border-border-hover p-5 text-sm text-muted">
+        There is nothing of this kind open right now. Rows appear once a crawl has run and listings
+        have been grouped.
       </p>
+    );
+  }
+  return (
+    <div className="mt-[22px] max-w-[70ch] rounded-2xl border border-dashed border-border-hover p-5">
+      <h2 className="m-0 mb-1 text-base font-semibold">Nothing matches all of these.</h2>
+      {suggestion === null ? null : (
+        <p className="m-0 mb-3 text-sm text-faint">
+          Did you mean{' '}
+          <a className="text-accent underline underline-offset-2" href={suggestion.href}>
+            {suggestion.text}
+          </a>
+          ?
+        </p>
+      )}
+      <p className="m-0 mb-3 text-sm text-faint">
+        {drops.length > 0 ? 'Dropping one filter would show:' : 'Try another kind.'}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {drops.map((drop) => (
+          <a
+            key={drop.key}
+            href={formHref(clearFilter(form, drop.key))}
+            className="inline-flex items-center gap-2 rounded-[var(--radius)] border border-border-strong bg-surface px-3.5 py-[7px] text-sm whitespace-nowrap no-underline hover:border-border-hover"
+          >
+            Without{' '}
+            {drop.key === 'q'
+              ? 'the search'
+              : drop.key === 'org'
+                ? 'the organisation'
+                : titleOf(drop.key, form.kind).toLowerCase()}
+            <span className="numeric text-xs text-faint">{fmt(drop.n)}</span>
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
 
-function XIcon() {
+/** The bottom of the list: what is shown, what is not, and a link to more. */
+function ShowMore({ form, shown, total }: { form: BrowseForm; shown: number; total: number }) {
+  const more = total - shown;
+  if (more <= 0) return null;
+  const next = form.show + Math.min(40, more);
   return (
-    <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
-      <path
-        d="M1 1l9 9M10 1l-9 9"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        fill="none"
-      />
-    </svg>
+    <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-sm">
+      <a
+        className="inline-flex items-center rounded-[var(--radius)] border border-border-strong bg-surface px-3.5 py-[7px] no-underline hover:border-border-hover"
+        href={`${formHref({ ...form, show: next })}#row-${shown + 1}`}
+      >
+        Show <span className="numeric mx-1">{fmt(Math.min(40, more))}</span> more
+      </a>
+      <p className="m-0 text-faint">
+        <span className="numeric">{fmt(shown)}</span> of{' '}
+        <span className="numeric">{fmt(total)}</span> {kindWord(form.kind, total)} shown
+      </p>
+    </div>
   );
 }

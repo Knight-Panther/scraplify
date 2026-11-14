@@ -24,6 +24,7 @@ import {
   YARD_PRESETS,
 } from '../../lib/real-estate-registry.js';
 import { Icon, type IconName } from './icons.js';
+import { Chip, DualSlider, NumberField, Note, nice, Seg } from '../filter-ui.js';
 import { useShell } from './shell.js';
 
 /*
@@ -34,106 +35,7 @@ import { useShell } from './shell.js';
 
 type Facets = Partial<Record<string, FacetResult | null>>;
 
-const CHIP_TEXT =
-  'inline-flex flex-1 items-baseline justify-center gap-1.5 whitespace-nowrap rounded-[var(--radius)] border border-border-strong bg-surface px-3 py-[5px] text-sm transition-[background-color,border-color,transform] duration-100 motion-reduce:transition-none group-hover:border-border-hover group-active:scale-[0.97] peer-checked:border-brand peer-checked:bg-brand peer-checked:font-semibold peer-checked:text-ink peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring';
-
-/** One choice: a hidden radio or checkbox under a chip, so the keyboard and screen readers get the real control. */
-function Chip({
-  type,
-  name,
-  checked,
-  onChange,
-  label,
-  count,
-  icon,
-  className = '',
-}: {
-  type: 'radio' | 'checkbox';
-  name: string;
-  checked: boolean;
-  onChange: () => void;
-  label: string;
-  /** Undefined: no count for this option; null: not known yet. */
-  count?: number | null | undefined;
-  icon?: IconName | undefined;
-  className?: string;
-}) {
-  const none = count === 0 && !checked;
-  return (
-    <label className={`group relative inline-flex ${className}`}>
-      <input
-        type={type}
-        name={name}
-        checked={checked}
-        onChange={onChange}
-        className="peer absolute inset-0 m-0 cursor-pointer opacity-0"
-      />
-      <span className={`${CHIP_TEXT} ${none ? 'border-dashed text-faint' : ''}`}>
-        {icon === undefined ? null : <Icon name={icon} className="size-4 self-center" />}
-        {label}
-        {count === undefined ? null : (
-          <>
-            <span
-              aria-hidden="true"
-              className={`numeric text-[11px] ${checked ? 'text-ink/70' : 'text-faint'}`}
-            >
-              {count === null ? '' : fmt(count)}
-            </span>
-            {count === null ? null : <span className="sr-only">, {fmt(count)} listings</span>}
-          </>
-        )}
-      </span>
-    </label>
-  );
-}
-
-/** A segmented switch, one choice of a few. */
-export function Seg<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-  big = false,
-  stretch = false,
-}: {
-  label: string;
-  options: readonly (readonly [T, string])[];
-  value: T;
-  onChange: (value: T) => void;
-  big?: boolean;
-  stretch?: boolean;
-}) {
-  const name = useId();
-  return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className={`${stretch ? 'flex w-full' : 'inline-flex'} max-w-full gap-0.5 rounded-[calc(var(--radius)+3px)] border border-border-strong bg-surface p-[3px]`}
-    >
-      {options.map(([option, text]) => (
-        <label key={option} className="group relative flex-1">
-          <input
-            type="radio"
-            name={name}
-            value={option}
-            checked={value === option}
-            onChange={() => onChange(option)}
-            className="peer absolute inset-0 m-0 cursor-pointer opacity-0"
-          />
-          <span
-            className={`block whitespace-nowrap rounded-[var(--radius)] text-center text-muted transition-colors duration-150 motion-reduce:transition-none group-hover:text-foreground peer-checked:bg-brand peer-checked:font-semibold peer-checked:text-ink peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring ${
-              big
-                ? 'px-2 py-[7px] text-[15px] min-[900px]:px-[18px]'
-                : 'px-2 py-[5px] text-sm min-[900px]:px-3.5'
-            }`}
-          >
-            {text}
-          </span>
-        </label>
-      ))}
-    </div>
-  );
-}
+export { Note, Seg };
 
 export function DealSeg({ stretch = false }: { stretch?: boolean }) {
   const { form, update } = useShell();
@@ -182,7 +84,7 @@ export function KindChips({ facets, onPicked }: { facets: Facets; onPicked?: () 
             onPicked?.();
           }}
           label={label}
-          icon={KIND_ICONS[kind]}
+          icon={<Icon name={KIND_ICONS[kind] ?? 'any'} className="size-4 self-center" />}
           count={kind === '' ? total : counts === null ? null : (counts[kind] ?? 0)}
         />
       ))}
@@ -297,52 +199,6 @@ export const FACET_OF: Readonly<Partial<Record<FilterKey, string>>> = {
   other: 'amenities',
   ptype: 'listingType',
 };
-
-export function Note({ children, warn = false }: { children: React.ReactNode; warn?: boolean }) {
-  return (
-    <p className={`mt-2 max-w-[62ch] text-[13px] ${warn ? 'text-warn' : 'text-faint'}`}>
-      {children}
-    </p>
-  );
-}
-
-const INPUT =
-  'numeric w-full rounded-[var(--radius)] border border-border-strong bg-surface px-[11px] py-[7px] text-sm placeholder:text-faint hover:border-border-hover';
-
-/** A typed whole number; shown with thousands separators once the field is left. */
-function NumberField({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  const [focused, setFocused] = useState(false);
-  const shown = focused || value === '' ? value : fmt(Number(value));
-  return (
-    <label className="flex flex-col gap-1 text-xs text-faint">
-      {label}
-      <input
-        type="text"
-        inputMode="numeric"
-        autoComplete="off"
-        placeholder={placeholder}
-        value={shown}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        onChange={(event) => {
-          const digits = event.target.value.replace(/[^\d]/g, '').replace(/^0+/, '').slice(0, 9);
-          onChange(digits);
-        }}
-        className={`${INPUT} text-foreground`}
-      />
-    </label>
-  );
-}
 
 const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
@@ -607,13 +463,6 @@ const PRICE_NOTE: Readonly<Record<string, string>> = {
   all: 'Across every deal, prices mean different things: pick a deal to compare like with like.',
 };
 
-/** A round number near a histogram edge, so a dragged bound reads like a typed one. */
-function nice(value: number): number {
-  const step =
-    value >= 1e5 ? 5000 : value >= 1e4 ? 1000 : value >= 1e3 ? 100 : value >= 100 ? 10 : 1;
-  return Math.max(step, Math.round(value / step) * step);
-}
-
 /** Dollars to lari, for the presets: the rate the listings themselves carry, about 2.7. */
 const GEL_PER_USD = 2.7;
 
@@ -739,64 +588,6 @@ export function PriceBody({ facets }: { facets: Facets }) {
           })}
         </fieldset>
       )}
-    </div>
-  );
-}
-
-const THUMB =
-  '[&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:size-5 [&::-webkit-slider-thumb]:cursor-grab [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-thumb-border [&::-webkit-slider-thumb]:bg-thumb [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:size-5 [&::-moz-range-thumb]:cursor-grab [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-thumb-border [&::-moz-range-thumb]:bg-thumb focus-visible:[&::-webkit-slider-thumb]:outline-2 focus-visible:[&::-webkit-slider-thumb]:outline-offset-2 focus-visible:[&::-webkit-slider-thumb]:outline-ring focus-visible:outline-none';
-
-/** Two thumbs on one track, over the histogram's bins. */
-function DualSlider({
-  bins,
-  lo,
-  hi,
-  ranged,
-  onLow,
-  onHigh,
-}: {
-  bins: number;
-  lo: number;
-  hi: number;
-  ranged: boolean;
-  onLow: (index: number) => void;
-  onHigh: (index: number) => void;
-}) {
-  const left = lo / bins;
-  const right = hi / bins;
-  const input = `pointer-events-none absolute inset-0 m-0 h-7 w-full appearance-none bg-transparent ${THUMB}`;
-  return (
-    <div className="relative -mt-0.5 h-7">
-      <div className="absolute top-3 right-[9px] left-[9px] h-1 rounded-sm bg-fill" />
-      {ranged ? (
-        <div
-          className="absolute top-3 h-1 rounded-sm bg-brand-bar"
-          style={{
-            left: `calc(9px + (100% - 18px) * ${left})`,
-            width: `calc((100% - 18px) * ${right - left})`,
-          }}
-        />
-      ) : null}
-      <input
-        type="range"
-        min={0}
-        max={bins}
-        step={1}
-        value={lo}
-        aria-label="Lowest price"
-        onChange={(event) => onLow(Math.min(Number(event.target.value), hi))}
-        className={input}
-      />
-      <input
-        type="range"
-        min={0}
-        max={bins}
-        step={1}
-        value={hi}
-        aria-label="Highest price"
-        onChange={(event) => onHigh(Math.max(Number(event.target.value), lo))}
-        className={input}
-      />
     </div>
   );
 }
