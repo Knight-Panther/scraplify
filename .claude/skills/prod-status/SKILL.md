@@ -36,7 +36,7 @@ missing key fails fast instead of hanging on a prompt.
    echo "== running jobs";    systemctl list-units 'xtelo-pipeline@*' 'xtelo-backup*' --state=active,activating --no-legend --plain
    echo "== timers";          systemctl list-timers 'xtelo-*' --no-legend --plain
    echo "== pipeline results"
-   for s in jobs-ge hr-ge etenders-ge; do printf '%s: ' "$s"; systemctl show "xtelo-pipeline@$s" -p Result -p ExecMainStatus -p ExecMainExitTimestamp | paste -sd' '; done
+   for s in jobs-ge hr-ge etenders-ge summerschoolsineurope-eu; do printf '%s: ' "$s"; systemctl show "xtelo-pipeline@$s" -p Result -p ExecMainStatus -p ExecMainExitTimestamp | paste -sd' '; done
    echo "== backup";          systemctl show xtelo-backup -p Result -p ExecMainStatus -p ExecMainExitTimestamp | paste -sd' '
    printf 'copied off host in last 36h: '; sudo -n journalctl -u xtelo-backup --since -36h --no-pager -o cat | grep -c 'Copied off the host'
    echo "== health-check";    sudo -n /opt/xtelo/current/deploy/with-env.sh worker node dist/cli/health-check.js 2>&1 | tail -15; echo "exit=${PIPESTATUS[0]}"

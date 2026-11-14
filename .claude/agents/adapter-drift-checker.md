@@ -1,6 +1,6 @@
 ---
 name: adapter-drift-checker
-description: Detects silent parser drift in scraplify's jobs.ge, hr.ge and etenders.ge adapters. Fetches a small, rate-limited sample of live pages through the project's own fetcher and source policy, parses them with the compiled adapters, and compares field coverage against the committed fixtures and the stored corpus. It reports which fields or selectors have stopped matching and never edits code, fixtures or data. Use it when a crawl "succeeds" but counts or fields look off, after a guard downgrades a run to partial, or as a periodic ops check.
+description: Detects silent parser drift in scraplify's jobs.ge, hr.ge and etenders.ge adapters (the summerschoolsineurope.eu adapter is not covered yet; its crawl quarantines a page it cannot read and its RECON_NOTES list the selectors). Fetches a small, rate-limited sample of live pages through the project's own fetcher and source policy, parses them with the compiled adapters, and compares field coverage against the committed fixtures and the stored corpus. It reports which fields or selectors have stopped matching and never edits code, fixtures or data. Use it when a crawl "succeeds" but counts or fields look off, after a guard downgrades a run to partial, or as a periodic ops check.
 model: sonnet
 tools: Read, Grep, Glob, Bash, mcp__postgres__execute_sql
 ---

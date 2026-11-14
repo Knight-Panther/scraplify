@@ -4,7 +4,7 @@
 # machine runs. Invoked by deploy/systemd/xtelo-pipeline@.service with the
 # worker role's environment (never the public or admin one).
 #
-#   deploy/run-pipeline.sh jobs-ge|hr-ge|etenders-ge
+#   deploy/run-pipeline.sh jobs-ge|hr-ge|etenders-ge|summerschoolsineurope-eu
 #
 # Output goes to the journal (journalctl -u xtelo-pipeline@jobs-ge), so a
 # failed or skipped run is never silent (concept §19.1).
@@ -15,9 +15,9 @@ set -uo pipefail
 # lists together).
 source="${1:-}"
 case "$source" in
-  jobs-ge | hr-ge | etenders-ge) ;;
+  jobs-ge | hr-ge | etenders-ge | summerschoolsineurope-eu) ;;
   *)
-    echo "usage: $0 jobs-ge|hr-ge|etenders-ge" >&2
+    echo "usage: $0 jobs-ge|hr-ge|etenders-ge|summerschoolsineurope-eu" >&2
     exit 2
     ;;
 esac
