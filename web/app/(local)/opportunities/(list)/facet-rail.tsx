@@ -196,7 +196,7 @@ function Option({
 }) {
   return (
     <label
-      className="flex items-center gap-2 py-1 text-sm text-muted hover:text-[var(--color-browse-accent)]"
+      className="flex items-center gap-2 py-1 text-sm text-muted hover:text-accent"
       title={title}
     >
       <input
@@ -205,7 +205,7 @@ function Option({
         name={name}
         value={value}
         defaultChecked={defaultChecked}
-        className="size-4 rounded-sm accent-[var(--color-browse-accent)]"
+        className="size-4 rounded-sm accent-accent-strong"
       />
       <span>{label}</span>
     </label>

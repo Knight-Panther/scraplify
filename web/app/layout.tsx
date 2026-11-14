@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { SiteFooter } from '../components/site-footer.js';
 import { SiteHeader } from '../components/site-header.js';
@@ -13,6 +13,8 @@ import {
   siteTitle,
 } from '../lib/site-metadata.js';
 import { currentSurface } from '../lib/surface.js';
+import { currentTheme } from '../lib/theme.js';
+import { THEME_COLOR } from '../lib/theme-cookie.js';
 import { bebasNeue, notoGeorgian, spaceMono } from './fonts.js';
 import './globals.css';
 
@@ -48,11 +50,18 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-// Matches --color-background, so the browser's own chrome does not flash a
-// light band above a black page.
-export const viewport = { themeColor: '#000000' };
+// Matches --color-background in the visitor's theme, so the browser's own
+// chrome does not show a band of the other theme's ground. The switch updates
+// the tag in place when clicked (`theme-switch.tsx`).
+export async function generateViewport(): Promise<Viewport> {
+  return { themeColor: THEME_COLOR[await currentTheme()] };
+}
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  // Light unless the visitor chose dark (lib/theme-cookie.ts). Rendered on the
+  // server, so the first frame is already in the right theme: no script, no
+  // flash.
+  const theme = await currentTheme();
   // Always "en", NOT the `lib/locale.ts` cookie: that cookie is read by
   // `/` alone to switch its own copy, and the root layout has no reliable,
   // Next-App-Router-supported way to know the CURRENT route (only
@@ -64,6 +73,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
+      data-theme={theme}
       className={`${notoGeorgian.variable} ${spaceMono.variable} ${bebasNeue.variable}`}
     >
       <body className="flex min-h-screen flex-col">

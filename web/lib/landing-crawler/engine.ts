@@ -55,6 +55,24 @@ const PALETTES = [
   { leg: '#ff4fd8', joint: '#d6ff3f' },
 ] as const;
 
+/**
+ * The same three colours, deepened for the light theme (Phase 16A): the
+ * bright ones vanish on white, and a scraped title is tinted with one, so
+ * each holds 4.5:1 or more against every light surface (olive 5.5, teal 4.5,
+ * magenta 5.7, worst case). The body is filled with the theme's panel colour.
+ */
+const LIGHT_PALETTES = [
+  { leg: '#4a6400', joint: '#0b7285' },
+  { leg: '#0b7285', joint: '#9c1c8c' },
+  { leg: '#9c1c8c', joint: '#4a6400' },
+] as const;
+
+const BODY_FILL = { dark: '#0e1114', light: '#ffffff' } as const;
+
+function lightTheme(): boolean {
+  return document.documentElement.dataset.theme !== 'dark';
+}
+
 const EFFECTS = ['box', 'bar', 'tint', 'invert'] as const;
 
 interface Leg {
@@ -137,7 +155,8 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
   }
 
   function palette() {
-    return PALETTES[Math.floor(performance.now() / PALETTE_MS) % PALETTES.length] ?? PALETTES[0];
+    const set = lightTheme() ? LIGHT_PALETTES : PALETTES;
+    return set[Math.floor(performance.now() / PALETTE_MS) % set.length] ?? set[0];
   }
 
   function scrape(element: Element, effect?: (typeof EFFECTS)[number]) {
@@ -321,7 +340,7 @@ export function startCrawler(host: HTMLElement, canvas: HTMLCanvasElement): Craw
     ctx.rotate(heading);
     // Body and head are drawn at 1x and scaled here, line width included.
     ctx.scale(scale, scale);
-    ctx.fillStyle = '#0e1114';
+    ctx.fillStyle = lightTheme() ? BODY_FILL.light : BODY_FILL.dark;
     ctx.strokeStyle = colors.leg;
     ctx.lineWidth = 1.5;
     ctx.fillRect(-11, -4, 22, 8);

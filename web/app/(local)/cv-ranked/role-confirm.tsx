@@ -149,7 +149,7 @@ function ChipRow({
               onClick={() => onToggle(term.id)}
               className={`inline-flex min-h-9 max-w-full items-center gap-1.5 rounded-[var(--radius)] border px-3 py-1 text-left text-sm leading-[1.5] ${
                 term.active
-                  ? 'border-accent bg-surface-active text-foreground hover:bg-surface-raised'
+                  ? 'border-accent-line bg-surface-active text-foreground hover:bg-surface-raised'
                   : 'border-border-strong text-muted hover:bg-surface-raised hover:text-foreground'
               }`}
             >

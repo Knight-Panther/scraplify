@@ -2,7 +2,7 @@
 
 Three designs the owner approved as HTML mockups on 2026-11-14, to be built into the site. Kept as a tracker once building starts.
 
-- **Status: approved, not started.** Building starts in a fresh session. Nothing in the project changed while the designs were made.
+- **Status: 16A built** on branch `phase-16a-theme` (2026-11-14), its gate checked in a browser; 16B and 16C not started.
 - **The mockups are the visual source of truth.** They live outside the repo, on the owner's PC, in `C:\Users\Giorgi Teliashvili\Desktop\xtelo-mockups\`. To view them, run `python -m http.server 8765 --bind 127.0.0.1` in that folder and open `http://127.0.0.1:8765/home-v2.html`. Stop the server afterwards.
   - `real-estate-filters-v2.html` with `real-estate-filters-data.js`: Real estate filters, **approved**. It uses synthetic listings drawn from real distributions; the sub-districts, streets and stations are real.
   - `browse-v2.html` with `browse-data.js`: Browse, **approved**. It uses a real read-only sample of the live catalogue: 460 random open jobs, all 61 open tenders, 272 courses.
@@ -26,7 +26,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
-| ❌ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | nothing |
+| ⏳ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | its PR's CI, then a web-only deploy |
 | ❌ | **16B** | Real estate filters v2 | yes | 16A |
 | ❌ | **16C** | Browse v2 | yes | 16A |
 | ❌ | **16D** | (Optional) a field for jobs.ge vacancies, guessed from the title and labelled as a guess | later | the owner's go |
@@ -61,11 +61,19 @@ The v2 designs use the browse family everywhere. `html` is fixed to `color-schem
 - **Caching.** The cookie must not break the public pages' caching (`web/lib/cached.ts`). Check what varies by cookie on the public surface before building.
 
 **Exit gate:**
-- Every screen in both themes at 390 and 1280 on local and public, in Georgian and English, through Playwright.
-- `scrollWidth` equals `clientWidth`. No console errors.
-- Contrast checked on every text colour against its background.
-- A first visit is light. The choice survives a reload and a new tab. No flash on load, checked with throttled CPU.
-- `web-design-guidelines` review clean; tests green in CI.
+- ✅ Every screen in both themes at 390 and 1280 on local and public, in Georgian and English, through Playwright. 200 page loads on 2026-11-14 against a throwaway copy (`scraplify_qa_16`: 4,254 opportunities, 4,146 ss.ge listings, migrations to 0054): public 5 routes (40 loads), local 15 routes including a detail page and the not-found page (120), admin 5 routes signed in with the e2e test session (40); screenshots read by eye in both themes.
+- ✅ `scrollWidth` equals `clientWidth` on all 200. No console errors (the not-found page logs only its own 404).
+- ✅ Contrast checked on every text colour against its background: every text element on every load (101,000 to 165,000 per surface), composited over its real ground, none under 4.5:1 (3:1 for large text); the check was shown to catch a planted lime word on light (1.05:1). axe (WCAG 2.1 AA, `test:e2e:surfaces`) finds nothing on the public pages, now light by default.
+- ✅ A first visit is light. The choice survives a reload and a new tab; Space on the focused switch toggles it; the cookie is `SameSite=Lax` for 365 days. No flash on load: with the CPU throttled 6×, the first frame painted after a red start page is already the chosen theme's ground, in both themes.
+- ✅ `web-design-guidelines` review clean (one fix: the phone menu contains its scroll). Surface-boundary review: no defect. Tests: 2,735 pass locally; ❌ CI on the PR.
+
+**Changed while building (2026-11-14):**
+- The header is built as the mockups draw it, in both themes: the links as plain ink words with the current page an ink pill, then the switch and the language. Today's olive blocks are gone. On the public site the links now fit inline from 900px wide (they were in the menu below 1,560px); the local bar's eleven links fit from 1,640px in English and 2,230px in Georgian, measured.
+- The cookie is `xtelo-theme`, beside `xtelo-locale`, rather than `theme`.
+- Light status and kind colours were darkened to hold 4.5:1 on the selected-row ground as well: open `#1a7431`, unconfirmed `#8a5a00`, held `#a84300`, tender `#1a64a8`, course `#9c5205`.
+- Decorative lime (the rule under the headline, the dots, the CV progress bar) uses the line colour, `#7aa300` on light, where lime itself vanished. The landing crawler deepens its three colours on light.
+- The site's focus ring moved into Tailwind's base layer, so the header's own ink ring applies (lime on the yellow could not be seen).
+- The pink accent and its two siblings are deleted outright, as planned; nothing else used them.
 
 ## 16B: Real estate filters v2
 

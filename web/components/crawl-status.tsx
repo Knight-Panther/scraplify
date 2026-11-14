@@ -23,9 +23,9 @@ const REFRESH_MS = 60_000;
 
 const TONES = {
   hero: {
-    list: 'text-[12px] text-[var(--color-browse-text-muted)]',
-    source: 'font-semibold text-white',
-    dot: 'bg-[var(--color-browse-accent)]',
+    list: 'text-[12px] text-faint',
+    source: 'font-semibold text-foreground',
+    dot: 'bg-accent-line',
   },
   admin: {
     list: 'text-sm text-muted',

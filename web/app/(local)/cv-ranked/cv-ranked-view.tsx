@@ -246,7 +246,7 @@ function DownloadBar({ percent }: { percent: number }) {
           aria-valuenow={percent}
           className="h-1 w-full max-w-64 overflow-hidden rounded-[var(--radius)] bg-surface-raised"
         >
-          <div className="h-full bg-accent" style={{ width: `${percent}%` }} />
+          <div className="h-full bg-accent-line" style={{ width: `${percent}%` }} />
         </div>
         <span className="numeric w-10 shrink-0 text-right">{percent}%</span>
       </div>

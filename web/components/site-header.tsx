@@ -1,6 +1,7 @@
 import { cvRankedEnabled } from '../lib/cv-ranked/availability.js';
 import { currentLocale } from '../lib/locale.js';
 import { currentSurface } from '../lib/surface.js';
+import { currentTheme } from '../lib/theme.js';
 import { databaseLabel, writesEnabled } from '../lib/writes.js';
 import { SiteHeaderNav } from './site-header-nav.js';
 
@@ -18,6 +19,7 @@ import { SiteHeaderNav } from './site-header-nav.js';
  */
 export async function SiteHeader() {
   const locale = await currentLocale();
+  const theme = await currentTheme();
   const surface = currentSurface();
   // Computed only for the surface allowed to see them, not just rendered
   // conditionally: a value passed to a Client Component is serialized into
@@ -34,6 +36,7 @@ export async function SiteHeader() {
       locale={locale}
       surface={surface}
       cvRanked={cvRankedEnabled()}
+      theme={theme}
     />
   );
 }

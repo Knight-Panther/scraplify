@@ -15,40 +15,70 @@
  * surfaced later as a token that mysteriously resolved to nothing.
  */
 @theme static {
-  /* Surfaces: near-black ground with three raised steps. */
-  --color-background: #000000;
-  --color-surface: #121014;
-  --color-surface-raised: #1c191e;
-  --color-surface-active: #29232e;
+  /* One colour set for every screen (Phase 16A, 2026-11-14), in two themes.
+     These are the DARK values, the site as it was; the light values are the
+     `:root[data-theme="light"]` block below this one, and the root layout
+     sets that attribute from the visitor's `xtelo-theme` cookie (light when
+     there is none). A component names a role (`text-muted`, `bg-brand`),
+     never a hex, so both themes follow from this file alone.
 
-  /* Text ladder. Contrast measured against both #000 and #1c191e.
-     faint is #ffffff8c, NOT the reference's #ffffff66: that composites to #666
-     and gives 3.66:1, under WCAG AA's 4.5:1 for normal text. */
-  --color-foreground: #ffffff; /* 21.00:1 */
-  --color-muted: #ffffff99; /*  7.37:1 */
-  --color-faint: #ffffff8c; /*  6.25:1 */
-  --color-nontext: #ffffff40; /*  dividers and disabled controls only */
+     Every text colour is measured at 4.5:1 or better against all four
+     surfaces in its theme (background, surface, surface-raised,
+     surface-active). The dark values are the mockups' (`docs/PHASE_16_PLAN.md`),
+     which were the Browse and landing screens' own family; the pink accent
+     the other screens used is gone. */
 
-  --color-border: #ffffff26;
-  --color-border-strong: #ffffff40;
-  /* Referenced twice on the opportunities screen (`border-border-control`)
-     since Phase 3D but never defined — Tailwind silently emitted no class
-     for it, so those pills fell back to `border-color: currentColor`
-     instead of a subtle border. Found and fixed alongside the Phase 3E
-     landing hero, which needed the browse-family sibling of this same
-     token (below) and so needed this cascade actually understood first. */
-  --color-border-control: #ffffff40;
+  /* Surfaces: a near-black ground with three raised steps. */
+  --color-background: #07090b;
+  --color-surface: #0e1114;
+  --color-surface-raised: #141920;
+  --color-surface-active: #1c2228;
 
-  /* One accent. */
-  --color-accent: #d88bd2; /*  8.54:1 on black */
-  --color-accent-strong: #b841ad;
-  --color-ring: #f0a9ea; /* 11.57:1 on black */
+  /* Text ladder. */
+  --color-foreground: #f3f6f8; /* 18.4:1 on background */
+  --color-muted: #b7c2ca; /* 11.0:1 */
+  --color-faint: #8b97a1; /*  6.7:1; 5.4:1 on surface-active */
+  --color-nontext: #55616b; /*  dividers and disabled controls only, never text */
+
+  /* Lines: hairlines between rows and panels, then the edges of controls. */
+  --color-border: #1c2228;
+  --color-border-strong: #2a323a;
+  --color-border-control: #2a323a;
+  --color-border-hover: #55616b;
+
+  /* The brand's lime, in three jobs, because light can't use it for all of
+     them: lime text on white is about 1.1:1.
+     - brand: a FILL (buttons, a selected option, dots, bars), with ink on it;
+     - accent: TEXT and underlines in the brand colour (olive on light);
+     - accent-line: borders and rules in the brand colour. */
+  --color-brand: #d6ff3f;
+  --color-brand-hover: #eaffa0;
+  --color-brand-soft: #d6ff3f14;
+  --color-accent: #d6ff3f; /* 17.3:1 on background */
+  --color-accent-hover: #eaffa0;
+  --color-accent-line: #d6ff3f;
+  /* `accent-color` for native checkboxes and radios. */
+  --color-accent-strong: #d6ff3f;
+  --color-ring: #d6ff3f;
+  /* Text on a brand fill or on the header: the same near-black in both
+     themes (16.9:1 on lime, 15.8:1 on the header). */
+  --color-ink: #0b0d10;
+  /* The header stays this yellow in both themes: it is the brand. */
+  --color-header: #f2ee00;
 
   /* §13 lifecycle. Paired with a SHAPE in the status chip, never hue alone. */
   --color-status-open: #7ee787;
   --color-status-unconfirmed: #e3b341;
-  --color-status-closed: #ffffff8c;
+  --color-status-closed: #8b97a1;
   --color-status-held: #f0883e;
+  --color-warn: #f0c674;
+
+  /* Kinds of opportunity, and the two Tbilisi metro lines (Phase 16B, 16C). */
+  --color-kind-job: #d6ff3f;
+  --color-kind-tender: #7cc4ff;
+  --color-kind-course: #ffb86b;
+  --color-metro-1: #ef5b5b;
+  --color-metro-2: #3fb950;
 
   --radius: 0.75rem;
 
@@ -64,14 +94,6 @@
   --font-sans: var(--font-noto-georgian), "Noto Sans", system-ui, sans-serif;
   --font-mono: var(--font-space-mono), ui-monospace, monospace;
 
-  /* Browse screen only (design handoff `1b`/`1c`) — the rest of the app
-     stays on the palette above. Named separately rather than overriding
-     --color-accent so the other five screens are untouched. */
-  --color-browse-accent: #d6ff3f;
-  --color-browse-accent-hover: #eaffa0;
-  --color-browse-nav-yellow: #f2ee00;
-  --color-browse-nav-olive: #5c5a06;
-  --color-browse-ink: #0b0d10;
   --font-display: var(--font-bebas-neue), "Arial Narrow", sans-serif;
 
   /* Georgian hero headline only (Phase 3E follow-up) — NOT a body font. TBC
@@ -87,19 +109,6 @@
      fallback everything ultimately resolves to. */
   --font-display-ka:
     "TBC Contractica", "BPG Nino Mtavruli", var(--font-noto-georgian), system-ui, sans-serif;
-
-  /* Landing hero (Phase 3E), same browse family. Panel/ticker ground and
-     borders distinct from --color-border (#ffffff26) — a different value,
-     so it needs its own name rather than reusing that one. Text-muted is a
-     cool blue-grey, deliberately not --color-faint (#ffffff8c, neutral
-     grey) — the two read as different hues on this ink, and this family
-     was namespaced precisely so the other five screens stay untouched. */
-  --color-browse-panel: #0e1114;
-  --color-browse-border: #1c2228;
-  --color-browse-border-control: #2a323a;
-  --color-browse-border-control-hover: #55616b;
-  --color-browse-text-muted: #8b97a1; /* 6.52:1 on #0b0d10 */
-  --color-browse-text-pill: #c6d2da; /* 12.6:1 on #0b0d10 */
 
   /* Landing hero motion. Top-level @keyframes below (not inside this block)
      are always emitted; Tailwind v4 tree-shakes ones declared inside
@@ -163,14 +172,88 @@
   }
 }
 
-/* The reference's focus ring, taken verbatim — stronger than most defaults. */
-:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--color-ring);
-  outline-offset: 6px;
+/* The reference's focus ring, stronger than most defaults; lime on dark,
+   deep olive on light. In the base layer, so a component's own
+   `focus-visible:outline-*` utility replaces it: the yellow header needs an
+   ink ring, since lime on that yellow is invisible. Unlayered, it beat every
+   utility whatever the specificity. */
+@layer base {
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 6px;
+  }
 }
 
-html {
+/* Colours outside Tailwind's colour scale, dark values: the landing hero's
+   film and the lime highlighter its headline gets on light. */
+:root {
   color-scheme: dark;
+  --hero-film-filter: none;
+  --hero-veil: linear-gradient(
+    180deg,
+    rgba(11, 13, 16, 0.55) 0%,
+    rgba(11, 13, 16, 0.72) 55%,
+    rgba(11, 13, 16, 0.94) 100%
+  );
+  --hero-mark: transparent;
+}
+
+/* Light (owner, 2026-11-14: the first visit's theme). Lime stays the brand
+   as a fill under ink, never as text on white; words that were lime become
+   olive. Contrast, worst case over the four light surfaces: foreground 14.7,
+   muted 7.7, faint 4.9, accent 5.5, status and kind colours 4.4 to 5.3
+   (open 4.7, held 4.9, course 4.7 and tender 4.9 on surface-active, where
+   the plan's #1f8a3a, #b45f06 and #1d6fb8 measured 3.6 to 4.2). Unlayered,
+   so it outranks Tailwind's `@layer theme` values whatever the specificity. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-background: #f4f5f1;
+  --color-surface: #ffffff;
+  --color-surface-raised: #eef0ea;
+  --color-surface-active: #e4e9da;
+  --color-foreground: #12161a;
+  --color-muted: #3c4750;
+  --color-faint: #59646e;
+  --color-nontext: #8a948a;
+  --color-border: #e1e4dc;
+  --color-border-strong: #cbd2c6;
+  --color-border-control: #cbd2c6;
+  --color-border-hover: #8a948a;
+  --color-brand-hover: #c6f21c;
+  --color-brand-soft: #d6ff3f40;
+  --color-accent: #4a6400;
+  --color-accent-hover: #344a00;
+  --color-accent-line: #7aa300;
+  --color-accent-strong: #4a6400;
+  --color-ring: #3f5800;
+  --color-status-open: #1a7431;
+  --color-status-unconfirmed: #8a5a00;
+  --color-status-closed: #59646e;
+  --color-status-held: #a84300;
+  --color-warn: #8a5a00;
+  --color-kind-job: #4a6400;
+  --color-kind-tender: #1a64a8;
+  --color-kind-course: #9c5205;
+  --color-metro-1: #d64545;
+  --color-metro-2: #23913a;
+  /* The same film and poster, turned into a light map: nothing new to
+     download. The veil fades it under the text on the left. */
+  --hero-film-filter: invert(1) grayscale(1) contrast(0.55) brightness(1.2);
+  --hero-veil: linear-gradient(90deg, #f4f5f1f7 0%, #f4f5f1e6 40%, #f4f5f194 72%, #f4f5f17a 100%);
+  --hero-mark: linear-gradient(transparent 58%, #d6ff3f 58%, #d6ff3f 92%, transparent 92%);
+}
+
+/* The landing headline's brand-coloured words: lime on dark, ink over a lime
+   highlighter on light. `clone` repeats the highlighter on each line a word
+   wraps onto. */
+.hero-mark {
+  color: var(--color-accent);
+  background: var(--hero-mark);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+:root[data-theme="light"] .hero-mark {
+  color: var(--color-ink);
 }
 
 body {
@@ -231,7 +314,7 @@ th {
 }
 [data-scraped="invert"] {
   background-color: var(--scrape-color);
-  color: var(--color-browse-ink);
+  color: var(--color-background);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -264,5 +347,28 @@ th {
     animation-delay: 0ms !important;
     /* biome-ignore lint/complexity/noImportantStyles: as above */
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* A click on the theme switch fades the page across instead of snapping
+   (`theme-switch.tsx` sets the class for 320 ms). Unlayered, so it outranks
+   every Tailwind `transition-*` utility (those live in `@layer utilities`)
+   without `!important`. Transform is in the list so the switch's own knob
+   still slides while the class is on. Never for a visitor who asked for
+   reduced motion: the switch does not set the class for them, and this
+   block is scoped to that preference besides. */
+@media (prefers-reduced-motion: no-preference) {
+  html.theming,
+  html.theming *,
+  html.theming *::before,
+  html.theming *::after {
+    transition:
+      background-color 280ms ease,
+      color 280ms ease,
+      border-color 280ms ease,
+      outline-color 280ms ease,
+      fill 280ms ease,
+      filter 280ms ease,
+      transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 }
