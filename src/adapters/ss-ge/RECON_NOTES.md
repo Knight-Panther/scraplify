@@ -211,3 +211,36 @@ Every row past the 30-day line names no business. The block of business listings
 **What the checks had been finding was mostly renewals.** Of the 1,257 listings naming no business that the night of 2026-11-10 found alive in their first two days past their end, 668 had a newer order time by the next afternoon: renewed, most of them 30.0 to 30.5 days after the old one, 550 within nine minutes (2026-11-10 16:35 to 16:43 UTC, about 58 a minute, nearly all houses for rent: one poster's renewals). The walk sees a renewed listing at the top of its list anyway. So since 2026-11-12 a listing past its end that no list has shown since is not asked: it lapses a week later, and the night's listing pages go to the details (guideline §9.3 rule 3).
 
 **Except a flat folded behind a look-alike (measured 2026-11-12).** A flat list shows one listing of each look-alike group, so a live flat whose twin is shown is on no list, its end included, and a full read does not flag it missed either (its group was seen). Of the unlisted flats past their end that the night of 2026-11-10 asked, those with a look-alike still on show were 9.8% live (89 of 909; owners' 12 to 14%, agents' 5 to 8%), against 0.3% for those in no group or whose group had nothing on show. So these are asked after the first two parts of the queue (`loadListingsDueForCheck`). On 2026-11-12 the queue held 5,792 flagged listings still on show (last night's full read of flats for sale), none seen after their end, and 9,209 with a look-alike on show; 32,843 past their end lapse unasked. The query takes 1.5 s on the host.
+
+## Where a night's listing pages went, blank pages and hidden flats (2026-11-14)
+
+Measured on the host after run `c797e128` (16 hours, 11,893 requests: 2,464 results pages, 9,248 listing pages), and on ss.ge from the operator PC with `scripts/ss-ge-ask-listings.mjs` (219 listing pages, seven samples drawn by `md5(source_listing_key || salt)`).
+
+**What the 9,248 listing pages bought.** 8,126 listings found live, 1,122 marked gone (566 for a blank page, 466 inactive, 90 expired). No page went to a listing wanting its details: of 57,832 listings on show first seen in the last seven days, 900 had details; of 288,905 on show, 26,924 (9%), with 109,151 wanting them and 8,000 to 13,000 more each day.
+
+**A blank page is not a removed listing.** ss.ge answers a listing's page with no listing in it (`applicationData` absent, HTTP 200) for a share of requests that follows its own load, by Tbilisi hour over every check on record since 11-05: 1 to 2.5% from 01:00 to 09:00, 7 to 10% from 11:00 to midnight. They come mostly one at a time (466 alone, 44 pairs, 4 threes on 11-13). Asked from the PC:
+
+| Sample | Asked | Live | Gone, its page saying why |
+|---|---|---|---|
+| Marked gone for a blank page on 11-13, page read live before | 25 | 25 | 0 |
+| The same, page never read before | 15 | 12 | 3 |
+| Marked gone for a blank page before 11-13 | 20 | 9 | 9 (2 blank again) |
+| Marked gone as inactive on 11-13 (control) | 10 | 0 | 10 |
+| Random listings on show | 40 | 40 | 0 |
+
+19 pages came back blank during the first two samplings; asked again twenty minutes later, 15 were live and 4 expired or inactive, none blank. So "missing" was the answer of the moment every time, never the listing's state. 2,633 listings were stored as gone for one such answer.
+
+**A flat its list hides is asked over and over.** 23,974 listings on show had a page read later than their last sighting on a list: live, and hidden by ss.ge (a flat list shows one listing of a look-alike group; the group as we store it is what the list showed weeks ago, so "has a look-alike on show" does not tell them apart). Each full read of flats for sale or for rent flagged them missed again: of 4,943 flagged and waiting, 3,530 had been asked 3.7 to 5.5 days before. Asked again from the PC:
+
+| Sample (flagged missed, on show) | Asked | Live | Gone |
+|---|---|---|---|
+| Page had said live since the last sighting | 34 | 34 | 0 |
+| Never asked | 16 | 12 | 4 |
+
+On the host, of the listings found gone on 11-13 with a reason their page gave, 51 had been read live before, among about 6,500 asked again: under 1% in five days.
+
+**Other samples.** Order time moved and unseen: 16 of 20 live (4 gone). Past their end with a look-alike on show: 2 of 20 live, as on 11-11 (9.8%).
+
+**What the crawl does since (Phase 14E):** a blank page is asked a second time at once; a listing given up for one is asked once more on a later run and put back when live (`BLANK_PAGE_RECHECK_HOURS`); a listing whose page has said live since a list last showed it is neither flagged nor asked until its page's end date (`knownHidden`); the pages wanted for details come before the listings past their end behind a look-alike. Queue the evening of 11-14 under those rules: 2,432 given up for a blank page, 1,458 missed and never asked, 1,256 moved and unseen.
+
+**Not changed, and why:** the 3 s spacing (the owner's connection); the full-read rotation; the run's length. The run's 150 failed requests were 112 results pages without their list and 38 HTTP 500 or 504, 136 of them during the walk; none was a refusal, a challenge or a 429 in nine nights.
