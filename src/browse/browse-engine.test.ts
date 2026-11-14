@@ -50,6 +50,7 @@ function item(over: Partial<BrowseItem> = {}): BrowseItem {
     cities: [],
     places: [],
     fields: [],
+    fieldGuessed: false,
     industries: [],
     salary: null,
     contract: null,

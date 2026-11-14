@@ -29,7 +29,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 | ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
 | ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
 | ✅ | **16C** | Browse v2 | yes | done: merged as `4a251d2` (PR #114), live 2026-11-14 14:14 UTC |
-| ⏳ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14 | — | being built |
+| ⏳ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14; built and checked locally the same day on `phase-16d-field-guess` | CI, then a deploy with migration 0055 after the ss.ge run | the PR |
 
 ## 16A: theme foundation
 
@@ -203,3 +203,13 @@ Gate:
 jobs.ge states no field. A keyword classifier on the title could give one, using the taxonomy step's `keyword` method. It would be shown as "field guessed from the title". The owner gave the go on 2026-11-14.
 
 Changed 2026-11-14, before building: 5,048 of the 5,170 open jobs.ge vacancies have no hr.ge twin, and every listing on both boards has its description. So the guess is learnt from hr.ge's 11,640 labelled listings (title, employer and description, its 40 top-level fields), not from a hand-written keyword list. It is checked against the jobs.ge vacancies that do have an hr.ge twin, which give jobs.ge's own text with hr.ge's field. It is stored as a `keyword` classification and given only above a threshold chosen on that check.
+
+**Built 2026-11-14** on `phase-16d-field-guess`:
+- ✅ **The model.** `src/taxonomy/field-guess.ts`, pure: a multinomial naive Bayes over the title's words (weight 3), the employer (2) and the first 200 words of the description (0.3), with the shared Georgian stemmer. A vacancy hr.ge files under several fields counts toward each in part. `FIELD_GUESS_VERSION` is written with every guess.
+- ✅ **Checked on the local corpus** (read-only), before choosing anything: on the 758 jobs.ge vacancies with an hr.ge twin, each twin held out of training, the top guess is hr.ge's field 86% of the time; at a 0.8 floor 95% get one and 89% of those are right. A time split on hr.ge (newest fifth, trained on the rest): 87%, and 88% at 0.8. A sweep of 96 weightings stayed within about a point of the defaults, so the defaults stand (no tuning to one sample).
+- ✅ **The step.** `src/taxonomy/guess-fields.ts`, the third call in the taxonomy backfill every pipeline runs, under its lock: trains on hr.ge's current revisions, guesses jobs.ge's current revisions that have none under this model, writes a `keyword` classification on the `profession` axis only at 0.8 or above, retires guesses from an older model, never guesses over a `human_review` field, skips quarantined listings, and trains nothing from fewer than 500 examples. On the local corpus: 6 s for the whole taxonomy step; 11,590 trained on, 16,376 of 17,484 jobs.ge revisions guessed, 1,108 below the floor; the second run writes nothing.
+- ✅ **Read by Browse.** Migration `0055_guessed_field` adds `guessed_field` to `public_opportunity_members` (the view is rebuilt, so the deploy re-applies the public role's grant: `apply-db-roles.sh grants`); the local index reads the same through `listing_classifications`. A job takes a guess only when no member states a field, as `fieldGuessed`. The Field filter matches it, and the row shows the field with a dashed "guessed" tag (kept whole when the name is cut) and a tooltip saying so; "All filters" says "hr.ge; guessed for jobs.ge".
+- ✅ Tests: the model (14), the step on a throwaway database (5), the index's assembly and both loaders (2 new). 2,880 pass.
+- ✅ Browser, the local surface on the real local corpus: 1280 and 390, light and dark. Field "Sales" shows 5,888 vacancies with 1,280 left out for stating none; the Field popover counts include the guesses; 40 tags on a page, none cut or off-screen; no horizontal overflow; the tag's text 6.8:1 on the dark background; no console error.
+- Found on the way, not 16D's: the local `scraplify` database stops at migration 0042 (0043–0054 never applied there, and `db:migrate` exits 1 without a message), so 0055 is not on it either. The local Browse does not need it.
+

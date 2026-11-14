@@ -3,10 +3,12 @@ import { eq, inArray } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { db } from '../db/client.js';
 import {
+  listingClassifications,
   opportunities,
   opportunitySourceMemberships,
   sourceListingRevisions,
   sourceListings,
+  taxonomyTerms,
 } from '../db/schema/index.js';
 import {
   cleanupTestSource,
@@ -40,6 +42,7 @@ const row = (over: Partial<IndexRow> = {}): IndexRow => ({
   locations: ['თბილისი'],
   salaryRaw: null,
   facts: {},
+  guessedField: null,
   ...over,
 });
 
@@ -112,6 +115,27 @@ describe('assembleIndex', () => {
     expect(item?.bonus).toBeNull();
     expect(item?.places).toEqual([]);
     expect(item?.salary).toBeNull();
+  });
+
+  it('takes a guessed field only when no member states one, and marks it a guess', () => {
+    const [alone] = assembleIndex([row({ sourceSlug: 'jobs-ge', guessedField: 'გაყიდვები' })]);
+    expect(alone?.fields).toEqual(['j:გაყიდვები']);
+    expect(alone?.fieldGuessed).toBe(true);
+
+    const [stated] = assembleIndex([
+      row({ sourceSlug: 'jobs-ge', sourceListingId: 'l1', guessedField: 'საბანკო' }),
+      row({
+        sourceSlug: 'hr-ge',
+        sourceListingId: 'l2',
+        facts: { spec: ['გაყიდვები'] },
+      }),
+    ]);
+    expect(stated?.fields).toEqual(['j:გაყიდვები']);
+    expect(stated?.fieldGuessed).toBe(false);
+
+    const [none] = assembleIndex([row({ sourceSlug: 'jobs-ge' })]);
+    expect(none?.fields).toEqual([]);
+    expect(none?.fieldGuessed).toBe(false);
   });
 
   it('reads a tender: CPV divisions, procedure, value in lari', () => {
@@ -191,6 +215,8 @@ describe('the loaders', () => {
   const sourceIds: string[] = [];
   const listingIds: string[] = [];
   const opportunityIds: string[] = [];
+  const termIds: string[] = [];
+  let lastRevisionId = '';
 
   async function add(spec: {
     title: string;
@@ -239,6 +265,7 @@ describe('the loaders', () => {
       .set({ currentRevisionId: revisionId })
       .where(eq(sourceListings.id, listing.id));
     listingIds.push(listing.id);
+    lastRevisionId = revisionId;
     let opportunityId = spec.opportunityId;
     if (opportunityId === undefined) {
       opportunityId = randomUUID();
@@ -281,6 +308,9 @@ describe('the loaders', () => {
       opportunityIds.length = 0;
     }
     for (const sourceId of sourceIds.splice(0)) await cleanupTestSource(sourceId);
+    if (termIds.length > 0) {
+      await db.delete(taxonomyTerms).where(inArray(taxonomyTerms.id, termIds.splice(0)));
+    }
   });
 
   const hrAttributes = {
@@ -316,6 +346,53 @@ describe('the loaders', () => {
       expect(item?.workplace).toBe('საველე');
       expect(item?.licences).toEqual([]);
       expect(item?.hay).toContain('Browse Index Test Org');
+    }
+  });
+
+  it('reads a guessed field on both surfaces, and only a live keyword or human one', async () => {
+    const label = `test-guess-${randomUUID().slice(0, 8)}`;
+    const termId = randomUUID();
+    termIds.push(termId);
+    await db.insert(taxonomyTerms).values({
+      id: termId,
+      axis: 'profession',
+      code: `profession-${label}`,
+      label,
+      taxonomyVersion: 'v1',
+      parentId: null,
+    });
+    const classify = (
+      revisionId: string,
+      over: { method?: 'keyword' | 'deterministic_rule'; supersededAt?: string } = {},
+    ) =>
+      db.insert(listingClassifications).values({
+        id: randomUUID(),
+        sourceListingRevisionId: revisionId,
+        taxonomyTermId: termId,
+        axis: 'profession',
+        method: over.method ?? 'keyword',
+        confidence: 0.9,
+        evidence: {},
+        taxonomyVersion: 'v1',
+        createdAt: '2026-11-14T00:00:00Z',
+        supersededAt: over.supersededAt ?? null,
+      });
+
+    const guessed = await add({ title: `Guessed ${randomUUID().slice(0, 8)}` });
+    await classify(lastRevisionId);
+    const retired = await add({ title: `Retired ${randomUUID().slice(0, 8)}` });
+    await classify(lastRevisionId, { supersededAt: '2026-11-14T01:00:00Z' });
+    const rule = await add({ title: `Rule ${randomUUID().slice(0, 8)}` });
+    await classify(lastRevisionId, { method: 'deterministic_rule' });
+
+    for (const load of [loadBrowseIndex, loadPublicBrowseIndex]) {
+      const items = await load(db);
+      const item = items.find((i) => i.id === guessed);
+      expect(item?.fields).toEqual([`j:${label}`]);
+      expect(item?.fieldGuessed).toBe(true);
+      for (const id of [retired, rule]) {
+        expect(items.find((i) => i.id === id)?.fields).toEqual([]);
+      }
     }
   });
 

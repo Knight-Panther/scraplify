@@ -138,6 +138,14 @@ export const publicOpportunityMembers = pgView('public_opportunity_members', {
   salaryRaw: text('salary_raw'),
   sourceCategories: jsonb('source_categories').notNull(),
   structuredAttributes: jsonb('structured_attributes').notNull(),
+  /**
+   * Phase 16D: a field guessed for a listing whose board states none
+   * (`src/taxonomy/guess-fields.ts`), the top-level label of its live
+   * `keyword` or `human_review` profession classification; null when there is
+   * none. Never the board's own stated field, which stays in
+   * `structured_attributes`.
+   */
+  guessedField: text('guessed_field'),
 }).as(sql`
   select
     ${opportunitySourceMemberships.opportunityId} as opportunity_id,
@@ -161,7 +169,14 @@ export const publicOpportunityMembers = pgView('public_opportunity_members', {
     ${sourceListingRevisions.locations} as locations,
     ${sourceListingRevisions.salaryRaw} as salary_raw,
     ${sourceListingRevisions.sourceCategories} as source_categories,
-    ${sourceListingRevisions.structuredAttributes} as structured_attributes
+    ${sourceListingRevisions.structuredAttributes} as structured_attributes,
+    (select t.label from listing_classifications lc
+       join taxonomy_terms t on t.id = lc.taxonomy_term_id and t.parent_id is null
+       where lc.source_listing_revision_id = ${sourceListingRevisions.id}
+         and lc.axis = 'profession' and lc.superseded_at is null
+         and lc.method in ('keyword', 'human_review')
+       order by (lc.method = 'human_review') desc, lc.confidence desc, lc.id
+       limit 1) as guessed_field
   from ${opportunitySourceMemberships}
   inner join ${sourceListings} on ${sourceListings.id} = ${opportunitySourceMemberships.sourceListingId}
   inner join ${sources} on ${sources.id} = ${sourceListings.sourceId}

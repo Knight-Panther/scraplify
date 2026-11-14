@@ -120,7 +120,8 @@ export const FILTER_UI: Readonly<Partial<Record<FilterKey, FilterUi>>> = {
     what: (k) =>
       ({ job: 'a field', tender: 'a category', course: 'a field of study' })[k as 'job'] ??
       'a field',
-    source: (k) => (k === 'job' ? 'hr.ge only' : k === 'tender' ? 'CPV division' : ''),
+    source: (k) =>
+      k === 'job' ? 'hr.ge; guessed for jobs.ge' : k === 'tender' ? 'CPV division' : '',
     wide: true,
     fold: 14,
   },
