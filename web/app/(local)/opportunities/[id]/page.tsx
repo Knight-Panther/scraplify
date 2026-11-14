@@ -421,10 +421,12 @@ function Comparison({ detail }: { detail: DetailForDisplay }) {
             adjacent, so the mobile answer is to keep them adjacent and let the
             table scroll inside its own box rather than stacking the boards —
             stacking puts the values a screen apart and there is nothing left
-            to compare. At 24rem the two columns fit a 390px screen outright,
-            so the scroll is a fallback rather than the normal case. */}
+            to compare. Below 640px there is no minimum at all: a 390px screen
+            leaves the table 343px, under 24rem, and the values wrap in their
+            columns instead (Phase 16C; at 24rem it scrolled sideways by 41px).
+            The scroll stays a fallback for a third board. */}
         <table
-          className="w-full min-w-[24rem] border-collapse text-sm"
+          className="w-full border-collapse text-sm sm:min-w-[24rem]"
           style={{ maxWidth: `calc(10rem + ${detail.columns.length} * 22rem)` }}
         >
           <thead>

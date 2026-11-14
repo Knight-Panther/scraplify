@@ -68,3 +68,45 @@ export function cachedByKey<T>(
     return value;
   };
 }
+
+/**
+ * `cachedFor` that never makes a caller wait for a refresh: past `ttlMs` the
+ * held answer is still returned while a new one loads in the background,
+ * and it replaces the old one once it arrives. Only the very first caller
+ * waits. A failed refresh keeps the old answer and is tried again by the
+ * next caller; a failed first load is not kept.
+ *
+ * For an answer that is expensive to build and harmless when a little old,
+ * such as Browse's in-memory index (Phase 16C): a crawl's rows reach the
+ * page within about `ttlMs`, and no page view pays the rebuild.
+ */
+export function refreshingFor<T>(
+  ttlMs: number,
+  load: () => Promise<T>,
+  clock: () => number = Date.now,
+): () => Promise<T> {
+  let held: { at: number; value: T } | null = null;
+  let loading: Promise<T> | null = null;
+  const start = () => {
+    if (loading !== null) return loading;
+    const started = clock();
+    const next = load().then(
+      (value) => {
+        held = { at: started, value };
+        loading = null;
+        return value;
+      },
+      (error: unknown) => {
+        loading = null;
+        throw error;
+      },
+    );
+    loading = next;
+    return next;
+  };
+  return () => {
+    if (held === null) return start();
+    if (clock() - held.at >= ttlMs) start().catch(() => {});
+    return Promise.resolve(held.value);
+  };
+}

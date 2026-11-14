@@ -42,6 +42,7 @@ import {
   ViewSeg,
   YardBody,
 } from './bodies.js';
+import { ClearLink, CloseButton, PILL, Scrim, trapTab, useBodyLock } from '../filter-ui.js';
 import { Caret, Icon, type IconName } from './icons.js';
 import { useShell, useWide } from './shell.js';
 import { useFacets } from './use-facets.js';
@@ -251,9 +252,6 @@ export function FilterBar() {
     </>
   );
 }
-
-const PILL =
-  'inline-flex h-9 shrink-0 cursor-pointer touch-manipulation items-center gap-2 whitespace-nowrap rounded-full border border-border-strong bg-surface px-3.5 text-sm transition-colors duration-100 motion-reduce:transition-none hover:border-border-hover aria-expanded:bg-surface-raised';
 
 function Pill({
   filterKey,
@@ -496,72 +494,6 @@ function DetailNote() {
         : `: read for ${fmt(coverage.read)} of the ${fmt(coverage.total)} listings matching everything else.`}
     </Note>
   );
-}
-
-function ClearLink({ onClick, label = 'Clear' }: { onClick: () => void; label?: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="px-0.5 py-1 text-sm underline decoration-border-hover underline-offset-[3px] hover:decoration-foreground"
-    >
-      {label}
-    </button>
-  );
-}
-
-function CloseButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label="Close"
-      onClick={onClick}
-      className="inline-grid size-9 place-items-center rounded-[var(--radius)] border border-border-strong text-[19px] leading-none hover:border-border-hover"
-    >
-      ×
-    </button>
-  );
-}
-
-function Scrim({ onClick }: { onClick: () => void }) {
-  return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: a click outside a sheet closes it; Escape and the close button do too
-    // biome-ignore lint/a11y/useKeyWithClickEvents: Escape closes the sheet
-    <div
-      onClick={onClick}
-      className="fixed inset-0 z-70 bg-scrim motion-safe:animate-[re-fade_160ms_cubic-bezier(0.2,0.8,0.2,1)]"
-    />
-  );
-}
-
-/** Keeps Tab inside an open sheet. */
-function trapTab(event: React.KeyboardEvent<HTMLElement>) {
-  if (event.key !== 'Tab') return;
-  const items = [
-    ...event.currentTarget.querySelectorAll<HTMLElement>('button, input, select, a[href], summary'),
-  ].filter((el) => !(el as HTMLButtonElement).disabled && el.offsetParent !== null);
-  const first = items[0];
-  const last = items[items.length - 1];
-  if (first === undefined || last === undefined) return;
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-/** The page under a sheet does not scroll. */
-function useBodyLock(locked: boolean) {
-  useEffect(() => {
-    if (!locked) return;
-    const before = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = before;
-    };
-  }, [locked]);
 }
 
 /** Every facet the sheet's sections show, for the filters the form's kind offers. */

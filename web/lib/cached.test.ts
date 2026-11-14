@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cachedByKey, cachedFor } from './cached.js';
+import { cachedByKey, cachedFor, refreshingFor } from './cached.js';
 
 describe('cachedFor', () => {
   function clockAt(start: number) {
@@ -154,5 +154,62 @@ describe('cachedByKey', () => {
     expect([asked.get('b'), asked.get('c')]).toEqual([1, 1]);
     await get('a', load('a'));
     expect(asked.get('a')).toBe(2);
+  });
+});
+
+describe('refreshingFor', () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('makes only the first caller wait, then serves the old answer while a new one loads', async () => {
+    let now = 0;
+    let loads = 0;
+    let release: (value: number) => void = () => {};
+    const get = refreshingFor(
+      100,
+      () => {
+        loads++;
+        return loads === 1 ? Promise.resolve(1) : new Promise<number>((r) => (release = r));
+      },
+      () => now,
+    );
+    expect(await get()).toBe(1);
+    now = 150;
+    expect(await get()).toBe(1); // stale, refresh started
+    expect(await get()).toBe(1); // still loading: no second load
+    expect(loads).toBe(2);
+    release(2);
+    await tick();
+    expect(await get()).toBe(2);
+  });
+
+  it('keeps the old answer when a refresh fails, and tries again', async () => {
+    let now = 0;
+    let loads = 0;
+    const get = refreshingFor(
+      100,
+      () => {
+        loads++;
+        return loads === 2 ? Promise.reject(new Error('down')) : Promise.resolve(loads);
+      },
+      () => now,
+    );
+    expect(await get()).toBe(1);
+    now = 150;
+    expect(await get()).toBe(1);
+    await tick();
+    expect(await get()).toBe(1);
+    await tick();
+    expect(loads).toBe(3);
+    expect(await get()).toBe(3);
+  });
+
+  it('does not keep a failed first load', async () => {
+    let loads = 0;
+    const get = refreshingFor(100, () => {
+      loads++;
+      return loads === 1 ? Promise.reject(new Error('down')) : Promise.resolve(7);
+    });
+    await expect(get()).rejects.toThrow('down');
+    expect(await get()).toBe(7);
   });
 });

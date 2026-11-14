@@ -2,7 +2,7 @@
 
 Three designs the owner approved as HTML mockups on 2026-11-14, to be built into the site. Kept as a tracker once building starts.
 
-- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B live** since 2026-11-14 13:05 UTC as `c0ddf0f` (PR #112); 16C not started.
+- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B live** since 2026-11-14 13:05 UTC as `c0ddf0f` (PR #112); **16C built** on `phase-16c-browse`, its local gate met, PR next.
 - **The mockups are the visual source of truth.** They live outside the repo, on the owner's PC, in `C:\Users\Giorgi Teliashvili\Desktop\xtelo-mockups\`. To view them, run `python -m http.server 8765 --bind 127.0.0.1` in that folder and open `http://127.0.0.1:8765/home-v2.html`. Stop the server afterwards.
   - `real-estate-filters-v2.html` with `real-estate-filters-data.js`: Real estate filters, **approved**. It uses synthetic listings drawn from real distributions; the sub-districts, streets and stations are real.
   - `browse-v2.html` with `browse-data.js`: Browse, **approved**. It uses a real read-only sample of the live catalogue: 460 random open jobs, all 61 open tenders, 272 courses.
@@ -28,7 +28,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 |---|---|---|---|---|
 | ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
 | ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
-| ❌ | **16C** | Browse v2 | yes | 16A |
+| ⏳ | **16C** | Browse v2 | yes | the PR and CI, then the deploy |
 | ❌ | **16D** | (Optional) a field for jobs.ge vacancies, guessed from the title and labelled as a guess | later | the owner's go |
 
 ## 16A: theme foundation
@@ -176,6 +176,27 @@ The mockup is the spec.
 - **The query layer:** `src/browse/queries.ts` and `public-queries.ts` gain these filters and the option counts. The search box needs its suggestion lists from the server.
 
 **Exit gate:** as 16A's, plus a test per new filter, including the "doesn't state it" counts.
+
+**Built 2026-11-14** on `phase-16c-browse`:
+- **Rows in memory.** `src/browse/browse-index.ts` reads every opportunity with its live members and the facts Browse filters on, in one query per surface (the base tables on local, `public_opportunity_members` and `public_opportunities` only on public): 0.2 s for the 29,167 live memberships of the local corpus. Each web process holds it and rebuilds it in the background every 60 s (`refreshingFor`, `web/lib/cached.ts`), so a crawl's rows show within about a minute and no page waits on the rebuild. Whether a public row is open is checked on every request.
+- **The engine.** `src/browse/browse-engine.ts`, pure TypeScript: the matches, counts on every option, the kind counts, what each filter leaves out and from which board, and what dropping one filter would show; one pass per page. `src/browse/browse-form.ts` is the form and its address, shared with the browser.
+- **The screen,** as the mockup: All · Jobs · Tenders · Courses with counts; one search box over words, cities, countries, fields, employers, buyers and schools (`/opportunities/suggest`; Latin typing finds Georgian names, "silk" → სილქნეტი); the pills by kind; popovers and bottom sheets; "All filters" in its groups; the price panel for salary, value and fee; applied chips; the count line with "N left out for not stating it — show them too"; kept rows after a divider; the empty state offering which filter to drop. Rows: kind icon, title, organisation, a facts line by kind, pay/value/fee (blank when not stated), closes or starts, board chips; Save and Dismiss and the state stay on the local edition.
+- **Course fees and tender values** are grouped at the National Bank of Georgia's official rates of 2026-11-14 (`src/browse/reference-rates.ts`, dated, committed); each row shows the source's own amount, and a currency not in the table is never converted.
+- **Shared controls.** The chip, switch, number field, slider, histogram and sheet helpers 16B drew now live in `web/components/filter-ui.tsx`, used by both tabs.
+- **Fold-in:** a detail page's "What the source states" table has no minimum width below 640px, so at 390 its values wrap in a 343px box instead of scrolling sideways by 41px.
+
+Changed while building:
+- **Counts are worked out in memory, not in SQL** (16B's way): with counts on every option, the kind counts and the "left out" numbers, one SQL query per count would have been dozens per page. It follows Phase 15's choice I.
+- **Older addresses keep working:** `source=` is a board; `type=` becomes the kind it names, and the landing page's `type=job&type=tender` (no one kind) stays a filter with its own chip. The other old values (`closing`, `since`, `cross`, `status`, `sort`, `show`) read as before.
+- **"Courses" is the summer-school kind.** The other programme kinds (none crawled yet) show under "All" until Phase 15E's tab.
+- **On a phone** pay, dates and boards wrap onto a second line, and the boards drop under them when there is no room (a fixed four-column line overflowed by 19px on cross-posted rows).
+
+Gate:
+- ✅ A test per filter (30, each with a row that fits, one that does not, and one that does not state the fact: left out, counted, then kept after the match), plus the windows, public eligibility, the by-board "never states it", option counts, order, drops and the kind change (`browse-engine.test.ts`); the address (`web/lib/browse-params.test.ts`); the loaders on a throwaway database and the assembly (`browse-index.test.ts`); the rates; `refreshingFor`. 2,859 tests pass (2,785 before).
+- ✅ Browser, both themes, Georgian and English, 390 and 1280: the local surface on the real local corpus, read-only (8,164 open vacancies, 32 tenders): 80 page loads over 10 states including a detail page, and 52 open panels; the public surface on the course database (`scraplify_qa_p15`, 623 courses): 56 page loads and 28 panels. No overflow, no console error, no text under its contrast floor, every panel inside the screen with focus in it. A real flow driven by mouse and keyboard: a salary preset, keeping the 7,209 vacancies with no salary (461 match), Batumi picked from the search (242 shown, 5,000 left out for stating no city), Tenders dropping the job-only filters.
+- ✅ web-design-guidelines review: two fixes (dates through `Intl`, the search input's name).
+- ✅ Surface-boundary review: no leak (the public process reads only the public views; nothing writes). One fix: the suggestions cache is keyed on the checked form, not the raw address, so made-up parameters cannot fill it. Noted: a row the public views drop (quarantined, detached) can stay on the public list up to about a minute, until the next rebuild; whether it is open is checked on every request.
+- ⏳ CI on the PR; the deploy and a check on jobster.fun.
 
 ## 16D (optional): a field for jobs.ge vacancies
 
