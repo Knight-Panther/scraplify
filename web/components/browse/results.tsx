@@ -98,6 +98,15 @@ function Fact({
   );
 }
 
+/** A fact the board does not state itself (16D, 16E): a dashed tag beside it. */
+function Mark({ children }: { children: ReactNode }) {
+  return (
+    <span className="shrink-0 rounded-sm border border-dashed border-current px-1 text-[11px] leading-4">
+      {children}
+    </span>
+  );
+}
+
 function facts(item: BrowseItem, surface: 'local' | 'public'): ReactNode[] {
   const out: ReactNode[] = [];
   if (surface === 'local' && item.status !== 'active') {
@@ -110,7 +119,16 @@ function facts(item: BrowseItem, surface: 'local' | 'public'): ReactNode[] {
   if (item.kind === 'job') {
     if (item.cities.length > 0) {
       out.push(
-        <Fact key="city" icon="pin">
+        <Fact
+          key="city"
+          icon="pin"
+          title={
+            item.citiesRead
+              ? "Read from the listing's text, since the board states no city"
+              : undefined
+          }
+          after={item.citiesRead ? <Mark>from text</Mark> : undefined}
+        >
           {item.cities.map(cityEnglish).join(', ')}
         </Fact>,
       );
@@ -126,13 +144,7 @@ function facts(item: BrowseItem, surface: 'local' | 'public'): ReactNode[] {
               ? `${field}: guessed from the listing's text, since the board states no field`
               : field
           }
-          after={
-            item.fieldGuessed ? (
-              <span className="shrink-0 rounded-sm border border-dashed border-current px-1 text-[11px] leading-4">
-                guessed
-              </span>
-            ) : undefined
-          }
+          after={item.fieldGuessed ? <Mark>guessed</Mark> : undefined}
         >
           {FIELD_EN.get(field) ?? field}
         </Fact>,

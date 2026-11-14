@@ -30,6 +30,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 | ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
 | ✅ | **16C** | Browse v2 | yes | done: merged as `4a251d2` (PR #114), live 2026-11-14 14:14 UTC |
 | ⏳ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14; merged 2026-11-14 as `efa1c99` (PR #115, CI green) | a deploy with migration 0055 and `apply-db-roles.sh grants`, after the ss.ge run | 2026-11-15, the deploy window |
+| ⏳ | **16E** | A city for jobs.ge vacancies, read from the listing's own text and marked "from text". The owner's go 2026-11-14 | CI, then the deploy with 16D's (migrations 0055 and 0056) | the PR |
 
 ## 16A: theme foundation
 
@@ -211,5 +212,17 @@ Changed 2026-11-14, before building: 5,048 of the 5,170 open jobs.ge vacancies h
 - ✅ **Read by Browse.** Migration `0055_guessed_field` adds `guessed_field` to `public_opportunity_members` (the view is rebuilt, so the deploy re-applies the public role's grant: `apply-db-roles.sh grants`); the local index reads the same through `listing_classifications`. A job takes a guess only when no member states a field, as `fieldGuessed`. The Field filter matches it, and the row shows the field with a dashed "guessed" tag (kept whole when the name is cut) and a tooltip saying so; "All filters" says "hr.ge; guessed for jobs.ge".
 - ✅ Tests: the model (14), the step on a throwaway database (5), the index's assembly and both loaders (2 new). 2,880 pass.
 - ✅ Browser, the local surface on the real local corpus: 1280 and 390, light and dark. Field "Sales" shows 5,888 vacancies with 1,280 left out for stating none; the Field popover counts include the guesses; 40 tags on a page, none cut or off-screen; no horizontal overflow; the tag's text 6.8:1 on the dark background; no console error.
-- Found on the way, not 16D's: the local `scraplify` database stops at migration 0042 (0043–0054 never applied there, and `db:migrate` exits 1 without a message), so 0055 is not on it either. The local Browse does not need it.
+- Found on the way, not 16D's: the local `scraplify` database stopped at migration 0042. Fixed with 16E (below).
 
+## 16E: a city for jobs.ge vacancies, read from the text
+
+Added 2026-11-14 on the owner's go. jobs.ge states no city, so its vacancies never matched the City filter. Most of them do name one in their text ("ოფისი თბილისში"), so this reads it rather than guesses.
+
+**Built 2026-11-14** on `phase-16e-city-read`:
+- ✅ **The reader.** `src/taxonomy/city-read.ts`, pure: hr.ge's own place names (74, of which 71 can be named in a sentence: not abroad, nationwide or Tbilisi's outskirts), in any Georgian case through the shared stemmer, plus their Latin spellings; from the title and description, in the order named. A name followed by a word for a street, avenue or university is skipped (Tbilisi has a Kutaisi Street; Tbilisi State University is where someone studied). A text naming more than three places reads as none, since a list of every branch says little about one vacancy.
+- ✅ **Checked on the local corpus** (read-only), against the 759 jobs.ge vacancies with an hr.ge twin and that twin's stated cities: a city is read for 74% of them; 95% of the cities read are hr.ge's, 99% get at least one right and 94% the exact set; 7 are wholly wrong, several of them hr.ge's default of Tbilisi for work elsewhere. A cap of one city is a little more exact (98.7%) but reads 225 fewer vacancies; five adds almost nothing. Three stands.
+- ✅ **The step.** `src/taxonomy/read-cities.ts`, the fourth call in the taxonomy backfill, under its lock: a `location` term per hr.ge place, made the first time it is needed; a `keyword` classification on the `location` axis per place, with its order; read once per `CITY_READ_VERSION`; never over a person's own; quarantined listings skipped. On the local corpus: 11,438 of 17,484 jobs.ge revisions read (12,448 readings), 3,345 of the 5,170 open vacancies; the second run writes nothing.
+- ✅ **Read by Browse.** Migration `0056_read_cities` adds `read_cities` (in order) to `public_opportunity_members` (the view is rebuilt again, so the deploy re-applies the grants once after both migrations); the local index reads the same. A job takes them only when no member states a city, as `citiesRead`; the City filter matches them, and the row shows them with a dashed "from text" tag and a tooltip. "All filters" says "hr.ge; read from the text for jobs.ge".
+- ✅ Tests: the reader (12), the step on a throwaway database (4), the index's assembly and both loaders (2 new). 2,898 pass.
+- ✅ Browser, the local surface on the real local corpus, 1280 and 390, light and dark: City "Batumi" shows 2,371 with both tags side by side on a jobs.ge row and none on an hr.ge row; 51 tags on a page, none cut or off-screen; no horizontal overflow; no console error.
+- Also on the way: the local `scraplify` database is migrated through 0056. The 0043–0054 backlog failed as one transaction (0044 adds an enum value a later migration uses, which Postgres refuses in the same transaction), so it was applied one migration at a time, as production had been.

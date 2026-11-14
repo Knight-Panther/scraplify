@@ -43,6 +43,7 @@ const row = (over: Partial<IndexRow> = {}): IndexRow => ({
   salaryRaw: null,
   facts: {},
   guessedField: null,
+  readCities: [],
   ...over,
 });
 
@@ -136,6 +137,22 @@ describe('assembleIndex', () => {
     const [none] = assembleIndex([row({ sourceSlug: 'jobs-ge' })]);
     expect(none?.fields).toEqual([]);
     expect(none?.fieldGuessed).toBe(false);
+  });
+
+  it('takes read cities only when no member states one, and marks them read', () => {
+    const [alone] = assembleIndex([
+      row({ sourceSlug: 'jobs-ge', locations: [], readCities: ['ბათუმი', 'ქუთაისი'] }),
+    ]);
+    expect(alone?.cities).toEqual(['ბათუმი', 'ქუთაისი']);
+    expect(alone?.places).toEqual(['g:ბათუმი', 'g:ქუთაისი']);
+    expect(alone?.citiesRead).toBe(true);
+
+    const [stated] = assembleIndex([
+      row({ sourceSlug: 'jobs-ge', sourceListingId: 'l1', locations: [], readCities: ['ბათუმი'] }),
+      row({ sourceSlug: 'hr-ge', sourceListingId: 'l2', locations: ['თბილისი'] }),
+    ]);
+    expect(stated?.cities).toEqual(['თბილისი']);
+    expect(stated?.citiesRead).toBe(false);
   });
 
   it('reads a tender: CPV divisions, procedure, value in lari', () => {
@@ -393,6 +410,45 @@ describe('the loaders', () => {
       for (const id of [retired, rule]) {
         expect(items.find((i) => i.id === id)?.fields).toEqual([]);
       }
+    }
+  });
+
+  it('reads the places named in a listing text on both surfaces, in order', async () => {
+    const names = [
+      `test-north-${randomUUID().slice(0, 6)}`,
+      `test-south-${randomUUID().slice(0, 6)}`,
+    ];
+    const ids = names.map(() => randomUUID());
+    termIds.push(...ids);
+    for (const [i, name] of names.entries()) {
+      await db.insert(taxonomyTerms).values({
+        id: ids[i] as string,
+        axis: 'location',
+        code: `location-${name}`,
+        label: name,
+        taxonomyVersion: 'v1',
+        parentId: null,
+      });
+    }
+    const id = await add({ title: `Read ${randomUUID().slice(0, 8)}`, locations: [] });
+    // Written second-first, so only `order` puts them right.
+    for (const order of [1, 0]) {
+      await db.insert(listingClassifications).values({
+        id: randomUUID(),
+        sourceListingRevisionId: lastRevisionId,
+        taxonomyTermId: ids[order] as string,
+        axis: 'location',
+        method: 'keyword',
+        confidence: 1,
+        evidence: { order },
+        taxonomyVersion: 'v1',
+        createdAt: '2026-11-14T00:00:00Z',
+      });
+    }
+    for (const load of [loadBrowseIndex, loadPublicBrowseIndex]) {
+      const item = (await load(db)).find((i) => i.id === id);
+      expect(item?.cities).toEqual(names);
+      expect(item?.citiesRead).toBe(true);
     }
   });
 
