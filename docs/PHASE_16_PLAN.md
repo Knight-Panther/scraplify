@@ -2,7 +2,7 @@
 
 Three designs the owner approved as HTML mockups on 2026-11-14, to be built into the site. Kept as a tracker once building starts.
 
-- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B live** since 2026-11-14 13:05 UTC as `c0ddf0f` (PR #112); **16C built** on `phase-16c-browse`, its local gate met, PR next.
+- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B live** since 2026-11-14 13:05 UTC as `c0ddf0f` (PR #112); **16C live** since 2026-11-14 14:14 UTC as `4a251d2` (PR #114, CI green), web-only; Phase 16's three sub-phases are done (16D optional, waiting on the owner).
 - **The mockups are the visual source of truth.** They live outside the repo, on the owner's PC, in `C:\Users\Giorgi Teliashvili\Desktop\xtelo-mockups\`. To view them, run `python -m http.server 8765 --bind 127.0.0.1` in that folder and open `http://127.0.0.1:8765/home-v2.html`. Stop the server afterwards.
   - `real-estate-filters-v2.html` with `real-estate-filters-data.js`: Real estate filters, **approved**. It uses synthetic listings drawn from real distributions; the sub-districts, streets and stations are real.
   - `browse-v2.html` with `browse-data.js`: Browse, **approved**. It uses a real read-only sample of the live catalogue: 460 random open jobs, all 61 open tenders, 272 courses.
@@ -28,7 +28,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 |---|---|---|---|---|
 | ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
 | ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
-| ⏳ | **16C** | Browse v2 | yes | the PR and CI, then the deploy |
+| ✅ | **16C** | Browse v2 | yes | done: merged as `4a251d2` (PR #114), live 2026-11-14 14:14 UTC |
 | ❌ | **16D** | (Optional) a field for jobs.ge vacancies, guessed from the title and labelled as a guess | later | the owner's go |
 
 ## 16A: theme foundation
@@ -196,7 +196,7 @@ Gate:
 - ✅ Browser, both themes, Georgian and English, 390 and 1280: the local surface on the real local corpus, read-only (8,164 open vacancies, 32 tenders): 80 page loads over 10 states including a detail page, and 52 open panels; the public surface on the course database (`scraplify_qa_p15`, 623 courses): 56 page loads and 28 panels. No overflow, no console error, no text under its contrast floor, every panel inside the screen with focus in it. A real flow driven by mouse and keyboard: a salary preset, keeping the 7,209 vacancies with no salary (461 match), Batumi picked from the search (242 shown, 5,000 left out for stating no city), Tenders dropping the job-only filters.
 - ✅ web-design-guidelines review: two fixes (dates through `Intl`, the search input's name).
 - ✅ Surface-boundary review: no leak (the public process reads only the public views; nothing writes). One fix: the suggestions cache is keyed on the checked form, not the raw address, so made-up parameters cannot fill it. Noted: a row the public views drop (quarantined, detached) can stay on the public list up to about a minute, until the next rebuild; whether it is open is checked on every request.
-- ⏳ CI on the PR; the deploy and a check on jobster.fun.
+- ✅ CI green on PR #114. Deployed web-only 2026-11-14 14:13 to 14:14 UTC (`.git/handoff-16c/deploy-16c.sh`; no migration; the ss.ge crawl left running on its own release, so old releases still not pruned). Both sites ready, health check ok. On the host: the first Browse page 4.4 s (the index built once), then 0.2 to 0.4 s; suggestions 0.15 to 0.6 s. On jobster.fun at 390 and 1280 in both themes: 16 loads, no overflow, no console error; 8,759 open (8,075 vacancies, 61 tenders, 623 courses); a salary of ₾1,500+ shows 457 and says 7,127 are left out for stating none. From the PC the page is 34 KB compressed (343 KB raw) and arrives in about 0.7 s.
 
 ## 16D (optional): a field for jobs.ge vacancies
 
