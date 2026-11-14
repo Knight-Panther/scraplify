@@ -134,7 +134,7 @@ Gate:
 - ✅ Reviews: web-design-guidelines (two fixes: focused rows clear of the sticky bar, pills without the tap delay); surface-boundary review, no defect (the endpoints read only `public_listings` and `public_places`).
 - ✅ Tests: 2,785 pass locally (26 new for the counts and place suggestions); ✅ CI green on PR #112.
 - ✅ Deployed web-only 2026-11-14 13:05 UTC (`.git/handoff-16b/deploy-16b.sh`; no migration; the ss.ge crawl left running on its own release, so old releases still not pruned). Both sites ready, health check ok. On jobster.fun at 390 and 1280: light, 91,726 properties under "Buy", no overflow, no console error; facets answer in 0.8 to 1.5 s on broad filters, place suggestions in 0.7 s.
-- Changed after the deploy: the default page's Kind and Rooms counts timed out on the first request after the restart (cold caches) and, kept ten minutes, left those panels without numbers. A timed-out count is now kept one minute (follow-up PR).
+- Changed after the deploy: the default page's Kind and Rooms counts timed out on the first request after the restart (cold caches) and, kept ten minutes, left those panels without numbers. A timed-out count is now kept one minute: PR #113, live as `9e678ef` at 13:12 UTC; the default page's counts then answered in 1.6 s.
 
 ## 16C: Browse v2
 
