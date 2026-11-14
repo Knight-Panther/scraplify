@@ -2,7 +2,7 @@
 
 Three designs the owner approved as HTML mockups on 2026-11-14, to be built into the site. Kept as a tracker once building starts.
 
-- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); 16B and 16C not started.
+- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B built** on `phase-16b-real-estate` (2026-11-14), its gate checked in a browser, waiting on its PR's CI; 16C not started.
 - **The mockups are the visual source of truth.** They live outside the repo, on the owner's PC, in `C:\Users\Giorgi Teliashvili\Desktop\xtelo-mockups\`. To view them, run `python -m http.server 8765 --bind 127.0.0.1` in that folder and open `http://127.0.0.1:8765/home-v2.html`. Stop the server afterwards.
   - `real-estate-filters-v2.html` with `real-estate-filters-data.js`: Real estate filters, **approved**. It uses synthetic listings drawn from real distributions; the sub-districts, streets and stations are real.
   - `browse-v2.html` with `browse-data.js`: Browse, **approved**. It uses a real read-only sample of the live catalogue: 460 random open jobs, all 61 open tenders, 272 courses.
@@ -27,7 +27,7 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 | | | What | Goes live? | Waits on |
 |---|---|---|---|---|
 | ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
-| ❌ | **16B** | Real estate filters v2 | yes | 16A |
+| ⏳ | **16B** | Real estate filters v2 | yes | its PR's CI, then a web-only deploy |
 | ❌ | **16C** | Browse v2 | yes | 16A |
 | ❌ | **16D** | (Optional) a field for jobs.ge vacancies, guessed from the title and labelled as a guess | later | the owner's go |
 
@@ -116,6 +116,23 @@ The mockup is the spec. Key points:
 - The state stays in the URL, as today.
 
 **Exit gate:** as 16A's, plus every filter the live tab has today still reachable (a test lists them).
+
+**Built 2026-11-14** on `phase-16b-real-estate`:
+- The bar, the pills by kind, the popovers (wide) and bottom sheets (phone), "All filters" in its seven groups plus Display, the Where box, the metro diagram and the price panel, drawn in the browser from one registry (`web/lib/real-estate-registry.ts`). The address is still the whole state (`web/lib/real-estate-form.ts`, `real-estate-params.ts`): each change asks the server for the page again while the list dims.
+- Counts: `/real-estate/facets` (`src/realestate/facets.ts`), asked only while a panel is open, each facet capped at 2.5 s and kept ten minutes per filter set (a timed-out one too). Place suggestions: `/real-estate/places` (`src/realestate/place-suggest.ts`), over C6, with counts under the other filters in one scan.
+- Results: a Metro column (our walking band to the nearest station, or to the one asked for; "over 20 min" where located and none is near) and a "Nearest metro first" order; three-line rows under 900px.
+
+Changed while building:
+- **A bare `/real-estate` is "Buy"** (the mockup's default); `deal=all` is every deal. Old addresses still work: `city` and `area` become places, and a house's `hmin`/`hmax` become its area.
+- **"House area" is the list's area** for houses and cottages: on production the two agree on all 775 houses whose own page gives both, and the list's covers every house (44,648). Yard area stays a listing-page filter (740 of 44,648 houses) and says so in its panel.
+- **Floor** is offered for flats and commercial spaces (and with no kind), no longer for houses, land and hotels, as the plan says. Rooms, status and condition now work with no kind chosen, as in the mockup.
+- **Area presets** depend on the kind (a plot in hundreds of m²); the mockup had one set.
+
+Gate:
+- ✅ Every filter the tab had still reachable: `web/lib/real-estate-params.test.ts` lists 29 of them, each set from an old address and found in the registry; 53 address tests in all.
+- ✅ Browser, public and local surfaces on `scraplify_qa_16`: 144 page loads (9 filter states, both themes, Georgian and English, 390 and 1280) and 56 open panels (every pill, the kind, and "All filters" for five kinds, both themes, both widths): no overflow, no console error, no text under its contrast floor, every panel inside the screen with focus in it.
+- ✅ Reviews: web-design-guidelines (two fixes: focused rows clear of the sticky bar, pills without the tap delay); surface-boundary review, no defect (the endpoints read only `public_listings` and `public_places`).
+- ✅ Tests: 2,785 pass locally (26 new for the counts and place suggestions); ✅ CI green on PR #112.
 
 ## 16C: Browse v2
 

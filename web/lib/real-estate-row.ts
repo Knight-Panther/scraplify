@@ -146,3 +146,25 @@ export function detailText(row: RealEstateRow): string | null {
   ].filter((fact) => fact !== null);
   return facts.length === 0 ? null : facts.map((fact) => fact.toLowerCase()).join(' · ');
 }
+
+/** The metro beside a row: a station and its walk, "over 20 min", or nothing where the location is too vague to say. */
+export type MetroText = { near: true; code: string; minutes: number } | { near: false };
+
+/**
+ * The station a row shows: one of the stations asked for when the filter
+ * names some, else the nearest. Walking bands are ours, from the street or
+ * the building (Phase 14D), never the poster's claim.
+ */
+export function metroText(row: RealEstateRow, stations: readonly string[]): MetroText | null {
+  if (row.metroStation !== null && row.metroMinutes !== null) {
+    const nearby = row.metroNearby ?? [];
+    const index = nearby.findIndex((code) => stations.includes(code));
+    const minutes = index < 0 ? undefined : row.metroNearbyMinutes?.[index];
+    if (index >= 0 && minutes !== undefined && minutes !== null) {
+      return { near: true, code: nearby[index] as string, minutes };
+    }
+    return { near: true, code: row.metroStation, minutes: row.metroMinutes };
+  }
+  // Located well enough to judge, and no station within the last band.
+  return row.metroBasis === null ? null : { near: false };
+}

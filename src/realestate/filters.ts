@@ -64,7 +64,13 @@ export const ROOMS_TOP = 10;
 export const BATHROOMS_TOP = 5;
 export const BALCONIES_TOP = 5;
 
-export type RealEstateSort = 'newest' | 'price-asc' | 'price-desc' | 'ppm2-asc' | 'area-desc';
+export type RealEstateSort =
+  | 'newest'
+  | 'price-asc'
+  | 'price-desc'
+  | 'ppm2-asc'
+  | 'area-desc'
+  | 'metro';
 
 /**
  * The levels a place filter takes, as C6 (`realestate.public_places`) names
@@ -304,7 +310,7 @@ const neighbourhoodParent = (ref: number, level: 'city' | 'district' | 'subdistr
   );
 
 /** In one place, as far as the listing's location says. Null, never true, where it does not. */
-function inPlace(place: RealEstatePlace): SQL {
+export function inPlace(place: RealEstatePlace): SQL {
   switch (place.level) {
     case 'city':
       return eq(listings.cityRef, place.ref);
@@ -388,7 +394,7 @@ function unknownInPlace(place: RealEstatePlace): SQL | undefined {
 }
 
 /** Near the metro, as far as the listing's checked metro says. */
-function nearMetro(metro: RealEstateMetro): SQL | undefined {
+export function nearMetro(metro: RealEstateMetro): SQL | undefined {
   const maxMinutes = metro.maxMinutes ?? METRO_MINUTES_TOP;
   const stations = metro.stations ?? [];
   if (stations.length === 0) return lte(listings.metroMinutes, maxMinutes);
@@ -491,18 +497,22 @@ export function locationEstimate(filters: RealEstateFilters, now: string): SQL |
 /** A poster's typo in the price or area (`src/realestate/plausibility.ts`). */
 export const implausibleValues = implausibleValuesOf(listings);
 
+/** The price column the price bounds are on: the currency's, per m² when asked. */
+export function priceColumn(filters: Pick<RealEstateFilters, 'currency' | 'pricePerM2'>) {
+  const gel = filters.currency === 'gel';
+  return filters.pricePerM2 === true
+    ? gel
+      ? listings.pricePerM2Gel
+      : listings.pricePerM2Usd
+    : gel
+      ? listings.priceGel
+      : listings.priceUsd;
+}
+
 /** Every filter, over `realestate.public_listings`, at the time `now`. */
 export function conditions(filters: RealEstateFilters, now: string): SQL | undefined {
   const shownAfter = new Date(Date.parse(now) - SHOWN_GRACE_DAYS * DAY_MS).toISOString();
-  const gel = filters.currency === 'gel';
-  const price =
-    filters.pricePerM2 === true
-      ? gel
-        ? listings.pricePerM2Gel
-        : listings.pricePerM2Usd
-      : gel
-        ? listings.priceGel
-        : listings.priceUsd;
+  const price = priceColumn(filters);
   const query = filters.text === undefined ? null : listingSearchQuery(filters.text);
   const floor = filters.floor;
 
@@ -591,6 +601,13 @@ export function ordering(filters: RealEstateFilters): SQL[] {
       return [
         sql`${implausibleValues} asc`,
         sql`${listings.areaM2} desc nulls last`,
+        asc(listings.id),
+      ];
+    case 'metro':
+      // Nearest first; a listing whose location says nothing about the metro goes last.
+      return [
+        sql`${listings.metroMinutes} asc nulls last`,
+        desc(listings.sourceUpdatedAt),
         asc(listings.id),
       ];
     default:

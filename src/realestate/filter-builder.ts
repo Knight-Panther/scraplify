@@ -109,7 +109,7 @@ const filtersSchema = z.strictObject({
   ownerOnly: z.boolean().optional(),
   plausibleOnly: z.boolean().optional(),
   text: z.string().max(200).optional(),
-  sort: z.enum(['newest', 'price-asc', 'price-desc', 'ppm2-asc', 'area-desc']).optional(),
+  sort: z.enum(['newest', 'price-asc', 'price-desc', 'ppm2-asc', 'area-desc', 'metro']).optional(),
   grouped: z.boolean().optional(),
   groupKey: z.string().max(100).optional(),
 });

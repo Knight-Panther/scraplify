@@ -7,7 +7,16 @@ import type {
   Project,
   PropertyType,
 } from '../../src/realestate/kinds.js';
-import { BALCONIES_TOP, BATHROOMS_TOP, ROOMS_TOP } from '../../src/realestate/queries.js';
+
+/*
+ * ss.ge's top chips, meaning that many or more: the same numbers as
+ * `src/realestate/filters.ts` (a test holds them together), written out here
+ * because this file is read in the browser too, which must not pull in the
+ * query layer.
+ */
+const ROOMS_TOP = 10;
+const BATHROOMS_TOP = 5;
+const BALCONIES_TOP = 5;
 
 /**
  * What each kind's "more filters" panel offers, as ss.ge's own "მეტი ფილტრი"
