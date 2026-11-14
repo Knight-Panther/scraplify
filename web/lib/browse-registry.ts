@@ -149,7 +149,12 @@ export const FILTER_UI: Readonly<Partial<Record<FilterKey, FilterUi>>> = {
     title: (k) => (k === 'job' ? 'City' : k === 'course' ? 'Country' : 'Place'),
     icon: 'pin',
     what: (k) => (k === 'job' ? 'a city' : k === 'course' ? 'a country' : 'a place'),
-    source: (k) => (k === 'job' ? 'hr.ge only' : k === '' ? 'hr.ge jobs and courses' : ''),
+    source: (k) =>
+      k === 'job'
+        ? 'hr.ge; read from the text for jobs.ge'
+        : k === ''
+          ? 'hr.ge jobs and courses'
+          : '',
     wide: true,
     fold: 14,
   },

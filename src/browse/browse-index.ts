@@ -71,6 +71,11 @@ export interface BrowseItem {
    * taken only when no member states one. Shown as a guess, never as stated.
    */
   fieldGuessed: boolean;
+  /**
+   * Phase 16E: the job's cities are read from its text (jobs.ge states none),
+   * taken only when no member states one.
+   */
+  citiesRead: boolean;
   industries: string[];
   /** Lari a month, as hr.ge states it: "1500-?" is [1500, null]. */
   salary: [number | null, number | null] | null;
@@ -126,6 +131,8 @@ export interface IndexRow {
   facts: Record<string, unknown>;
   /** Phase 16D: a field guessed from the text, for a board that states none. */
   guessedField: string | null;
+  /** Phase 16E: the places the text names, for a board that states no city. */
+  readCities: unknown;
 }
 
 const strings = (value: unknown): string[] =>
@@ -218,6 +225,7 @@ export function assembleIndex(rows: readonly IndexRow[]): BrowseItem[] {
       places: [],
       fields: [],
       fieldGuessed: false,
+      citiesRead: false,
       industries: [],
       salary: null,
       contract: null,
@@ -270,6 +278,13 @@ export function assembleIndex(rows: readonly IndexRow[]): BrowseItem[] {
       if (row !== undefined) addFacts(item, row);
     }
     item.deadlinesDisagree = deadlineDays.size > 1;
+    if (kind === 'job' && item.cities.length === 0) {
+      const read = group.flatMap((row) => strings(row.readCities));
+      if (read.length > 0) {
+        union(item.cities, read);
+        item.citiesRead = true;
+      }
+    }
     if (kind === 'job' && item.fields.length === 0) {
       const guesses = group.flatMap((row) => (row.guessedField === null ? [] : [row.guessedField]));
       if (guesses.length > 0) {
@@ -423,6 +438,16 @@ function guessedFieldSql(revisionId: ReturnType<typeof sql>) {
        limit 1)`;
 }
 
+/** A revision's read places (Phase 16E), as the public view's `read_cities` reads them. */
+function readCitiesSql(revisionId: ReturnType<typeof sql>) {
+  return sql`(select coalesce(jsonb_agg(t.label order by (lc.evidence->>'order')::int nulls last, t.label), '[]'::jsonb)
+       from listing_classifications lc
+       join taxonomy_terms t on t.id = lc.taxonomy_term_id
+       where lc.source_listing_revision_id = ${revisionId}
+         and lc.axis = 'location' and lc.superseded_at is null
+         and lc.method in ('keyword', 'human_review'))`;
+}
+
 interface RawRow extends Record<string, unknown> {
   opportunity_id: string;
   type: string;
@@ -441,6 +466,7 @@ interface RawRow extends Record<string, unknown> {
   salary_raw: string | null;
   facts: Record<string, unknown> | null;
   guessed_field: string | null;
+  read_cities: unknown;
 }
 
 const iso = (value: string | Date): string =>
@@ -465,6 +491,7 @@ function toIndexRow(row: RawRow): IndexRow {
     salaryRaw: row.salary_raw,
     facts: row.facts ?? {},
     guessedField: row.guessed_field,
+    readCities: row.read_cities,
   };
 }
 
@@ -494,7 +521,8 @@ export async function loadBrowseIndex(db: DatabaseOrTransaction): Promise<Browse
           concat_ws(' ', r.title_raw, r.organization_raw, r.locations::text, r.source_categories::text) as hay,
           r.locations, r.salary_raw,
           ${factsSql(sql`r.structured_attributes`)} as facts,
-          ${guessedFieldSql(sql`r.id`)} as guessed_field
+          ${guessedFieldSql(sql`r.id`)} as guessed_field,
+          ${readCitiesSql(sql`r.id`)} as read_cities
         from opportunities o
         join opportunity_source_memberships m on m.opportunity_id = o.id and m.superseded_at is null
         join source_listings sl on sl.id = m.source_listing_id
@@ -521,7 +549,7 @@ export async function loadPublicBrowseIndex(db: DatabaseOrTransaction): Promise<
           concat_ws(' ', pom.title, pom.organization, pom.locations::text, pom.source_categories::text) as hay,
           pom.locations, pom.salary_raw,
           ${factsSql(sql`pom.structured_attributes`)} as facts,
-          pom.guessed_field
+          pom.guessed_field, pom.read_cities
         from public_opportunity_members pom
         join public_opportunities po on po.id = pom.opportunity_id`,
   );

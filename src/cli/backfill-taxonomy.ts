@@ -4,6 +4,7 @@ import { db, pool } from '../db/client.js';
 import { logger } from '../logger.js';
 import { classifyListings } from '../taxonomy/classify-listings.js';
 import { guessFields } from '../taxonomy/guess-fields.js';
+import { readCitiesFromText } from '../taxonomy/read-cities.js';
 import { seedTaxonomyTerms } from '../taxonomy/seed-terms.js';
 
 /**
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
   }
 
   const startedAtMs = Date.now();
-  const { seedResult, classifyResult, guessResult } = await withAdvisoryLock(
+  const { seedResult, classifyResult, guessResult, cityResult } = await withAdvisoryLock(
     pool,
     ADVISORY_LOCKS.taxonomyBackfill,
     async () => ({
@@ -41,6 +42,8 @@ async function main(): Promise<void> {
       classifyResult: await classifyListings(db),
       // Phase 16D: a field for jobs.ge, which states none, learnt from hr.ge's.
       guessResult: await guessFields(db),
+      // Phase 16E: the places jobs.ge's own text names, since it states no city.
+      cityResult: await readCitiesFromText(db),
     }),
   );
 
@@ -50,6 +53,7 @@ async function main(): Promise<void> {
       seed: seedResult,
       classify: classifyResult,
       guess: guessResult,
+      cities: cityResult,
     },
     'taxonomy backfill finished',
   );

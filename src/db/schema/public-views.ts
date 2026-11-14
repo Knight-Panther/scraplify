@@ -146,6 +146,12 @@ export const publicOpportunityMembers = pgView('public_opportunity_members', {
    * `structured_attributes`.
    */
   guessedField: text('guessed_field'),
+  /**
+   * Phase 16E: the places a listing's own text names, for a board that states
+   * no city (`src/taxonomy/read-cities.ts`), in the order named; `[]` when
+   * none. Never the board's stated `locations`.
+   */
+  readCities: jsonb('read_cities').notNull(),
 }).as(sql`
   select
     ${opportunitySourceMemberships.opportunityId} as opportunity_id,
@@ -176,7 +182,13 @@ export const publicOpportunityMembers = pgView('public_opportunity_members', {
          and lc.axis = 'profession' and lc.superseded_at is null
          and lc.method in ('keyword', 'human_review')
        order by (lc.method = 'human_review') desc, lc.confidence desc, lc.id
-       limit 1) as guessed_field
+       limit 1) as guessed_field,
+    (select coalesce(jsonb_agg(t.label order by (lc.evidence->>'order')::int nulls last, t.label), '[]'::jsonb)
+       from listing_classifications lc
+       join taxonomy_terms t on t.id = lc.taxonomy_term_id
+       where lc.source_listing_revision_id = ${sourceListingRevisions.id}
+         and lc.axis = 'location' and lc.superseded_at is null
+         and lc.method in ('keyword', 'human_review')) as read_cities
   from ${opportunitySourceMemberships}
   inner join ${sourceListings} on ${sourceListings.id} = ${opportunitySourceMemberships.sourceListingId}
   inner join ${sources} on ${sources.id} = ${sourceListings.sourceId}
