@@ -419,7 +419,7 @@ Exit gate:
 
 ### 15E: the bilingual Programmes tab
 
-Changed 2026-11-14: the owner confirmed the tab stays its own page. It is built in the redesign's style ([`PHASE_16_PLAN.md`](PHASE_16_PLAN.md)), reusing Browse v2's course filters: start month, country, field of study, fee and credits. Its rows say what a filter leaves out, the way Browse v2 does. Build it after 16A, so it starts on the new colours.
+Changed 2026-11-14: the owner confirmed the tab stays its own page. It is built in the redesign's style ([`PHASE_16_PLAN.md`](archive/PHASE_16_PLAN.md)), reusing Browse v2's course filters: start month, country, field of study, fee and credits. Its rows say what a filter leaves out, the way Browse v2 does. Build it after 16A, so it starts on the new colours.
 
 Invoke the `professional-frontend` skill before writing components and again before calling it done.
 

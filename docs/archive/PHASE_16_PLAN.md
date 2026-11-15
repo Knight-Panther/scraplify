@@ -2,7 +2,7 @@
 
 Three designs the owner approved as HTML mockups on 2026-11-14, to be built into the site. Kept as a tracker once building starts.
 
-- **Status: 16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B live** since 2026-11-14 13:05 UTC as `c0ddf0f` (PR #112); **16C live** since 2026-11-14 14:14 UTC as `4a251d2` (PR #114, CI green), web-only; Phase 16's three sub-phases are done (16D optional, waiting on the owner).
+- **Status: Phase 16 complete 2026-11-15.** **16D and 16E live** since 2026-11-15 07:01 UTC as `557f8d0` (migrations 0055 and 0056; checked on jobster.fun). **16A live** since 2026-11-14 11:25 UTC as `5f69597` (PR #111); **16B live** since 2026-11-14 13:05 UTC as `c0ddf0f` (PR #112); **16C live** since 2026-11-14 14:14 UTC as `4a251d2` (PR #114, CI green), web-only; Phase 16's three sub-phases are done (16D optional, waiting on the owner).
 - **The mockups are the visual source of truth.** They live outside the repo, on the owner's PC, in `C:\Users\Giorgi Teliashvili\Desktop\xtelo-mockups\`. To view them, run `python -m http.server 8765 --bind 127.0.0.1` in that folder and open `http://127.0.0.1:8765/home-v2.html`. Stop the server afterwards.
   - `real-estate-filters-v2.html` with `real-estate-filters-data.js`: Real estate filters, **approved**. It uses synthetic listings drawn from real distributions; the sub-districts, streets and stations are real.
   - `browse-v2.html` with `browse-data.js`: Browse, **approved**. It uses a real read-only sample of the live catalogue: 460 random open jobs, all 61 open tenders, 272 courses.
@@ -29,8 +29,8 @@ Each is its own branch and PR with an exit gate in `docs/STATUS.md`. **Order: 16
 | ✅ | **16A** | Theme foundation: one set of colours for every screen, dark and light, the header switch, the choice in a cookie | yes | done: merged as `5f69597` (PR #111), live 2026-11-14 11:25 UTC |
 | ✅ | **16B** | Real estate filters v2 | yes | done: merged as `c0ddf0f` (PR #112), live 2026-11-14 13:05 UTC |
 | ✅ | **16C** | Browse v2 | yes | done: merged as `4a251d2` (PR #114), live 2026-11-14 14:14 UTC |
-| ⏳ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14; merged 2026-11-14 as `efa1c99` (PR #115, CI green) | a deploy with migration 0055 and `apply-db-roles.sh grants`, after the ss.ge run | 2026-11-15, the deploy window |
-| ⏳ | **16E** | A city for jobs.ge vacancies, read from the listing's own text and marked "from text". The owner's go 2026-11-14 | merged as `0e5bdc9` (PR #116); the deploy with 16D's (migrations 0055 and 0056), after the ss.ge run | the deploy |
+| ✅ | **16D** | A field for jobs.ge vacancies, guessed from the listing's text and labelled as a guess. The owner's go 2026-11-14; merged as `efa1c99` (PR #115); live since 2026-11-15 07:01 UTC as `557f8d0` | — | — |
+| ✅ | **16E** | A city for jobs.ge vacancies, read from the listing's own text and marked "from text". The owner's go 2026-11-14; merged as `0e5bdc9` (PR #116); live since 2026-11-15 07:01 UTC as `557f8d0` | — | — |
 
 ## 16A: theme foundation
 
@@ -226,3 +226,10 @@ Added 2026-11-14 on the owner's go. jobs.ge states no city, so its vacancies nev
 - ✅ Tests: the reader (12), the step on a throwaway database (4), the index's assembly and both loaders (2 new). 2,898 pass.
 - ✅ Browser, the local surface on the real local corpus, 1280 and 390, light and dark: City "Batumi" shows 2,371 with both tags side by side on a jobs.ge row and none on an hr.ge row; 51 tags on a page, none cut or off-screen; no horizontal overflow; no console error.
 - Also on the way: the local `scraplify` database is migrated through 0056. The 0043–0054 backlog failed as one transaction (0044 adds an enum value a later migration uses, which Postgres refuses in the same transaction), so it was applied one migration at a time, as production had been.
+
+## Deploy of 16D and 16E, 2026-11-15
+
+- ✅ Deployed 07:00 to 07:02 UTC with `.git/handoff-16d/deploy-16de.sh` (machine-local), once ss.ge's run `8044ab2c` had ended (`completed`, 03:39 Tbilisi, its 16-hour limit). Backup copied off the host first; migrations 0055 and 0056; grants re-applied (the public role reads `public_opportunity_members` and still no table); both sites ready; health check all ok.
+- ✅ The taxonomy step run by hand on the host straight after: 26 s; trained on 9,745 hr.ge vacancies (the host's corpus is younger than the PC's); 16,246 fields guessed (1,095 below the floor) and 11,322 listings read for a city, 69 places known. Of the 5,169 open jobs.ge vacancies, **4,828 have a guessed field and 3,342 a read city**.
+- ✅ The old releases pruned (owed since 16A): five removed, the live one and the two before it kept; the disk at 41%.
+- ✅ `npm run probe -- https://jobster.fun`: ok. On jobster.fun at 390 and 1280, light and dark: City "Batumi" 594 open vacancies (jobs.ge rows tagged "from text"); Field "Sales" 1,584, with 326 left out for stating none; 68 tags, none cut or off-screen; no horizontal overflow; no console error. First byte: Browse 0.1 to 0.2 s.

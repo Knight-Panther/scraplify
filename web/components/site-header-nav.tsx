@@ -76,7 +76,7 @@ const NAV_ADMIN = [
  * server-only values again on the client once produced a real hydration
  * mismatch ("scraplify" on the server, "no database" on the client).
  *
- * The bar is the Phase 16 design (`docs/PHASE_16_PLAN.md`): yellow in both
+ * The bar is the Phase 16 design (`docs/archive/PHASE_16_PLAN.md`): yellow in both
  * themes, the logo, the links as plain ink words with the current page an
  * ink pill, then the database badge (local only), the theme switch, the
  * language and, below the width the links fit in, the menu button.
