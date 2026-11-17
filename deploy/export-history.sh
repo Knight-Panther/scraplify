@@ -96,7 +96,9 @@ else
   echo "Copied off the host to $HISTORY_REMOTE."
 
   # The year's first export is also kept for good (owner, 2026-11-17) under
-  # HISTORY_YEARLY_REMOTE, a folder the bucket never expires and locks for good.
+  # HISTORY_YEARLY_REMOTE, a folder the bucket never expires. Its lock is 365
+  # days, not forever: the exports hold private data (listing_private), and a
+  # copy must stay rewritable should one person's data have to go.
   yearly="${HISTORY_YEARLY_REMOTE:-none}"
   if [ "$yearly" != none ]; then
     year="${stamp:0:4}"
