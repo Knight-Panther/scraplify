@@ -34,12 +34,18 @@ fi
 directory="${BACKUP_DIR:-/var/backups/xtelo}/history"
 keep="${HISTORY_RETENTION_COUNT:-3}"
 
-# The history: the real-estate archive schema whole (Phases 13A and 17A), and
-# the job boards' revisions and status events (17C) and NBG's rates (17D).
-archive_schema=realestate_archive
+# The history: the real-estate archive schema whole (Phases 13A and 17A), the
+# private poster directory and photo references whole (17B and 17G), and the
+# job boards' revisions and status events (17C) and NBG's rates (17D).
+history_schemas=(realestate_archive realestate_contacts realestate_media)
 public_tables=(source_listing_revisions source_listing_status_events fx_rates)
 
-table_args=(--table="$archive_schema.*")
+table_args=()
+schema_list=""
+for schema in "${history_schemas[@]}"; do
+  table_args+=(--table="$schema.*")
+  schema_list+="${schema_list:+,}'$schema'"
+done
 in_list=""
 for table in "${public_tables[@]}"; do
   table_args+=(--table="public.$table")
@@ -51,7 +57,7 @@ count_rows() {
   psql "$BACKUP_DATABASE_URL" -X -A -t -q -v ON_ERROR_STOP=1 -F $'\t' <<SQL
 select format('select %L, count(*) from %I.%I', schemaname || '.' || tablename, schemaname, tablename)
   from pg_tables
- where schemaname = '$archive_schema'
+ where schemaname in ($schema_list)
     or (schemaname = 'public' and tablename in ($in_list))
  order by schemaname, tablename
 \gexec
@@ -97,8 +103,9 @@ else
 
   # The year's first export is also kept for good (owner, 2026-11-17) under
   # HISTORY_YEARLY_REMOTE, a folder the bucket never expires. Its lock is 365
-  # days, not forever: the exports hold private data (listing_private), and a
-  # copy must stay rewritable should one person's data have to go.
+  # days, not forever: the exports hold private data (listing_private, the
+  # poster directory), and a copy must stay rewritable should one person's
+  # data have to go.
   yearly="${HISTORY_YEARLY_REMOTE:-none}"
   if [ "$yearly" != none ]; then
     year="${stamp:0:4}"

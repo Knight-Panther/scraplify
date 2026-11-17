@@ -2,12 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { db } from './client.js';
 import {
+  accountContacts,
   auditEvents,
+  contacts,
   type CrawlRunRow,
   crawlCursors,
   crawlRuns,
   duplicateCandidates,
   fetchAttempts,
+  listingContacts,
+  listingPhotoRefs,
+  listingPosters,
   listingClassifications,
   type NewCrawlRunRow,
   type NewSourceListingRow,
@@ -19,6 +24,13 @@ import {
   outreachApprovals,
   outreachDrafts,
   parserIncidents,
+  photoRefs,
+  posterAccounts,
+  posterDaily,
+  posterEntities,
+  posterEntityMembers,
+  posterEntityOverrides,
+  posterSteps,
   rankings,
   realEstateArchiveListings,
   realEstateCrawlRuns,
@@ -189,6 +201,63 @@ export async function createTestCrawlRun(
  * FK a term-only reference check missed, which would otherwise abort the
  * whole cleanup transaction rather than merely leave debris).
  */
+/**
+ * The private poster directory and photo references of one source (Phases
+ * 17B and 17G, migration 0060). Contacts and entities are shared by every
+ * source, so only those this source alone used go: contacts no other
+ * source's listing or account links, entities whose every account was this
+ * source's.
+ */
+async function cleanupPosterDirectory(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  sourceId: string,
+): Promise<void> {
+  // A database before migration 0060 has none of it.
+  const { rows } = await tx.execute<{ present: boolean }>(
+    sql`select to_regclass('realestate_contacts.poster_accounts') is not null as present`,
+  );
+  if (!rows[0]?.present) return;
+  await tx.execute(sql`
+    create temporary table if not exists cleanup_poster_contacts (id bigint) on commit drop`);
+  await tx.execute(sql`
+    create temporary table if not exists cleanup_poster_entities (id uuid) on commit drop`);
+  await tx.execute(sql`
+    insert into cleanup_poster_contacts
+    select contact_id from ${listingContacts} where source_id = ${sourceId}
+    union
+    select ac.contact_id from ${accountContacts} ac
+      join ${posterAccounts} a on a.id = ac.account_id where a.source_id = ${sourceId}`);
+  await tx.execute(sql`
+    insert into cleanup_poster_entities
+    select distinct m.entity_id from ${posterEntityMembers} m
+      join ${posterAccounts} a on a.id = m.account_id
+     where a.source_id = ${sourceId}
+       and not exists (
+         select 1 from ${posterEntityMembers} other
+           join ${posterAccounts} oa on oa.id = other.account_id
+          where other.entity_id = m.entity_id and oa.source_id <> ${sourceId})`);
+  await tx.delete(listingPhotoRefs).where(eq(listingPhotoRefs.sourceId, sourceId));
+  await tx.delete(photoRefs).where(eq(photoRefs.sourceId, sourceId));
+  await tx.delete(posterDaily).where(eq(posterDaily.sourceId, sourceId));
+  await tx.delete(posterSteps).where(eq(posterSteps.sourceId, sourceId));
+  await tx.delete(listingContacts).where(eq(listingContacts.sourceId, sourceId));
+  await tx.delete(listingPosters).where(eq(listingPosters.sourceId, sourceId));
+  // Its accounts' links, memberships and overrides cascade with them.
+  await tx.delete(posterAccounts).where(eq(posterAccounts.sourceId, sourceId));
+  await tx.execute(sql`
+    delete from ${posterEntities} e using cleanup_poster_entities c
+     where e.id = c.id
+       and not exists (select 1 from ${posterEntityMembers} m where m.entity_id = e.id)
+       and not exists (select 1 from ${posterDaily} d where d.entity_id = e.id)`);
+  await tx.execute(sql`
+    delete from ${contacts} k using cleanup_poster_contacts c
+     where k.id = c.id
+       and not exists (select 1 from ${listingContacts} lc where lc.contact_id = k.id)
+       and not exists (select 1 from ${accountContacts} ac where ac.contact_id = k.id)
+       and not exists (select 1 from ${posterEntityOverrides} o where o.contact_id = k.id)`);
+  await tx.execute(sql`truncate cleanup_poster_contacts, cleanup_poster_entities`);
+}
+
 export async function cleanupTestSource(
   sourceId: string,
   options: { taxonomyTermIds?: readonly string[] } = {},
@@ -509,6 +578,7 @@ export async function cleanupTestSource(
       .delete(realEstateListingGroupDays)
       .where(eq(realEstateListingGroupDays.sourceId, sourceId));
     await tx.delete(realEstateHistorySteps).where(eq(realEstateHistorySteps.sourceId, sourceId));
+    await cleanupPosterDirectory(tx, sourceId);
     if (groupKeys.length > 0) {
       await tx
         .delete(realEstateListingGroups)

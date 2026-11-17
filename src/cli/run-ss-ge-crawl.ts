@@ -17,6 +17,7 @@ import { regroupListings } from '../realestate/grouping.js';
 import { recordListingHistory } from '../realestate/history.js';
 import { refreshListingLocations } from '../realestate/location.js';
 import { syncPlaces } from '../realestate/places.js';
+import { recordPosterStep } from '../realestate/poster-identity.js';
 import { refreshPlaceCatalogue } from '../realestate/places/catalogue.js';
 import { loadCuratedPlaces } from '../realestate/places/curated.js';
 import { loadOfficialMap } from '../realestate/places/official.js';
@@ -133,6 +134,7 @@ async function main(): Promise<void> {
     const now = new Date().toISOString();
     await recordHistory(crawlRun.id, now);
     await takeTotals(crawlRun.id, now);
+    await recordPosters(crawlRun.id, now);
     await refreshCatalogue();
     await locateListings();
   } catch (err) {
@@ -221,6 +223,22 @@ async function takeTotals(crawlRunId: string, now: string): Promise<void> {
     logger.info({ ...result, durationMs: Date.now() - startedAtMs }, 'ss.ge daily totals taken');
   } catch (err) {
     logger.error({ err }, 'ss.ge daily totals failed; the day has none');
+  }
+}
+
+/**
+ * The private poster directory's links, identities and sizes tonight
+ * (Phase 17B), at the totals' instant. Like the history, a failure leaves
+ * the exit code to the crawl: the step records it in `poster_steps`, and the
+ * next night does the whole of it again. Logs counts only.
+ */
+async function recordPosters(crawlRunId: string, now: string): Promise<void> {
+  try {
+    const result = await recordPosterStep(db, { sourceId: ssGeSource.id, now, crawlRunId });
+    if (result.ok) logger.info(result, 'ss.ge poster directory updated');
+    else logger.error(result, 'ss.ge poster step failed; the next night does it again');
+  } catch {
+    logger.error('ss.ge poster step failed; the next night does it again');
   }
 }
 

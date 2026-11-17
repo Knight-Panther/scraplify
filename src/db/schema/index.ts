@@ -10,6 +10,8 @@ export * from './outreach.js';
 export * from './public-views.js';
 export * from './real-estate.js';
 export * from './real-estate-archive.js';
+export * from './real-estate-contacts.js';
+export * from './real-estate-media.js';
 export * from './resources.js';
 export * from './runs.js';
 export * from './shortlist.js';

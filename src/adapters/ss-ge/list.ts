@@ -1,5 +1,6 @@
 import type { ListingCard, ListingPrice } from '../../realestate/ingest.js';
 import { isRecord, readPageProps, SsGePageShapeError, tbilisiWallClockToIso } from './page.js';
+import { type RowSighting, readRowSighting } from './poster.js';
 
 export { SsGePageShapeError };
 
@@ -83,6 +84,12 @@ export interface ResultsPage {
   pastEnd: boolean;
   servedPage: number;
   cards: ListingCard[];
+  /**
+   * Who posted each card's listing and which photos its row shows (Phases
+   * 17B and 17G), one per card in the same order. Private: written to
+   * `realestate_contacts` and `realestate_media` only, never to the card.
+   */
+  sightings: RowSighting[];
   /** Rows on the page, skipped ones included. */
   rowCount: number;
   /** Rows of another kind or deal than the list being walked, or with no usable id or time. */
@@ -347,8 +354,9 @@ function toCard(row: unknown, expected: ExpectedResultsPage): ListingCard | null
 
 /**
  * Reads one results page of the list for `expected.propertyType` and
- * `expected.dealType`. No phone number, name or user id leaves this function:
- * only the fields named above are copied out of a row.
+ * `expected.dealType`. The cards carry only the fields named above; the
+ * poster's account id and name and the photo paths go to `sightings`
+ * (src/adapters/ss-ge/poster.ts), which only the private directory reads.
  */
 export function parseResultsPage(html: string, expected: ExpectedResultsPage): ResultsPage {
   const pageProps = readPageProps(html);
@@ -363,18 +371,30 @@ export function parseResultsPage(html: string, expected: ExpectedResultsPage): R
     countOrNone(pageProps.initialCardCount) ?? countOrNone(pageProps.initialTotalApplicationCount);
 
   if (servedPage !== expected.page) {
-    return { pastEnd: true, servedPage, cards: [], rowCount: list.length, skipped: 0, listTotal };
+    return {
+      pastEnd: true,
+      servedPage,
+      cards: [],
+      sightings: [],
+      rowCount: list.length,
+      skipped: 0,
+      listTotal,
+    };
   }
 
   const cards: ListingCard[] = [];
+  const sightings: RowSighting[] = [];
   for (const row of list) {
     const card = toCard(row, expected);
-    if (card !== null) cards.push(card);
+    if (card === null || !isRecord(row)) continue;
+    cards.push(card);
+    sightings.push(readRowSighting(row, card.sourceListingKey));
   }
   return {
     pastEnd: false,
     servedPage,
     cards,
+    sightings,
     rowCount: list.length,
     skipped: list.length - cards.length,
     listTotal,

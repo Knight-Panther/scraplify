@@ -10,7 +10,7 @@ export const ssGeSource = SourceSchema.parse({
 export const ssGePolicy = SourcePolicySchema.parse({
   id: '44e70770-f5c3-4279-a32d-9cdd203915f5',
   sourceId: ssGeSource.id,
-  policyVersion: 'v2',
+  policyVersion: 'v3',
   // Every page is server-rendered Next.js with its data embedded as JSON
   // (docs/real-estate-implementation-guideline.md §5), so plain HTTP reads
   // everything this adapter needs. The site's own frontend pages through a
@@ -49,7 +49,7 @@ export const ssGePolicy = SourcePolicySchema.parse({
   retention: {
     rawHtmlRetentionDays: 0,
     notes:
-      'No page is stored. Parsed fields go to the realestate schema; phone numbers, names and user ids in the payload are dropped by the parser.',
+      "No page is stored. Parsed fields go to the realestate schema. Since v3 (Phases 17B and 17G, owner decision 2026-11-17) the poster's account id, display and contact names, phones (from the listing page and typed into descriptions) and emails are kept in the private schema realestate_contacts, and each listing's photo paths (no image) in realestate_media: both kept for good with first and last seen, never on the public site, and readable by the worker only (no public or admin grant; deploy/apply-db-roles.sh checks). Nothing new is requested for them: they come from results rows and listing pages already read.",
   },
   display: {
     mayRepublishFullContent: false,
@@ -64,9 +64,9 @@ export const ssGePolicy = SourcePolicySchema.parse({
     mayFetchExternalApplicationPages: false,
     retention: 'none',
     notes:
-      'Disabled (§16). No photo is fetched, stored, linked or shown (owner, 2026-11-03); only the photo count a results row states is kept.',
+      'Disabled (§16). No photo is fetched, stored, linked or shown (owner, 2026-11-03, kept 2026-11-17). Since v3 (Phase 17G) the photo paths a page already names are kept privately as references (realestate_media), for a later analysis only on the owner’s go; no image request is made.',
   },
-  reviewDate: '2026-11-03T00:00:00Z',
+  reviewDate: '2026-11-17T00:00:00Z',
   evidence: [
     'docs/real-estate-implementation-guideline.md (live read-only study, 2026-10-12: address and filter map, row and detail fields, paging behaviour, traps)',
     'https://home.ss.ge/robots.txt (fetched 2026-10-12: Disallow /ka/user, /en/user, /ru/user; no Crawl-delay)',
@@ -74,6 +74,7 @@ export const ssGePolicy = SourcePolicySchema.parse({
     'Reachability from the production server, 2026-10-12 13:30 UTC: results and detail pages answered 200 with the project User-Agent',
     "docs/RIGHTS.md (the owner's verbal OK from ss.ge, recorded 2026-10-12)",
     "Live recon from the owner's PC, 2026-11-03 (src/adapters/ss-ge/RECON_NOTES.md): the 24 lists of six kinds and four deals; results pages answered in 0.3–1.0 s and listing pages in 0.1–0.6 s; no refusal, challenge or 429",
+    'Poster and photo recon on the host, 2026-11-17 (src/adapters/ss-ge/RECON_NOTES.md, "Posters and photos"): the account id on every results row, the contact name and an unmasked phone on the listing page, photo paths on both; the profile page carries no data and is not read',
   ],
   notes:
     'Real-estate classifieds on home.ss.ge. Scope (owner, 2026-11-03, widening the flats, houses and summer cottages for sale and rent of 2026-10-12): all six kinds (flats, houses, summer cottages, commercial spaces, land, hotels) for all four deals (sale, rent, daily rent, pledge), all of Georgia. Rows are stored in the realestate schema, not in source_listings, and the source is excluded from job-board health, retention and matching (src/source-traits.ts, REAL_ESTATE_SOURCES).',
