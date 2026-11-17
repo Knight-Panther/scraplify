@@ -32,7 +32,8 @@ const { readPageProps } = await load('adapters/ss-ge/page.js');
 
 const POSTER_KEY =
   /user|phone|contact|person|owner|agent|agency|email|mail|company|organi[sz]ation|name|profile|broker|developer/i;
-const PHOTO_KEY = /image|photo|img|gallery|thumb|picture|cover|main|media|video/i;
+// appImages: the photo array on rows and listing pages (its key does not start with "image").
+const PHOTO_KEY = /appImages|image|photo|img|gallery|thumb|picture|cover|main|media|video/i;
 /** An account id: digits or a GUID (the profile link has been seen with a GUID). */
 const USER_ID_RE = /^(\d{1,12}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 /** Short values of these keys are categories, not people: printed as they are. */
