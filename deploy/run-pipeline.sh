@@ -97,6 +97,14 @@ else
   echo "----- retention skipped: crawl or dedupe failed -----"
 fi
 
+# The National Bank of Georgia's exchange rates (Phase 17D, src/fx/sync.ts):
+# whatever days are not stored yet, up to tomorrow once NBG has set it. A
+# request or two, none once an earlier pipeline the same day has them. Not
+# one of the run's steps: it never changes the exit code or the Hermes event,
+# and a failure is caught up by the next pipeline.
+step "exchange rates" dist/cli/sync-fx-rates.js ||
+  echo "----- exchange rates not synced; the next pipeline catches up -----"
+
 # The crawl's own failure wins; otherwise the first failed step's code.
 code=$crawl
 for step_code in "$dedupe" "$taxonomy" "$bundle_code" "$retention_code"; do

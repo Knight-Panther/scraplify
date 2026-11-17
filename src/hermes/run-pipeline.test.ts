@@ -37,12 +37,15 @@ case "$1" in
   dist/cli/backfill-taxonomy.js) exit "\${FAKE_TAXONOMY:-0}" ;;
   dist/cli/build-matching-bundle.js) exit "\${FAKE_BUNDLE:-0}" ;;
   dist/cli/run-retention.js) exit "\${FAKE_RETENTION:-0}" ;;
+  dist/cli/sync-fx-rates.js) exit "\${FAKE_FX:-0}" ;;
   dist/cli/hermes-event.js) exit "\${FAKE_HERMES:-0}" ;;
 esac
 exit 97
 `;
 
-type StepCodes = Partial<Record<'CRAWL' | 'DEDUPE' | 'TAXONOMY' | 'BUNDLE' | 'RETENTION', number>>;
+type StepCodes = Partial<
+  Record<'CRAWL' | 'DEDUPE' | 'TAXONOMY' | 'BUNDLE' | 'RETENTION' | 'FX', number>
+>;
 
 describe.skipIf(BASH === null)('deploy/run-pipeline.sh', () => {
   let bin: string;
@@ -133,6 +136,29 @@ describe.skipIf(BASH === null)('deploy/run-pipeline.sh', () => {
       expect(withoutTime(unwritable.calls)).toEqual(withoutTime(set.calls));
       expect(unwritable.output).toContain('hermes event not written (exit code 1)');
       expect(unset.output).not.toContain('hermes event');
+    },
+    60_000,
+  );
+
+  // The exchange rates (Phase 17D) run after every pipeline, whatever the
+  // crawl did, and are not one of its steps: a failed sync changes neither
+  // the exit code nor the event.
+  it.each([
+    { name: 'a clean run', steps: {}, expected: 0 },
+    { name: 'a failed crawl', steps: { CRAWL: 1 }, expected: 1 },
+  ] as Array<{ name: string; steps: StepCodes; expected: number }>)(
+    'syncs the exchange rates and ignores their failure after $name',
+    async ({ steps, expected }) => {
+      const synced = await runPipeline(steps, { HERMES_HOOK_ENABLED: '1' });
+      const failed = await runPipeline({ ...steps, FX: 1 }, { HERMES_HOOK_ENABLED: '1' });
+
+      expect([synced.code, failed.code]).toEqual([expected, expected]);
+      for (const run of [synced, failed]) {
+        expect(run.calls.at(-2)).toBe('dist/cli/sync-fx-rates.js');
+        expect(eventCall(run.calls)).toMatch(new RegExp(`--exit-code=${expected}$`));
+      }
+      expect(failed.output).toContain('exchange rates not synced');
+      expect(synced.output).not.toContain('exchange rates not synced');
     },
     60_000,
   );
