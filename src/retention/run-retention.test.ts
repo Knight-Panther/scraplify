@@ -29,6 +29,7 @@ import {
 } from '../db/test-support.js';
 import { planTier2Revisions } from './eligibility.js';
 import { retentionSourceIds, runRetention } from './run-retention.js';
+import { RETENTION_POLICY } from './policy.js';
 
 /**
  * Real-database tests for the whole retention pass (Phase 7C). Every source
@@ -263,7 +264,12 @@ describe('runRetention', () => {
       .set({ fetchedAt: daysAgo(DEAD_FOR_TRIM_DAYS) })
       .where(eq(resources.id, orphanResourceId));
 
-    const outcome = await runRetention(db, pool, { now: NOW, apply: true, sourceIds: [sourceId] });
+    const outcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
+      now: NOW,
+      apply: true,
+      sourceIds: [sourceId],
+    });
     if (!outcome.ran) throw new Error(`expected the pass to run, got skipped: ${outcome.reason}`);
 
     expect(outcome.result.tier1.fetchAttemptsDeleted).toBe(1);
@@ -300,6 +306,45 @@ describe('runRetention', () => {
     ).toBe(1);
   });
 
+  it('Phase 17: by default keeps every listing, revision and description, however long dead', async () => {
+    expect(RETENTION_POLICY.keepListingHistory).toBe(true);
+    const sourceId = await createTestSource();
+    sourceIds.push(sourceId);
+
+    const dead = await insertListingWithRevision(sourceId, {
+      status: 'closed',
+      lastSeenAt: daysAgo(DEAD_FOR_PURGE_DAYS),
+      lastReconciledAt: daysAgo(DEAD_FOR_PURGE_DAYS),
+    });
+    const oldRevisionId = await addRevision(
+      sourceId,
+      dead.listingId,
+      daysAgo(DEAD_FOR_PURGE_DAYS + 1),
+    );
+
+    const outcome = await runRetention(db, pool, { now: NOW, apply: true, sourceIds: [sourceId] });
+    if (!outcome.ran) throw new Error('expected retention to run');
+    expect(outcome.result.tier2.listingsTrimmed).toBe(0);
+    expect(outcome.result.tier2.revisionsDeleted).toBe(0);
+    expect(outcome.result.tier3.listingsDeleted).toBe(0);
+    expect(outcome.result.tier3.revisionsDeleted).toBe(0);
+
+    const revisions = await db
+      .select({
+        id: sourceListingRevisions.id,
+        description: sourceListingRevisions.description,
+        trimmedAt: sourceListingRevisions.trimmedAt,
+      })
+      .from(sourceListingRevisions)
+      .where(eq(sourceListingRevisions.sourceListingId, dead.listingId));
+    expect(revisions.map((r) => r.id)).toContain(oldRevisionId);
+    expect(revisions).toHaveLength(2);
+    for (const revision of revisions) {
+      expect(revision.trimmedAt).toBeNull();
+      expect(revision.description).not.toBe('');
+    }
+  });
+
   it('tier 2: trims a listing dead more than 60 days (deletes its old revision, blanks and stamps the current one); leaves an active listing and a not-yet-60-day-dead listing untouched', async () => {
     const sourceId = await createTestSource();
     sourceIds.push(sourceId);
@@ -325,12 +370,22 @@ describe('runRetention', () => {
       lastReconciledAt: daysAgo(NOT_DEAD_ENOUGH_FOR_TRIM_DAYS),
     });
 
-    const dryRun = await runRetention(db, pool, { now: NOW, apply: false, sourceIds: [sourceId] });
+    const dryRun = await runRetention(db, pool, {
+      includeHistoryTiers: true,
+      now: NOW,
+      apply: false,
+      sourceIds: [sourceId],
+    });
     if (!dryRun.ran) throw new Error('expected dry run to run');
     expect(dryRun.result.tier2.listingsTrimmed).toBe(1);
     expect(dryRun.result.tier2.revisionsDeleted).toBe(1);
 
-    const applied = await runRetention(db, pool, { now: NOW, apply: true, sourceIds: [sourceId] });
+    const applied = await runRetention(db, pool, {
+      includeHistoryTiers: true,
+      now: NOW,
+      apply: true,
+      sourceIds: [sourceId],
+    });
     if (!applied.ran) throw new Error('expected apply to run');
     expect(applied.result.tier2).toEqual(dryRun.result.tier2);
 
@@ -363,6 +418,7 @@ describe('runRetention', () => {
 
     // Idempotent: nothing left to trim on a second apply.
     const secondApply = await runRetention(db, pool, {
+      includeHistoryTiers: true,
       now: NOW,
       apply: true,
       sourceIds: [sourceId],
@@ -396,7 +452,12 @@ describe('runRetention', () => {
       firstDecidedAt: daysAgo(DEAD_FOR_TRIM_DAYS),
     });
 
-    const outcome = await runRetention(db, pool, { now: NOW, apply: true, sourceIds: [sourceId] });
+    const outcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
+      now: NOW,
+      apply: true,
+      sourceIds: [sourceId],
+    });
     if (!outcome.ran) throw new Error('expected the pass to run');
     expect(outcome.result.tier2.listingsTrimmed).toBe(0);
     expect(outcome.result.tier2.revisionsDeleted).toBe(0);
@@ -485,6 +546,7 @@ describe('runRetention', () => {
     await insertMembership(opportunityId, alive.listingId, daysAgo(1));
 
     const outcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
       now: NOW,
       apply: true,
       sourceIds: [sourceA, sourceB],
@@ -539,6 +601,7 @@ describe('runRetention', () => {
     });
 
     const dryRun = await runRetention(db, pool, {
+      includeHistoryTiers: true,
       now: NOW,
       apply: false,
       sourceIds: [sourceA, sourceB],
@@ -549,6 +612,7 @@ describe('runRetention', () => {
     expect(dryRun.result.tier3.duplicateCandidatesDeleted).toBe(1);
 
     const applied = await runRetention(db, pool, {
+      includeHistoryTiers: true,
       now: NOW,
       apply: true,
       sourceIds: [sourceA, sourceB],
@@ -590,6 +654,7 @@ describe('runRetention', () => {
     // Idempotent: everything is already gone, so a second apply over the
     // same (now-empty) scope does nothing.
     const secondApply = await runRetention(db, pool, {
+      includeHistoryTiers: true,
       now: NOW,
       apply: true,
       sourceIds: [sourceA, sourceB],
@@ -616,7 +681,12 @@ describe('runRetention', () => {
       decidedBy: 'human',
     });
 
-    const outcome = await runRetention(db, pool, { now: NOW, apply: true, sourceIds: [sourceId] });
+    const outcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
+      now: NOW,
+      apply: true,
+      sourceIds: [sourceId],
+    });
     if (!outcome.ran) throw new Error('expected the pass to run');
     expect(outcome.result.tier3.listingsDeleted).toBe(0);
     expect(
@@ -663,7 +733,12 @@ describe('runRetention', () => {
       createdAt: NOW_ISO,
     });
 
-    const outcome = await runRetention(db, pool, { now: NOW, apply: true, sourceIds: [sourceId] });
+    const outcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
+      now: NOW,
+      apply: true,
+      sourceIds: [sourceId],
+    });
     if (!outcome.ran) throw new Error('expected the pass to run');
     expect(outcome.result.tier3.listingsDeleted).toBe(0);
     expect(outcome.result.tier3.blockedUserData).toBeGreaterThan(0);
@@ -702,7 +777,12 @@ describe('runRetention', () => {
       previousClassificationId: null,
     });
 
-    const outcome = await runRetention(db, pool, { now: NOW, apply: true, sourceIds: [sourceId] });
+    const outcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
+      now: NOW,
+      apply: true,
+      sourceIds: [sourceId],
+    });
     if (!outcome.ran) throw new Error('expected the pass to run');
     expect(outcome.result.tier3.listingsDeleted).toBe(0);
     expect(
@@ -775,7 +855,12 @@ describe('runRetention', () => {
 
     // The whole point: this must not throw (the leftover-membership
     // assertion in runTier3 firing was the observable symptom of the bug).
-    const outcome = await runRetention(db, pool, { now: NOW, apply: true, sourceIds: [sourceId] });
+    const outcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
+      now: NOW,
+      apply: true,
+      sourceIds: [sourceId],
+    });
     if (!outcome.ran) throw new Error('expected the pass to run');
 
     // Nothing in this connected component is safe to delete: L1 is kept (O2
@@ -795,6 +880,7 @@ describe('runRetention', () => {
     // Idempotent: a second apply over the same, still-entangled fixtures
     // does nothing either (confirms the fix, not just a lucky first pass).
     const secondOutcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
       now: NOW,
       apply: true,
       sourceIds: [sourceId],
@@ -862,6 +948,7 @@ describe('runRetention', () => {
     );
 
     const outcome = await runRetention(db, pool, {
+      includeHistoryTiers: true,
       now: NOW,
       apply: true,
       sourceIds: [sourceId],
@@ -895,6 +982,7 @@ describe('runRetention', () => {
       throw new Error('expected to acquire the crawl lock for this fresh source');
     try {
       const outcome = await runRetention(db, pool, {
+        includeHistoryTiers: true,
         now: NOW,
         apply: true,
         sourceIds: [sourceId],
