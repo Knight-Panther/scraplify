@@ -217,6 +217,8 @@ async function cleanupPosterDirectory(
     sql`select to_regclass('realestate_contacts.poster_accounts') is not null as present`,
   );
   if (!rows[0]?.present) return;
+  // Never under a running identity step, which would then find an account gone.
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext('realestate-posters'))`);
   await tx.execute(sql`
     create temporary table if not exists cleanup_poster_contacts (id bigint) on commit drop`);
   await tx.execute(sql`

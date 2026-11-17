@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../../db/client.js';
 import { getSourceBackoffUntil } from '../../db/ingest.js';
 import {
+  contacts,
+  listingContacts,
+  listingPhotoRefs,
+  listingPosters,
+  posterAccounts,
   realEstateCrawlRuns,
   realEstateListings,
   realEstatePlaces,
@@ -29,6 +34,7 @@ import {
   type SsGeRunProgress,
   UNKNOWN_LIST_PAGES,
 } from './crawl.js';
+import { fakePhone, fakePhoneTyped, fakePhotoFileName, fakeUserId } from './fakes.js';
 
 // Every write goes to a disposable source (see the same isolation in
 // src/adapters/etenders-ge/crawl.test.ts): only the ids and slug change, so
@@ -2188,6 +2194,117 @@ describe('runSsGeCrawl, listing pages wanted for their details (Phase 12B)', () 
   });
 });
 
+describe('runSsGeCrawl, the private poster directory and photo references (Phases 17B and 17G)', () => {
+  const LIVE = { status: 'Active', endsAt: NOW + 20 * DAY_MS } as const;
+
+  /**
+   * The same site with every row naming its account and photos and every
+   * listing page its contact, as ss.ge's pages do (RECON_NOTES.md, "Posters
+   * and photos"). Invented values only: reserved fake ids, phones and photo
+   * GUIDs, this file's phones being the fakes 80 to 89.
+   */
+  class PosterSite extends FakeSite {
+    override async fetch(url: string): Promise<HttpFetchResult> {
+      const answer = await super.fetch(url);
+      const match =
+        /(<script id="__NEXT_DATA__" type="application\/json">)([\s\S]*?)(<\/script>)/.exec(
+          answer.body,
+        );
+      if (match === null) return answer;
+      const data = JSON.parse(match[2] as string) as {
+        props: { pageProps: Record<string, unknown> };
+      };
+      const props = data.props.pageProps;
+      const list = (props.applicationList as { realStateItemModel?: Record<string, unknown>[] })
+        ?.realStateItemModel;
+      for (const row of list ?? []) {
+        const id = Number(row.applicationId);
+        row.userId = fakeUserId(80 + (id % 2));
+        row.userInfo = id % 2 === 0 ? { name: 'შპს გამოგონილი', userType: 2 } : null;
+        row.appImages = [1, 2].map((n) => ({
+          fileName: fakePhotoFileName('20241105', (id % 50) * 2 + n, 'thumbs'),
+          orderNo: n,
+          isMain: n === 1,
+        }));
+        row.imageCount = 5;
+        row.description = `ტელ: ${fakePhoneTyped(81)}, ფასი 120000`;
+      }
+      const listing = props.applicationData as Record<string, unknown> | undefined;
+      if (listing !== undefined) {
+        listing.userId = fakeUserId(80 + (Number(listing.applicationId) % 2));
+        listing.contactPerson = 'ნინო გამოგონილი';
+        listing.applicationPhones = [{ phoneNumber: '500000080' }];
+        listing.userEntityType = 'Broker';
+      }
+      const body = answer.body.replace(match[0], `${match[1]}${JSON.stringify(data)}${match[3]}`);
+      return { ...answer, body };
+    }
+  }
+
+  function allLive(site: FakeSite): void {
+    for (const listRows of Object.values(site.lists)) {
+      for (const row of listRows) site.details.set(String(row.id), LIVE);
+    }
+  }
+
+  it('keeps each poster, contact and photo set from pages it reads anyway, and asks for nothing more', async () => {
+    // The same night on a plain site and on one whose pages name their posters.
+    const plain = new FakeSite({ 'flat-sale': rows(1_000, 6, 10 * 60_000) });
+    allLive(plain);
+    const plainRun = await runSsGeCrawl(
+      { db, httpFetcher: plain, sleep: noWait, now: clock() },
+      { mode: 'sweep' },
+    );
+    await cleanupTestSource(ssGeSource.id);
+
+    const site = new PosterSite({ 'flat-sale': rows(1_000, 6, 10 * 60_000) });
+    allLive(site);
+    const { crawlRun } = await runSsGeCrawl(
+      { db, httpFetcher: site, sleep: noWait, now: clock() },
+      { mode: 'sweep' },
+    );
+
+    // The same requests (listings ordered at the same instant may be asked in another order).
+    expect([...site.requested].sort()).toEqual([...plain.requested].sort());
+    expect(crawlRun.requestCount).toBe(plainRun.crawlRun.requestCount);
+    expect(crawlRun).toMatchObject({ status: 'completed', failedRequestCount: 0 });
+    for (const url of site.requested) {
+      expect(new URL(url).host).toBe('home.ss.ge');
+    }
+
+    const listings = 6 + OTHER_LISTS;
+    const accounts = await db
+      .select()
+      .from(posterAccounts)
+      .where(eq(posterAccounts.sourceId, ssGeSource.id));
+    expect(accounts.map((account) => account.sourceUserId).sort()).toEqual([
+      fakeUserId(80),
+      fakeUserId(81),
+    ]);
+    expect(accounts.find((account) => account.sourceUserId === fakeUserId(80))).toMatchObject({
+      displayName: 'შპს გამოგონილი',
+      contactName: 'ნინო გამოგონილი',
+      entityType: 'Broker',
+    });
+    expect(
+      await db.select().from(listingPosters).where(eq(listingPosters.sourceId, ssGeSource.id)),
+    ).toHaveLength(listings);
+    const shown = await db
+      .select({ value: contacts.value, seenIn: listingContacts.seenIn })
+      .from(listingContacts)
+      .innerJoin(contacts, eq(contacts.id, listingContacts.contactId))
+      .where(eq(listingContacts.sourceId, ssGeSource.id));
+    expect(shown.filter((row) => row.seenIn === 'description')).toHaveLength(listings);
+    expect(shown.filter((row) => row.seenIn === 'listing_page')).toHaveLength(listings);
+    expect(new Set(shown.map((row) => row.value))).toEqual(new Set([fakePhone(80), fakePhone(81)]));
+    const sets = await db
+      .select()
+      .from(listingPhotoRefs)
+      .where(eq(listingPhotoRefs.sourceId, ssGeSource.id));
+    expect(sets.filter((set) => set.origin === 'row')).toHaveLength(listings);
+    expect(sets.every((set) => set.refs.length === 2 && set.validTo === null)).toBe(true);
+  });
+});
 describe('runSsGeCrawl, listing pages read for the place tree (Phase 14A)', () => {
   const LIVE = { status: 'Active', endsAt: NOW + 20 * DAY_MS } as const;
 
