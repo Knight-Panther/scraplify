@@ -79,9 +79,11 @@ describe('isSsGeUrlAllowed', () => {
     );
   });
 
-  it('records the 2026-11-03 review: version 2, every kind and deal, spacing unchanged', () => {
-    expect(ssGePolicy.policyVersion).toBe('v2');
-    expect(ssGePolicy.reviewDate).toBe('2026-11-03T00:00:00Z');
+  it('records the 2026-11-17 review: version 3, posters and photo paths kept privately, spacing unchanged', () => {
+    expect(ssGePolicy.policyVersion).toBe('v3');
+    expect(ssGePolicy.reviewDate).toBe('2026-11-17T00:00:00Z');
+    expect(ssGePolicy.retention.notes).toContain('realestate_contacts');
+    expect(ssGePolicy.linkedResources.notes).toContain('no image request');
     expect(ssGePolicy.rateLimit).toMatchObject({ crawlDelaySeconds: 3, maxConcurrency: 1 });
   });
 

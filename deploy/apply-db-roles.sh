@@ -139,4 +139,34 @@ readable="$(runuser -u postgres -- psql -X -tA --dbname="$database" -c "
   where to_regclass(name) is not null
     and has_any_column_privilege('scraplify_public', name, 'SELECT')")"
 [ "$readable" = 0 ] || { echo "scraplify_public can read $readable private relation(s)" >&2; exit 1; }
+
+# Nor, for either the public or the admin role, the private poster directory
+# and the photo references (Phases 17B and 17G, owner decision 2026-11-17):
+# no use of either schema, no table or column in them, and no view elsewhere
+# that reads them and that the role may read (a view runs as its owner). The
+# same query is src/realestate/poster-grants.test.ts's.
+exposed="$(runuser -u postgres -- psql -X -tA --dbname="$database" -c "
+  with private as (select oid from pg_namespace where nspname in ('realestate_contacts', 'realestate_media')),
+  roles(name) as (values ('scraplify_public'), ('scraplify_admin'))
+  select count(*) from (
+    select roles.name, n.nspname from roles cross join pg_namespace n join private on private.oid = n.oid
+     where has_schema_privilege(roles.name, n.oid, 'USAGE')
+    union all
+    select roles.name, c.relname from roles cross join pg_class c join private on private.oid = c.relnamespace
+     where c.relkind in ('r', 'p', 'v', 'm', 'f')
+       and (has_table_privilege(roles.name, c.oid, 'SELECT')
+            or has_any_column_privilege(roles.name, c.oid, 'SELECT'))
+    union all
+    select distinct roles.name, v.relname from roles
+      cross join pg_depend d
+      join pg_rewrite r on r.oid = d.objid and d.classid = 'pg_rewrite'::regclass
+      join pg_class v on v.oid = r.ev_class
+      join pg_class t on t.oid = d.refobjid and d.refclassid = 'pg_class'::regclass
+      join private on private.oid = t.relnamespace
+     where v.oid <> t.oid and has_table_privilege(roles.name, v.oid, 'SELECT')
+  ) as leaks")"
+[ "$exposed" = 0 ] || {
+  echo "scraplify_public or scraplify_admin can reach the private poster or photo schemas ($exposed grant(s) or view(s))" >&2
+  exit 1
+}
 echo "Roles and grants applied to $database; scraplify_public is read-only and reads nothing private."

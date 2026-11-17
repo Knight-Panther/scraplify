@@ -25,10 +25,12 @@ import {
   loadDistrictParents,
   loadListingsForPlacePoints,
 } from '../../realestate/places.js';
+import { type PosterSighting, recordPosterSightings } from '../../realestate/posters.js';
 import { PolicyRevisionSupersededError, withPolicyRevalidation } from '../policy-revalidation.js';
-import { type DetailResult, parseDetailPage } from './detail.js';
+import { type DetailResult, parseDetailPage, parseListingPageSighting } from './detail.js';
 import { parseResultsPage, RESULTS_PAGE_SIZE, type ResultsPage } from './list.js';
 import { SsGePageShapeError } from './page.js';
+import { listingPagePosterSighting, rowPosterSighting } from './poster.js';
 
 /** The site's own words for each kind and deal, as its addresses spell them. */
 export const KIND_SLUGS: Readonly<Record<PropertyType, string>> = {
@@ -638,6 +640,32 @@ async function resumePoint(
   return { page: at, read: null };
 }
 
+/**
+ * Writes who posted a page's listings and which photos they show to the
+ * private directory (Phases 17B and 17G). A failure is logged and the run
+ * carries on: the directory is not worth a night, and the listing's next
+ * sighting writes it again. Only the database's error code is logged, never
+ * its message, which can quote a phone number or a name.
+ */
+async function recordSightings(
+  run: RunState,
+  seenAt: string,
+  sightings: readonly PosterSighting[],
+): Promise<void> {
+  if (sightings.length === 0) return;
+  try {
+    await recordPosterSightings(run.db, { sourceId: ssGeSource.id, seenAt, sightings });
+  } catch (err) {
+    const cause = err instanceof Error && err.cause !== undefined ? err.cause : err;
+    const code =
+      typeof cause === 'object' && cause !== null ? (cause as { code?: unknown }).code : null;
+    logger.warn(
+      { code: typeof code === 'string' ? code : null, sightings: sightings.length },
+      'ss.ge crawl: the poster directory refused a page; the next sighting writes it',
+    );
+  }
+}
+
 /** Stores every row of one results page and counts the page against the run. */
 async function storeRows(run: RunState, read: PageRead): Promise<void> {
   for (const card of read.parsed.cards) {
@@ -666,6 +694,13 @@ async function storeRows(run: RunState, read: PageRead): Promise<void> {
     }
     run.counters[OUTCOME_COUNTER[outcome]]++;
   }
+  await recordSightings(
+    run,
+    read.fetchedAt,
+    read.parsed.sightings.map((sighting, index) =>
+      rowPosterSighting(sighting, read.parsed.cards[index]?.description ?? null),
+    ),
+  );
   run.counters.pageCount++;
   run.counters.rowCount += read.parsed.cards.length;
   run.pagesLeft--;
@@ -894,6 +929,10 @@ async function readListingPages(
         'ss.ge crawl: the database refused what a listing page said; skipped it',
       );
       continue;
+    }
+    const sighting = parseListingPageSighting(fetched.body, listing.sourceListingKey);
+    if (sighting !== null) {
+      await recordSightings(run, fetched.fetchedAt, [listingPagePosterSighting(sighting)]);
     }
     if (outcome === 'gone') run.counters.goneCount++;
     // Given up for a blank page and live after all (`BLANK_PAGE_RECHECK_HOURS`).

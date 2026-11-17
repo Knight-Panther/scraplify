@@ -1,0 +1,6 @@
+{
+  "about": "The only poster and photo values allowed in this public repository (Phases 17B and 17G). scripts/capture-ss-ge-fixture.mjs replaces real ones with these, src/adapters/ss-ge/fixtures.test.ts refuses any other, and tests build theirs from them (src/adapters/ss-ge/fakes.ts). A user id is userIdPrefix plus two digits; a photo's GUID is photoGuid; a phone is +995 then phoneNationalPrefix plus two digits.",
+  "userIdPrefix": "00000000-0000-4000-8000-0000000000",
+  "photoGuid": "00000000-0000-0000-0000-000000000000",
+  "phoneNationalPrefix": "5000000"
+}

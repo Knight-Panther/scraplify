@@ -252,6 +252,28 @@ GRANT SELECT, INSERT ON realestate_archive.listing_versions, realestate_archive.
 GRANT UPDATE (valid_to) ON realestate_archive.listing_versions TO scraplify_worker;
 GRANT UPDATE (shown_until) ON realestate_archive.show_spells TO scraplify_worker;
 GRANT UPDATE (last_day, nights) ON realestate_archive.listing_group_days TO scraplify_worker;
+-- Phases 17B and 17G: the private poster directory and photo references
+-- (src/realestate/posters.ts as each results and listing page is stored,
+-- src/realestate/poster-identity.ts once a night, `npm run posters:ss-ge`
+-- and `posters:backfill` by hand). Accounts, contacts and their links are
+-- upserted (INSERT ... ON CONFLICT DO UPDATE); the identity layer is
+-- rewritten where it changed; poster_daily is rewritten whole for the day,
+-- the one DELETE here. The owner's overrides are read, never written, by the
+-- worker. A photo set is only ever closed (valid_to). No grant on either
+-- schema goes to scraplify_public or scraplify_admin, and
+-- deploy/apply-db-roles.sh stops if one does. Requires migration 0060.
+GRANT USAGE ON SCHEMA realestate_contacts TO scraplify_worker;
+GRANT SELECT, INSERT, UPDATE ON realestate_contacts.poster_accounts, realestate_contacts.contacts,
+  realestate_contacts.account_contacts, realestate_contacts.listing_posters,
+  realestate_contacts.listing_contacts, realestate_contacts.poster_entities,
+  realestate_contacts.poster_entity_members TO scraplify_worker;
+GRANT SELECT ON realestate_contacts.poster_entity_overrides TO scraplify_worker;
+GRANT SELECT, INSERT, DELETE ON realestate_contacts.poster_daily TO scraplify_worker;
+GRANT SELECT, INSERT ON realestate_contacts.poster_steps TO scraplify_worker;
+GRANT USAGE ON SCHEMA realestate_media TO scraplify_worker;
+GRANT SELECT, INSERT ON realestate_media.listing_photo_refs, realestate_media.photo_refs
+  TO scraplify_worker;
+GRANT UPDATE (valid_to) ON realestate_media.listing_photo_refs TO scraplify_worker;
 
 
 -- =========================================================================
@@ -417,7 +439,8 @@ GRANT CREATE, USAGE ON SCHEMA public TO scraplify_migration;
 GRANT CREATE ON DATABASE <TARGET_DATABASE> TO scraplify_migration;
 
 -- Hands scraplify_migration ownership of everything <CURRENT_OWNER_ROLE>
--- owns in THIS database's `public`, `drizzle`, `realestate` and `realestate_archive` schemas —
+-- owns in THIS database's `public`, `drizzle`, `realestate`, `realestate_archive`,
+-- `realestate_contacts` and `realestate_media` schemas —
 -- tables, views, materialized views, sequences (pg_class) and enum types
 -- (pg_type, Drizzle's pgEnum) — plus the `drizzle` and `realestate` schemas
 -- themselves if they already exist. Touches nothing outside this one connected database (no other
@@ -440,6 +463,13 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'realestate_archive') THEN
     EXECUTE 'ALTER SCHEMA realestate_archive OWNER TO scraplify_migration';
   END IF;
+  -- Migration 0060's schemas (Phases 17B and 17G), likewise.
+  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'realestate_contacts') THEN
+    EXECUTE 'ALTER SCHEMA realestate_contacts OWNER TO scraplify_migration';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'realestate_media') THEN
+    EXECUTE 'ALTER SCHEMA realestate_media OWNER TO scraplify_migration';
+  END IF;
 
   FOR obj IN
     SELECT n.nspname, c.relname, c.relkind
@@ -447,7 +477,8 @@ BEGIN
     JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
     WHERE r.rolname = '<CURRENT_OWNER_ROLE>'
-      AND n.nspname IN ('public', 'drizzle', 'realestate', 'realestate_archive')
+      AND n.nspname IN ('public', 'drizzle', 'realestate', 'realestate_archive',
+                        'realestate_contacts', 'realestate_media')
       AND c.relkind IN ('r', 'v', 'm', 'S')
       -- A sequence owned by a table column (serial/identity, e.g.
       -- drizzle.__drizzle_migrations_id_seq) cannot be re-owned directly —
@@ -485,7 +516,8 @@ BEGIN
     JOIN pg_catalog.pg_roles r ON r.oid = t.typowner
     JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
     WHERE r.rolname = '<CURRENT_OWNER_ROLE>'
-      AND n.nspname IN ('public', 'drizzle', 'realestate', 'realestate_archive')
+      AND n.nspname IN ('public', 'drizzle', 'realestate', 'realestate_archive',
+                        'realestate_contacts', 'realestate_media')
       AND t.typtype = 'e'
   LOOP
     EXECUTE format('ALTER TYPE %I.%I OWNER TO scraplify_migration', obj.nspname, obj.typname);

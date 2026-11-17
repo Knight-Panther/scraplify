@@ -266,3 +266,15 @@ On the host, of the listings found gone on 11-13 with a reason their page gave, 
   - `isMain`, `is360` (booleans), `orderNo` (a number, null on 4 of 115 row photos) and `imageType` (a number).
   - For 17G a photo reference is the `fileName` path, its `orderNo` and `isMain`. No image is fetched.
 - One listing page of the three had no `applicationData` in the first run; all three had it in the second, with no repeat seen.
+- **Do photo links outlive the listing? Yes, for 3 weeks at least** (owner's go, 2026-11-17, on the host after the run; 21 requests: 7 listing pages, and a HEAD of two photos on each, no image body downloaded). The listing pages were 2 gone 21 days, 2 gone 6 days, 2 gone the same day, and 1 live as a control.
+  - Every listing page still answered 200 with its photo list. ss.ge called them `Expired` (21 and 6 days) and `Deleted` (the same day).
+  - Every photo HEAD answered 200, so ss.ge deletes neither the page's data nor the files when a listing ends.
+  - So references saved now stay fetchable for a later photo phase, removed listings included.
+  - One of the "gone 6 days" listings was still `Active` on ss.ge: a listing marked gone while live (one in two here, so no rate; a proper sample is a Board item).
+- **Local trial of 17B/17G** (2026-11-17, from the development machine into a throwaway database: a sweep capped at 20 results pages and 5 listing pages, 27 requests). Results:
+  - All 268 listings got their poster: 156 accounts, 9 with a display name.
+  - Contacts: 16 phones, 6 seen on listing pages and 11 typed in descriptions.
+  - Photos: 713 references, every one with an upload day, from 2021-06-30 to the trial day. So the 8 digits in the path are the upload date.
+  - For all 5 listings read, the row's photo references are a subset of the page's, so canonicalisation matches.
+  - The listing page flags **no** photo `isMain`. The row's main photo is the page's first.
+  - A second poster step wrote nothing (0 links, 0 members changed).

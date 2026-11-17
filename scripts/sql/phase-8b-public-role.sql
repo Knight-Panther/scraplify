@@ -133,6 +133,23 @@ GRANT SELECT ON realestate_archive.listing_versions, realestate_archive.show_spe
 -- (src/browse/reference-rates.ts), and Hermes can convert a price as of its
 -- own day until 17E's statistics role takes over. Requires migration 0059.
 GRANT SELECT ON public.fx_rates TO scraplify_public;
+-- Phases 17B and 17G: the poster directory (realestate_contacts) and the photo
+-- references (realestate_media) are private (owner decision, 2026-11-17):
+-- never on the site, never for this role. No grant above reaches them, and
+-- this takes back any that was ever given by hand, so a re-run always ends
+-- with none. deploy/apply-db-roles.sh stops if this role (or scraplify_admin)
+-- can read either schema. On a database before migration 0060 it does nothing.
+DO $$
+DECLARE
+  private_schema text;
+BEGIN
+  FOREACH private_schema IN ARRAY ARRAY['realestate_contacts', 'realestate_media'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = private_schema) THEN
+      EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM scraplify_public', private_schema);
+      EXECUTE format('REVOKE ALL ON SCHEMA %I FROM scraplify_public', private_schema);
+    END IF;
+  END LOOP;
+END $$;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --

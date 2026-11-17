@@ -421,6 +421,13 @@
       "when": 1794914993366,
       "tag": "0059_fx_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794925693002,
+      "tag": "0060_realestate_posters_photos",
+      "breakpoints": true
     }
   ]
 }

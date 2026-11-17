@@ -13,12 +13,14 @@ import {
 import type { StreetPoint } from '../../realestate/places.js';
 import { addressText, floorRange, readListingPrice, readMetro, reference, text } from './list.js';
 import { isRecord, readPageProps, SsGePageShapeError, tbilisiWallClockToIso } from './page.js';
+import { type ListingPageSighting, readListingPageSighting } from './poster.js';
 
 /**
  * What a detail page says about whether its listing is still live, its
  * price (a listing a nightly run no longer reads may still have had it
  * edited) and, since Phase 12B, its details. The phone numbers, names and
- * user ids on a detail page are never touched.
+ * user ids on a detail page are not part of it: `parseListingPageSighting`
+ * reads those, for the private poster directory only (Phase 17B).
  */
 export type DetailResult =
   | { status: 'active'; endAt: string | null; price: ListingPrice; details: ListingDetails }
@@ -173,4 +175,21 @@ export function parseDetailPage(html: string, sourceListingKey: string): DetailR
     };
   }
   return { status: 'gone', reason: listing.status === 'Expired' ? 'expired' : 'inactive' };
+}
+
+/**
+ * Who posted the listing on its own page, and its photos (Phases 17B and
+ * 17G), for the private directory; null when the page holds no listing
+ * record or another listing's, or cannot be read. Never throws: a page
+ * `parseDetailPage` read is not failed for this.
+ */
+export function parseListingPageSighting(
+  html: string,
+  sourceListingKey: string,
+): ListingPageSighting | null {
+  try {
+    return readListingPageSighting(readPageProps(html), sourceListingKey);
+  } catch {
+    return null;
+  }
 }

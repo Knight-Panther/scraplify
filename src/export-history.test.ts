@@ -27,7 +27,7 @@ const BASH = findBash();
 const FAKES: Record<string, string> = {
   // Counts each table; the second call (after the dump) adds FAKE_GROWTH rows.
   psql: `#!/bin/sh
-cat > /dev/null
+cat > "$FAKE_DIR/psql-input"
 echo "psql" >> "$FAKE_LOG"
 n=$(cat "$FAKE_DIR/psql-calls" 2>/dev/null || echo 0)
 echo $((n + 1)) > "$FAKE_DIR/psql-calls"
@@ -109,6 +109,8 @@ describe.skipIf(BASH === null)('deploy/export-history.sh', () => {
     expect(dump).toContain('--compress=zstd:9');
     expect(dump?.match(/--table=\S+/g)).toEqual([
       '--table=realestate_archive.*',
+      '--table=realestate_contacts.*',
+      '--table=realestate_media.*',
       '--table=public.source_listing_revisions',
       '--table=public.source_listing_status_events',
       '--table=public.fx_rates',
@@ -127,6 +129,11 @@ describe.skipIf(BASH === null)('deploy/export-history.sh', () => {
     ]);
     const counts = await fs.readFile(path.join(backups, 'history', files[0] as string), 'utf8');
     expect(counts).toBe('public.fx_rates\t336\t336\nrealestate_archive.listings\t13259\t13259\n');
+    // The rows are counted in every exported schema, the private ones included.
+    const counted = await fs.readFile(path.join(bin, 'psql-input'), 'utf8');
+    expect(counted).toContain(
+      "schemaname in ('realestate_archive','realestate_contacts','realestate_media')",
+    );
   });
 
   it('records the rows before and after when the history grows during the dump', async () => {

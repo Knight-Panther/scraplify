@@ -7,28 +7,91 @@
  *   node scripts/capture-ss-ge-fixture.mjs detail <url> <out-file>
  *
  * One GET, with the project's User-Agent. This repository is public and ss.ge
- * pages carry phone numbers, names, user ids and a working gateway token, so
- * everything not on the allow-list below is dropped, phone-like runs of
- * digits in free text are masked, and the file is refused when anything
+ * pages carry phone numbers, names, user ids, photo paths and a working
+ * gateway token, so everything not on the allow-list below is dropped,
+ * phone-like runs of digits in free text are masked, account ids and photo
+ * paths are replaced with the reserved fakes of
+ * `src/adapters/ss-ge/reserved-fakes.json` (Phases 17B and 17G: the same
+ * account keeps the same fake within a page, a photo keeps its date, number
+ * and size word), and the file is refused when anything
  * `src/adapters/ss-ge/fixtures.test.ts` forbids is still in it. Run captures at
  * least 3 s apart (the source policy's spacing).
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const USER_AGENT =
   process.env.SCRAPLIFY_USER_AGENT?.trim() ||
   'ScraplifyBot/0.1 (+https://github.com/Knight-Panther/scraplify)';
 
+/** The only account ids and photo GUIDs a fixture may carry (fixtures.test.ts is the gate). */
+const RESERVED = JSON.parse(
+  readFileSync(new URL('../src/adapters/ss-ge/reserved-fakes.json', import.meta.url), 'utf8'),
+);
+const FAKE_USER_ID_RE = new RegExp(`^${RESERVED.userIdPrefix}\\d{2}$`);
+const GUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
 /** The same patterns as fixtures.test.ts; that test is the gate, this is the early refusal. */
 const FORBIDDEN = [
   ['the gateway token field', /credentialsToken/],
   ['a JSON web token', /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
-  ['a user id field', /"userId"/],
   ['a phone list', /applicationPhones|"phoneNumber"/],
-  ['a contact name', /contactPerson|"name"\s*:/],
+  ['a contact name', /contactPerson|agentContactName|"name"\s*:/],
+  ['an agency or company name', /"agencyName"|"companyName"/],
   ['a Georgian mobile number', /(?<![0-9])5[0-9]{8}(?![0-9])/],
   ['an international phone prefix', /\+995/],
 ];
+
+/** Each real account id on the page gets its own fake, in the order met: 01, 02… */
+const fakeUserIds = new Map();
+function fakeUserId(value) {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const key = value.trim().toLowerCase();
+  if (!fakeUserIds.has(key)) {
+    if (fakeUserIds.size >= 99) throw new Error('more than 99 accounts on one page');
+    fakeUserIds.set(
+      key,
+      `${RESERVED.userIdPrefix}${String(fakeUserIds.size + 1).padStart(2, '0')}`,
+    );
+  }
+  return fakeUserIds.get(key);
+}
+
+const PHOTO_PATH_RE =
+  /(\d{8})\/(\d{1,3})_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(_[A-Za-z0-9]{1,20})?\.(jpe?g|png|webp|gif)/i;
+
+/** A photo path with the reserved GUID in place of the real one; anything else is dropped. */
+function fakePhotoPath(value) {
+  const match = typeof value === 'string' ? PHOTO_PATH_RE.exec(value) : null;
+  if (match === null) return undefined;
+  const [, day, index, size = '', extension] = match;
+  return `https://static.ss.ge/${day}/${index}_${RESERVED.photoGuid}${size}.${extension}`;
+}
+
+/** The photo fields the parsers read (src/adapters/ss-ge/poster.ts), paths faked. */
+function fakePhotos(images) {
+  if (!Array.isArray(images)) return images;
+  return images.map((image) => {
+    const out = pick(image, ['orderNo', 'isMain', 'is360', 'imageType']);
+    for (const field of ['fileName', 'fileNameThumb']) {
+      const path = fakePhotoPath(image?.[field]);
+      if (path !== undefined) out[field] = path;
+    }
+    return out;
+  });
+}
+
+/** How many GUIDs are neither a reserved fake account nor the fake photo's. */
+function realIdentifiers(text) {
+  let found = 0;
+  for (const [guid] of text.matchAll(GUID_RE)) {
+    if (!FAKE_USER_ID_RE.test(guid) && guid !== RESERVED.photoGuid) found += 1;
+  }
+  for (const [, value] of text.matchAll(/"userId"\s*:\s*("[^"]*"|[^,}\]]+)/g)) {
+    const plain = value.replace(/^"|"$/g, '');
+    if (plain !== 'null' && !FAKE_USER_ID_RE.test(plain)) found += 1;
+  }
+  return found;
+}
 
 /** As `PHONE_RE` in src/adapters/ss-ge/list.ts: seven digits or more, however spaced. */
 const PHONE_RE = /\+?\d(?:[\s./()+-]{0,3}\d){6,}/g;
@@ -77,10 +140,14 @@ const PAGE_FIELDS = ['initialPage', 'initialTotalApplicationCount', 'initialCard
 /**
  * What `src/adapters/ss-ge/detail.ts` reads from a listing's own page
  * (`applicationData`): whether it is live, its price, and its details (Phase
- * 12B). Phones, contact names, user ids and the poster's name are never kept.
+ * 12B). Phones, contact names and the poster's name are never kept; the
+ * account id and photo paths only as reserved fakes (`trimDetail`). The
+ * account's listing count and its agency's number are kept (Phase 17B).
  */
 const DETAIL_FIELDS = [
   'applicationId',
+  'userApplicationCount',
+  'agencyId',
   'status',
   'isInactiveApplication',
   'orderDate',
@@ -185,10 +252,13 @@ function trimRow(row) {
       out.address.streetNumber = maskPhones(out.address.streetNumber);
     }
   }
-  // Present on a business's rows; its type is all the parser reads.
+  // Present on a business's rows; its type is all a fixture keeps (never the name).
   if ('userInfo' in row) {
     out.userInfo = isRecord(row.userInfo) ? { userType: row.userInfo.userType } : row.userInfo;
   }
+  // Phases 17B and 17G: the account and the photos, as reserved fakes only.
+  if ('userId' in row) out.userId = fakeUserId(row.userId);
+  if ('appImages' in row) out.appImages = fakePhotos(row.appImages);
   if ('nearbySubwayStations' in row) {
     out.nearbySubwayStations = trimStations(row.nearbySubwayStations);
   }
@@ -230,10 +300,23 @@ function trimDetail(pageProps) {
     out.address.streetTitle = maskPhones(out.address.streetTitle);
     out.address.streetNumber = maskPhones(out.address.streetNumber);
   }
+  // Phases 17B and 17G: the account and the photos as reserved fakes; the
+  // contact name, phones, agency and company names are never kept.
+  if ('userId' in data) out.userId = fakeUserId(data.userId);
+  if ('appImages' in data) out.appImages = fakePhotos(data.appImages);
   // Field names only, never values: what the page carries that is not kept.
   const dropped = Object.keys(data).filter((key) => !(key in out));
   console.log(`not kept: ${dropped.sort().join(', ')}`);
-  return { applicationData: out };
+  const kept = { applicationData: out };
+  // The agent block beside the listing: its codes only, never a name or an id.
+  if (isRecord(pageProps.initialAgentInfoData)) {
+    kept.initialAgentInfoData = pick(pageProps.initialAgentInfoData, [
+      'companyId',
+      'companyType',
+      'infoType',
+    ]);
+  }
+  return kept;
 }
 
 async function main() {
@@ -269,6 +352,9 @@ async function main() {
 
   for (const [what, pattern] of FORBIDDEN) {
     if (pattern.test(fixture)) throw new Error(`refusing to write: the fixture contains ${what}`);
+  }
+  if (realIdentifiers(fixture) > 0) {
+    throw new Error('refusing to write: an account id or GUID in it is not a reserved fake');
   }
   writeFileSync(outFile, fixture, 'utf-8');
   if (mode === 'detail') {
