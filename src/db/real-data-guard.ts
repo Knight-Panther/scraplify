@@ -177,6 +177,40 @@ export async function realEstateFingerprint(
 }
 
 /**
+ * The status timeline of the guarded sources' listings (Phase 17C, migration
+ * 0058), whole rows. Its own query for the reason the real-estate one is: on
+ * a database without that migration only this part reads as absent, and the
+ * rest of the guard keeps working.
+ */
+const STATUS_EVENTS_FINGERPRINT_SQL = `
+  select md5(coalesce(string_agg(md5(e::text), ',' order by e.id), '')) as fingerprint
+    from source_listing_status_events e
+    join source_listings sl on sl.id = e.source_listing_id
+    join sources s on s.id = sl.source_id
+   where s.slug = any($1)
+`;
+
+/** Exported for its own test; the guard calls it with `REAL_SOURCE_SLUGS`. */
+export async function statusEventsFingerprint(
+  pool: Pick<Pool, 'query'>,
+  slugs: readonly string[],
+): Promise<string> {
+  try {
+    const { rows } = await pool.query<{ fingerprint: string }>(STATUS_EVENTS_FINGERPRINT_SQL, [
+      slugs,
+    ]);
+    const fingerprint = rows[0]?.fingerprint;
+    if (typeof fingerprint !== 'string') {
+      throw new Error('real-data guard: status-events fingerprint query returned no value');
+    }
+    return fingerprint;
+  } catch (err) {
+    if ((err as { code?: string } | null)?.code === UNDEFINED_TABLE) return 'no-status-events';
+    throw err;
+  }
+}
+
+/**
  * Deliberately narrow error handling. An earlier version caught every error
  * and returned a constant, which meant a malformed query produced the SAME
  * value before and after and the guard passed silently — it was broken for
@@ -200,7 +234,11 @@ async function fingerprintRealData(): Promise<string> {
     if (typeof fingerprint !== 'string') {
       throw new Error('real-data guard: fingerprint query returned no value');
     }
-    return `${fingerprint}|${await realEstateFingerprint(pool, REAL_SOURCE_SLUGS)}`;
+    return [
+      fingerprint,
+      await realEstateFingerprint(pool, REAL_SOURCE_SLUGS),
+      await statusEventsFingerprint(pool, REAL_SOURCE_SLUGS),
+    ].join('|');
   } catch (err) {
     if (
       typeof err === 'object' &&

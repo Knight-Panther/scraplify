@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { upsertListing } from '../realestate/ingest.js';
 import { db, pool } from './client.js';
-import { realEstateFingerprint } from './real-data-guard.js';
-import { cleanupTestSource, createTestSource } from './test-support.js';
+import { realEstateFingerprint, statusEventsFingerprint } from './real-data-guard.js';
+import { expireOverdueListings } from './reconcile-source-listings.js';
+import { cleanupTestSource, createTestSource, createTestSourceListing } from './test-support.js';
 
 const SEEN = '2026-10-12T02:00:00.000Z';
 
@@ -90,5 +91,29 @@ describe('realEstateFingerprint', () => {
     await upsertListing(db, { sourceId: other.id, card: card(100000), seenAt: SEEN });
 
     expect(await realEstateFingerprint(pool, [guarded.slug])).toBe(before);
+  });
+});
+
+describe('statusEventsFingerprint', () => {
+  const sourceIds: string[] = [];
+
+  afterEach(async () => {
+    for (const sourceId of sourceIds.splice(0)) await cleanupTestSource(sourceId);
+  });
+
+  it("moves when a guarded source's listing changes status, and not for another source's", async () => {
+    const guarded = await createTestSource();
+    const other = await createTestSource();
+    sourceIds.push(guarded, other);
+    const slug = `test-source-${guarded}`;
+    await createTestSourceListing(guarded, { sourceDeadlineAt: '2026-01-02T00:00:00Z' });
+    await createTestSourceListing(other, { sourceDeadlineAt: '2026-01-02T00:00:00Z' });
+    const before = await statusEventsFingerprint(pool, [slug]);
+
+    await expireOverdueListings(db, { sourceId: other, asOf: '2026-02-01T00:00:00Z' });
+    expect(await statusEventsFingerprint(pool, [slug])).toBe(before);
+
+    await expireOverdueListings(db, { sourceId: guarded, asOf: '2026-02-01T00:00:00Z' });
+    expect(await statusEventsFingerprint(pool, [slug])).not.toBe(before);
   });
 });

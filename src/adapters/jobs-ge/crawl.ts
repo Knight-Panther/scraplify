@@ -743,7 +743,7 @@ export async function runJobsGeCrawl(
       const decision = decisions.get(listing.sourceRecordId) ?? 'fetch';
       if (decision !== 'fetch') {
         // Still on the list: seen, so closure never counts it missing.
-        await touchSourceListingSeen(db, identity, now());
+        await touchSourceListingSeen(db, identity, now(), { crawlRunId: crawlRun.id });
         if (decision === 'adopt' && listing.fingerprint !== null) {
           await setDiscoveryFingerprint(
             db,
@@ -781,7 +781,7 @@ export async function runJobsGeCrawl(
         // Still present in discovery even though the detail fetch failed —
         // must not look "missing" to closeMissingListings, which only has
         // lastSeenAt to go on (adversarial review, 2026-09-05).
-        await touchSourceListingSeen(db, identity, attemptedAt);
+        await touchSourceListingSeen(db, identity, attemptedAt, { crawlRunId: crawlRun.id });
         continue;
       }
 
@@ -809,7 +809,7 @@ export async function runJobsGeCrawl(
         // the evidence this was transient, round 8), the resource (bytes
         // were fetched fine, only extraction failed), and record a typed
         // incident a human or future supervised-repair process can act on.
-        await quarantineSourceListing(db, identity, attemptedAt);
+        await quarantineSourceListing(db, identity, attemptedAt, { crawlRunId: crawlRun.id });
         await upsertResource(db, {
           sourceId: jobsGeSource.id,
           role: 'OPPORTUNITY',
@@ -845,6 +845,7 @@ export async function runJobsGeCrawl(
       // closed/expired listing (concept §13; adversarial review, 2026-09-05).
       const writeResult = await writeSourceListingRevision(db, identity, content, attemptedAt, {
         allowReopen: true,
+        crawlRunId: crawlRun.id,
       });
       if (writeResult.outcome === 'new') counts.newCount++;
       else if (writeResult.outcome === 'changed') counts.changedCount++;
@@ -1039,6 +1040,7 @@ export async function runJobsGeCrawl(
       const expireResult = await expireOverdueListings(tx, {
         sourceId: jobsGeSource.id,
         asOf: finishedAt,
+        crawlRunId: crawlRun.id,
       });
       const closeResult = await closeMissingListingsInTransaction(tx, {
         crawlRunId: crawlRun.id,

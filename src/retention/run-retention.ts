@@ -10,6 +10,7 @@ import {
   parserIncidents,
   resources,
   sourceListingRevisions,
+  sourceListingStatusEvents,
   sourceListings,
   sources,
 } from '../db/schema/index.js';
@@ -628,7 +629,14 @@ async function finishTier3Page(
     }
     result.revisionsDeleted = revisionIds.length;
 
-    // Step 7: source_listing_revisions and source_listings themselves.
+    // Step 7: source_listing_revisions and source_listings themselves, after
+    // their status events (Phase 17C, migration 0058), which FK into the
+    // listing. Only reachable with `includeHistoryTiers` since 17.0, and the
+    // worker role has no DELETE on the events, so under that role tier 3
+    // fails here, whole, rather than lose a listing's timeline.
+    await tx
+      .delete(sourceListingStatusEvents)
+      .where(inArray(sourceListingStatusEvents.sourceListingId, L));
     await tx
       .update(sourceListings)
       .set({ currentRevisionId: null })

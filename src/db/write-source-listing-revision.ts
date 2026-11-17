@@ -7,7 +7,8 @@ import {
   type SourceListingRevisionRow,
   type SourceListingRow,
 } from './schema/index.js';
-import type { Database } from './types.js';
+import { recordStatusEvent, type SourceListingStatus } from './status-events.js';
+import type { Database, DatabaseTransaction } from './types.js';
 
 export interface SourceListingIdentity {
   sourceId: string;
@@ -44,6 +45,66 @@ export interface WriteSourceListingRevisionOptions {
    * see quarantineSourceListing's own comment).
    */
   allowReopen?: boolean;
+  /** The crawl run making this observation, recorded on a status event (Phase 17C). */
+  crawlRunId?: string | null;
+}
+
+/** Options of the two narrower observations below. */
+export interface ObservationOptions {
+  /** The crawl run making this observation, recorded on a status event (Phase 17C). */
+  crawlRunId?: string | null;
+}
+
+/**
+ * Insert-or-ignore of a listing row in its first state, by whichever partial
+ * unique index backs its identity (source-listings.ts). True when this call
+ * created the row, which makes the observation the listing's first status
+ * event (`from_status` null, Phase 17C).
+ */
+async function insertListingIfNew(
+  tx: DatabaseTransaction,
+  identity: SourceListingIdentity,
+  observedAt: string,
+  dates: { sourcePublishedAt: string | null; sourceDeadlineAt: string | null },
+): Promise<boolean> {
+  const values = {
+    id: randomUUID(),
+    sourceId: identity.sourceId,
+    sourceRecordId: identity.sourceRecordId,
+    canonicalSourceUrl: identity.canonicalSourceUrl,
+    currentRevisionId: null,
+    firstSeenAt: observedAt,
+    lastSeenAt: observedAt,
+    status: 'discovered' as const,
+    missingStreak: 0,
+    ...dates,
+  };
+  const inserted =
+    identity.sourceRecordId !== null
+      ? await tx
+          .insert(sourceListings)
+          .values(values)
+          .onConflictDoNothing({
+            target: [sourceListings.sourceId, sourceListings.sourceRecordId],
+            where: sql`${sourceListings.sourceRecordId} is not null`,
+          })
+          .returning({ id: sourceListings.id })
+      : await tx
+          .insert(sourceListings)
+          .values(values)
+          .onConflictDoNothing({
+            target: [sourceListings.sourceId, sourceListings.canonicalSourceUrl],
+            where: sql`${sourceListings.sourceRecordId} is null`,
+          })
+          .returning({ id: sourceListings.id });
+  return inserted.length > 0;
+}
+
+/** Why an observation moved a listing to `active` (Phase 17C). */
+function activationReason(from: SourceListingStatus) {
+  if (from === 'missing_suspected') return 'seen_again' as const;
+  if (from === 'discovered') return 'activated' as const;
+  return 'reopened' as const;
 }
 
 export interface WriteSourceListingRevisionResult {
@@ -108,40 +169,13 @@ export async function writeSourceListingRevision(
   options: WriteSourceListingRevisionOptions = {},
 ): Promise<WriteSourceListingRevisionResult> {
   return db.transaction(async (tx) => {
-    const values = {
-      id: randomUUID(),
-      sourceId: identity.sourceId,
-      sourceRecordId: identity.sourceRecordId,
-      canonicalSourceUrl: identity.canonicalSourceUrl,
-      currentRevisionId: null,
-      firstSeenAt: observedAt,
-      lastSeenAt: observedAt,
-      status: 'discovered' as const,
-      missingStreak: 0,
-      sourcePublishedAt: content.publishedDate.parsed,
-      sourceDeadlineAt: content.deadlineDate.parsed,
-    };
-
     // Two different partial unique indexes back this listing's identity
     // (source-listings.ts), so the conflict target has to match whichever
     // one actually applies.
-    if (identity.sourceRecordId !== null) {
-      await tx
-        .insert(sourceListings)
-        .values(values)
-        .onConflictDoNothing({
-          target: [sourceListings.sourceId, sourceListings.sourceRecordId],
-          where: sql`${sourceListings.sourceRecordId} is not null`,
-        });
-    } else {
-      await tx
-        .insert(sourceListings)
-        .values(values)
-        .onConflictDoNothing({
-          target: [sourceListings.sourceId, sourceListings.canonicalSourceUrl],
-          where: sql`${sourceListings.sourceRecordId} is null`,
-        });
-    }
+    const created = await insertListingIfNew(tx, identity, observedAt, {
+      sourcePublishedAt: content.publishedDate.parsed,
+      sourceDeadlineAt: content.deadlineDate.parsed,
+    });
 
     const identityWhere =
       identity.sourceRecordId !== null
@@ -231,6 +265,18 @@ export async function writeSourceListingRevision(
       locked.status === 'discovered' || locked.status === 'missing_suspected' || reopening
         ? 'active'
         : locked.status;
+    // Phase 17C: the change, if any, in this same transaction. A row this
+    // call created was `discovered` for no observable moment, so its first
+    // event records where this observation leaves it.
+    const recordChange = () =>
+      recordStatusEvent(tx, {
+        sourceListingId: locked.id,
+        fromStatus: created ? null : locked.status,
+        toStatus: nextStatus,
+        at: observedAt,
+        crawlRunId: options.crawlRunId ?? null,
+        reason: created ? 'first_seen' : activationReason(locked.status),
+      });
 
     // `currentRevision.trimmedAt === null` is required alongside the hash
     // match, not just the hash alone (Phase 7C retention, migration 0037).
@@ -283,6 +329,7 @@ export async function writeSourceListingRevision(
         .where(eq(sourceListings.id, locked.id))
         .returning();
       if (!touched) throw new Error('writeSourceListingRevision: listing update returned no row');
+      await recordChange();
 
       return {
         outcome: 'unchanged',
@@ -338,6 +385,7 @@ export async function writeSourceListingRevision(
       .where(eq(sourceListings.id, locked.id))
       .returning();
     if (!updated) throw new Error('writeSourceListingRevision: listing update returned no row');
+    await recordChange();
 
     return {
       outcome: currentRevision === null ? 'new' : 'changed',
@@ -382,39 +430,13 @@ export async function touchSourceListingSeen(
   db: Database,
   identity: SourceListingIdentity,
   observedAt: string,
+  options: ObservationOptions = {},
 ): Promise<TouchSourceListingSeenResult> {
   return db.transaction(async (tx) => {
-    const values = {
-      id: randomUUID(),
-      sourceId: identity.sourceId,
-      sourceRecordId: identity.sourceRecordId,
-      canonicalSourceUrl: identity.canonicalSourceUrl,
-      currentRevisionId: null,
-      firstSeenAt: observedAt,
-      lastSeenAt: observedAt,
-      status: 'discovered' as const,
-      missingStreak: 0,
+    const created = await insertListingIfNew(tx, identity, observedAt, {
       sourcePublishedAt: null,
       sourceDeadlineAt: null,
-    };
-
-    if (identity.sourceRecordId !== null) {
-      await tx
-        .insert(sourceListings)
-        .values(values)
-        .onConflictDoNothing({
-          target: [sourceListings.sourceId, sourceListings.sourceRecordId],
-          where: sql`${sourceListings.sourceRecordId} is not null`,
-        });
-    } else {
-      await tx
-        .insert(sourceListings)
-        .values(values)
-        .onConflictDoNothing({
-          target: [sourceListings.sourceId, sourceListings.canonicalSourceUrl],
-          where: sql`${sourceListings.sourceRecordId} is null`,
-        });
-    }
+    });
 
     const identityWhere =
       identity.sourceRecordId !== null
@@ -451,6 +473,14 @@ export async function touchSourceListingSeen(
       .where(eq(sourceListings.id, locked.id))
       .returning();
     if (!updated) throw new Error('touchSourceListingSeen: listing update returned no row');
+    await recordStatusEvent(tx, {
+      sourceListingId: locked.id,
+      fromStatus: created ? null : locked.status,
+      toStatus: nextStatus,
+      at: observedAt,
+      crawlRunId: options.crawlRunId ?? null,
+      reason: created ? 'first_seen' : 'seen_again',
+    });
 
     return { sourceListing: updated, stale: false };
   });
@@ -495,39 +525,13 @@ export async function quarantineSourceListing(
   db: Database,
   identity: SourceListingIdentity,
   observedAt: string,
+  options: ObservationOptions = {},
 ): Promise<QuarantineSourceListingResult> {
   return db.transaction(async (tx) => {
-    const values = {
-      id: randomUUID(),
-      sourceId: identity.sourceId,
-      sourceRecordId: identity.sourceRecordId,
-      canonicalSourceUrl: identity.canonicalSourceUrl,
-      currentRevisionId: null,
-      firstSeenAt: observedAt,
-      lastSeenAt: observedAt,
-      status: 'discovered' as const,
-      missingStreak: 0,
+    const created = await insertListingIfNew(tx, identity, observedAt, {
       sourcePublishedAt: null,
       sourceDeadlineAt: null,
-    };
-
-    if (identity.sourceRecordId !== null) {
-      await tx
-        .insert(sourceListings)
-        .values(values)
-        .onConflictDoNothing({
-          target: [sourceListings.sourceId, sourceListings.sourceRecordId],
-          where: sql`${sourceListings.sourceRecordId} is not null`,
-        });
-    } else {
-      await tx
-        .insert(sourceListings)
-        .values(values)
-        .onConflictDoNothing({
-          target: [sourceListings.sourceId, sourceListings.canonicalSourceUrl],
-          where: sql`${sourceListings.sourceRecordId} is null`,
-        });
-    }
+    });
 
     const identityWhere =
       identity.sourceRecordId !== null
@@ -561,6 +565,14 @@ export async function quarantineSourceListing(
       .where(eq(sourceListings.id, locked.id))
       .returning();
     if (!updated) throw new Error('quarantineSourceListing: listing update returned no row');
+    await recordStatusEvent(tx, {
+      sourceListingId: locked.id,
+      fromStatus: created ? null : locked.status,
+      toStatus: 'quarantined',
+      at: observedAt,
+      crawlRunId: options.crawlRunId ?? null,
+      reason: created ? 'first_seen' : 'quarantined',
+    });
 
     return { sourceListing: updated, stale: false };
   });

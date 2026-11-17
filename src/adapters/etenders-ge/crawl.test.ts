@@ -1,8 +1,13 @@
 import { readFileSync } from 'node:fs';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../../db/client.js';
-import { parserIncidents, sourceListingRevisions, sourceListings } from '../../db/schema/index.js';
+import {
+  parserIncidents,
+  sourceListingRevisions,
+  sourceListingStatusEvents,
+  sourceListings,
+} from '../../db/schema/index.js';
 import { cleanupTestSource, createTestSourceListing } from '../../db/test-support.js';
 import type { HttpFetcher, HttpFetchResult } from '../../net/http-fetcher.js';
 import { etendersGeSource } from '../../policies/etenders-ge.js';
@@ -10,6 +15,7 @@ import {
   buildSearchUrl,
   DEFAULT_FIRST_RUN_WINDOW_DAYS,
   ensureEtendersGeSourceSeeded,
+  loadOutcomeRereads,
   runEtendersGeCrawl,
   tbilisiSearchDate,
 } from './crawl.js';
@@ -151,6 +157,22 @@ function siteResponses(input: {
   }
   for (const [url, response] of Object.entries(input.details ?? {})) responses.set(url, response);
   return responses;
+}
+
+/** Status events of these listings, oldest first (Phase 17C). */
+async function eventsOf(...listingIds: string[]) {
+  const rows = await db
+    .select()
+    .from(sourceListingStatusEvents)
+    .where(inArray(sourceListingStatusEvents.sourceListingId, listingIds))
+    .orderBy(asc(sourceListingStatusEvents.id));
+  return rows.map((row) => ({
+    listing: row.sourceListingId,
+    from: row.fromStatus,
+    to: row.toStatus,
+    reason: row.reason,
+    run: row.crawlRunId,
+  }));
 }
 
 async function listing(sourceRecordId: string) {
@@ -306,6 +328,22 @@ describe('runEtendersGeCrawl', () => {
     expect((await listing('69534'))?.status).toBe('closed');
     expect((await listing('69534'))?.id).toBe(gone.id);
     expect((await listing('70001'))?.status).toBe('missing_suspected');
+    expect(await eventsOf(gone.id, vanished.id)).toEqual([
+      {
+        listing: gone.id,
+        from: 'active',
+        to: 'closed',
+        reason: 'source_status',
+        run: run1.crawlRun.id,
+      },
+      {
+        listing: vanished.id,
+        from: 'active',
+        to: 'missing_suspected',
+        reason: 'not_found',
+        run: run1.crawlRun.id,
+      },
+    ]);
 
     // A retry of the same run's clock cannot advance the streak twice.
     await runEtendersGeCrawl(
@@ -338,6 +376,11 @@ describe('runEtendersGeCrawl', () => {
     );
     expect((await listing('70001'))?.status).toBe('closed');
     expect((await listing('70001'))?.id).toBe(vanished.id);
+    // The retry changed nothing, so it recorded nothing; the next day's run closed it.
+    expect((await eventsOf(vanished.id)).map((event) => [event.from, event.to])).toEqual([
+      ['active', 'missing_suspected'],
+      ['missing_suspected', 'closed'],
+    ]);
   });
 
   describe('a search page that fails to load', () => {
@@ -433,5 +476,207 @@ describe('runEtendersGeCrawl', () => {
       { windowDays: WINDOW_DAYS },
     );
     expect(crawlRun.status).toBe('partial');
+  });
+
+  it('records each status change of a run as an event, with the run', async () => {
+    const { crawlRun } = await runEtendersGeCrawl(
+      {
+        db,
+        httpFetcher: new FakeFetcher(siteResponses({ live: LIVE, window: WINDOW })),
+        now: clock(NOW),
+      },
+      { windowDays: WINDOW_DAYS },
+    );
+    const open = await listing('69679');
+    const completed = await listing('69619');
+    expect(await eventsOf(open?.id ?? '', completed?.id ?? '')).toEqual([
+      { listing: open?.id, from: null, to: 'active', reason: 'first_seen', run: crawlRun.id },
+      { listing: completed?.id, from: null, to: 'active', reason: 'first_seen', run: crawlRun.id },
+      {
+        listing: completed?.id,
+        from: 'active',
+        to: 'closed',
+        reason: 'source_status',
+        run: crawlRun.id,
+      },
+    ]);
+  });
+
+  describe('the outcome re-read (Phase 17C)', () => {
+    const at = (days: number, hours = 0) => NOW + days * DAY_MS + hours * 60 * 60 * 1000;
+    const iso = (ms: number) => new Date(ms).toISOString();
+
+    /** A terminal page for tender `id`: another fixture's page with its number swapped in. */
+    function terminalPage(id: string, fixtureId: '69619' | '69534'): HttpFetchResult {
+      return ok(detailUrl(id), fixture(DETAILS[fixtureId] ?? '').replaceAll(fixtureId, id));
+    }
+
+    async function setExpired(sourceRecordId: string, deadline: number) {
+      await db
+        .update(sourceListings)
+        .set({ status: 'expired', sourceDeadlineAt: iso(deadline) })
+        .where(
+          and(
+            eq(sourceListings.sourceId, etendersGeSource.id),
+            eq(sourceListings.sourceRecordId, sourceRecordId),
+          ),
+        );
+    }
+
+    async function currentAttributes(sourceRecordId: string) {
+      const [revision] = await db
+        .select()
+        .from(sourceListingRevisions)
+        .where(
+          eq(sourceListingRevisions.id, (await listing(sourceRecordId))?.currentRevisionId ?? ''),
+        );
+      return revision?.structuredAttributes as {
+        status: { code: number };
+        biddersCount: number | null;
+      };
+    }
+
+    function firstRun() {
+      return runEtendersGeCrawl(
+        {
+          db,
+          httpFetcher: new FakeFetcher(siteResponses({ live: LIVE, window: WINDOW })),
+          now: clock(NOW),
+        },
+        { windowDays: WINDOW_DAYS },
+      );
+    }
+
+    it('picks only expired tenders still waiting for an outcome, oldest deadline first, within the cap and the spacing', async () => {
+      // 69679, 69617 and 69674 are open (status 1); 69619 completed, 69607 failed.
+      await firstRun();
+      await setExpired('69679', at(-10));
+      await setExpired('69674', at(-20));
+      await setExpired('69617', at(-100)); // past the 90 days
+      await setExpired('69619', at(-5)); // already terminal
+
+      const due = (now: number, limit = 10) => loadOutcomeRereads(db, { now: iso(now), limit });
+      expect(await due(at(4))).toEqual(['69674', '69679']);
+      expect(await due(at(4), 1)).toEqual(['69674']);
+      expect(await due(at(4), 0)).toEqual([]);
+      // Every page was read at NOW: two days later is too soon.
+      expect(await due(at(2))).toEqual([]);
+      // Ninety days after its deadline a tender is no longer read.
+      expect(await due(at(80))).toEqual(['69679']);
+
+      // A tender not expired is never picked, whatever its deadline.
+      await db
+        .update(sourceListings)
+        .set({ status: 'active', sourceDeadlineAt: iso(at(-30)) })
+        .where(
+          and(
+            eq(sourceListings.sourceId, etendersGeSource.id),
+            eq(sourceListings.sourceRecordId, '69617'),
+          ),
+        );
+      expect(await due(at(4))).toEqual(['69674', '69679']);
+    });
+
+    it('stores a terminal status as a new revision without reopening, within the cap, and never rereads it', async () => {
+      const first = await firstRun();
+      await setExpired('69679', at(-10));
+      await setExpired('69674', at(-20));
+
+      const run = (when: number, maxOutcomeRereads?: number) => {
+        const fetcher = new FakeFetcher(
+          siteResponses({
+            live: [{ id: '69617', status: 1 }],
+            window: [],
+            windowFrom: windowFromAt(when),
+            details: {
+              [detailUrl('69679')]: terminalPage('69679', '69619'),
+              [detailUrl('69674')]: terminalPage('69674', '69534'),
+            },
+          }),
+        );
+        return {
+          fetcher,
+          result: runEtendersGeCrawl(
+            { db, httpFetcher: fetcher, now: clock(when) },
+            {
+              windowDays: WINDOW_DAYS,
+              ...(maxOutcomeRereads === undefined ? {} : { maxOutcomeRereads }),
+            },
+          ),
+        };
+      };
+
+      // Capped at one: the oldest deadline goes first.
+      const capped = run(at(4), 1);
+      const second = await capped.result;
+      expect(second.stats).toMatchObject({
+        outcomeRereadsDue: 1,
+        outcomeRereads: 1,
+        outcomeTerminal: 1,
+        outcomeChanged: 1,
+        outcomeReopened: 0,
+        outcomeFailed: 0,
+      });
+      expect(capped.fetcher.requested).toContain(detailUrl('69674'));
+      expect(capped.fetcher.requested).not.toContain(detailUrl('69679'));
+      expect((await listing('69674'))?.status).toBe('expired');
+      expect((await currentAttributes('69674')).status.code).toBe(4);
+      expect((await currentAttributes('69679')).status.code).toBe(1);
+
+      // The next run takes the other; the terminated one is done.
+      const next = run(at(4, 1));
+      const third = await next.result;
+      expect(third.stats).toMatchObject({
+        outcomeRereadsDue: 1,
+        outcomeRereads: 1,
+        outcomeTerminal: 1,
+        outcomeChanged: 1,
+        outcomeReopened: 0,
+      });
+      expect(next.fetcher.requested).not.toContain(detailUrl('69674'));
+      expect((await listing('69679'))?.status).toBe('expired');
+      expect(await currentAttributes('69679')).toMatchObject({
+        status: { code: 99 },
+        biddersCount: 2,
+      });
+
+      // Neither re-read changed a status, so neither recorded an event.
+      const reread = [(await listing('69679'))?.id ?? '', (await listing('69674'))?.id ?? ''];
+      const events = await eventsOf(...reread);
+      expect(events).toHaveLength(2);
+      expect(events.every((event) => event.run === first.crawlRun.id)).toBe(true);
+
+      // Nothing is left to read.
+      expect(await loadOutcomeRereads(db, { now: iso(at(10)), limit: 10 })).toEqual([]);
+    });
+
+    it('leaves an expired tender as it is when its page cannot be parsed', async () => {
+      await firstRun();
+      await setExpired('69679', at(-10));
+      const when = at(4);
+      const { stats } = await runEtendersGeCrawl(
+        {
+          db,
+          httpFetcher: new FakeFetcher(
+            siteResponses({
+              live: [{ id: '69617', status: 1 }],
+              window: [],
+              windowFrom: windowFromAt(when),
+              // Another tender's page: the parser refuses it.
+              details: {
+                [detailUrl('69679')]: ok(detailUrl('69679'), fixture(DETAILS['69674'] ?? '')),
+              },
+            }),
+          ),
+          now: clock(when),
+        },
+        { windowDays: WINDOW_DAYS },
+      );
+      expect(stats).toMatchObject({ outcomeRereads: 1, outcomeFailed: 1, outcomeTerminal: 0 });
+      expect((await listing('69679'))?.status).toBe('expired');
+      // Its page was read, so it waits out the spacing before the next try.
+      expect(await loadOutcomeRereads(db, { now: iso(at(5)), limit: 10 })).toEqual([]);
+      expect(await loadOutcomeRereads(db, { now: iso(at(7, 1)), limit: 10 })).toEqual(['69679']);
+    });
   });
 });

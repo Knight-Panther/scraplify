@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, or, type SQL, sql } from 'drizzle-orm';
 import {
   type CrawlRunCounts,
   extendSourceBackoff,
@@ -12,12 +12,21 @@ import {
   upsertResource,
 } from '../../db/ingest.js';
 import { expireOverdueListings } from '../../db/reconcile-source-listings.js';
-import { type CrawlRunRow, crawlRuns, sourceListings, sources } from '../../db/schema/index.js';
+import {
+  type CrawlRunRow,
+  crawlRuns,
+  resources,
+  sourceListingRevisions,
+  sourceListings,
+  sources,
+} from '../../db/schema/index.js';
 import { type SyncSourcePolicyResult, syncSourcePolicy } from '../../db/source-policies.js';
+import { changeStatusWhere } from '../../db/status-events.js';
 import type { Database } from '../../db/types.js';
 import {
   quarantineSourceListing,
   touchSourceListingSeen,
+  type WriteSourceListingRevisionResult,
   writeSourceListingRevision,
 } from '../../db/write-source-listing-revision.js';
 import type { ResourceId } from '../../domain/ids.js';
@@ -43,6 +52,7 @@ import {
   ETENDERS_GE_DETAIL_PARSER_VERSION,
   LIVE_STATUS_CODES,
   parseEtendersGeDetailPage,
+  TERMINAL_STATUS_CODES,
   type TenderAttributes,
 } from './detail.js';
 import { parseSearchPage, type TenderCard } from './discovery.js';
@@ -75,6 +85,26 @@ const DEFAULT_MAX_FETCH_FAILURE_RATE = 0.5;
 const NOT_FOUND_CLOSE_STREAK = 2;
 const OPEN_STATUSES = ['discovered', 'active', 'missing_suspected'] as const;
 const TBILISI_OFFSET_MS = 4 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Expired tenders re-read for their outcome per run (Phase 17C). A tender is
+ * marked expired at its bid deadline, usually before the buyer finishes it,
+ * and after that nothing reads its page again, so its final status and bidder
+ * count were mostly never stored.
+ *
+ * 40 a run: at the policy's 3 s delay and the host's usual 0.2–1.5 s answer,
+ * about 2.5 minutes and a few MB, on a run that reads about 50–100 detail
+ * pages (the ~40 live tenders every 20 hours, the day's new ones, the exits)
+ * against its own 500-page cap. A tender is re-read every
+ * `OUTCOME_REREAD_SPACING_DAYS` at most, so 40 a day keeps up with about 120
+ * tenders still waiting for an outcome; a longer queue still turns over, only
+ * more slowly, since a tender just read drops behind the others.
+ */
+export const DEFAULT_MAX_OUTCOME_REREADS = 40;
+/** An expired tender's page is read at most this often, counting any read of it. */
+export const OUTCOME_REREAD_SPACING_DAYS = 3;
+/** Re-reads stop this many days after the bid deadline, outcome or not. */
+export const OUTCOME_REREAD_WINDOW_DAYS = 90;
 
 export interface RunEtendersGeCrawlDeps {
   db: Database;
@@ -93,6 +123,8 @@ export interface RunEtendersGeCrawlOptions {
   refetch?: 'changed' | 'all';
   maxQuarantineRate?: number;
   maxFetchFailureRate?: number;
+  /** Expired tenders re-read for their outcome this run; 0 turns the re-read off. */
+  maxOutcomeRereads?: number;
 }
 
 export interface EtendersGeRunStats {
@@ -110,6 +142,22 @@ export interface EtendersGeRunStats {
   /** Detail requests answered with the site's not-found redirect. */
   notFound: number;
   windowFrom: string;
+  /**
+   * The outcome re-read (Phase 17C), kept apart from the counts above and
+   * from the run's guards: it reads tenders already settled as expired.
+   * `outcomeRereadsDue` is how many were picked (at most the cap).
+   */
+  outcomeRereadsDue: number;
+  /** Re-read pages requested. */
+  outcomeRereads: number;
+  /** Re-reads that found the tender terminated, failed or completed. */
+  outcomeTerminal: number;
+  /** Re-reads that stored a new revision. */
+  outcomeChanged: number;
+  /** Re-reads whose page said the tender is open again (status 1–3), which reopened it. */
+  outcomeReopened: number;
+  /** Re-reads that failed: no answer, the not-found redirect, another redirect, or an unparsable page. */
+  outcomeFailed: number;
 }
 
 export interface RunEtendersGeCrawlResult {
@@ -327,18 +375,27 @@ async function loadOpenListingsOutside(
     .filter((id): id is string => id !== null && !liveIds.has(id));
 }
 
-/** The source says the tender is over (completed, terminated or failed): close it, once. */
-async function closeOnSourceStatus(db: Database, sourceListingId: string): Promise<boolean> {
-  const rows = await db
-    .update(sourceListings)
-    .set({ status: 'closed', missingStreak: 0 })
-    .where(
-      and(
-        eq(sourceListings.id, sourceListingId),
-        inArray(sourceListings.status, [...OPEN_STATUSES]),
-      ),
-    )
-    .returning({ id: sourceListings.id });
+/**
+ * The source says the tender is over (completed, terminated or failed): close
+ * it, once, with its status event in the same statement (Phase 17C).
+ */
+async function closeOnSourceStatus(
+  db: Database,
+  sourceListingId: string,
+  at: string,
+  crawlRunId: string,
+): Promise<boolean> {
+  const rows = await changeStatusWhere(db, {
+    where: and(
+      eq(sourceListings.id, sourceListingId),
+      inArray(sourceListings.status, [...OPEN_STATUSES]),
+    ) as SQL,
+    toStatus: 'closed',
+    alsoSet: sql`${sql.identifier('missing_streak')} = 0`,
+    at,
+    crawlRunId,
+    reason: 'source_status',
+  });
   return rows.length > 0;
 }
 
@@ -346,41 +403,85 @@ async function closeOnSourceStatus(db: Database, sourceListingId: string): Promi
  * The site answered "not found" for a listing we hold open. The first answer
  * makes it `missing_suspected`; a second, on a later run, closes it. Keyed on
  * `lastReconciledAt` so a re-run of the same crawl cannot advance it twice.
+ * The update re-checks that under the row's lock and records the status event
+ * in the same statement (Phase 17C).
  */
 async function recordNotFound(
   db: Database,
   sourceRecordId: string,
   runStartedAt: string,
+  at: string,
+  crawlRunId: string,
 ): Promise<'suspected' | 'closed' | 'unchanged'> {
+  const stillOpen = and(
+    eq(sourceListings.sourceId, etendersGeSource.id),
+    eq(sourceListings.sourceRecordId, sourceRecordId),
+    inArray(sourceListings.status, [...OPEN_STATUSES]),
+    or(isNull(sourceListings.lastReconciledAt), lt(sourceListings.lastReconciledAt, runStartedAt)),
+  ) as SQL;
   const [row] = await db
     .select({
       id: sourceListings.id,
       streak: sourceListings.missingStreak,
     })
     .from(sourceListings)
-    .where(
-      and(
-        eq(sourceListings.sourceId, etendersGeSource.id),
-        eq(sourceListings.sourceRecordId, sourceRecordId),
-        inArray(sourceListings.status, [...OPEN_STATUSES]),
-        or(
-          isNull(sourceListings.lastReconciledAt),
-          lt(sourceListings.lastReconciledAt, runStartedAt),
-        ),
-      ),
-    );
+    .where(stillOpen);
   if (row === undefined) return 'unchanged';
   const streak = row.streak + 1;
   const closed = streak >= NOT_FOUND_CLOSE_STREAK;
-  await db
-    .update(sourceListings)
-    .set({
-      missingStreak: streak,
-      status: closed ? 'closed' : 'missing_suspected',
-      lastReconciledAt: runStartedAt,
-    })
-    .where(eq(sourceListings.id, row.id));
+  const updated = await changeStatusWhere(db, {
+    where: and(stillOpen, eq(sourceListings.id, row.id)) as SQL,
+    toStatus: closed ? 'closed' : 'missing_suspected',
+    alsoSet: sql`${sql.identifier('missing_streak')} = ${streak}, ${sql.identifier('last_reconciled_at')} = ${runStartedAt}::timestamptz`,
+    at,
+    crawlRunId,
+    reason: 'not_found',
+  });
+  if (updated.length === 0) return 'unchanged';
   return closed ? 'closed' : 'suspected';
+}
+
+/**
+ * Expired tenders due an outcome re-read (Phase 17C), oldest deadline first:
+ * their current revision's status is not terminal (4, 5, 99), their bid
+ * deadline is at most `OUTCOME_REREAD_WINDOW_DAYS` old, and their page has not
+ * been read, by any path, for `OUTCOME_REREAD_SPACING_DAYS`. The last read is
+ * the detail URL's resource row, which every request updates, failed or not
+ * (`fetchAndRecord`), so a page answering "not found" waits its turn too.
+ * Reads only.
+ */
+export async function loadOutcomeRereads(
+  db: Database,
+  input: { now: string; limit: number },
+): Promise<string[]> {
+  if (input.limit <= 0) return [];
+  const nowMs = Date.parse(input.now);
+  const windowStart = new Date(nowMs - OUTCOME_REREAD_WINDOW_DAYS * DAY_MS).toISOString();
+  const lastReadBefore = new Date(nowMs - OUTCOME_REREAD_SPACING_DAYS * DAY_MS).toISOString();
+  const terminal = sql.join(
+    [...TERMINAL_STATUS_CODES].map((code) => sql`${String(code)}`),
+    sql`, `,
+  );
+  const { rows } = await db.execute<{ source_record_id: string }>(sql`
+    select ${sourceListings.sourceRecordId} as source_record_id
+      from ${sourceListings}
+      join ${sourceListingRevisions}
+        on ${sourceListingRevisions.id} = ${sourceListings.currentRevisionId}
+      left join ${resources}
+        on ${resources.sourceId} = ${sourceListings.sourceId}
+       and ${resources.role} = 'OPPORTUNITY'
+       and ${resources.canonicalUrl} = ${sourceListings.canonicalSourceUrl}
+     where ${sourceListings.sourceId} = ${etendersGeSource.id}
+       and ${sourceListings.status} = 'expired'
+       and ${sourceListings.sourceRecordId} is not null
+       and ${sourceListings.sourceDeadlineAt} >= ${windowStart}::timestamptz
+       and coalesce(${sourceListingRevisions.structuredAttributes} #>> '{status,code}', '')
+           not in (${terminal})
+       and greatest(${resources.fetchedAt}, ${sourceListingRevisions.provenanceFetchedAt})
+           <= ${lastReadBefore}::timestamptz
+     order by ${sourceListings.sourceDeadlineAt}, ${sourceListings.id}
+     limit ${input.limit}`);
+  return rows.map((row) => row.source_record_id);
 }
 
 /**
@@ -435,6 +536,14 @@ function windowFromDate(
  * (completed, terminated, failed), never from absence, so the run records
  * `fullCoverage=false` and no missing streak advances on its account; the
  * only absence rule is the site's own not-found redirect, twice.
+ *
+ * A tender past its bid deadline is marked expired at the run's end, often
+ * before the buyer has finished it. After this run's own pages, up to
+ * `maxOutcomeRereads` expired tenders whose last read status is not terminal
+ * are read again for their outcome (status, bidder count), oldest deadline
+ * first, each at most every `OUTCOME_REREAD_SPACING_DAYS` and for
+ * `OUTCOME_REREAD_WINDOW_DAYS` after its deadline (Phase 17C). The counts are
+ * the `outcome*` stats; they change neither the run's counts nor its guards.
  */
 export async function runEtendersGeCrawl(
   deps: RunEtendersGeCrawlDeps,
@@ -494,7 +603,14 @@ export async function runEtendersGeCrawl(
     closedBySource: 0,
     notFound: 0,
     windowFrom,
+    outcomeRereadsDue: 0,
+    outcomeRereads: 0,
+    outcomeTerminal: 0,
+    outcomeChanged: 0,
+    outcomeReopened: 0,
+    outcomeFailed: 0,
   };
+  const maxOutcomeRereads = options.maxOutcomeRereads ?? DEFAULT_MAX_OUTCOME_REREADS;
 
   try {
     const backoffUntil = await getSourceBackoffUntil(db, etendersGeSource.id);
@@ -586,6 +702,7 @@ export async function runEtendersGeCrawl(
           canonicalSourceUrl: detailUrl(card.sourceRecordId),
         },
         now(),
+        { crawlRunId: crawlRun.id },
       );
       if (decision === 'adopt') {
         await setDiscoveryFingerprint(
@@ -609,8 +726,26 @@ export async function runEtendersGeCrawl(
       }
     }
 
-    for (const job of jobs) {
-      if (control.stopped || stats.detailFetches >= maxDetailFetches) break;
+    type DetailRead =
+      | { kind: 'failed' }
+      | { kind: 'not_found'; recorded: boolean }
+      | { kind: 'not_a_tender' }
+      | { kind: 'unparsable' }
+      | {
+          kind: 'written';
+          written: WriteSourceListingRevisionResult;
+          statusCode: number;
+          closedBySource: boolean;
+        };
+
+    /**
+     * One detail request and what it says about the listing. Shared by this
+     * run's jobs and the outcome re-read (Phase 17C), which differs in one
+     * way: an unparsable page quarantines a job's listing, as concept §13
+     * asks, but leaves an expired tender being re-read as it is. Its state is
+     * already settled, and a quarantined tender would never be re-read again.
+     */
+    const readDetail = async (job: DetailJob, quarantine: boolean): Promise<DetailRead> => {
       const url = detailUrl(job.sourceRecordId);
       const identity = {
         sourceId: etendersGeSource.id,
@@ -618,7 +753,6 @@ export async function runEtendersGeCrawl(
         canonicalSourceUrl: url,
       };
       const attemptedAt = now();
-      stats.detailFetches++;
       const fetched = await fetchAndRecord(
         db,
         httpFetcher,
@@ -630,21 +764,25 @@ export async function runEtendersGeCrawl(
       );
       const result = fetched.result;
       if (fetched.outcome !== 'success' || result === null) {
-        counts.failedCount++;
-        if (job.card !== null) await touchSourceListingSeen(db, identity, attemptedAt);
-        continue;
+        if (job.card !== null) {
+          await touchSourceListingSeen(db, identity, attemptedAt, { crawlRunId: crawlRun.id });
+        }
+        return { kind: 'failed' };
       }
       if (result.status !== 200) {
         const location = header(result, 'location') ?? '';
         if (/TenderNotFound/i.test(location)) {
-          stats.notFound++;
-          const outcome = await recordNotFound(db, job.sourceRecordId, startedAt);
-          if (outcome !== 'unchanged') counts.missingCount++;
-        } else {
-          // A sale under a tender URL, or any other redirect: not a tender page.
-          stats.otherSkipped++;
+          const outcome = await recordNotFound(
+            db,
+            job.sourceRecordId,
+            startedAt,
+            attemptedAt,
+            crawlRun.id,
+          );
+          return { kind: 'not_found', recorded: outcome !== 'unchanged' };
         }
-        continue;
+        // A sale under a tender URL, or any other redirect: not a tender page.
+        return { kind: 'not_a_tender' };
       }
 
       let content: ReturnType<typeof parseEtendersGeDetailPage>;
@@ -660,8 +798,9 @@ export async function runEtendersGeCrawl(
           },
         });
       } catch (parseError) {
-        counts.quarantinedCount++;
-        await quarantineSourceListing(db, identity, attemptedAt);
+        if (quarantine) {
+          await quarantineSourceListing(db, identity, attemptedAt, { crawlRunId: crawlRun.id });
+        }
         await upsertResource(db, {
           sourceId: etendersGeSource.id,
           role: 'OPPORTUNITY',
@@ -688,22 +827,19 @@ export async function runEtendersGeCrawl(
             error: parseError instanceof Error ? parseError.message : String(parseError),
           },
         });
-        continue;
+        return { kind: 'unparsable' };
       }
 
-      const status = (content.structuredAttributes as unknown as TenderAttributes).status.code;
-      const stillLive = LIVE_STATUS_CODES.has(status);
+      const statusCode = (content.structuredAttributes as unknown as TenderAttributes).status.code;
+      const stillLive = LIVE_STATUS_CODES.has(statusCode);
       // Only a tender the source shows as open again may reopen a closed listing.
       const written = await writeSourceListingRevision(db, identity, content, attemptedAt, {
         allowReopen: stillLive,
+        crawlRunId: crawlRun.id,
       });
-      if (written.outcome === 'new') counts.newCount++;
-      else if (written.outcome === 'changed') counts.changedCount++;
-      else if (written.outcome === 'unchanged') counts.unchangedCount++;
-      if (written.reopened) counts.reopenedCount++;
-      if (!stillLive && (await closeOnSourceStatus(db, written.sourceListing.id))) {
-        stats.closedBySource++;
-      }
+      const closedBySource =
+        !stillLive &&
+        (await closeOnSourceStatus(db, written.sourceListing.id, attemptedAt, crawlRun.id));
       if (job.card !== null && written.outcome !== 'stale') {
         await setDiscoveryFingerprint(
           db,
@@ -711,6 +847,53 @@ export async function runEtendersGeCrawl(
           job.sourceRecordId,
           job.card.fingerprint,
         );
+      }
+      return { kind: 'written', written, statusCode, closedBySource };
+    };
+
+    for (const job of jobs) {
+      if (control.stopped || stats.detailFetches >= maxDetailFetches) break;
+      stats.detailFetches++;
+      const read = await readDetail(job, true);
+      if (read.kind === 'failed') {
+        counts.failedCount++;
+      } else if (read.kind === 'not_found') {
+        stats.notFound++;
+        if (read.recorded) counts.missingCount++;
+      } else if (read.kind === 'not_a_tender') {
+        stats.otherSkipped++;
+      } else if (read.kind === 'unparsable') {
+        counts.quarantinedCount++;
+      } else {
+        const { written } = read;
+        if (written.outcome === 'new') counts.newCount++;
+        else if (written.outcome === 'changed') counts.changedCount++;
+        else if (written.outcome === 'unchanged') counts.unchangedCount++;
+        if (written.reopened) counts.reopenedCount++;
+        if (read.closedBySource) stats.closedBySource++;
+      }
+    }
+
+    // Outcome re-read (Phase 17C): expired tenders whose last read status is
+    // not terminal, oldest deadline first, within the cap. A terminal status
+    // is stored as a new revision through the ordinary path and never reopens
+    // the listing; only a page saying 1-3 reopens it, the rule above. Run
+    // after this run's own jobs, so a tender one of them has just read is
+    // not read twice (the spacing sees that read).
+    if (!control.stopped && maxOutcomeRereads > 0) {
+      const due = await loadOutcomeRereads(db, { now: now(), limit: maxOutcomeRereads });
+      stats.outcomeRereadsDue = due.length;
+      for (const sourceRecordId of due) {
+        if (control.stopped) break;
+        stats.outcomeRereads++;
+        const read = await readDetail({ sourceRecordId, card: null }, false);
+        if (read.kind !== 'written') {
+          stats.outcomeFailed++;
+          continue;
+        }
+        if (TERMINAL_STATUS_CODES.has(read.statusCode)) stats.outcomeTerminal++;
+        if (read.written.outcome === 'changed') stats.outcomeChanged++;
+        if (read.written.reopened) stats.outcomeReopened++;
       }
     }
 
@@ -759,6 +942,7 @@ export async function runEtendersGeCrawl(
       const expired = await expireOverdueListings(tx, {
         sourceId: etendersGeSource.id,
         asOf: finishedAt,
+        crawlRunId: crawlRun.id,
       });
       return finishCrawlRun(tx, crawlRun.id, {
         finishedAt,

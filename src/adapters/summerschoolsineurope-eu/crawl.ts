@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import {
   type CrawlRunCounts,
   extendSourceBackoff,
@@ -24,6 +24,7 @@ import {
   sources,
 } from '../../db/schema/index.js';
 import { type SyncSourcePolicyResult, syncSourcePolicy } from '../../db/source-policies.js';
+import { changeStatusWhere } from '../../db/status-events.js';
 import type { Database, DatabaseOrTransaction } from '../../db/types.js';
 import {
   quarantineSourceListing,
@@ -385,18 +386,22 @@ const msOf = (instant: string | null | undefined): number | null =>
  * expired listing, and a course page read again reopens it only while it
  * has not started.
  */
-async function expireStartedCourses(tx: DatabaseOrTransaction, today: string): Promise<number> {
-  const rows = await tx
-    .update(sourceListings)
-    .set({ status: 'expired' })
-    .where(
-      and(
-        eq(sourceListings.sourceId, summerSchoolsEuSource.id),
-        inArray(sourceListings.status, [...OPEN_STATUSES]),
-        sql`exists (select 1 from ${sourceListingRevisions} where ${sourceListingRevisions.id} = ${sourceListings.currentRevisionId} and (${sourceListingRevisions.structuredAttributes} ->> 'startDate') < ${today})`,
-      ),
-    )
-    .returning({ id: sourceListings.id });
+async function expireStartedCourses(
+  tx: DatabaseOrTransaction,
+  input: { today: string; at: string; crawlRunId: string },
+): Promise<number> {
+  // Phase 17C: each change is a status event, in the same statement.
+  const rows = await changeStatusWhere(tx, {
+    where: and(
+      eq(sourceListings.sourceId, summerSchoolsEuSource.id),
+      inArray(sourceListings.status, [...OPEN_STATUSES]),
+      sql`exists (select 1 from ${sourceListingRevisions} where ${sourceListingRevisions.id} = ${sourceListings.currentRevisionId} and (${sourceListingRevisions.structuredAttributes} ->> 'startDate') < ${input.today})`,
+    ) as SQL,
+    toStatus: 'expired',
+    at: input.at,
+    crawlRunId: input.crawlRunId,
+    reason: 'course_started',
+  });
   return rows.length;
 }
 
@@ -714,7 +719,7 @@ export async function runSummerSchoolsCrawl(
         });
       } catch (parseError) {
         counts.quarantinedCount++;
-        await quarantineSourceListing(db, identity, attemptedAt);
+        await quarantineSourceListing(db, identity, attemptedAt, { crawlRunId: crawlRun.id });
         await upsertResource(db, {
           sourceId: summerSchoolsEuSource.id,
           role: 'OPPORTUNITY',
@@ -752,6 +757,7 @@ export async function runSummerSchoolsCrawl(
       const written = await writeSourceListingRevision(db, identity, content, attemptedAt, {
         // A listed course that has neither started nor passed its deadline may reopen.
         allowReopen: !started && !deadlinePassed,
+        crawlRunId: crawlRun.id,
       });
       if (written.outcome === 'new') counts.newCount++;
       else if (written.outcome === 'changed') counts.changedCount++;
@@ -781,6 +787,7 @@ export async function runSummerSchoolsCrawl(
           canonicalSourceUrl: card.url,
         },
         now(),
+        { crawlRunId: crawlRun.id },
       );
     }
 
@@ -832,8 +839,13 @@ export async function runSummerSchoolsCrawl(
       const expired = await expireOverdueListings(tx, {
         sourceId: summerSchoolsEuSource.id,
         asOf: finishedAt,
+        crawlRunId: crawlRun.id,
       });
-      stats.startedClosed = await expireStartedCourses(tx, tbilisiDay(finishedAt));
+      stats.startedClosed = await expireStartedCourses(tx, {
+        today: tbilisiDay(finishedAt),
+        at: finishedAt,
+        crawlRunId: crawlRun.id,
+      });
       const closed = await closeMissingListingsInTransaction(tx, {
         crawlRunId: crawlRun.id,
         missingStreakThreshold: MISSING_STREAK_THRESHOLD,

@@ -18,6 +18,8 @@ export const STATUS_CODES: Readonly<Record<string, number>> = {
 };
 /** Statuses during which a tender is still open: announced, bids open, live bidding. */
 export const LIVE_STATUS_CODES: ReadonlySet<number> = new Set([1, 2, 3]);
+/** Statuses that end a tender for good: terminated, failed, completed. */
+export const TERMINAL_STATUS_CODES: ReadonlySet<number> = new Set([4, 5, 99]);
 
 /** Procurement methods; the code itself comes from the page's `TenderTypeHelp_Type__N` help key. */
 const METHOD_CODES: Readonly<Record<string, number>> = {
