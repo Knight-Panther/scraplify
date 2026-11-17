@@ -128,6 +128,11 @@ GRANT SELECT ON realestate.public_places TO scraplify_public;
 -- and deploy/apply-db-roles.sh stops if one does. Requires migration 0057.
 GRANT SELECT ON realestate_archive.listing_versions, realestate_archive.show_spells,
   realestate_archive.listing_group_days, realestate_archive.run_quality TO scraplify_public;
+-- Phase 17D: the National Bank of Georgia's daily exchange rates, public
+-- facts. Browse groups amounts in other currencies at the latest of them
+-- (src/browse/reference-rates.ts), and Hermes can convert a price as of its
+-- own day until 17E's statistics role takes over. Requires migration 0059.
+GRANT SELECT ON public.fx_rates TO scraplify_public;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --

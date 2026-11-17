@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import type { DatabaseOrTransaction } from '../db/types.js';
 import { type BrowseKind, kindOfType } from './browse-form.js';
-import { toEur, toGel } from './reference-rates.js';
+import { COMMITTED_RATES, type ReferenceRates, toEur, toGel } from './reference-rates.js';
 
 /**
  * Browse v2's rows, read once and held in memory (Phase 16C). Every filter,
@@ -178,7 +178,10 @@ const PUBLIC_STATUS_PRECEDENCE = ['active', 'missing_suspected', 'discovered', '
  * public title (the same tie-break `resolveCanonicalOpportunity` uses) do not
  * depend on the database's row order.
  */
-export function assembleIndex(rows: readonly IndexRow[]): BrowseItem[] {
+export function assembleIndex(
+  rows: readonly IndexRow[],
+  rates: ReferenceRates = COMMITTED_RATES,
+): BrowseItem[] {
   const groups = new Map<string, IndexRow[]>();
   for (const row of rows) {
     const list = groups.get(row.opportunityId);
@@ -297,8 +300,9 @@ export function assembleIndex(rows: readonly IndexRow[]): BrowseItem[] {
     }
     if (kind === 'job') item.places = item.cities.map((c) => `g:${c}`);
     if (kind === 'course' && item.country !== null) item.places = [`c:${item.country}`];
-    item.valueGel = item.value === null ? null : toGel(item.value.amount, item.value.currency);
-    item.feeEur = item.fee === null ? null : toEur(item.fee.amount, item.fee.currency);
+    item.valueGel =
+      item.value === null ? null : toGel(item.value.amount, item.value.currency, rates);
+    item.feeEur = item.fee === null ? null : toEur(item.fee.amount, item.fee.currency, rates);
     items.push(item);
   }
   return items;
@@ -509,7 +513,10 @@ async function rowsOf(
  * members: the local edition's Browse (the same rows `searchOpportunities`
  * walks). The search text is the same four fields its search reads.
  */
-export async function loadBrowseIndex(db: DatabaseOrTransaction): Promise<BrowseItem[]> {
+export async function loadBrowseIndex(
+  db: DatabaseOrTransaction,
+  rates: ReferenceRates = COMMITTED_RATES,
+): Promise<BrowseItem[]> {
   const rows = await rowsOf(
     db,
     sql`select o.id as opportunity_id, o.type::text as type,
@@ -529,7 +536,7 @@ export async function loadBrowseIndex(db: DatabaseOrTransaction): Promise<Browse
         join sources s on s.id = sl.source_id
         join source_listing_revisions r on r.id = sl.current_revision_id`,
   );
-  return assembleIndex(rows);
+  return assembleIndex(rows, rates);
 }
 
 /**
@@ -538,7 +545,10 @@ export async function loadBrowseIndex(db: DatabaseOrTransaction): Promise<Browse
  * members, never the stored columns (`public-queries.ts`,
  * `deriveCanonicalTitle`, says why).
  */
-export async function loadPublicBrowseIndex(db: DatabaseOrTransaction): Promise<BrowseItem[]> {
+export async function loadPublicBrowseIndex(
+  db: DatabaseOrTransaction,
+  rates: ReferenceRates = COMMITTED_RATES,
+): Promise<BrowseItem[]> {
   const rows = await rowsOf(
     db,
     sql`select pom.opportunity_id, po.type::text as type,
@@ -553,5 +563,5 @@ export async function loadPublicBrowseIndex(db: DatabaseOrTransaction): Promise<
         from public_opportunity_members pom
         join public_opportunities po on po.id = pom.opportunity_id`,
   );
-  return assembleIndex(rows);
+  return assembleIndex(rows, rates);
 }

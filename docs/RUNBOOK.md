@@ -259,6 +259,12 @@ Run the host commands as `ubuntu` (with `sudo`). The pipelines run from `/opt/xt
      ```
    - **Manage the laptop:** `ssh -J <user>@<host> -p 2222 xtelo@127.0.0.1` (with `HostKeyAlias`, since the address is loopback). Its BIOS is locked, so after a power cut long enough to drain the battery, someone has to press its power button.
 
+10. **Permanent market history (Phase 17, first deploy after merge only; [`PHASE_17_PLAN.md`](PHASE_17_PLAN.md)).** Migrations `0057` (17A: real-estate versions, show spells, group days, the archive's private part), `0058` (17C: job and tender status events) and `0059` (17D: NBG exchange rates). All three only add tables and a view.
+   - **When:** between 13:30 and 21:30 UTC, once `xtelo-realestate@ss-ge` and every pipeline are `inactive`.
+   - **Order:** step 2 migrates, backup first, **then `grants`, before step 3**: the new archive copy writes `listing_private`, the status writers write their events, and the rates step writes `fx_rates`. Check the boundary: `scraplify_public` reads `listing_versions`, `show_spells` and `fx_rates`, and neither `listing_private` nor `source_listing_status_events` (`apply-db-roles.sh` stops if it can).
+   - **By hand, once, after step 3 and outside a crawl:** `deploy/with-env.sh worker node dist/cli/history-ss-ge.js` (the first versions, about 400,000), `… backfill-status-events.js` (each job and tender's first event) and `… sync-fx-rates.js` (NBG's rates from 2026-01-01, one request a second, about 6 minutes). Each is safe to run again: a second run writes nothing.
+   - **From then on:** the nightly ss.ge run records the history after its groups (`realestate_archive.history_steps`, `ok` true), every status change writes its event, and each job pipeline ends with an `exchange rates` step that fetches whatever days are missing. That step never changes the pipeline's exit code; `exchange rates not synced` in the journal means the next pipeline catches up. `select max(day) from fx_rates where currency = 'USD'` is today or tomorrow.
+
 ## 4. Health signals
 
 | Check | What it means | Where |

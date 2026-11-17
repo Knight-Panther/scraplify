@@ -182,6 +182,10 @@ GRANT UPDATE (description, trimmed_at) ON public.source_listing_revisions TO scr
 -- role rather than delete a listing's timeline. No grant to scraplify_admin
 -- (no admin screen reads it yet) or scraplify_public. Requires migration 0058.
 GRANT SELECT, INSERT ON public.source_listing_status_events TO scraplify_worker;
+-- Phase 17D: the exchange rates (src/fx/sync.ts), written after each job
+-- pipeline. A rate is stored once and never changed, so no UPDATE or DELETE.
+-- Requires migration 0059.
+GRANT SELECT, INSERT ON public.fx_rates TO scraplify_worker;
 -- Read-only: the orphan-resource sweep (tier 1) checks both sides for a
 -- resource before deleting it, but retention never writes this table.
 GRANT SELECT ON public.resource_links TO scraplify_worker;
@@ -333,6 +337,10 @@ GRANT SELECT ON public.matching_bundle_publications TO scraplify_admin;
 -- Migration 0036: `/admin` shows each board's last and next update from
 -- this view. A grant on the base tables does not cover a view.
 GRANT SELECT ON public.public_crawl_status TO scraplify_admin;
+-- Phase 17D: Browse groups amounts in other currencies at NBG's latest
+-- rates (src/browse/reference-rates.ts), on this surface as on the public
+-- one. Read-only. Requires migration 0059.
+GRANT SELECT ON public.fx_rates TO scraplify_admin;
 
 
 -- =========================================================================
