@@ -4,21 +4,20 @@ Approved by the owner 2026-11-17. Copied from the plan-mode file; this repo copy
 
 ## Tracker
 
-As of 2026-11-17, 16:55 Tbilisi (12:55 UTC).
+As of 2026-11-17, 18:00 Tbilisi (14:00 UTC).
 
-- **Done and live:** 17.0.
-- **Merged, deploying today** in one run once the ss.ge crawl ends (about 17:35 Tbilisi): 17A, 17C, 17D, and 17F (its monthly export is switched on in the same run).
-- **Ready, runs right after that deploy:** the recon.
+- **Done and live:** 17.0, and since 17:39 Tbilisi (13:39 UTC) 17A, 17C, 17D and 17F, deployed together as `7465066`.
+- **Next:** the recon, now that the ss.ge run has ended.
 - **Left to build:** 17B and 17G (after the recon), then 17E (last).
 - **Only on the owner's go:** the multimodal phase.
 
 | Mark | Item | Waits on | Next |
 |---|---|---|---|
 | ✅ | **17.0** Keep job and tender history: retention tiers 2 and 3 off for good. Live since 2026-11-17 10:00 UTC (`8a37a49`, PR #118) | — | the 16:10 UTC pipelines' retention: `listingsTrimmed` 0 |
-| ⏳ | **17A** Real estate: listing versions, show spells, group days, run quality, the archive's private table. Merged as `bc127c7` (PR #119), migration `0057` | the ss.ge run ending | deploy today; the `history:ss-ge` backfill once (a second run writes nothing); next morning `history_steps` is ok |
-| ⏳ | **17C** Jobs and tenders: status events, tender outcome re-reads. Merged as `5b22e43` (PR #120), migration `0058` | the same deploy | `status-events:backfill` once in the deploy; after the 16:10 UTC pipelines, etenders.ge's log shows `outcomeRereadsDue` |
-| ⏳ | **17D** NBG exchange rates: `fx_rates`, `fx:sync`, a pipeline step; Browse converts at NBG's latest day. Merged as `31f5bf6` (PR #121), migration `0059` | the same deploy | the `fx:sync` back-fill in the deploy (about 6 minutes); then each pipeline's `exchange rates` step |
-| ⏳ | **17F** Monthly history export to R2 with a restore drill; each year's first copy kept. Merged as `fc3763b`, `99e1f6a`, `25e8a56` (PRs #123 to #125); R2 rules set 2026-11-17 | the same deploy | the deploy (step 7b) switches it on, makes the first copy and fetches it back from R2; then the restore drill on the PC on that copy |
+| ✅ | **17A** Real estate: listing versions, show spells, group days, run quality, the archive's private table. Merged as `bc127c7` (PR #119), migration `0057`. **Live since 2026-11-17 13:39 UTC** as `7465066`; the backfill opened 409,218 versions, 296,579 spells and 126,780 group days in 28 s (197 MB) | — | the 21:30 UTC ss.ge run is the first to record history itself: `history_steps` ok next morning |
+| ✅ | **17C** Jobs and tenders: status events, tender outcome re-reads. Merged as `5b22e43` (PR #120), migration `0058`. **Live since 2026-11-17 13:39 UTC**; the backfill wrote 28,689 status events in 1 s | — | after the 16:10 UTC pipelines, etenders.ge's log shows `outcomeRereadsDue` |
+| ✅ | **17D** NBG exchange rates: `fx_rates`, `fx:sync`, a pipeline step; Browse converts at NBG's latest day. Merged as `31f5bf6` (PR #121), migration `0059`. **Live since 2026-11-17 13:39 UTC**: the back-fill's first request failed once (`fetch failed`; NBG answered curl and Node at once after), a second run stored 2026-01-01 to 11-18, 13,524 rows, 42 currencies, no day missing (USD 2.5928) | — | each pipeline's rates step; later, an alert when the newest rate is over 3 days old (owner's question 2026-11-17: no Google fallback, a day-old official rate is better) |
+| ✅ | **17F** Monthly history export to R2 with a restore drill; each year's first copy kept. Merged as `fc3763b`, `99e1f6a`, `25e8a56` (PRs #123 to #125); R2 rules set 2026-11-17. **Switched on 2026-11-17 13:47 UTC**: the first export (76 MB) is in `history/` and kept as 2026's copy in `yearly/`, fetched back with the same sha256, and **drilled on the PC: 11 tables, 966,684 rows, every count equal, 16 s**. Timer next 2026-12-01 10:00 UTC | — | the 12-01 export; the drill quarterly |
 | ⏳ | **Recon** (7 ss.ge requests, shapes only): the poster's fields on results rows and listing pages, the profile page, photo references. `scripts/ss-ge-recon-posters.mjs` is on main, tried on the fixtures | the deploy | run on the host right after it; findings into `src/adapters/ss-ge/RECON_NOTES.md` with no real values |
 | ❌ | **17B** Private poster directory (`realestate_contacts`): zero-request sources first, then budgeted profile reads and identity | the recon | build once the recon is in |
 | ❌ | **17G** Photo references only (no image fetched or saved) | the recon | build with 17B's zero-request part |
