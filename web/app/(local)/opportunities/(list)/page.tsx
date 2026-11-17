@@ -15,7 +15,7 @@ import { FilterBar } from '../../../../components/browse/filter-bar.js';
 import { Results } from '../../../../components/browse/results.js';
 import { BrowseShell, PendingBar, PendingResults } from '../../../../components/browse/shell.js';
 import { browseData, isFiltered } from '../../../../lib/browse-data.js';
-import { browseItems } from '../../../../lib/browse-index-cache.js';
+import { browseItems, browseRatesDate } from '../../../../lib/browse-index-cache.js';
 import { parseBrowseQuery } from '../../../../lib/browse-params.js';
 import { fmt, kindWord, titleOf } from '../../../../lib/browse-registry.js';
 import { relativeTime } from '../../../../lib/format.js';
@@ -76,7 +76,7 @@ export default async function OpportunitiesPage({
     const item = items.find((i) => i.orgs.includes(org));
     if (item?.kind) orgKinds[org] = item.kind;
   }
-  const data = browseData(view, surface, orgKinds);
+  const data = browseData(view, surface, orgKinds, await browseRatesDate(surface));
   const decisions =
     surface === 'public'
       ? new Map<string, { decision: 'saved' | 'dismissed'; note: string | null }>()

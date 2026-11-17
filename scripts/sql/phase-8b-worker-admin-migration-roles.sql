@@ -337,6 +337,10 @@ GRANT SELECT ON public.matching_bundle_publications TO scraplify_admin;
 -- Migration 0036: `/admin` shows each board's last and next update from
 -- this view. A grant on the base tables does not cover a view.
 GRANT SELECT ON public.public_crawl_status TO scraplify_admin;
+-- Phase 17D: Browse groups amounts in other currencies at NBG's latest
+-- rates (src/browse/reference-rates.ts), on this surface as on the public
+-- one. Read-only. Requires migration 0059.
+GRANT SELECT ON public.fx_rates TO scraplify_admin;
 
 
 -- =========================================================================

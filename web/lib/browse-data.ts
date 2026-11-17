@@ -1,6 +1,5 @@
 import type { BrowseView, LeftOut } from '../../src/browse/browse-engine.js';
 import type { BrowseForm, FilterKey } from '../../src/browse/browse-form.js';
-import { RATES_DATE } from '../../src/browse/reference-rates.js';
 import type { BrowseData, BrowseOption, LeftOutText } from './browse-registry.js';
 import { fmt } from './browse-registry.js';
 import {
@@ -122,6 +121,8 @@ export function browseData(
   view: BrowseView,
   surface: 'local' | 'public',
   orgKinds: Record<string, string>,
+  /** The day of the rates the rows were converted at (`browseRatesDate`). */
+  ratesDate: string,
 ): BrowseData {
   const options: BrowseData['options'] = {};
   for (const [key, counts] of Object.entries(view.options) as [
@@ -149,7 +150,7 @@ export function browseData(
     toggles: view.toggles,
     leftOut,
     orgKinds,
-    ratesDate: RATES_DATE,
+    ratesDate,
   };
 }
 
