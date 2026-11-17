@@ -64,6 +64,11 @@ export interface RunRetentionOptions {
   sourceIds?: readonly string[];
   /** Overrides `RETENTION_POLICY`'s tier 2/3 batch sizes — for tests only, so a "more blocked candidates than one batch" scenario stays cheap to set up. */
   batchSize?: { tier2?: number; tier3?: number };
+  /**
+   * Run tiers 2 and 3 although `RETENTION_POLICY.keepListingHistory` is set.
+   * For their own tests only: the scheduled run and the CLI never pass it.
+   */
+  includeHistoryTiers?: boolean;
 }
 
 export interface Tier1Result {
@@ -99,6 +104,25 @@ export interface RunRetentionResult {
   tier2: Tier2Result;
   tier3: Tier3Result;
 }
+
+const NO_TIER2: Tier2Result = {
+  listingsTrimmed: 0,
+  revisionsDeleted: 0,
+  skippedPinnedByDraft: 0,
+  skippedClassificationChain: 0,
+  descriptionBytesFreed: 0,
+};
+
+const NO_TIER3: Tier3Result = {
+  listingsDeleted: 0,
+  opportunitiesDeleted: 0,
+  membershipsDeleted: 0,
+  duplicateCandidatesDeleted: 0,
+  classificationsDeleted: 0,
+  revisionsDeleted: 0,
+  blockedUserData: 0,
+  blockedEntangled: 0,
+};
 
 export type RunRetentionOutcome =
   | { ran: true; result: RunRetentionResult }
@@ -164,8 +188,15 @@ async function runRetentionLocked(
   const tier2BatchSize = options.batchSize?.tier2 ?? RETENTION_POLICY.tier2BatchSize;
   const tier3BatchSize = options.batchSize?.tier3 ?? RETENTION_POLICY.tier3BatchSize;
 
-  const tier3 = await runTier3(db, apply, purgeCutoff, sourceIds, tier3BatchSize);
-  const tier2 = await runTier2(db, apply, trimCutoff, nowIso, sourceIds, tier2BatchSize);
+  // Phase 17: listing history is kept for good, so tiers 2 and 3 run only
+  // when a test asks for them.
+  const historyTiers = options.includeHistoryTiers === true || !RETENTION_POLICY.keepListingHistory;
+  const tier3 = historyTiers
+    ? await runTier3(db, apply, purgeCutoff, sourceIds, tier3BatchSize)
+    : NO_TIER3;
+  const tier2 = historyTiers
+    ? await runTier2(db, apply, trimCutoff, nowIso, sourceIds, tier2BatchSize)
+    : NO_TIER2;
 
   const orphanResourceIds = await findOrphanResourceIds(
     db,

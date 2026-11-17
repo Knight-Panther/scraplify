@@ -11,6 +11,14 @@
  * policy change (concept amendment, not a code review finding) is one edit.
  */
 export const RETENTION_POLICY = {
+  /**
+   * Owner decision 2026-11-17 (Phase 17, `docs/PHASE_17_PLAN.md`): job and
+   * tender history is kept for good, so any statistic can be built later.
+   * Tiers 2 (trim) and 3 (purge) are off; only tier 1 telemetry runs. Their
+   * code stays, tested, behind `includeHistoryTiers`, in case a later policy
+   * trims bookkeeping again; the scheduled run never passes it.
+   */
+  keepListingHistory: true,
   /** Tier 1: fetch_attempts, resolved parser_incidents, orphan resources. */
   telemetryRetentionDays: 60,
   /** Tier 2: closed/expired listings — keep the current revision, blank its description. */
