@@ -1,0 +1,23 @@
+# Monthly export of the permanent market history (Phase 17F); see
+# deploy/export-history.sh. Same user, env file and sandbox as the nightly
+# backup.
+
+[Unit]
+Description=Xtelo market history export
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=xtelo
+Group=xtelo
+EnvironmentFile=/etc/xtelo/backup.env
+ExecStart=/opt/xtelo/current/deploy/export-history.sh
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectProc=invisible
+InaccessiblePaths=-/etc/xtelo
+# The exports go to /var/backups/xtelo/history, which the script creates.
+ReadWritePaths=/var/backups/xtelo
