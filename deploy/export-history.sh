@@ -9,7 +9,9 @@
 # 30-day rule does not reach (RUNBOOK §6). Each export is a full copy, so the
 # newest one alone holds all the history; older ones guard against a mistake
 # noticed late. They are written once and never replaced (--immutable), and
-# this script deletes none: the bucket's own rule for that folder expires them.
+# this script deletes none: the bucket's own rule for that folder expires them
+# (395 days). Each year's first export also goes to HISTORY_YEARLY_REMOTE,
+# which nothing expires.
 #
 # Next to each dump goes a .counts file, the rows of each table counted just
 # before and just after the dump, which a restore drill checks against
@@ -22,6 +24,11 @@ set -euo pipefail
 : "${HISTORY_REMOTE:?HISTORY_REMOTE is not set (an rclone remote:path outside the nightly copies 30-day rule, or none)}"
 if [ "$HISTORY_REMOTE" != none ] && [ "${HISTORY_REMOTE%/}" = "${BACKUP_REMOTE:-}" ]; then
   echo "HISTORY_REMOTE is the nightly copies' folder, whose copies expire after 30 days; give it a folder of its own" >&2
+  exit 1
+fi
+if [ "${HISTORY_YEARLY_REMOTE:-none}" != none ] &&
+  { [ "${HISTORY_YEARLY_REMOTE%/}" = "${HISTORY_REMOTE%/}" ] || [ "${HISTORY_YEARLY_REMOTE%/}" = "${BACKUP_REMOTE:-}" ]; }; then
+  echo "HISTORY_YEARLY_REMOTE must be a folder of its own, which nothing expires" >&2
   exit 1
 fi
 directory="${BACKUP_DIR:-/var/backups/xtelo}/history"
@@ -88,10 +95,29 @@ else
   rclone copyto --checksum --immutable "$counts" "$HISTORY_REMOTE/$(basename "$counts")"
   echo "Copied off the host to $HISTORY_REMOTE."
 
+  # The year's first export is also kept for good (owner, 2026-11-17) under
+  # HISTORY_YEARLY_REMOTE, a folder the bucket never expires and locks for good.
+  yearly="${HISTORY_YEARLY_REMOTE:-none}"
+  if [ "$yearly" != none ]; then
+    year="${stamp:0:4}"
+    # A failed listing fails the run rather than skip or repeat the year's copy.
+    listed="$(rclone lsf --files-only --include "xtelo-history-$year*.dump" "$yearly")"
+    if [ -z "$listed" ]; then
+      rclone copyto --checksum --immutable "$file" "$yearly/$(basename "$file")"
+      rclone copyto --checksum --immutable "$counts" "$yearly/$(basename "$counts")"
+      echo "Kept as $year's copy for good in $yearly."
+    fi
+  fi
+
   # R2's free 10 GB-month is shared by the nightly copies (at most 7 GB) and
   # Hermes's backups (about 1.5 GB). This only warns: nothing here deletes.
   warn_bytes="${HISTORY_REMOTE_WARN_BYTES:-1500000000}"
-  used="$(rclone size --json "$HISTORY_REMOTE" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')"
+  bytes() { rclone size --json "$1" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p'; }
+  used="$(bytes "$HISTORY_REMOTE")"
+  if [ -n "$used" ] && [ "$yearly" != none ]; then
+    kept="$(bytes "$yearly")"
+    used=$((used + ${kept:-0}))
+  fi
   echo "History exports off the host: ${used:-?} bytes (warning above $warn_bytes)."
   if [ -n "$used" ] && [ "$used" -gt "$warn_bytes" ]; then
     echo "WARNING: the history exports take more than HISTORY_REMOTE_WARN_BYTES; shorten the folder's expiry or raise the budget." >&2
