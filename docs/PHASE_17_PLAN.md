@@ -8,7 +8,7 @@ As of 2026-11-17, 18:00 Tbilisi (14:00 UTC).
 
 - **Done and live:** 17.0, and since 17:39 Tbilisi (13:39 UTC) 17A, 17C, 17D and 17F, deployed together as `7465066`.
 - **Done:** the recon (2026-11-17, merged as `ff81691`, PR #126).
-- **Building:** 17B and 17G (owner's go 2026-11-17 18:20 Tbilisi). **Left:** 17E (last).
+- **Merged, deploying 2026-11-18** after the ss.ge run: 17B and 17G (`8e20f73`, PR #127). **Left:** 17E (last).
 - **Only on the owner's go:** the multimodal phase.
 
 | Mark | Item | Waits on | Next |
@@ -19,8 +19,8 @@ As of 2026-11-17, 18:00 Tbilisi (14:00 UTC).
 | ✅ | **17D** NBG exchange rates: `fx_rates`, `fx:sync`, a pipeline step; Browse converts at NBG's latest day. Merged as `31f5bf6` (PR #121), migration `0059`. **Live since 2026-11-17 13:39 UTC**: the back-fill's first request failed once (`fetch failed`; NBG answered curl and Node at once after), a second run stored 2026-01-01 to 11-18, 13,524 rows, 42 currencies, no day missing (USD 2.5928) | — | each pipeline's rates step; later, an alert when the newest rate is over 3 days old (owner's question 2026-11-17: no Google fallback, a day-old official rate is better) |
 | ✅ | **17F** Monthly history export to R2 with a restore drill; each year's first copy kept. Merged as `fc3763b`, `99e1f6a`, `25e8a56` (PRs #123 to #125); R2 rules set 2026-11-17. **Switched on 2026-11-17 13:47 UTC**: the first export (76 MB) is in `history/` and kept as 2026's copy in `yearly/`, fetched back with the same sha256, and **drilled on the PC: 11 tables, 966,684 rows, every count equal, 16 s**. Timer next 2026-12-01 10:00 UTC | — | the 12-01 export; the drill quarterly |
 | ✅ | **Recon** (shapes only): run twice on the host 2026-11-17 after the deploy, 14 requests, all 200; findings in `src/adapters/ss-ge/RECON_NOTES.md` ("Posters and photos"), merged as `ff81691` (PR #126). `userId` (GUID) on every results row; contact name, an unmasked phone and `userEntityType` on the listing page; **the profile page carries no data in its page props**; photos carry `fileName`, `fileNameThumb`, `isMain`, `is360`, `orderNo`, `imageType` | — | — |
-| ⏳ | **17B** Private poster directory (`realestate_contacts`): zero-request sources and identity. Changed: no profile reads (the recon found the profile page empty as the crawler reads it); the row's `userId` and the listing page's contacts are the sources | — | building since 2026-11-17 14:20 UTC on `phase-17b-posters` (owner's go) |
-| ⏳ | **17G** Photo references only (no image fetched or saved): `fileName` path, `orderNo`, `isMain` from rows and listing pages | — | building with 17B, same branch |
+| ⏳ | **17B** Private poster directory (`realestate_contacts`): zero-request sources and identity. Changed: no profile reads (the recon found the profile page empty as the crawler reads it); the row's `userId` and the listing page's contacts are the sources. **Merged 2026-11-17 as `8e20f73`** (PR #127, CI green; migration `0060`, schemas `realestate_contacts` and `realestate_media`; migration and code reviews no P0/P1; local real trial: all 268 listings got their poster, a second step wrote nothing) | the ss.ge run of 11-17 ending | deploy 2026-11-18 after the run (about 13:35 UTC): migrate, grants, `posters:backfill` |
+| ⏳ | **17G** Photo references only (no image fetched or saved): `fileName` path, `orderNo`, `isMain` from rows and listing pages. Merged with 17B (`8e20f73`). Photo links checked 2026-11-17: still answer for listings gone 21 days, including `Deleted` ones | with 17B | the same deploy |
 | ❌ | **17E** One statistics builder, `scraplify_stats` role, Hermes; also `job_lives` (moved from 17C) | 17A to 17D live, with a few nights of data | last |
 | ❌ | Multimodal phase (fetch and fingerprint photos) | the owner's go | — |
 
