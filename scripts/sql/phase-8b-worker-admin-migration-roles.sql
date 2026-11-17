@@ -174,6 +174,14 @@ GRANT DELETE ON
 -- `trimmed_at` explains why the row and its id are kept rather than
 -- replaced). No other column of this table is ever written by retention.
 GRANT UPDATE (description, trimmed_at) ON public.source_listing_revisions TO scraplify_worker;
+-- Phase 17C: the status timeline (src/db/status-events.ts). Every writer of
+-- source_listings.status inserts an event in the same statement or
+-- transaction, and the outcome re-read and the backfill read it. Never
+-- updated, and deliberately no DELETE: job and tender history is kept for
+-- good (17.0), so retention's tier 3, off since then, fails whole under this
+-- role rather than delete a listing's timeline. No grant to scraplify_admin
+-- (no admin screen reads it yet) or scraplify_public. Requires migration 0058.
+GRANT SELECT, INSERT ON public.source_listing_status_events TO scraplify_worker;
 -- Read-only: the orphan-resource sweep (tier 1) checks both sides for a
 -- resource before deleting it, but retention never writes this table.
 GRANT SELECT ON public.resource_links TO scraplify_worker;

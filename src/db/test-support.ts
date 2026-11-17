@@ -32,6 +32,7 @@ import {
   resources,
   type SourceListingRow,
   sourceListingRevisions,
+  sourceListingStatusEvents,
   sourceListings,
   sourcePolicies,
   sources,
@@ -419,6 +420,12 @@ export async function cleanupTestSource(
         .delete(organizationAliases)
         .where(inArray(organizationAliases.sourceListingId, listingIds));
 
+      // Status events (Phase 17C, migration 0058) FK into source_listings and
+      // crawl_runs, NO ACTION like the rest: before either goes below.
+      await tx
+        .delete(sourceListingStatusEvents)
+        .where(inArray(sourceListingStatusEvents.sourceListingId, listingIds));
+
       // listing_classifications FKs into source_listing_revisions (Phase
       // 3C-2, migration 0020), NO ACTION like every other FK this helper
       // already unwinds by hand — a classification test that leaves a row
@@ -600,8 +607,8 @@ export async function cleanupTestSource(
  * covers, so this deliberately captures every table that carries per-source
  * state rather than only the listing rows a reader might first think of.
  * `fetch_attempts` is keyed by crawl run rather than by source, so it is
- * gathered through this source's runs; `source_listing_revisions` likewise
- * through its listings.
+ * gathered through this source's runs; `source_listing_revisions` and
+ * `source_listing_status_events` likewise through its listings.
  *
  * Not included: `sources` and `source_policies`. Both are seeded configuration
  * rather than crawl-produced state, and a crawl for another source has no code
@@ -612,6 +619,7 @@ export async function cleanupTestSource(
 export interface SourceStateSnapshot {
   listings: SourceListingRow[];
   revisions: Array<typeof sourceListingRevisions.$inferSelect>;
+  statusEvents: Array<typeof sourceListingStatusEvents.$inferSelect>;
   runs: CrawlRunRow[];
   cursors: Array<typeof crawlCursors.$inferSelect>;
   resources: Array<typeof resources.$inferSelect>;
@@ -644,6 +652,14 @@ export async function snapshotSourceState(sourceId: string): Promise<SourceState
             .from(sourceListingRevisions)
             .where(inArray(sourceListingRevisions.sourceListingId, listingIds))
             .orderBy(sourceListingRevisions.id),
+    statusEvents:
+      listingIds.length === 0
+        ? []
+        : await db
+            .select()
+            .from(sourceListingStatusEvents)
+            .where(inArray(sourceListingStatusEvents.sourceListingId, listingIds))
+            .orderBy(sourceListingStatusEvents.id),
     runs,
     cursors: await db
       .select()

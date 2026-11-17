@@ -1,6 +1,7 @@
-import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, or, type SQL, sql } from 'drizzle-orm';
 import { recordParserIncident } from './ingest.js';
 import { crawlRuns, parserIncidents, sourceListings } from './schema/index.js';
+import { changeStatusWhere } from './status-events.js';
 import type { Database, DatabaseOrTransaction } from './types.js';
 
 /** Statuses a listing must be in to be eligible for either closure below (§13's diagram: expired/closed only ever branch off active or missing_suspected). */
@@ -78,13 +79,17 @@ export interface CloseMissingListingsResult {
  * between repeat calls for one run (also caught by adversarial review,
  * 2026-09-04, before this reached `main`).
  *
- * The missing_suspected UPDATE is a plain UPDATE whose WHERE is re-evaluated
- * against each row's currently-committed state, so a listing a concurrent
- * writeSourceListingRevision call is touching is simply excluded once that
- * write commits its newer lastSeenAt. The closing step is the one exception:
- * the mass-closure cap is a decision made on a count read first, so its
- * candidate rows are locked (SELECT ... FOR UPDATE) and then updated by id,
- * keeping the decision and the write on the same rows.
+ * The missing_suspected step locks its rows (SELECT ... FOR UPDATE) and
+ * updates them in one statement (`changeStatusWhere`), whose WHERE is
+ * re-evaluated against each row's currently-committed state once its lock is
+ * held, so a listing a concurrent writeSourceListingRevision call is touching
+ * is simply excluded once that write commits its newer lastSeenAt. The closing
+ * step differs: the mass-closure cap is a decision made on a count read first,
+ * so its candidate rows are locked first and then updated by id, keeping the
+ * decision and the write on the same rows.
+ *
+ * Phase 17C: both steps record a status event for every row whose status
+ * changed, in the same statement, at `run.startedAt` with this run's id.
  */
 export async function closeMissingListings(
   db: Database,
@@ -171,18 +176,21 @@ export async function closeMissingListingsInTransaction(
   // discarding them would restart the count), but nothing closes. The rows stay
   // over the threshold, so every later pass stays capped too until a person
   // reviews the incident and passes allowMassClosure.
+  //
+  // Phase 17C: each status change is recorded in the same statement, at the
+  // run's start (the instant `last_reconciled_at` keeps), with this run's id.
+  const advanceStreak = sql`${sql.identifier('missing_streak')} = ${sourceListings.missingStreak} + 1, ${sql.identifier('last_reconciled_at')} = ${run.startedAt}::timestamptz`;
   const closed =
     candidateIds.length === 0
       ? []
-      : await tx
-          .update(sourceListings)
-          .set({
-            missingStreak: sql`${sourceListings.missingStreak} + 1`,
-            status: closureCapped ? 'missing_suspected' : 'closed',
-            lastReconciledAt: run.startedAt,
-          })
-          .where(and(closeWhere, inArray(sourceListings.id, candidateIds)))
-          .returning({ id: sourceListings.id });
+      : await changeStatusWhere(tx, {
+          where: and(closeWhere, inArray(sourceListings.id, candidateIds)) as SQL,
+          toStatus: closureCapped ? 'missing_suspected' : 'closed',
+          alsoSet: advanceStreak,
+          at: run.startedAt,
+          crawlRunId: run.id,
+          reason: closureCapped ? 'reconcile_missing' : 'reconcile_closed',
+        });
 
   if (closureCapped) {
     const [alreadyOpen] = await tx
@@ -214,17 +222,17 @@ export async function closeMissingListingsInTransaction(
     }
   }
 
-  const missingSuspected = await tx
-    .update(sourceListings)
-    .set({
-      missingStreak: sql`${sourceListings.missingStreak} + 1`,
-      status: 'missing_suspected',
-      lastReconciledAt: run.startedAt,
-    })
-    .where(
-      and(baseWhere, sql`${sourceListings.missingStreak} + 1 < ${input.missingStreakThreshold}`),
-    )
-    .returning({ id: sourceListings.id });
+  const missingSuspected = await changeStatusWhere(tx, {
+    where: and(
+      baseWhere,
+      sql`${sourceListings.missingStreak} + 1 < ${input.missingStreakThreshold}`,
+    ) as SQL,
+    toStatus: 'missing_suspected',
+    alsoSet: advanceStreak,
+    at: run.startedAt,
+    crawlRunId: run.id,
+    reason: 'reconcile_missing',
+  });
 
   return {
     skipped: false,
@@ -238,6 +246,8 @@ export interface ExpireOverdueListingsInput {
   sourceId: string;
   /** Usually "now" — compared against each listing's sourceDeadlineAt, already an absolute instant (source timezone/locale parsing happened upstream, at extraction time). */
   asOf: string;
+  /** The run settling this expiry, recorded on each status event (Phase 17C); null outside a run. */
+  crawlRunId?: string | null;
 }
 
 export interface ExpireOverdueListingsResult {
@@ -250,23 +260,27 @@ export interface ExpireOverdueListingsResult {
  * having passed is a definitive, source-stated fact, not an absence
  * inferred from crawl coverage, so it applies regardless of run status or
  * coverage and doesn't need a crawl run in scope at all.
+ *
+ * Phase 17C: each change is recorded as a status event at `asOf`, the moment
+ * the status changed here (the deadline itself stays on the listing), in the
+ * same statement.
  */
 export async function expireOverdueListings(
   db: DatabaseOrTransaction,
   input: ExpireOverdueListingsInput,
 ): Promise<ExpireOverdueListingsResult> {
-  const rows = await db
-    .update(sourceListings)
-    .set({ status: 'expired' })
-    .where(
-      and(
-        eq(sourceListings.sourceId, input.sourceId),
-        inArray(sourceListings.status, OPEN_STATUSES),
-        isNotNull(sourceListings.sourceDeadlineAt),
-        lt(sourceListings.sourceDeadlineAt, input.asOf),
-      ),
-    )
-    .returning({ id: sourceListings.id });
+  const rows = await changeStatusWhere(db, {
+    where: and(
+      eq(sourceListings.sourceId, input.sourceId),
+      inArray(sourceListings.status, OPEN_STATUSES),
+      isNotNull(sourceListings.sourceDeadlineAt),
+      lt(sourceListings.sourceDeadlineAt, input.asOf),
+    ) as SQL,
+    toStatus: 'expired',
+    at: input.asOf,
+    crawlRunId: input.crawlRunId ?? null,
+    reason: 'deadline_expired',
+  });
 
   return { expiredCount: rows.length };
 }

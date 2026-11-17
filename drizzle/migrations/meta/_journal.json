@@ -407,6 +407,13 @@
       "when": 1794910396325,
       "tag": "0057_realestate_history",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794913072264,
+      "tag": "0058_job_status_events",
+      "breakpoints": true
     }
   ]
 }

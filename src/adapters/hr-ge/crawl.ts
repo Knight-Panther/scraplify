@@ -732,7 +732,7 @@ export async function runHrGeCrawl(
       const decision = decisions.get(listing.sourceRecordId) ?? 'fetch';
       if (decision !== 'fetch') {
         // Still on the list: seen, so closure never counts it missing.
-        await touchSourceListingSeen(db, identity, now());
+        await touchSourceListingSeen(db, identity, now(), { crawlRunId: crawlRun.id });
         if (decision === 'adopt' && listing.fingerprint !== null) {
           await setDiscoveryFingerprint(
             db,
@@ -808,7 +808,7 @@ export async function runHrGeCrawl(
           outcome === 'failure' &&
           fetchResult?.status === 404;
         if (!isDefinitiveSitemapOnlyAbsence) {
-          await touchSourceListingSeen(db, identity, attemptedAt);
+          await touchSourceListingSeen(db, identity, attemptedAt, { crawlRunId: crawlRun.id });
         }
         continue;
       }
@@ -827,7 +827,7 @@ export async function runHrGeCrawl(
         });
       } catch (parseError) {
         counts.quarantinedCount++;
-        await quarantineSourceListing(db, identity, attemptedAt);
+        await quarantineSourceListing(db, identity, attemptedAt, { crawlRunId: crawlRun.id });
         await upsertResource(db, {
           sourceId: hrGeSource.id,
           role: 'OPPORTUNITY',
@@ -865,6 +865,7 @@ export async function runHrGeCrawl(
       }
       const writeResult = await writeSourceListingRevision(db, identity, content, attemptedAt, {
         allowReopen: true,
+        crawlRunId: crawlRun.id,
       });
       if (writeResult.outcome === 'new') counts.newCount++;
       else if (writeResult.outcome === 'changed') counts.changedCount++;
@@ -1009,6 +1010,7 @@ export async function runHrGeCrawl(
       const expireResult = await expireOverdueListings(tx, {
         sourceId: hrGeSource.id,
         asOf: finishedAt,
+        crawlRunId: crawlRun.id,
       });
       const closeResult = await closeMissingListingsInTransaction(tx, {
         crawlRunId: crawlRun.id,

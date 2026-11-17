@@ -130,9 +130,12 @@ writable="$(runuser -u postgres -- psql -X -tA --dbname="$database" -c "
 
 # Nor read the archive's private part (Phase 17A): the pin, description and
 # cadastral code of every archived listing, and the history step's own log.
+# Nor the jobs' and tenders' status timeline (Phase 17C), which reaches
+# statistics through 17E's own role, not the website's.
 readable="$(runuser -u postgres -- psql -X -tA --dbname="$database" -c "
   select count(*) from (values ('realestate_archive.listing_private'),
-                               ('realestate_archive.history_steps')) as private(name)
+                               ('realestate_archive.history_steps'),
+                               ('public.source_listing_status_events')) as private(name)
   where to_regclass(name) is not null
     and has_any_column_privilege('scraplify_public', name, 'SELECT')")"
 [ "$readable" = 0 ] || { echo "scraplify_public can read $readable private relation(s)" >&2; exit 1; }
