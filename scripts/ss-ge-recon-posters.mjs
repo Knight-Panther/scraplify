@@ -66,7 +66,7 @@ function shape(key, value) {
         .split('/')
         .map(segment)
         .join('/');
-      return `url ${url.host}${masked}${url.search ? ' ?' + [...url.searchParams.keys()].join('&') : ''}`;
+      return `url ${url.host}${masked}${url.search ? ` ?${[...url.searchParams.keys()].join('&')}` : ''}`;
     } catch {
       return 'string(url-like)';
     }
@@ -89,7 +89,8 @@ function walk(value, at, out, depth = 0) {
       .split(/[.[\]]/)
       .filter(Boolean)
       .at(-1) ?? '';
-  const entry = (out[at] ??= { seen: 0, kinds: new Map(), lengths: [] });
+  out[at] ??= { seen: 0, kinds: new Map(), lengths: [] };
+  const entry = out[at];
   entry.seen += 1;
   const kind = shape(key, value);
   entry.kinds.set(kind, (entry.kinds.get(kind) ?? 0) + 1);
@@ -121,7 +122,7 @@ function report(title, values, { only } = {}) {
 
 /** Paths whose own key is about the poster or the photos, and everything under them. */
 const INTERESTING = new RegExp(
-  String.raw`(^|[.\]])(` + `${POSTER_KEY.source}|${PHOTO_KEY.source}` + String.raw`)[^.]*($|[.[])`,
+  String.raw`(^|[.\]])(${POSTER_KEY.source}|${PHOTO_KEY.source})[^.]*($|[.[])`,
   'i',
 );
 
