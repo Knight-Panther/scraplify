@@ -18,7 +18,7 @@
  * pages, and the profile pages of two of their accounts. Run it only when no
  * ss.ge crawl is running. The profile page is not a shape the crawler may
  * fetch (isSsGeUrlAllowed); this script allows exactly
- * /ka/udzravi-qoneba/userlist?userId=<digits> besides, which robots.txt does
+ * /ka/udzravi-qoneba/userlist?userId=<digits or GUID> besides, which robots.txt does
  * not disallow. With --file it reads saved pages and requests nothing.
  */
 import { readFileSync } from 'node:fs';
@@ -33,6 +33,8 @@ const { readPageProps } = await load('adapters/ss-ge/page.js');
 const POSTER_KEY =
   /user|phone|contact|person|owner|agent|agency|email|mail|company|organi[sz]ation|name|profile|broker|developer/i;
 const PHOTO_KEY = /image|photo|img|gallery|thumb|picture|cover|main|media|video/i;
+/** An account id: digits or a GUID (the profile link has been seen with a GUID). */
+const USER_ID_RE = /^(\d{1,12}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 /** Short values of these keys are categories, not people: printed as they are. */
 const ENUM_KEY = /type$|status$|kind$|role$/i;
 
@@ -129,7 +131,7 @@ const INTERESTING = new RegExp(
 function findUserId(value, depth = 0) {
   if (value === null || typeof value !== 'object' || depth > 6) return null;
   for (const [key, inner] of Object.entries(value)) {
-    if (/^user_?id$/i.test(key) && /^\d{1,12}$/.test(String(inner ?? ''))) return String(inner);
+    if (/^user_?id$/i.test(key) && USER_ID_RE.test(String(inner ?? ''))) return String(inner);
   }
   for (const inner of Object.values(value)) {
     const found = findUserId(inner, depth + 1);
@@ -172,7 +174,7 @@ if (files.length > 0) {
       parsed.host === 'home.ss.ge' &&
       parsed.pathname === '/ka/udzravi-qoneba/userlist' &&
       [...parsed.searchParams.keys()].join() === 'userId' &&
-      /^\d{1,12}$/.test(parsed.searchParams.get('userId') ?? '')
+      USER_ID_RE.test(parsed.searchParams.get('userId') ?? '')
     );
   };
   const proxy = proxyDispatcherFromEnv('SS_GE_PROXY_URL');
