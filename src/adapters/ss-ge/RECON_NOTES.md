@@ -244,3 +244,25 @@ On the host, of the listings found gone on 11-13 with a reason their page gave, 
 **What the crawl does since (Phase 14E):** a blank page is asked a second time at once; a listing given up for one is asked once more on a later run and put back when live (`BLANK_PAGE_RECHECK_HOURS`); a listing whose page has said live since a list last showed it is neither flagged nor asked until its page's end date (`knownHidden`); the pages wanted for details come before the listings past their end behind a look-alike. Queue the evening of 11-14 under those rules: 2,432 given up for a blank page, 1,458 missed and never asked, 1,256 moved and unseen.
 
 **Not changed, and why:** the 3 s spacing (the owner's connection); the full-read rotation; the run's length. The run's 150 failed requests were 112 results pages without their list and 38 HTTP 500 or 504, 136 of them during the walk; none was a refusal, a challenge or a 429 in nine nights.
+
+## Posters and photos (Phase 17B and 17G recon, 2026-11-17, on the host)
+
+`scripts/ss-ge-recon-posters.mjs` run twice on the host after the ss.ge run of 11-16 ended (14 requests, the crawler's fetcher, policy and 3 s spacing; every answer 200). Each run read two results pages (flats for sale, land for sale: 32 rows), three of their listing pages and the profile pages of two of their accounts. It prints shapes only; no value from a page is recorded here.
+
+- **Account id, on every results row:** `userId`, a GUID (36 characters), on 32 of 32 rows. The nightly crawl reads it already, so a listing's account costs no request.
+- **`userInfo` on results rows:** null on most rows, an object on 7 and 10 of 32 in the two runs: `name` (a display name), `image` (an avatar URL or empty) and `userType` (a number). Seemingly paid or business accounts only.
+- **On the listing page** (`applicationData`, which the details crawl reads already):
+  - `userId`, the same GUID as on the row.
+  - `contactPerson`, a short name.
+  - `applicationPhones[].phoneNumber`, 9 digits and **not masked** in the page data (one phone on each page seen).
+  - `userEntityType`, an enum seen as "Broker".
+  - `userApplicationCount`, the account's listing count.
+  - `agencyId`/`agencyName`/`companyId`/`companyName`/`projectName`: null on the pages seen.
+  - `phoneCallsOn`, `messagingOn` and `identityVerificationEnabled`, booleans.
+  - `initialAgentInfoData`, beside it: `agentContactName`, `companyId` (a number on one page), `companyName`, `companyLogoImage`, `companyType` and `infoType` (numbers), and `userId` (null).
+- **The profile page** (`/ka/udzravi-qoneba/userlist?userId=<guid>`) carries nothing in its page data: only the site's shell (`session`, `userProfile`, `hiddenUsers` and the like), no name, phone or listings. Its contents load in the browser afterwards. **So 17B's budgeted profile reads would get nothing from the page as the crawler reads it, and are not needed:** the row's `userId` and the listing page's contact name, phone and kind already give the directory.
+- **Photos (`appImages`)**, 1 to 4 on a results row, 7 to 12 on a listing page; `imageCount` on the row gives the full count. Each photo has:
+  - `fileName`, `static.ss.ge/<8 digits>/<1 or 2 digits>_<guid>[_<word>].jpg`. The 8 digits look like a date, unconfirmed, since the recon masks digits. The row's `fileName` has a size suffix; the listing page's has none and adds `fileNameThumb` with one.
+  - `isMain`, `is360` (booleans), `orderNo` (a number, null on 4 of 115 row photos) and `imageType` (a number).
+  - For 17G a photo reference is the `fileName` path, its `orderNo` and `isMain`. No image is fetched.
+- One listing page of the three had no `applicationData` in the first run; all three had it in the second, with no repeat seen.
