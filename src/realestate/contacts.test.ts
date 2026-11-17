@@ -70,6 +70,10 @@ describe('extractContacts (free text)', () => {
       'id 5000000011',
       '10/500000001',
       'ფასი 500,000001',
+      'ფასი 500 000 001 $',
+      'price 500000002USD',
+      'ფასი 500 000 003 ლარი',
+      'ფართი 500000004 მ²',
     ].join('. ');
     expect(extractContacts(text)).toEqual([]);
   });

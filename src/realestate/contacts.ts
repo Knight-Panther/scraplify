@@ -68,12 +68,17 @@ const TBILISI = [
   `\\(?0?32\\)?${SEP}2${SEP}\\d{2}${SEP}\\d{2}${SEP}\\d{2}`,
 ];
 /**
+ * A currency or an area right after the number: a price or a size, never a
+ * phone (2 of 6,283 matches in the local corpus's descriptions, 2026-11-17).
+ */
+const UNIT_AFTER = '(?!\\s{0,2}(?:\\$|₾|€|ლარ|ლ\\.|დოლ|usd|gel|მ²|მ2|კვ|sq|m2))';
+/**
  * Not after a digit, nor after a digit and a dot, comma or slash (a decimal,
- * a thousands group, a floor "5/12"); the same after it.
+ * a thousands group, a floor "5/12"); the same after it; and no unit after it.
  */
 const DESCRIPTION_PHONE_RE = new RegExp(
-  `(?<![\\d+])(?<!\\d[.,/])${PREFIX}(?:${[...MOBILE, ...TBILISI].join('|')})(?!\\d)(?![.,/]\\d)`,
-  'g',
+  `(?<![\\d+])(?<!\\d[.,/])${PREFIX}(?:${[...MOBILE, ...TBILISI].join('|')})(?!\\d)(?![.,/]\\d)${UNIT_AFTER}`,
+  'gi',
 );
 
 const MOBILE_NATIONAL_RE = /^5\d{8}$/;
