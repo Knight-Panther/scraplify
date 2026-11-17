@@ -50,6 +50,7 @@ echo "rclone $*" >> "$FAKE_LOG"
 case "$1" in
   copyto) exit "\${FAKE_UPLOAD:-0}" ;;
   size) echo "{\\"count\\":2,\\"bytes\\":\${FAKE_USED:-1000},\\"sizeless\\":0}" ;;
+  lsf) [ -z "\${FAKE_YEARLY_LISTED:-}" ] || echo "$FAKE_YEARLY_LISTED" ;;
 esac
 `,
 };
@@ -174,6 +175,45 @@ describe.skipIf(BASH === null)('deploy/export-history.sh', () => {
     const files = await exports();
     expect(files).toHaveLength(4);
     expect(files.some((name) => name.includes('20260101'))).toBe(false);
+  });
+
+  describe('the yearly copy', () => {
+    const yearly = { HISTORY_YEARLY_REMOTE: 'offsite:bucket/yearly' };
+    const year = String(new Date().getUTCFullYear());
+
+    it("keeps the year's first export in the yearly folder too, written once", async () => {
+      expect((await run(yearly)).code).toBe(0);
+      const log = await calls();
+      expect(log).toContain(
+        `rclone lsf --files-only --include xtelo-history-${year}*.dump offsite:bucket/yearly`,
+      );
+      const toYearly = log.filter((line) =>
+        /^rclone copyto --checksum --immutable .* offsite:bucket\/yearly\/xtelo-history-/.test(
+          line,
+        ),
+      );
+      expect(toYearly).toHaveLength(2);
+    });
+
+    it('copies nothing more once the year has its copy', async () => {
+      const listed = { ...yearly, FAKE_YEARLY_LISTED: `xtelo-history-${year}0101-100000.dump` };
+      expect((await run(listed)).code).toBe(0);
+      expect((await calls()).filter((line) => line.startsWith('rclone copyto'))).toHaveLength(2);
+    });
+
+    it('counts the yearly copies in the budget', async () => {
+      const { output } = await run({ ...yearly, FAKE_USED: '800000000' });
+      expect(output).toContain('History exports off the host: 1600000000 bytes');
+      expect(output).toContain('WARNING: the history exports take more');
+    });
+
+    it('refuses a yearly folder that is the monthly or the nightly one', async () => {
+      for (const folder of ['offsite:bucket/history/', 'offsite:bucket/xtelo']) {
+        const { code, output } = await run({ HISTORY_YEARLY_REMOTE: folder });
+        expect(code).toBe(1);
+        expect(output).toContain('folder of its own, which nothing expires');
+      }
+    });
   });
 
   it('with HISTORY_REMOTE=none, keeps the export here and says so', async () => {
