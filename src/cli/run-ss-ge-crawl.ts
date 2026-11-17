@@ -14,6 +14,7 @@ import { createRateLimiter } from '../net/rate-limiter.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { isSsGeUrlAllowed, ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
 import { regroupListings } from '../realestate/grouping.js';
+import { recordListingHistory } from '../realestate/history.js';
 import { refreshListingLocations } from '../realestate/location.js';
 import { syncPlaces } from '../realestate/places.js';
 import { refreshPlaceCatalogue } from '../realestate/places/catalogue.js';
@@ -127,7 +128,11 @@ async function main(): Promise<void> {
     if (crawlRun.status !== 'completed') process.exitCode = 1;
     await regroup();
     await updatePlaces();
-    await takeTotals(crawlRun.id);
+    // One instant for the history and the totals, so a night's spells on show
+    // hold exactly the listings its totals counted (Phase 17A).
+    const now = new Date().toISOString();
+    await recordHistory(crawlRun.id, now);
+    await takeTotals(crawlRun.id, now);
     await refreshCatalogue();
     await locateListings();
   } catch (err) {
@@ -184,17 +189,33 @@ async function updatePlaces(): Promise<void> {
 }
 
 /**
+ * Each listing's versions, spells on show and look-alike group tonight
+ * (Phase 17A), after the groups are fresh and at the totals' own instant.
+ * Like the grouping, a failure leaves the exit code to the crawl: the step
+ * records it in `history_steps` itself, and the next night heals the gap.
+ */
+async function recordHistory(crawlRunId: string, now: string): Promise<void> {
+  try {
+    const result = await recordListingHistory(db, { sourceId: ssGeSource.id, now, crawlRunId });
+    if (result.ok) logger.info(result, 'ss.ge listing history recorded');
+    else logger.error(result, 'ss.ge listing history failed; the next night heals it');
+  } catch (err) {
+    logger.error({ err }, 'ss.ge listing history failed; the next night heals it');
+  }
+}
+
+/**
  * What was on the market today (Phase 13D), after the groups are fresh, so
  * reposts are merged as the tab merges them tonight. Like the grouping, a
  * failure is logged and leaves the exit code to the crawl; the day simply
  * has no totals, and Hermes and Grafana show a gap.
  */
-async function takeTotals(crawlRunId: string): Promise<void> {
+async function takeTotals(crawlRunId: string, now: string): Promise<void> {
   const startedAtMs = Date.now();
   try {
     const result = await takeDailyTotals(db, {
       sourceId: ssGeSource.id,
-      now: new Date().toISOString(),
+      now,
       crawlRunId,
     });
     logger.info({ ...result, durationMs: Date.now() - startedAtMs }, 'ss.ge daily totals taken');

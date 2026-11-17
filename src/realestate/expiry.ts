@@ -13,10 +13,14 @@ import {
 } from 'drizzle-orm';
 import {
   FILLED_AT_ARCHIVING,
+  firstSourceCreatedAtOf,
+  realEstateArchiveListingPrivate,
   realEstateArchiveListings,
   realEstateArchivePriceChanges,
   realEstateListings,
+  realEstateListingVersions,
   realEstatePriceChanges,
+  realEstateShowSpells,
 } from '../db/schema/index.js';
 import type { DatabaseOrTransaction } from '../db/types.js';
 import { type ListingDetails, recordListingDetails } from './details.js';
@@ -358,8 +362,12 @@ export async function markLapsedListingsGone(
 }
 
 const columnNames = (table: Table) => Object.values(getTableColumns(table)).map((c) => c.name);
-const ARCHIVED_LISTING_COLUMNS = columnNames(realEstateArchiveListings).filter(
+export const ARCHIVED_LISTING_COLUMNS = columnNames(realEstateArchiveListings).filter(
   (name) => !FILLED_AT_ARCHIVING.has(name),
+);
+/** What the archive keeps privately (Phase 17A), each the live column of the same name. */
+export const ARCHIVED_PRIVATE_COLUMNS = columnNames(realEstateArchiveListingPrivate).filter(
+  (name) => name !== 'listing_id',
 );
 const ARCHIVED_PRICE_CHANGE_COLUMNS = columnNames(realEstateArchivePriceChanges);
 
@@ -372,8 +380,10 @@ const listed = (names: readonly string[]) =>
 /**
  * Deletes listings gone for fourteen days, and their price history with
  * them; without this the table only grows. Each one is first copied to
- * `realestate_archive` (Phase 13A), with its price changes, minus its link,
- * text and coordinates.
+ * `realestate_archive` (Phase 13A), with its price changes, minus its link
+ * and search words. Its pin, description and cadastral code go to the
+ * archive's private table (`listing_private`, Phase 17A), and its open
+ * version and spell on show, if the nightly history step left any, close.
  *
  * One statement does all of it, so the archive receives exactly the rows the
  * delete removes, and either both happen or neither does. Its parts all read
@@ -385,7 +395,8 @@ export async function deleteLongGoneListings(
   db: DatabaseOrTransaction,
   input: { sourceId: string; asOf: string },
 ): Promise<number> {
-  const before = new Date(Date.parse(input.asOf) - GONE_RETENTION_DAYS * DAY_MS).toISOString();
+  const { sourceId, asOf } = input;
+  const before = new Date(Date.parse(asOf) - GONE_RETENTION_DAYS * DAY_MS).toISOString();
   const doomed = sql.identifier('doomed');
   const implausible = implausibleValuesOf({
     areaM2: sql.identifier('area_m2'),
@@ -397,17 +408,29 @@ export async function deleteLongGoneListings(
   const result = await db.execute<{ deleted: number }>(sql`
     with ${doomed} as (
       delete from ${realEstateListings}
-      where source_id = ${input.sourceId} and status = 'gone' and gone_at < ${before}
-      returning id, ${listed(ARCHIVED_LISTING_COLUMNS)}
+      where source_id = ${sourceId} and status = 'gone' and gone_at < ${before}
+      returning id, ${listed(ARCHIVED_LISTING_COLUMNS)}, ${listed(ARCHIVED_PRIVATE_COLUMNS)}
     ), archived as (
-      insert into ${realEstateArchiveListings} (listing_id, ${listed(ARCHIVED_LISTING_COLUMNS)}, implausible)
-      select id, ${listed(ARCHIVED_LISTING_COLUMNS)}, ${implausible} from ${doomed}
+      insert into ${realEstateArchiveListings}
+        (listing_id, ${listed(ARCHIVED_LISTING_COLUMNS)}, implausible, first_source_created_at)
+      select id, ${listed(ARCHIVED_LISTING_COLUMNS)}, ${implausible}, ${firstSourceCreatedAtOf(sql`${doomed}`)}
+        from ${doomed}
+      on conflict (listing_id) do nothing
+    ), kept_private as (
+      insert into ${realEstateArchiveListingPrivate} (listing_id, ${listed(ARCHIVED_PRIVATE_COLUMNS)})
+      select id, ${listed(ARCHIVED_PRIVATE_COLUMNS)} from ${doomed}
       on conflict (listing_id) do nothing
     ), archived_changes as (
       insert into ${realEstateArchivePriceChanges} (${listed(ARCHIVED_PRICE_CHANGE_COLUMNS)})
       select ${listed(ARCHIVED_PRICE_CHANGE_COLUMNS)} from ${realEstatePriceChanges}
       where listing_id in (select id from ${doomed})
       on conflict (id) do nothing
+    ), closed_versions as (
+      update ${realEstateListingVersions} set valid_to = greatest(${asOf}::timestamptz, valid_from)
+      where source_id = ${sourceId} and valid_to is null and listing_id in (select id from ${doomed})
+    ), closed_spells as (
+      update ${realEstateShowSpells} set shown_until = greatest(${asOf}::timestamptz, shown_from)
+      where source_id = ${sourceId} and shown_until is null and listing_id in (select id from ${doomed})
     )
     select count(*)::int as deleted from ${doomed}
   `);

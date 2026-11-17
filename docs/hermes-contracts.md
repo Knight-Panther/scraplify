@@ -5,7 +5,7 @@ The owner's Hermes agent reads Xtelo's data and code read-only (`docs/RUNBOOK.md
 | Contract | What | State |
 |---|---|---|
 | C1 | Real-estate filter builder (SQL and parameters for `realestate.public_listings`) | v1, merged 2026-11-06 (`873ceec`); v2 (Phase 14D: places on both maps, the metro, location quality) live since 2026-11-13 (`5c153c3`, migration `0053`) |
-| C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`); Phase 14A appends ten columns (`0049`) |
+| C2 | Real-estate archive (`realestate_archive`) | v1, live since 2026-11-05 (`6e48865`); Phase 14A appends ten columns (`0049`); Phase 17A appends three and adds the history relations (`0057`, on branch `phase-17a-re-history`) |
 | C3 | Nightly real-estate totals (`realestate_archive.daily_totals`) | v1, live since 2026-11-06 (`3925192`); `rules_version` 3 from Phase 14A's deploy, 4 from 2026-11-10, 5 from 2026-11-12 (the list-end read, live 2026-11-11 13:51 UTC) |
 | C4 | Grafana dashboard links and variables | not yet built (S4) |
 | C5 | `realestate.public_listings`, live listings | live (migrations `0040`–`0045`, `src/db/schema/real-estate.ts`); Phase 14A appends ten columns (`0049`), Phase 14C eleven (`0051`), Phase 14D one (`0053`, on branch `phase-14d-c1-v2`), all below |
@@ -204,7 +204,7 @@ All figures are of the listings a statistic counts, by C1's own rules: `{ groupe
 ### What it is not
 
 - **No arrivals, departures, days on the market or price cuts.** They are worked out from each listing's own dates and price changes, which are kept: `first_seen_at` in `realestate.public_listings`; `first_seen_at` and `gone_at` in `realestate_archive.recently_gone` and `realestate_archive.listings`; and the archive's `price_changes`. Arrivals before 2026-11-05 mostly measure the crawl's own growth: 64,734 listings were first seen on 2026-11-04, the night all kinds were added.
-- **No rebuild of past days.** Which listings were on show on a past day, and which were reposts, is not kept. That is why the totals are taken, not computed later. History starts on the first day taken.
+- **No rebuild of past days before Phase 17A.** Which listings were on show on a past day, and which were reposts, was not kept. That is why the totals are taken, not computed later. History starts on the first day taken. From 17A's deploy, `show_spells` and `listing_group_days` (C2, below) record which listings were on show at each day's `taken_at`, and in which group. The medians still cannot be rebuilt exactly, since versions keep the converted price as of their opening.
 
 ## C2: the real-estate archive (v1, migration `0046`)
 
@@ -246,7 +246,7 @@ Types are in migration `0046`; definitions are in `src/db/schema/real-estate-arc
 - **Places, Phase 14A (migration `0049`), after `archived_at`:** `street_ref`, `house_number`, `house_suffix`, `floor_low`, `floor_high`, `district_inferred`, `complex_ref`, `complex_name`, `developer_ref`, `developer_name`, meaning what they mean in C5. A listing that left before the deploy was never seen again, so it has no `street_ref`, floors or page fields; its house number and filled district come from the deploy's backfill.
 - **Location, Phase 14C (migration `0051`), after those:** `official_district_ref`, `official_district_basis`, `location_precision`, `location_uncertain`, `location_flags`, `metro_station`, `metro_minutes`, `metro_basis`, `metro_nearby`, `building_key`, `location_rules`, meaning what they mean in C5, as judged the night before the listing left. A listing that left before 14C's deploy has them null (and `location_uncertain` false, `location_flags` empty).
 
-Never in it: the link, the description and its search words, the coordinates and whether the poster placed them, the cadastral code, ss.ge's metro list, photos, the poster's name or phone. Scraplify stores neither of the last two anywhere. ss.ge's own id is kept (`source_listing_key`), so a listing's address on ss.ge can be rebuilt from it, as `public_listings` shows it for live ones. Rows are kept for good: nothing deletes from the archive.
+Never in it: the link, the description and its search words, the coordinates and whether the poster placed them, the cadastral code, ss.ge's metro list, photos, the poster's name or phone. From Phase 17A, the description, the coordinates, `pin_manual` and the cadastral code of each listing archived are kept in `realestate_archive.listing_private`, which `scraplify_public` cannot read (owner decision, 2026-11-17). Scraplify stores neither of the last two anywhere. ss.ge's own id is kept (`source_listing_key`), so a listing's address on ss.ge can be rebuilt from it, as `public_listings` shows it for live ones. Rows are kept for good: nothing deletes from the archive.
 
 ### Working things out
 
@@ -254,11 +254,28 @@ Never in it: the link, the description and its search words, the coordinates and
 - **First price:** the earliest price change's old price, or the row's own price when there are no changes.
 - **A price change** is a change in the posted currency. Exchange-rate-only rows were removed by migration `0043` and are not recorded since.
 - **Days on the market:** `gone_at - coalesce(source_created_at, first_seen_at)`. For listings already live at the first sweep (2026-10-12), `first_seen_at` is that date, not the posting date.
-- **Reposts (the same flat posted more than once):** no group key is stored, because the live one is cleared as a listing goes. Re-group from `deal_type`, `property_type`, `city_ref`, `subdistrict_ref`, `street_name`, `rooms`, `floor`, `total_floors`, `area_m2` and `price_usd` by scraplify's rule (`src/realestate/grouping.ts`). C1 or a later contract may offer that rule ready-made.
+- **Reposts (the same flat posted more than once):** no group key is stored on the row, because the live one is cleared as a listing goes. From Phase 17A, `listing_group_days` keeps every listing's groups night by night (below). Re-group from `deal_type`, `property_type`, `city_ref`, `subdistrict_ref`, `street_name`, `rooms`, `floor`, `total_floors`, `area_m2` and `price_usd` by scraplify's rule (`src/realestate/grouping.ts`). C1 or a later contract may offer that rule ready-made.
 
 ### When history starts
 
 The first rows appear after the first nightly ss.ge run on the Phase 13A release that deletes anything. The oldest gone listings on 2026-11-05 left on 2026-10-27 (5,270 of them) and were still in the live table, so nothing is known to have been deleted before the archive. Departures ran at about 500–2,300 a day in early November 2026.
+
+## C2, Phase 17A: history (migration `0057`)
+
+Written once a night by `recordListingHistory` (`src/realestate/history.ts`), after the groups and at the instant the night's totals are taken. History starts on the deploy night. `scraplify_public` may `SELECT` everything below except `listing_private` and `history_steps`.
+
+- **`listings` and `recently_gone`** gain three columns at their end, after `metro_nearby_minutes`:
+  - `expected_end_at` and `verified_at`, as in C5;
+  - `first_source_created_at`, the earliest posting time ever seen: the least of the row's own `source_created_at` and its versions'.
+  - The union of the two still lines up.
+- **`listing_versions`:** each listing's statistics fields from `valid_from` to `valid_to` (null while current).
+  - Key and identity: `listing_id`, `source_id`, `source_listing_key`.
+  - The fields: deal and kind, commercial and land type, rooms, bedrooms, area, floors, `currency_posted`, `price_posted` (what the poster typed), `price_usd` and `price_gel` (as seen when the version opened), places with names, street ref, name and number, house number, condition, building status, poster type and entity, `similarity_group`, `promoted`, `status` and `source_created_at`.
+  - A new version means one of those changed, or the posted price did. A new exchange rate makes none, and neither does a new location judgement (C5's derived columns, which stay the latest on the row).
+  - `approximate` is true on a first version taken from a listing already live, such as the backfill: its `valid_from` is `first_seen_at`, and it may have changed in between.
+- **`show_spells`:** when each listing was on show by C1's own rule (`listing_id`, `source_listing_key`, `shown_from`, `shown_until` null while on show, `group_key` at its start). A listing was on show at a night's `taken_at` T when `shown_from <= T` and `shown_until` is null or after T. Those are exactly the posts that night's totals counted, before typos were left out.
+- **`listing_group_days`:** `listing_id`, `group_key`, `first_day`, `last_day` (Tbilisi dates) and `nights`, one row per listing and group.
+- **`run_quality`** (view): each ss.ge run's Tbilisi `day`, `status`, request, failed and page counts, `notes`, and `history_ok`, whether that night's history step worked (null if none ran). Leave a day out of trends when its run was not `completed` or `history_ok` is not true.
 
 ## C5: live listings, Phase 14A's columns (migration `0049`)
 

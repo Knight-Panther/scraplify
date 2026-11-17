@@ -11,6 +11,8 @@ import {
 } from '../db/schema/index.js';
 import { cleanupTestSource, createTestSource } from '../db/test-support.js';
 import {
+  ARCHIVED_LISTING_COLUMNS,
+  ARCHIVED_PRIVATE_COLUMNS,
   deleteLongGoneListings,
   loadListingsDueForCheck,
   loadLookAlikesDueForCheck,
@@ -1027,11 +1029,17 @@ describe('listing expiry', () => {
 
     it('copies only columns the live table has, so a new archive column cannot be silently empty', () => {
       const live = new Set(Object.values(getTableColumns(realEstateListings)).map((c) => c.name));
-      const filledAtCopy = ['listing_id', 'implausible', 'archived_at'];
+      const filledAtCopy = ['listing_id', 'implausible', 'archived_at', 'first_source_created_at'];
       const copied = Object.values(getTableColumns(realEstateArchiveListings))
         .map((c) => c.name)
         .filter((name) => !filledAtCopy.includes(name));
       expect(copied.filter((name) => !live.has(name))).toEqual([]);
+      // The private part (Phase 17A) comes from the live row too, and never
+      // lands in the public archive row.
+      expect(ARCHIVED_PRIVATE_COLUMNS.filter((name) => !live.has(name))).toEqual([]);
+      expect(
+        ARCHIVED_PRIVATE_COLUMNS.filter((name) => ARCHIVED_LISTING_COLUMNS.includes(name)),
+      ).toEqual([]);
       const liveChanges = new Set(
         Object.values(getTableColumns(realEstatePriceChanges)).map((c) => c.name),
       );

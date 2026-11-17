@@ -226,6 +226,20 @@ GRANT SELECT, INSERT, DELETE ON realestate_archive.daily_totals TO scraplify_wor
 -- street's point (recordStreetPoint); the crawl reads it for the district
 -- fill and the street-point reads. Never deleted. Requires migration 0049.
 GRANT SELECT, INSERT, UPDATE ON realestate.places TO scraplify_worker;
+-- Phase 17A: src/realestate/history.ts, the nightly history step after each
+-- ss.ge crawl (and `npm run history:ss-ge`, `npm run totals:ss-ge`), inserts
+-- versions, spells on show, groups by night and its own log row, and updates
+-- only what closes a version or a spell and extends a group's nights; it
+-- reads the tab's own view (granted above) for the spells. src/realestate/
+-- expiry.ts copies each listing it deletes into listing_private (INSERT ...
+-- ON CONFLICT DO NOTHING, which needs SELECT on the key, as above) and closes
+-- its open version and spell. Nothing here deletes. Requires migration 0057.
+GRANT SELECT, INSERT ON realestate_archive.listing_private TO scraplify_worker;
+GRANT SELECT, INSERT ON realestate_archive.listing_versions, realestate_archive.show_spells,
+  realestate_archive.listing_group_days, realestate_archive.history_steps TO scraplify_worker;
+GRANT UPDATE (valid_to) ON realestate_archive.listing_versions TO scraplify_worker;
+GRANT UPDATE (shown_until) ON realestate_archive.show_spells TO scraplify_worker;
+GRANT UPDATE (last_day, nights) ON realestate_archive.listing_group_days TO scraplify_worker;
 
 
 -- =========================================================================

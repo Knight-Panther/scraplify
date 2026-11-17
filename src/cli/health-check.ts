@@ -6,7 +6,12 @@ import { assessMatchingHealth, getMatchingBundleStatus } from '../matching/bundl
 import { answersThroughProxy, proxyDispatcherFromEnv } from '../net/proxy-dispatcher.js';
 import { resolveUserAgent } from '../net/user-agent.js';
 import { ssGePolicy, ssGeSource } from '../policies/ss-ge.js';
-import { assessRealEstateRuns, getRealEstateRunHealth } from '../realestate/run-health.js';
+import {
+  assessHistorySteps,
+  assessRealEstateRuns,
+  getRealEstateRunHealth,
+  getRecentHistorySteps,
+} from '../realestate/run-health.js';
 
 /**
  * `npm run health:check` — prints every source's alerts and exits 1 if any is
@@ -22,7 +27,8 @@ import { assessRealEstateRuns, getRealEstateRunHealth } from '../realestate/run-
  * else is a warning.
  *
  * ss.ge is one more line (src/realestate/run-health.ts): a warning after 36
- * hours without a completed run, critical after four days.
+ * hours without a completed run, critical after four days, and a warning
+ * when the nightly history step (Phase 17A) has failed twice in a row.
  *
  * With SS_GE_PROXY_URL set, the Georgian exit ss.ge's requests leave through
  * is one more line (RUNBOOK §3 step 9). Unreachable is a warning: the
@@ -54,10 +60,10 @@ async function main(): Promise<void> {
     console.log(`  ${alert.level.padEnd(8)} ${alert.code}  ${alert.message}`);
   }
 
-  const realEstateAlerts = assessRealEstateRuns(
-    await getRealEstateRunHealth(db, ssGeSource.id),
-    now,
-  );
+  const realEstateAlerts = [
+    ...assessRealEstateRuns(await getRealEstateRunHealth(db, ssGeSource.id), now),
+    ...assessHistorySteps(await getRecentHistorySteps(db, ssGeSource.id)),
+  ];
   console.log(realEstateAlerts.length === 0 ? `${ssGeSource.slug}: ok` : ssGeSource.slug);
   for (const alert of realEstateAlerts) {
     console.log(`  ${alert.level.padEnd(8)} ${alert.code}  ${alert.message}`);
