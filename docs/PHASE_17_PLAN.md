@@ -6,7 +6,7 @@ Approved by the owner 2026-11-17. Copied from the plan-mode file; this repo copy
 
 | Mark | Item | Waits on | Next |
 |---|---|---|---|
-| ⏳ | **17.0** Keep job and tender history: retention tiers 2 and 3 off for good; concept §6.1 amended. Built 2026-11-17 on `phase-17-0-keep-job-history`: `RETENTION_POLICY.keepListingHistory`, tiers 2 and 3 run only for their own tests; a test proves a listing dead 220 days keeps every revision and description Merged 2026-11-17 as `8a37a49` (PR #118, CI green) | a code-only deploy after the ss.ge run ends | 2026-11-17, 13:40 to 16:00 UTC, before the evening pipelines |
+| ✅ | **17.0** Keep job and tender history: retention tiers 2 and 3 off for good (`RETENTION_POLICY.keepListingHistory`), concept §6.1 amended. Merged as `8a37a49` (PR #118); **live since 2026-11-17 10:00 UTC**, code only, deployed while the ss.ge run went on from its own release (no prune until it ends). Retention dry run with the new code on the host: tier 2 and tier 3 all 0; both sites ready, health check ok, probe ok | — | the 16:10 UTC pipelines' retention: `listingsTrimmed` 0 |
 | ❌ | **Recon** (about ten ss.ge requests): poster fields and photo references | 17.0 | this week |
 | ❌ | **17A** Real estate: versions, show spells, run quality, fuller archive | recon | after recon |
 | ❌ | **17B** Private poster directory (zero-request sources first, then profile reads and identity) | recon, 17A | after 17A |
