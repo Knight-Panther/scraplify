@@ -22,9 +22,13 @@ import {
   rankings,
   realEstateArchiveListings,
   realEstateCrawlRuns,
+  realEstateHistorySteps,
+  realEstateListingGroupDays,
   realEstateListingGroups,
   realEstateListings,
+  realEstateListingVersions,
   realEstatePlaces,
+  realEstateShowSpells,
   resources,
   type SourceListingRow,
   sourceListingRevisions,
@@ -485,10 +489,19 @@ export async function cleanupTestSource(
     // Its place tree (migration 0049) FKs into sources.id too.
     await tx.delete(realEstatePlaces).where(eq(realEstatePlaces.sourceId, sourceId));
     // The archive's copies (migration 0046) FK into sources.id as well; their
-    // price changes go with them.
+    // price changes and private parts (migration 0057) go with them.
     await tx
       .delete(realEstateArchiveListings)
       .where(eq(realEstateArchiveListings.sourceId, sourceId));
+    // The history (Phase 17A, migration 0057): each table FKs into sources.id.
+    await tx
+      .delete(realEstateListingVersions)
+      .where(eq(realEstateListingVersions.sourceId, sourceId));
+    await tx.delete(realEstateShowSpells).where(eq(realEstateShowSpells.sourceId, sourceId));
+    await tx
+      .delete(realEstateListingGroupDays)
+      .where(eq(realEstateListingGroupDays.sourceId, sourceId));
+    await tx.delete(realEstateHistorySteps).where(eq(realEstateHistorySteps.sourceId, sourceId));
     if (groupKeys.length > 0) {
       await tx
         .delete(realEstateListingGroups)

@@ -119,6 +119,15 @@ GRANT SELECT ON realestate_archive.daily_totals TO scraplify_public;
 -- place lookup. The view only: no grant on realestate.places, which may gain
 -- columns the contract does not promise. Requires migration 0050.
 GRANT SELECT ON realestate.public_places TO scraplify_public;
+-- Phase 17A: permanent real-estate history, for Hermes' statistics. Each
+-- listing's versions, its spells on show, its look-alike groups by night, and
+-- each crawl run's quality (a view over realestate.crawl_runs, read through
+-- its owner): market facts only. Not realestate_archive.listing_private (the
+-- archive's pin, description and cadastral code, never public) and not
+-- history_steps (the nightly step's own log): no grant here reaches either,
+-- and deploy/apply-db-roles.sh stops if one does. Requires migration 0057.
+GRANT SELECT ON realestate_archive.listing_versions, realestate_archive.show_spells,
+  realestate_archive.listing_group_days, realestate_archive.run_quality TO scraplify_public;
 
 -- 4. Verify — do not assume any of the above worked as written.
 --

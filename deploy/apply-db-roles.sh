@@ -127,4 +127,13 @@ writable="$(runuser -u postgres -- psql -X -tA --dbname="$database" -c "
   where grantee = 'scraplify_public'
     and privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')")"
 [ "$writable" = 0 ] || { echo "scraplify_public can write to $writable relation(s)" >&2; exit 1; }
-echo "Roles and grants applied to $database; scraplify_public is read-only."
+
+# Nor read the archive's private part (Phase 17A): the pin, description and
+# cadastral code of every archived listing, and the history step's own log.
+readable="$(runuser -u postgres -- psql -X -tA --dbname="$database" -c "
+  select count(*) from (values ('realestate_archive.listing_private'),
+                               ('realestate_archive.history_steps')) as private(name)
+  where to_regclass(name) is not null
+    and has_any_column_privilege('scraplify_public', name, 'SELECT')")"
+[ "$readable" = 0 ] || { echo "scraplify_public can read $readable private relation(s)" >&2; exit 1; }
+echo "Roles and grants applied to $database; scraplify_public is read-only and reads nothing private."
