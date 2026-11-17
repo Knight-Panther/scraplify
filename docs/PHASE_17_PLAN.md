@@ -7,8 +7,8 @@ Approved by the owner 2026-11-17. Copied from the plan-mode file; this repo copy
 As of 2026-11-17, 18:00 Tbilisi (14:00 UTC).
 
 - **Done and live:** 17.0, and since 17:39 Tbilisi (13:39 UTC) 17A, 17C, 17D and 17F, deployed together as `7465066`.
-- **Next:** the recon, now that the ss.ge run has ended.
-- **Left to build:** 17B and 17G (after the recon), then 17E (last).
+- **Done:** the recon (2026-11-17, merged as `ff81691`, PR #126).
+- **Left to build:** 17B and 17G next, then 17E (last).
 - **Only on the owner's go:** the multimodal phase.
 
 | Mark | Item | Waits on | Next |
@@ -18,9 +18,9 @@ As of 2026-11-17, 18:00 Tbilisi (14:00 UTC).
 | ✅ | **17C** Jobs and tenders: status events, tender outcome re-reads. Merged as `5b22e43` (PR #120), migration `0058`. **Live since 2026-11-17 13:39 UTC**; the backfill wrote 28,689 status events in 1 s | — | after the 16:10 UTC pipelines, etenders.ge's log shows `outcomeRereadsDue` |
 | ✅ | **17D** NBG exchange rates: `fx_rates`, `fx:sync`, a pipeline step; Browse converts at NBG's latest day. Merged as `31f5bf6` (PR #121), migration `0059`. **Live since 2026-11-17 13:39 UTC**: the back-fill's first request failed once (`fetch failed`; NBG answered curl and Node at once after), a second run stored 2026-01-01 to 11-18, 13,524 rows, 42 currencies, no day missing (USD 2.5928) | — | each pipeline's rates step; later, an alert when the newest rate is over 3 days old (owner's question 2026-11-17: no Google fallback, a day-old official rate is better) |
 | ✅ | **17F** Monthly history export to R2 with a restore drill; each year's first copy kept. Merged as `fc3763b`, `99e1f6a`, `25e8a56` (PRs #123 to #125); R2 rules set 2026-11-17. **Switched on 2026-11-17 13:47 UTC**: the first export (76 MB) is in `history/` and kept as 2026's copy in `yearly/`, fetched back with the same sha256, and **drilled on the PC: 11 tables, 966,684 rows, every count equal, 16 s**. Timer next 2026-12-01 10:00 UTC | — | the 12-01 export; the drill quarterly |
-| ⏳ | **Recon** (7 ss.ge requests, shapes only): the poster's fields on results rows and listing pages, the profile page, photo references. `scripts/ss-ge-recon-posters.mjs` is on main, tried on the fixtures | the deploy | run on the host right after it; findings into `src/adapters/ss-ge/RECON_NOTES.md` with no real values |
-| ❌ | **17B** Private poster directory (`realestate_contacts`): zero-request sources first, then budgeted profile reads and identity | the recon | build once the recon is in |
-| ❌ | **17G** Photo references only (no image fetched or saved) | the recon | build with 17B's zero-request part |
+| ✅ | **Recon** (shapes only): run twice on the host 2026-11-17 after the deploy, 14 requests, all 200; findings in `src/adapters/ss-ge/RECON_NOTES.md` ("Posters and photos"), merged as `ff81691` (PR #126). `userId` (GUID) on every results row; contact name, an unmasked phone and `userEntityType` on the listing page; **the profile page carries no data in its page props**; photos carry `fileName`, `fileNameThumb`, `isMain`, `is360`, `orderNo`, `imageType` | — | — |
+| ❌ | **17B** Private poster directory (`realestate_contacts`): zero-request sources and identity. Changed: no profile reads (the recon found the profile page empty as the crawler reads it); the row's `userId` and the listing page's contacts are the sources | — | next |
+| ❌ | **17G** Photo references only (no image fetched or saved): `fileName` path, `orderNo`, `isMain` from rows and listing pages | — | with 17B |
 | ❌ | **17E** One statistics builder, `scraplify_stats` role, Hermes; also `job_lives` (moved from 17C) | 17A to 17D live, with a few nights of data | last |
 | ❌ | Multimodal phase (fetch and fingerprint photos) | the owner's go | — |
 
@@ -178,7 +178,7 @@ This sets the cost:
 - **Phones typed into descriptions.** Free: every results row carries the description, and `PHONE_RE` (`src/adapters/ss-ge/list.ts:177`) already finds them. Back-filled from the live rows straight away.
 - **The results row's poster id**, if recon confirms it.
 - **Listing pages already being read:** `applicationPhones`, `contactPerson`, `userId`.
-- **Budgeted profile reads.** A masked number ("598 90 99 **") is stored as a weak key that never merges anything on its own.
+- ~~**Budgeted profile reads.**~~ Changed 2026-11-17: dropped, the recon found the profile page's page data empty, and the sources above already name the account. If a phone ever comes masked, a masked number ("598 90 99 **") is stored as a weak key that never merges anything on its own.
 
 **4. Identity: `poster_entities`.** Accounts are joined into one person or agency when they share a phone number (the strongest proof) or an email (also strong, as the owner set). This is a union-find over the account–contact graph, recomputed nightly under a rule version. Entity ids stay stable, the way group keys do.
 - Guards against false merges:
